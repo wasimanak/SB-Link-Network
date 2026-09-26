@@ -59,8 +59,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         elseif ($action === 'add_balance') {
             $amount = (float)$_POST['amount'];
-            $pdo->prepare("UPDATE subscribers SET balance = balance + ? WHERE id=?")->execute([$amount, $id]);
+            
+            // Get current balance before adding
+            $bStmt = $pdo->prepare("SELECT balance FROM subscribers WHERE id=?");
+            $bStmt->execute([$id]);
+            $current_bal = (float)$bStmt->fetchColumn();
+            $new_bal = $current_bal + $amount;
+            
+            $pdo->prepare("UPDATE subscribers SET balance = ? WHERE id=?")->execute([$new_bal, $id]);
             $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, 'Admin', ?, 'User', 'Added Balance: $amount')")->execute([$client_id, $u]);
+            
+            // Insert into ledger
+            $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'credit', ?, ?, ?)")
+                ->execute([$client_id, $u, $amount, $new_bal, "Funds added by Operator"]);
+
             echo "<script>alert('Balance added!'); window.location='subscriber_view.php?id=$id';</script>";
             exit;
         }
@@ -68,13 +80,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $package_id = (int)$_POST['package_id'];
             $expiry_date = $_POST['expiry_date'];
             
-            $p = $pdo->prepare("SELECT rate_limit FROM packages WHERE id = ? AND client_id = ?");
+            $p = $pdo->prepare("SELECT name, rate_limit, price FROM packages WHERE id = ? AND client_id = ?");
             $p->execute([$package_id, $client_id]);
             $pkg = $p->fetch();
 
             if ($pkg) {
+                // Get current balance
+                $bStmt = $pdo->prepare("SELECT balance FROM subscribers WHERE id=?");
+                $bStmt->execute([$id]);
+                $current_bal = (float)$bStmt->fetchColumn();
+                $pkg_price = (float)$pkg['price'];
+                $new_bal = $current_bal - $pkg_price; // Deduct price
+                
                 $pdo->beginTransaction();
-                $pdo->prepare("UPDATE subscribers SET package_id = ?, expiry_date = ?, status = 'active' WHERE id = ?")->execute([$package_id, $expiry_date, $id]);
+                $pdo->prepare("UPDATE subscribers SET package_id = ?, expiry_date = ?, status = 'active', balance = ? WHERE id = ?")->execute([$package_id, $expiry_date, $new_bal, $id]);
                 $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Rate-Limit'")->execute([$u]);
                 if (!empty($pkg['rate_limit']) && $pkg['rate_limit'] !== 'No Limit') {
                     $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Rate-Limit', '=', ?)")->execute([$u, $pkg['rate_limit']]);
@@ -82,7 +101,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $formatted_expiry = date('d M Y H:i:s', strtotime($expiry_date));
                 $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute IN ('Expiration', 'Auth-Type')")->execute([$u]);
                 $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Expiration', ':=', ?)")->execute([$u, $formatted_expiry]);
+                
                 $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, 'Admin', ?, 'User', 'Package Renewed & Expiry Updated')")->execute([$client_id, $u]);
+                
+                // Insert deduction into ledger
+                if ($pkg_price > 0) {
+                    $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'debit', ?, ?, ?)")
+                        ->execute([$client_id, $u, $pkg_price, $new_bal, "Package Renewed: " . $pkg['name']]);
+                }
+
                 $pdo->commit();
                 echo "<script>alert('Renewed successfully!'); window.location='subscriber_view.php?id=$id';</script>";
                 exit;
@@ -93,7 +120,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // --- END ACTIONS ---
 
 // Fetch user data
-$sql = "SELECT s.*, p.name as pkg_name, c.company_name 
+$sql = "SELECT s.*, p.name as pkg_name, p.data_limit_gb, p.validity_days, c.company_name 
         FROM subscribers s 
         JOIN clients c ON s.client_id = c.id 
         LEFT JOIN packages p ON s.package_id = p.id 
@@ -112,13 +139,22 @@ $pkgStmt = $pdo->prepare("SELECT * FROM packages WHERE client_id = ?");
 $pkgStmt->execute([$client_id]);
 $packages = $pkgStmt->fetchAll();
 
-// Fetch metrics from radacct
-$volStmt = $pdo->prepare("SELECT SUM(acctinputoctets) as up, SUM(acctoutputoctets) as down, MAX(acctstoptime) as last_seen FROM radacct WHERE username = ?");
+// Fetch metrics from past sessions (closed sessions)
+$volStmt = $pdo->prepare("SELECT SUM(acctinputoctets) as up, SUM(acctoutputoctets) as down FROM radacct WHERE username = ? AND acctstoptime IS NOT NULL");
 $volStmt->execute([$user['username']]);
 $vol = $volStmt->fetch();
 
-$total_bytes = ($vol['up'] ?? 0) + ($vol['down'] ?? 0);
-$used_gb = $total_bytes > 0 ? round($total_bytes / 1073741824, 2) : 0.00;
+$past_bytes = ($vol['up'] ?? 0) + ($vol['down'] ?? 0);
+$total_bytes = $past_bytes; // Initial total (will be updated by JS if online)
+if ($total_bytes >= 1073741824) {
+    $used_volume_str = round($total_bytes / 1073741824, 2) . " GB";
+} elseif ($total_bytes >= 1048576) {
+    $used_volume_str = round($total_bytes / 1048576, 2) . " MB";
+} elseif ($total_bytes > 0) {
+    $used_volume_str = round($total_bytes / 1024, 2) . " KB";
+} else {
+    $used_volume_str = "0 MB";
+}
 
 // Check if currently online
 $onStmt = $pdo->prepare("SELECT acctstarttime FROM radacct WHERE username = ? AND acctstoptime IS NULL ORDER BY radacctid DESC LIMIT 1");
@@ -132,6 +168,60 @@ if ($online) {
     $mins = floor(($diff % 3600) / 60);
     $uptime_str = "{$hours}h {$mins}m";
 }
+
+// Additional Service Details
+$sessStmt = $pdo->prepare("SELECT SUM(acctsessiontime) as total_time FROM radacct WHERE username = ?");
+$sessStmt->execute([$user['username']]);
+$total_time_sec = (int)$sessStmt->fetchColumn();
+$used_sess_hours = floor($total_time_sec / 3600);
+$used_sess_mins = floor(($total_time_sec % 3600) / 60);
+$used_sess_str = sprintf("%02d Hours %02d Minutes", $used_sess_hours, $used_sess_mins);
+
+$latestStmt = $pdo->prepare("SELECT * FROM radacct WHERE username = ? ORDER BY radacctid DESC LIMIT 1");
+$latestStmt->execute([$user['username']]);
+$latest_conn = $latestStmt->fetch();
+
+$actStmt = $pdo->prepare("SELECT created_at FROM activity_logs WHERE against_to = ? AND activity LIKE '%Package Renewed%' ORDER BY id DESC LIMIT 1");
+$actStmt->execute([$user['username']]);
+$last_act = $actStmt->fetchColumn();
+if (!$last_act) $last_act = $user['created_at'];
+
+// Calculate Remaining Volume
+$data_limit_gb = (float)($user['data_limit_gb'] ?? 0);
+if ($data_limit_gb > 0) {
+    $total_vol_str = $data_limit_gb . " GB";
+    $rem_gb = $data_limit_gb - ($total_bytes / 1073741824);
+    $rem_vol_str = round($rem_gb, 2) . " GB";
+} else {
+    $total_vol_str = "Unlimited";
+    $rem_vol_str = "Unlimited";
+}
+
+// Fetch monthly payments and deductions from user_ledger for the current year
+$year = date('Y');
+$payStmt = $pdo->prepare("SELECT MONTH(created_at) as m, type, SUM(amount) as total 
+                          FROM user_ledger 
+                          WHERE client_id = ? AND username = ? AND YEAR(created_at) = ?
+                          GROUP BY m, type");
+$payStmt->execute([$client_id, $user['username'], $year]);
+$monthly_added = array_fill(1, 12, 0);
+$monthly_deducted = array_fill(1, 12, 0);
+
+while ($row = $payStmt->fetch()) {
+    if ($row['type'] == 'credit') {
+        $monthly_added[(int)$row['m']] += (float)$row['total'];
+    } else {
+        $monthly_deducted[(int)$row['m']] += (float)$row['total'];
+    }
+}
+$payment_data_json = json_encode(array_values($monthly_added));
+$deducted_data_json = json_encode(array_values($monthly_deducted));
+
+// Fetch full ledger history for the accordion
+$ledgerStmt = $pdo->prepare("SELECT * FROM user_ledger WHERE client_id = ? AND username = ? ORDER BY id DESC LIMIT 50");
+$ledgerStmt->execute([$client_id, $user['username']]);
+$ledger_history = $ledgerStmt->fetchAll();
+
 ?>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -259,7 +349,7 @@ if ($online) {
                     <div class="metric-icon bg-light-info"><i class="fa-regular fa-clock"></i></div>
                     <div class="metric-data">
                         <h6>Online Uptime</h6>
-                        <h4><?= $uptime_str ?></h4>
+                        <h4 id="live_uptime"><?= $uptime_str ?></h4>
                     </div>
                 </div>
             </div>
@@ -277,7 +367,7 @@ if ($online) {
                     <div class="metric-icon bg-light-warning"><i class="fa-solid fa-hourglass-half"></i></div>
                     <div class="metric-data">
                         <h6>Used Volume</h6>
-                        <h4><?= $used_gb ?> GB</h4>
+                        <h4 id="live_used_volume"><?= $used_volume_str ?></h4>
                     </div>
                 </div>
             </div>
@@ -317,10 +407,30 @@ if ($online) {
                         <i class="fa-solid fa-bars-progress me-1"></i> Service Settings
                     </a>
                 </h2>
-                <div id="accService" class="accordion-collapse collapse" data-bs-parent="#userDetailsAccordion">
-                    <div class="accordion-body text-secondary">
-                        <p><strong>Package:</strong> <?= htmlspecialchars($user['pkg_name'] ?? 'N/A') ?></p>
-                        <p><strong>Service Type:</strong> <?= strtoupper(htmlspecialchars($user['service_type'])) ?></p>
+                <div id="accService" class="accordion-collapse collapse show" data-bs-parent="#userDetailsAccordion">
+                    <div class="accordion-body text-secondary p-3">
+                        <table class="table table-sm table-borderless text-secondary mb-0" style="font-size: 0.9rem;">
+                            <tbody>
+                                <tr><td class="fw-bold w-50">Profile Status</td><td><span class="badge bg-<?= $user['status'] == 'active' ? 'success' : 'danger' ?>"><?= ucfirst($user['status']) ?></span></td></tr>
+                                <tr><td class="fw-bold">Connection Type</td><td>Radius <?= strtoupper($user['service_type']) ?></td></tr>
+                                <tr><td class="fw-bold">Package</td><td><?= htmlspecialchars($user['pkg_name'] ?? 'N/A') ?></td></tr>
+                                <tr><td class="fw-bold">Package Duration</td><td><?= $user['validity_days'] ? $user['validity_days'] . ' Days' : 'N/A' ?></td></tr>
+                                <tr><td class="fw-bold">Last Expiration Date</td><td><?= $user['expiry_date'] ? date('d M Y H:i:s', strtotime($user['expiry_date'])) : 'N/A' ?></td></tr>
+                                <tr><td class="fw-bold">Total Volume</td><td><?= $total_vol_str ?></td></tr>
+                                <tr><td class="fw-bold">Used Volume</td><td id="svc_used_volume"><?= $used_volume_str ?></td></tr>
+                                <tr><td class="fw-bold">Remaining Volume</td><td id="svc_rem_volume"><?= $rem_vol_str ?></td></tr>
+                                <tr><td class="fw-bold">Total Session Time</td><td>Unlimited</td></tr>
+                                <tr><td class="fw-bold">Used Session Time</td><td><?= $used_sess_str ?></td></tr>
+                                <tr><td class="fw-bold">Remaining Session Time</td><td>Unlimited</td></tr>
+                                <tr><td class="fw-bold">Last Activation Date</td><td><?= $last_act ? date('d M Y H:i:s', strtotime($last_act)) : 'N/A' ?></td></tr>
+                                <tr><td class="fw-bold">Last Login</td><td><?= $latest_conn ? date('d M Y H:i:s', strtotime($latest_conn['acctstarttime'])) : 'N/A' ?></td></tr>
+                                <tr><td class="fw-bold">IPv6 IP Address</td><td><?= !empty($latest_conn['framedipv6address']) ? htmlspecialchars($latest_conn['framedipv6address']) : 'N/A' ?></td></tr>
+                                <tr><td class="fw-bold">Connected IP</td><td><?= !empty($latest_conn['framedipaddress']) ? htmlspecialchars($latest_conn['framedipaddress']) : 'N/A' ?></td></tr>
+                                <tr><td class="fw-bold">Connected MAC</td><td><?= !empty($latest_conn['callingstationid']) ? htmlspecialchars($latest_conn['callingstationid']) : 'N/A' ?></td></tr>
+                                <tr><td class="fw-bold">Connected NAS/Router</td><td><?= !empty($latest_conn['nasipaddress']) ? htmlspecialchars($latest_conn['nasipaddress']) : 'N/A' ?></td></tr>
+                                <tr><td class="fw-bold">Connected Port</td><td><?= !empty($latest_conn['nasportid']) ? htmlspecialchars($latest_conn['nasportid']) : 'N/A' ?></td></tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
@@ -345,8 +455,35 @@ if ($online) {
                     </button>
                 </h2>
                 <div id="accLedger" class="accordion-collapse collapse" data-bs-parent="#userDetailsAccordion">
-                    <div class="accordion-body text-secondary">
-                        <p>No ledger transactions found yet.</p>
+                    <div class="accordion-body text-secondary p-0">
+                        <?php if (empty($ledger_history)): ?>
+                            <p class="p-3 mb-0">No ledger transactions found yet.</p>
+                        <?php else: ?>
+                            <div class="table-responsive">
+                                <table class="table table-hover table-bordered mb-0 text-secondary" style="font-size: 0.85rem;">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Date</th>
+                                            <th>Description</th>
+                                            <th>Amount</th>
+                                            <th>Balance After</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach ($ledger_history as $l): ?>
+                                            <tr>
+                                                <td><?= date('d M Y, h:i A', strtotime($l['created_at'])) ?></td>
+                                                <td><?= htmlspecialchars($l['description']) ?></td>
+                                                <td class="<?= $l['type'] == 'credit' ? 'text-success' : 'text-danger' ?>">
+                                                    <?= $l['type'] == 'credit' ? '+' : '-' ?> Rs <?= number_format($l['amount'], 2) ?>
+                                                </td>
+                                                <td class="fw-bold">Rs <?= number_format($l['balance_after'], 2) ?></td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>
@@ -503,25 +640,116 @@ new Chart(ctxLedger, {
     data: {
         labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
         datasets: [
-            { label: 'Payment', data: [2500, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], borderColor: '#64748b', tension: 0.1 },
-            { label: 'Balance', data: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], borderColor: '#38bdf8', tension: 0.1 }
+            { label: 'Funds Added', data: <?= $payment_data_json ?>, borderColor: '#10b981', tension: 0.1, fill: false },
+            { label: 'Usage / Deductions', data: <?= $deducted_data_json ?>, borderColor: '#ef4444', tension: 0.1, fill: false }
         ]
     },
     options: { responsive: true, plugins: { legend: { position: 'top', labels: { boxWidth: 12 } } }, scales: { y: { beginAtZero: true } } }
 });
 
 const ctxBw = document.getElementById('bwChart').getContext('2d');
-new Chart(ctxBw, {
+const bwChart = new Chart(ctxBw, {
     type: 'line',
     data: {
         labels: ['0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'],
         datasets: [
-            { label: 'Tx/Down (MB)', data: [0,0,0,0,0,0,0,0,0,0,0], borderColor: '#475569', tension: 0.1 },
-            { label: 'Rx/Up (MB)', data: [0,0,0,0,0,0,0,0,0,0,0], borderColor: '#ef4444', tension: 0.1 }
+            { label: 'Tx/Down (Mbps)', data: [0,0,0,0,0,0,0,0,0,0,0], borderColor: '#475569', tension: 0.1, fill: false },
+            { label: 'Rx/Up (Mbps)', data: [0,0,0,0,0,0,0,0,0,0,0], borderColor: '#ef4444', tension: 0.1, fill: false }
         ]
     },
-    options: { responsive: true, plugins: { legend: { position: 'top', labels: { boxWidth: 12 } } }, scales: { y: { min: -1.0, max: 1.0 } } }
+    options: { responsive: true, plugins: { legend: { position: 'top', labels: { boxWidth: 12 } } }, scales: { y: { min: 0 } }, animation: false }
 });
+
+let prevBytesIn = null;
+let prevBytesOut = null;
+let lastTime = null;
+const pastBytes = <?= (int)$past_bytes ?>;
+
+function fetchLiveBandwidth() {
+    fetch(`api_bandwidth.php?username=<?= urlencode($user['username']) ?>`)
+        .then(res => res.json())
+        .then(data => {
+            if(data.bytes_in !== undefined && data.bytes_out !== undefined) {
+                if(data.uptime !== undefined) {
+                    document.getElementById('live_uptime').innerText = data.uptime;
+                }
+                
+                // Update Used Volume LIVE
+                let currentLiveBytes = data.bytes_in + data.bytes_out;
+                let totalCurrentBytes = pastBytes + currentLiveBytes;
+                
+                let volStr = "0 MB";
+                if (totalCurrentBytes >= 1073741824) {
+                    volStr = (totalCurrentBytes / 1073741824).toFixed(2) + " GB";
+                } else if (totalCurrentBytes >= 1048576) {
+                    volStr = (totalCurrentBytes / 1048576).toFixed(2) + " MB";
+                } else if (totalCurrentBytes > 0) {
+                    volStr = (totalCurrentBytes / 1024).toFixed(2) + " KB";
+                }
+                
+                let usedElem = document.getElementById('live_used_volume');
+                if (usedElem) usedElem.innerText = volStr;
+                
+                let svcU = document.getElementById('svc_used_volume');
+                if (svcU) svcU.innerText = volStr;
+                
+                let svcR = document.getElementById('svc_rem_volume');
+                const dataLimitGb = <?= $data_limit_gb ?>;
+                if (svcR && dataLimitGb > 0) {
+                    let remGb = dataLimitGb - (totalCurrentBytes / 1073741824);
+                    svcR.innerText = remGb.toFixed(2) + " GB";
+                }
+
+                let nowTime = Date.now();
+                let currentBytesIn = data.bytes_in;
+                let currentBytesOut = data.bytes_out;
+                
+                let tx_mbps = 0;
+                let rx_mbps = 0;
+
+                if (prevBytesIn !== null && prevBytesOut !== null && lastTime !== null) {
+                    let timeDiffSecs = (nowTime - lastTime) / 1000;
+                    if (timeDiffSecs > 0) {
+                        // Bytes to Bits = * 8. Bits to Megabits = / 1048576
+                        // Hotspot bytes-in is user's upload (Rx to router). bytes-out is user's download (Tx from router).
+                        let bytesInDiff = currentBytesIn - prevBytesIn;
+                        let bytesOutDiff = currentBytesOut - prevBytesOut;
+                        
+                        if(bytesInDiff < 0) bytesInDiff = 0;
+                        if(bytesOutDiff < 0) bytesOutDiff = 0;
+                        
+                        rx_mbps = (bytesInDiff * 8 / timeDiffSecs) / 1048576;
+                        tx_mbps = (bytesOutDiff * 8 / timeDiffSecs) / 1048576;
+                    }
+                }
+                
+                prevBytesIn = currentBytesIn;
+                prevBytesOut = currentBytesOut;
+                lastTime = nowTime;
+
+                // Shift old data
+                bwChart.data.labels.shift();
+                bwChart.data.datasets[0].data.shift();
+                bwChart.data.datasets[1].data.shift();
+                
+                // Add new data
+                let now = new Date();
+                let timeStr = now.getHours() + ':' + now.getMinutes() + ':' + now.getSeconds();
+                bwChart.data.labels.push(timeStr);
+                
+                bwChart.data.datasets[0].data.push(tx_mbps.toFixed(2));
+                bwChart.data.datasets[1].data.push(rx_mbps.toFixed(2));
+                
+                bwChart.update();
+            }
+        })
+        .catch(err => console.error("Error fetching bandwidth:", err));
+}
+
+// Fetch every 3 seconds
+setInterval(fetchLiveBandwidth, 3000);
+fetchLiveBandwidth(); // initial call
+
 </script>
 
 <?php require_once 'footer.php'; ?>

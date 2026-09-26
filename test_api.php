@@ -1,15 +1,24 @@
 <?php
-require_once 'config/db.php';
 require_once 'config/routeros_api.class.php';
 
-$API = new RouterosAPI();
-$stmt = $pdo->query("SELECT * FROM nas LIMIT 1");
-$nas = $stmt->fetch();
+$api = new RouterosAPI();
+$api->debug = true; // Output debug info
 
-echo "Connecting to " . $nas['nasname'] . "...\n";
-if ($API->connect($nas['nasname'], $nas['api_user'], $nas['api_password'], $nas['api_port'])) {
-    echo "Connected.\n";
-    $secrets = $API->comm('/ppp/secret/print');
-    echo "Found " . count($secrets) . " PPP secrets.\n";
-    $API->disconnect();
+if ($api->connect('10.133.13.104', 'admin', '1122', 8728)) {
+    // Let's get all simple queues to see their names and structure
+    $api->write('/queue/simple/print');
+    $queues = $api->read();
+    
+    echo "--- QUEUES ---\n";
+    print_r($queues);
+    
+    // Also let's check active hotspot users
+    $api->write('/ip/hotspot/active/print');
+    $active = $api->read();
+    echo "\n--- ACTIVE HOTSPOT USERS ---\n";
+    print_r($active);
+    
+    $api->disconnect();
+} else {
+    echo "Could not connect to RouterOS API.\n";
 }

@@ -28,18 +28,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['package_id'])) {
     }
 
     if ($payment_method === 'balance') {
-        // Auto-Verify Logic for Balance
-        if ($current_user['balance'] < $price) {
-            echo "<script>alert('Insufficient balance. Please recharge or use Online Transfer.'); window.location='dashboard.php';</script>";
-            exit;
-        }
-
         $pdo->beginTransaction();
         try {
+            // Lock row and fetch fresh balance to prevent race condition (double-click bug)
+            $balStmt = $pdo->prepare("SELECT balance FROM subscribers WHERE id = ? FOR UPDATE");
+            $balStmt->execute([$current_user['id']]);
+            $fresh_balance = (float)$balStmt->fetchColumn();
+
+            if ($fresh_balance < $price) {
+                $pdo->rollBack();
+                echo "<script>alert('Insufficient balance. Please recharge.'); window.location='dashboard.php';</script>";
+                exit;
+            }
+
             // Deduct balance
-            $new_balance = $current_user['balance'] - $price;
+            $new_balance = $fresh_balance - $price;
             $pdo->prepare("UPDATE subscribers SET balance = ?, package_id = ?, status = 'active' WHERE id = ?")
                 ->execute([$new_balance, $package_id, $current_user['id']]);
+                
+            // Insert into ledger for balance deduction
+            if ($price > 0) {
+                $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'debit', ?, ?, ?)")
+                    ->execute([$client_id, $current_user['username'], $price, $new_balance, "Auto-Renew: " . $package['name']]);
+            }
 
             // Calculate Expiry
             // If current expiry is in the future, add days. Otherwise, add days from now.

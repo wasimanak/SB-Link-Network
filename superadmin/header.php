@@ -11,14 +11,21 @@ require_once '../config/db.php';
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
     <style>
-        body { background-color: #0f172a; color: #f8fafc; }
-        .sidebar { background-color: #1e293b; min-height: 100vh; padding-top: 1rem; border-right: 1px solid #334155;}
-        .sidebar a { color: #cbd5e1; text-decoration: none; padding: 0.75rem 1.5rem; display: block; border-radius: 0.375rem; margin: 0.25rem 1rem; }
-        .sidebar a:hover, .sidebar a.active { background-color: #3b82f6; color: white; }
-        .topbar { background-color: #1e293b; border-bottom: 1px solid #334155; padding: 1rem 2rem; }
-        .card { background-color: #1e293b; border: 1px solid #334155; margin-bottom: 1rem; }
-        .card-header { border-bottom: 1px solid #334155; background-color: rgba(0,0,0,0.1); }
-        .table { color: #f8fafc; }
+        body { background-color: #f1f5f9; color: #1e293b; font-family: 'Inter', sans-serif; }
+        
+        /* Sidebar */
+        .sidebar { background-color: #0f172a; min-height: 100vh; padding-top: 1rem; }
+        .sidebar a { color: #94a3b8; text-decoration: none; padding: 0.75rem 1.5rem; display: block; border-radius: 0.375rem; margin: 0.25rem 1rem; transition: 0.2s; font-size: 0.95rem; }
+        .sidebar a:hover, .sidebar a.active { background-color: #1e293b; color: #f8fafc; }
+        .sidebar i.menu-icon { width: 25px; }
+        
+        /* Layout overrides */
+        .topbar { background-color: #ffffff; border-bottom: 1px solid #e2e8f0; padding: 1rem 2rem; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .card { background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 0.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.05); margin-bottom: 1.5rem; }
+        .card-header { border-bottom: 1px solid #e2e8f0; background-color: #f8fafc; font-weight: 600; padding: 1rem 1.5rem; }
+        
+        /* Tables */
+        .table { color: #334155; }
         .table-dark { --bs-table-bg: #1e293b; --bs-table-border-color: #334155; }
     </style>
 </head>
@@ -31,18 +38,26 @@ require_once '../config/db.php';
             <small class="text-muted">Super Admin</small>
         </div>
         <?php $page = basename($_SERVER['PHP_SELF']); ?>
-        <a href="dashboard.php" class="<?= $page === 'dashboard.php' ? 'active' : '' ?>"><i class="fa-solid fa-chart-line me-2"></i> Dashboard</a>
-        <a href="operators.php" class="<?= strpos($page, 'operator') !== false ? 'active' : '' ?>"><i class="fa-solid fa-users-cog me-2"></i> Operators</a>
-        <a href="routers.php" class="<?= strpos($page, 'router') !== false ? 'active' : '' ?>"><i class="fa-solid fa-server me-2"></i> Routers</a>
-        <a href="logs.php" class="<?= $page === 'logs.php' ? 'active' : '' ?>"><i class="fa-solid fa-file-shield me-2"></i> System Logs</a>
-        <hr class="border-secondary mx-3">
-        <a href="logout.php" class="text-danger"><i class="fa-solid fa-right-from-bracket me-2"></i> Logout</a>
+        <a href="dashboard.php" class="<?= $page === 'dashboard.php' ? 'active' : '' ?>"><i class="fa-solid fa-gauge-high menu-icon"></i> Dashboard</a>
+        
+        <div class="px-4 mt-3 mb-2 text-muted small fw-bold text-uppercase" style="font-size: 0.75rem; letter-spacing: 1px;">Tenant Management</div>
+        <a href="operators.php" class="<?= strpos($page, 'operator') !== false ? 'active' : '' ?>"><i class="fa-solid fa-users-cog menu-icon"></i> Operators (ISPs)</a>
+        <a href="routers.php" class="<?= strpos($page, 'router') !== false ? 'active' : '' ?>"><i class="fa-solid fa-server menu-icon"></i> NAS / Routers</a>
+        <a href="global_users.php" class="<?= $page === 'global_users.php' ? 'active' : '' ?>"><i class="fa-solid fa-globe menu-icon"></i> Global Subscribers</a>
+        
+        <div class="px-4 mt-3 mb-2 text-muted small fw-bold text-uppercase" style="font-size: 0.75rem; letter-spacing: 1px;">System & Billing</div>
+        <a href="billing.php" class="<?= $page === 'billing.php' ? 'active' : '' ?>"><i class="fa-solid fa-file-invoice-dollar menu-icon"></i> Billing & Subscriptions</a>
+        <a href="logs.php" class="<?= $page === 'logs.php' ? 'active' : '' ?>"><i class="fa-solid fa-file-shield menu-icon"></i> System Logs</a>
+        <a href="settings.php" class="<?= $page === 'settings.php' ? 'active' : '' ?>"><i class="fa-solid fa-sliders menu-icon"></i> Global Settings</a>
+        
+        <hr class="border-secondary mx-3 mt-4">
+        <a href="logout.php" class="text-danger"><i class="fa-solid fa-right-from-bracket menu-icon"></i> Logout</a>
     </div>
 
     <!-- Main Content -->
-    <div class="flex-grow-1">
+    <div class="flex-grow-1" style="background-color: #f1f5f9; color: #1e293b; min-height: 100vh;">
         <!-- Topbar -->
-        <div class="topbar d-flex justify-content-between align-items-center shadow-sm">
+        <div class="topbar d-flex justify-content-between align-items-center shadow-sm" style="background-color: #ffffff; border-bottom: 1px solid #e2e8f0; padding: 1rem 2rem;">
             <h4 class="mb-0 text-capitalize"><?= str_replace('.php', '', $page) ?></h4>
             <div>
                 <span class="me-3"><i class="fa-regular fa-user-circle"></i> <?= htmlspecialchars($_SESSION['superadmin_name'] ?? 'Admin') ?></span>

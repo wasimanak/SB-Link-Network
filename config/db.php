@@ -1,8 +1,8 @@
 <?php
-$host = '127.0.0.1';
+$host = '10.133.13.69'; // Ubuntu Server IP (Wi-Fi Bridge)
 $db   = 'radius_admin';
-$user = 'root';
-$pass = ''; // Adjust to your MySQL root password if not empty
+$user = 'syncuser';
+$pass = 'admin123';
 $charset = 'utf8mb4';
 
 $dsn = "mysql:host=$host;dbname=$db;charset=$charset";

@@ -40,61 +40,153 @@ try {
 }
 ?>
 
+<div class="row mb-4">
+    <div class="col-12">
+        <h2 class="fw-bold mb-1">Super Admin Dashboard</h2>
+        <p class="text-secondary">Overview of your complete network and tenant operations.</p>
+    </div>
+</div>
+
 <div class="row">
     <!-- Operators Card -->
     <div class="col-md-3 mb-4">
-        <div class="card h-100 shadow-sm border-primary">
-            <div class="card-body text-center">
-                <i class="fa-solid fa-users fa-3x text-primary mb-3"></i>
-                <h5 class="card-title">Total Operators</h5>
-                <h2 class="fw-bold"><?= number_format($totalOperators) ?></h2>
+        <div class="card h-100 border-0 shadow-sm">
+            <div class="card-body p-4 d-flex flex-column">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h6 class="text-secondary text-uppercase fw-semibold mb-0" style="letter-spacing: 0.5px;">Operators</h6>
+                    <div class="bg-primary bg-opacity-10 text-primary rounded p-2 d-flex align-items-center justify-content-center" style="width: 45px; height: 45px;">
+                        <i class="fa-solid fa-users fa-lg"></i>
+                    </div>
+                </div>
+                <h2 class="fw-bold mb-1 text-dark"><?= number_format($totalOperators) ?></h2>
+                <small class="text-secondary mt-auto">Registered Tenants (ISPs)</small>
             </div>
         </div>
     </div>
     
     <!-- Routers Card -->
     <div class="col-md-3 mb-4">
-        <div class="card h-100 shadow-sm border-success">
-            <div class="card-body text-center">
-                <i class="fa-solid fa-server fa-3x text-success mb-3"></i>
-                <h5 class="card-title">Total Routers</h5>
-                <h2 class="fw-bold"><?= number_format($totalRouters) ?></h2>
-                <small class="text-success"><i class="fa-solid fa-circle-check"></i> All online</small>
+        <div class="card h-100 border-0 shadow-sm">
+            <div class="card-body p-4 d-flex flex-column">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h6 class="text-secondary text-uppercase fw-semibold mb-0" style="letter-spacing: 0.5px;">Routers</h6>
+                    <div class="bg-success bg-opacity-10 text-success rounded p-2 d-flex align-items-center justify-content-center" style="width: 45px; height: 45px;">
+                        <i class="fa-solid fa-server fa-lg"></i>
+                    </div>
+                </div>
+                <h2 class="fw-bold mb-1 text-dark"><?= number_format($totalRouters) ?></h2>
+                <small class="text-success fw-semibold mt-auto"><i class="fa-solid fa-circle-check"></i> Connected MikroTiks</small>
             </div>
         </div>
     </div>
     
-    <!-- Subscribers Card -->
+    <!-- Active Subscribers -->
     <div class="col-md-3 mb-4">
-        <div class="card h-100 shadow-sm border-info">
-            <div class="card-body text-center">
-                <i class="fa-solid fa-wifi fa-3x text-info mb-3"></i>
-                <h5 class="card-title">Active Subscribers</h5>
-                <h2 class="fw-bold"><?= number_format($activeSubscribers) ?></h2>
-                <small class="text-muted">Total history: <?= number_format($totalSubscribers) ?></small>
+        <div class="card h-100 border-0 shadow-sm">
+            <div class="card-body p-4 d-flex flex-column">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h6 class="text-secondary text-uppercase fw-semibold mb-0" style="letter-spacing: 0.5px;">Live Users</h6>
+                    <div class="bg-info bg-opacity-10 text-info rounded p-2 d-flex align-items-center justify-content-center" style="width: 45px; height: 45px;">
+                        <i class="fa-solid fa-wifi fa-lg"></i>
+                    </div>
+                </div>
+                <h2 class="fw-bold mb-1 text-dark"><?= number_format($activeSubscribers) ?></h2>
+                <small class="text-secondary mt-auto">Global Active Sessions</small>
             </div>
         </div>
     </div>
 
-    <!-- Server Health Card -->
+    <!-- Server Health -->
     <div class="col-md-3 mb-4">
-        <div class="card h-100 shadow-sm border-warning">
-            <div class="card-body">
-                <h5 class="card-title text-center text-warning"><i class="fa-solid fa-heart-pulse"></i> Server Health</h5>
-                <hr class="border-secondary">
-                <div class="mb-2">
-                    <small class="text-muted">CPU Load:</small><br>
-                    <strong><?= $cpuLoad ?></strong>
+        <div class="card h-100 border-0 shadow-sm">
+            <div class="card-body p-4 d-flex flex-column">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h6 class="text-secondary text-uppercase fw-semibold mb-0" style="letter-spacing: 0.5px;">System</h6>
+                    <div class="bg-warning bg-opacity-10 text-warning rounded p-2 d-flex align-items-center justify-content-center" style="width: 45px; height: 45px;">
+                        <i class="fa-solid fa-heart-pulse fa-lg"></i>
+                    </div>
                 </div>
-                <div class="mb-2">
-                    <small class="text-muted">Disk Usage (<?= $diskUsage ?>%):</small>
-                    <div class="progress" style="height: 5px; background-color: #334155;">
+                <div class="mt-2 mb-2">
+                    <div class="d-flex justify-content-between text-secondary small mb-1">
+                        <span>CPU Load</span>
+                        <span class="fw-semibold text-dark"><?= $cpuLoad ?></span>
+                    </div>
+                    <div class="d-flex justify-content-between text-secondary small mb-1">
+                        <span>DB Status</span>
+                        <span class="fw-semibold text-success">Online</span>
+                    </div>
+                </div>
+                <div class="mt-auto">
+                    <div class="d-flex justify-content-between text-secondary small mb-1">
+                        <span>Disk Usage</span>
+                        <span class="fw-semibold text-dark"><?= $diskUsage ?>%</span>
+                    </div>
+                    <div class="progress" style="height: 6px; background-color: #e2e8f0;">
                       <div class="progress-bar bg-warning" role="progressbar" style="width: <?= $diskUsage ?>%"></div>
                     </div>
                 </div>
-                <div>
-                    <small class="text-muted">MySQL:</small><br>
-                    <strong class="text-success text-truncate d-block" title="<?= htmlspecialchars($mysqlStatus) ?>">Connected</strong>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Quick Actions -->
+    <div class="col-md-4 mb-4">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-white border-0 pt-4 pb-0">
+                <h6 class="fw-bold mb-0">Quick Actions</h6>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <a href="operator_add.php" class="btn btn-outline-primary text-start p-3 fw-semibold"><i class="fa-solid fa-user-plus me-2"></i> Register New Operator</a>
+                    <a href="router_add.php" class="btn btn-outline-success text-start p-3 fw-semibold"><i class="fa-solid fa-network-wired me-2"></i> Add Global Router</a>
+                    <a href="billing.php" class="btn btn-outline-secondary text-start p-3 fw-semibold"><i class="fa-solid fa-file-invoice me-2"></i> Generate Invoices</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Operators -->
+    <div class="col-md-8 mb-4">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-white border-0 pt-4 pb-2 d-flex justify-content-between align-items-center">
+                <h6 class="fw-bold mb-0">Recently Added Operators</h6>
+                <a href="operators.php" class="btn btn-sm btn-link text-decoration-none">View All</a>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="ps-4">Company</th>
+                                <th>Contact</th>
+                                <th>Status</th>
+                                <th class="pe-4 text-end">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php
+                            $recentOps = $pdo->query("SELECT id, company_name, phone, status FROM clients ORDER BY id DESC LIMIT 5")->fetchAll();
+                            foreach($recentOps as $op):
+                            ?>
+                            <tr>
+                                <td class="ps-4 fw-semibold"><?= htmlspecialchars($op['company_name']) ?></td>
+                                <td class="text-secondary"><?= htmlspecialchars($op['phone'] ?: 'N/A') ?></td>
+                                <td>
+                                    <?php if($op['status'] === 'active'): ?>
+                                        <span class="badge bg-success bg-opacity-10 text-success px-2 py-1">Active</span>
+                                    <?php else: ?>
+                                        <span class="badge bg-danger bg-opacity-10 text-danger px-2 py-1">Suspended</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td class="pe-4 text-end">
+                                    <a href="operator_edit.php?id=<?= $op['id'] ?>" class="btn btn-sm btn-light text-primary"><i class="fa-solid fa-pen"></i></a>
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>

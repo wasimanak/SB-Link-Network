@@ -27,11 +27,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if ($action === 'create') {
+            // Check if package name already exists for this operator
+            $chkStmt = $pdo->prepare("SELECT COUNT(*) FROM packages WHERE name = ? AND client_id = ?");
+            $chkStmt->execute([$name, $client_id]);
+            if ($chkStmt->fetchColumn() > 0) {
+                echo "<script>alert('Error: A package with the exact same name already exists. Please use a different name!'); window.location='packages.php';</script>";
+                exit;
+            }
+
             $stmt = $pdo->prepare("INSERT INTO packages (client_id, name, rate_limit, validity_days, price, data_limit_gb, speed_scheduler) VALUES (?, ?, ?, ?, ?, ?, ?)");
             $stmt->execute([$client_id, $name, $rate_limit, $validity_days, $price, $data_limit_gb, $scheduler]);
             echo "<script>alert('Package created successfully!'); window.location='packages.php';</script>";
             exit;
         } else {
+            // Check if another package with this name exists (excluding the current one)
+            $chkStmt = $pdo->prepare("SELECT COUNT(*) FROM packages WHERE name = ? AND client_id = ? AND id != ?");
+            $chkStmt->execute([$name, $client_id, $id]);
+            if ($chkStmt->fetchColumn() > 0) {
+                echo "<script>alert('Error: Another package with this name already exists!'); window.location='packages.php';</script>";
+                exit;
+            }
+
             $stmt = $pdo->prepare("UPDATE packages SET name=?, rate_limit=?, validity_days=?, price=?, data_limit_gb=?, speed_scheduler=? WHERE id=? AND client_id=?");
             $stmt->execute([$name, $rate_limit, $validity_days, $price, $data_limit_gb, $scheduler, $id, $client_id]);
             echo "<script>alert('Package updated successfully!'); window.location='packages.php';</script>";

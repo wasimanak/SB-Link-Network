@@ -17,7 +17,15 @@ $usageStmt->execute([$current_user['username']]);
 $usage = $usageStmt->fetch();
 
 $total_bytes = ($usage['up'] ?? 0) + ($usage['down'] ?? 0);
-$total_gb = $total_bytes > 0 ? round($total_bytes / 1073741824, 2) : 0.00;
+if ($total_bytes >= 1073741824) {
+    $used_volume_str = round($total_bytes / 1073741824, 2) . " GB";
+} elseif ($total_bytes >= 1048576) {
+    $used_volume_str = round($total_bytes / 1048576, 2) . " MB";
+} elseif ($total_bytes > 0) {
+    $used_volume_str = round($total_bytes / 1024, 2) . " KB";
+} else {
+    $used_volume_str = "0 MB";
+}
 
 // Expiry logic
 $expiry_badge = "<span class='badge bg-secondary'>N/A</span>";
@@ -66,76 +74,81 @@ $bank_details = $operator_info['bank_details'] ?: "Bank details not provided. Pl
 
 <div class="row">
     <!-- Account Status -->
-    <div class="col-md-4 mb-4">
-        <div class="card-ui p-4 h-100">
-            <h6 class="text-secondary mb-3"><i class="fa-solid fa-id-card text-accent"></i> Account Status</h6>
-            <h3 class="fw-bold mb-1"><?= htmlspecialchars($current_user['package_name'] ?? 'No Package') ?></h3>
-            <p class="text-secondary mb-4"><?= htmlspecialchars($current_user['rate_limit'] ?? 'Unlimited Speed') ?></p>
+    <div class="col-md-4 mb-3">
+        <div class="card-ui p-3 h-100 d-flex flex-column">
+            <h6 class="text-secondary mb-2 text-uppercase" style="font-size: 0.75rem; letter-spacing: 0.5px;"><i class="fa-solid fa-id-card text-accent"></i> Account Status</h6>
+            <h4 class="fw-bold mb-1 text-light"><?= htmlspecialchars($current_user['package_name'] ?? 'No Package') ?></h4>
+            <small class="text-secondary mb-3 d-block">
+                <?= htmlspecialchars($current_user['rate_limit'] ?? 'Unlimited Speed') ?> 
+                <?php if(!empty($current_user['package_price'])): ?>
+                    <span class="text-accent ms-2 fw-bold">| Rs <?= number_format($current_user['package_price'], 2) ?></span>
+                <?php endif; ?>
+            </small>
             
-            <div class="d-flex justify-content-between align-items-center border-top border-secondary pt-3 mt-auto">
-                <div class="text-secondary small">Status</div>
+            <div class="d-flex justify-content-between align-items-center border-top border-secondary pt-2 mt-auto">
+                <div class="text-secondary small" style="font-size: 0.8rem;">Status</div>
                 <div>
                     <?php if($current_user['status'] == 'active'): ?>
-                        <span class="badge bg-success">Active</span>
+                        <span class="badge bg-success" style="font-size: 0.7rem; padding: 4px 8px;">Active</span>
                     <?php elseif($current_user['status'] == 'expired'): ?>
-                        <span class="badge bg-danger">Expired</span>
+                        <span class="badge bg-danger" style="font-size: 0.7rem; padding: 4px 8px;">Expired</span>
                     <?php else: ?>
-                        <span class="badge bg-secondary">Disabled</span>
+                        <span class="badge bg-secondary" style="font-size: 0.7rem; padding: 4px 8px;">Disabled</span>
                     <?php endif; ?>
                 </div>
             </div>
             
-            <div class="d-flex justify-content-between align-items-center border-top border-secondary pt-3 mt-3">
-                <div class="text-secondary small">Expires In<br><strong class="text-light"><?= $expiry_text ?></strong></div>
-                <div><?= $expiry_badge ?></div>
+            <div class="d-flex justify-content-between align-items-center border-top border-secondary pt-2 mt-2">
+                <div class="text-secondary small" style="font-size: 0.8rem;">Expires In<br><strong class="text-light" style="font-size: 0.75rem;"><?= $expiry_text ?></strong></div>
+                <div style="font-size: 0.75rem;"><?= $expiry_badge ?></div>
             </div>
         </div>
     </div>
 
     <!-- Live Connection -->
-    <div class="col-md-4 mb-4">
-        <div class="card-ui p-4 h-100 d-flex flex-column">
-            <h6 class="text-secondary mb-3"><i class="fa-solid fa-network-wired text-accent"></i> Live Connection</h6>
+    <div class="col-md-4 mb-3">
+        <div class="card-ui p-3 h-100 d-flex flex-column">
+            <h6 class="text-secondary mb-2 text-uppercase" style="font-size: 0.75rem; letter-spacing: 0.5px;"><i class="fa-solid fa-network-wired text-accent"></i> Live Connection</h6>
             <?php if ($live_session): 
                 $uptime_sec = time() - strtotime($live_session['acctstarttime']);
                 $h = floor($uptime_sec / 3600);
                 $m = floor(($uptime_sec % 3600) / 60);
             ?>
-                <div class="text-center mb-4 mt-auto">
-                    <div class="d-inline-block badge-online px-4 py-2 rounded-pill fw-bold mb-2">
+                <div class="text-center mt-2 mb-3 mt-auto">
+                    <div class="d-inline-block badge-online px-3 py-1 rounded-pill fw-bold mb-2" style="font-size: 0.75rem; padding-left: 24px !important;">
                         ONLINE
                     </div>
-                    <h5 class="mt-3 mb-0 fw-bold"><?= $h ?>h <?= $m ?>m</h5>
-                    <small class="text-secondary">Current Session Uptime</small>
+                    <h6 class="mt-1 mb-0 fw-bold text-light"><?= $h ?>h <?= $m ?>m</h6>
+                    <small class="text-secondary" style="font-size: 0.7rem;">Session Uptime</small>
                 </div>
                 
-                <div class="border-top border-secondary pt-3 mt-auto">
-                    <div class="d-flex justify-content-between mb-2">
-                        <span class="text-secondary small">IP Address</span>
-                        <span class="small font-monospace"><?= htmlspecialchars($live_session['framedipaddress']) ?></span>
+                <div class="border-top border-secondary pt-2 mt-auto" style="font-size: 0.8rem;">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span class="text-secondary">IP Address</span>
+                        <span class="font-monospace text-light"><?= htmlspecialchars($live_session['framedipaddress']) ?></span>
                     </div>
                     <div class="d-flex justify-content-between">
-                        <span class="text-secondary small">MAC Address</span>
-                        <span class="small font-monospace"><?= htmlspecialchars($live_session['callingstationid']) ?></span>
+                        <span class="text-secondary">MAC</span>
+                        <span class="font-monospace text-light"><?= htmlspecialchars($live_session['callingstationid']) ?></span>
                     </div>
                 </div>
             <?php else: ?>
-                <div class="text-center my-auto py-4">
-                    <div class="d-inline-block badge-offline px-4 py-2 rounded-pill fw-bold mb-3">
-                        <i class="fa-solid fa-circle text-secondary small me-1"></i> OFFLINE
+                <div class="text-center my-auto py-2">
+                    <div class="d-inline-block badge-offline px-3 py-1 rounded-pill fw-bold mb-2" style="font-size: 0.75rem;">
+                        <i class="fa-solid fa-circle text-secondary" style="font-size: 0.6rem;"></i> OFFLINE
                     </div>
-                    <p class="text-secondary mb-0">Router is not connected.</p>
+                    <p class="text-secondary mb-0" style="font-size: 0.8rem;">Router is not connected.</p>
                 </div>
             <?php endif; ?>
         </div>
     </div>
 
     <!-- Data Consumption -->
-    <div class="col-md-4 mb-4">
-        <div class="card-ui p-4 h-100 text-center d-flex flex-column justify-content-center">
-            <h6 class="text-secondary text-start mb-4"><i class="fa-solid fa-chart-pie text-accent"></i> Data Consumption</h6>
+    <div class="col-md-4 mb-3">
+        <div class="card-ui p-3 h-100 text-center d-flex flex-column justify-content-center">
+            <h6 class="text-secondary text-start mb-2 text-uppercase" style="font-size: 0.75rem; letter-spacing: 0.5px;"><i class="fa-solid fa-chart-pie text-accent"></i> Data Consumption</h6>
             
-            <div class="position-relative mx-auto my-3" style="width: 150px; height: 150px;">
+            <div class="position-relative mx-auto my-2" style="width: 100px; height: 100px;">
                 <svg viewBox="0 0 36 36" class="w-100 h-100">
                     <path class="text-secondary" stroke-width="3" stroke="currentColor" fill="none"
                         d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" style="opacity: 0.2;" />
@@ -143,11 +156,10 @@ $bank_details = $operator_info['bank_details'] ?: "Bank details not provided. Pl
                         d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
                 </svg>
                 <div class="position-absolute top-50 start-50 translate-middle text-center w-100">
-                    <h3 class="mb-0 fw-bold"><?= $total_gb ?></h3>
-                    <small class="text-secondary">GB Used</small>
+                    <h5 class="mb-0 fw-bold text-light"><?= $used_volume_str ?></h5>
                 </div>
             </div>
-            <p class="text-secondary small mt-3 mb-0">Total volume consumed across all sessions.</p>
+            <p class="text-secondary mt-1 mb-0" style="font-size: 0.75rem;">Total volume consumed across all sessions.</p>
         </div>
     </div>
 </div>

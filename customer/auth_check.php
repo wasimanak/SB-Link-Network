@@ -22,7 +22,7 @@ if ($client_status === 'suspended' || $client_status === 'expired') {
 }
 
 // Fetch fresh subscriber data globally for the dashboard
-$stmt = $pdo->prepare("SELECT s.*, p.name as package_name, p.rate_limit FROM subscribers s LEFT JOIN packages p ON s.package_id = p.id WHERE s.id = ?");
+$stmt = $pdo->prepare("SELECT s.*, p.name as package_name, p.rate_limit, p.price as package_price FROM subscribers s LEFT JOIN packages p ON s.package_id = p.id WHERE s.id = ?");
 $stmt->execute([$sub_id]);
 $current_user = $stmt->fetch();
 
