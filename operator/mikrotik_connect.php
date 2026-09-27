@@ -84,13 +84,16 @@ $routers = $routers->fetchAll();
                         <li class="mb-0"><strong class="text-dark">API User:</strong> <span class="float-end"><?= htmlspecialchars($r['api_user']) ?></span></li>
                     </ul>
 
-                    <div class="d-flex gap-2">
-                        <button class="btn btn-sm btn-outline-primary flex-grow-1 rounded-pill" onclick='openNasModal(<?= json_encode($r) ?>)' data-bs-toggle="modal" data-bs-target="#nasModal"><i class="fa-solid fa-pen me-1"></i> Edit</button>
-                        <form method="POST" onsubmit="return confirm('WARNING: Deleting this router will stop all RADIUS authentication for its users! Continue?');" class="m-0">
-                            <input type="hidden" name="action" value="delete_nas">
-                            <input type="hidden" name="id" value="<?= $r['id'] ?>">
-                            <button class="btn btn-sm btn-outline-danger rounded-pill px-3"><i class="fa-solid fa-trash"></i></button>
-                        </form>
+                    <div class="d-flex flex-column gap-2">
+                        <button class="btn btn-sm btn-dark w-100 rounded-pill mb-1" onclick="showSetupScript('<?= htmlspecialchars($r['secret']) ?>')" data-bs-toggle="modal" data-bs-target="#scriptModal"><i class="fa-solid fa-terminal me-1"></i> Generate Setup Script</button>
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-sm btn-outline-primary flex-grow-1 rounded-pill" onclick='openNasModal(<?= json_encode($r) ?>)' data-bs-toggle="modal" data-bs-target="#nasModal"><i class="fa-solid fa-pen me-1"></i> Edit</button>
+                            <form method="POST" onsubmit="return confirm('WARNING: Deleting this router will stop all RADIUS authentication for its users! Continue?');" class="m-0">
+                                <input type="hidden" name="action" value="delete_nas">
+                                <input type="hidden" name="id" value="<?= $r['id'] ?>">
+                                <button class="btn btn-sm btn-outline-danger rounded-pill px-3"><i class="fa-solid fa-trash"></i></button>
+                            </form>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -160,6 +163,35 @@ $routers = $routers->fetchAll();
   </div>
 </div>
 
+<!-- Setup Script Modal -->
+<div class="modal fade" id="scriptModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content border-0 shadow rounded-4">
+      <div class="modal-header bg-dark text-light border-bottom-0">
+        <h5 class="modal-title fw-bold"><i class="fa-solid fa-terminal me-2"></i> MikroTik Configuration Script</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-4">
+          <div class="alert alert-info border-info small mb-3">
+              Copy this script and paste it into your MikroTik <strong>New Terminal</strong>. It will automatically connect your router to this RADIUS server and enable the API.
+          </div>
+          
+          <div class="mb-3">
+              <label class="form-label fw-bold small">Server IP Address (Update if different)</label>
+              <input type="text" id="scriptServerIp" class="form-control font-monospace rounded-3" value="<?= $_SERVER['SERVER_ADDR'] === '::1' ? '127.0.0.1' : $_SERVER['SERVER_ADDR'] ?>" onkeyup="updateScriptText()">
+          </div>
+
+          <pre id="mikrotikScript" class="bg-dark text-success p-3 rounded-3 font-monospace small" style="white-space: pre-wrap; user-select: all; cursor: text;"></pre>
+
+          <input type="hidden" id="scriptSecretHidden">
+      </div>
+      <div class="modal-footer border-top-0 pt-0 px-4 pb-4">
+        <button type="button" class="btn btn-primary rounded-pill px-4" onclick="copyScript()"><i class="fa-solid fa-copy me-1"></i> Copy to Clipboard</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 function openNasModal(data = null) {
     if(data) {
@@ -183,6 +215,34 @@ function openNasModal(data = null) {
         document.getElementById('nasApiPassword').value = '';
         document.getElementById('nasApiPort').value = '8728';
     }
+}
+
+function showSetupScript(secret) {
+    document.getElementById('scriptSecretHidden').value = secret;
+    updateScriptText();
+}
+
+function updateScriptText() {
+    let serverIp = document.getElementById('scriptServerIp').value || 'YOUR_SERVER_IP';
+    let secret = document.getElementById('scriptSecretHidden').value;
+    
+    let script = `# 1. Add Radius Server\n`;
+    script += `/radius add address=${serverIp} secret="${secret}" service=ppp,hotspot authentication-port=1812 accounting-port=1813\n\n`;
+    script += `# 2. Enable RADIUS for PPPoE\n`;
+    script += `/ppp aaa set use-radius=yes accounting=yes interim-update=00:05:00\n\n`;
+    script += `# 3. Enable incoming connections (CoA / Disconnects)\n`;
+    script += `/radius incoming set accept=yes port=3799\n\n`;
+    script += `# 4. Enable API for Website Sync (Live connections, Auto-kick)\n`;
+    script += `/ip service set api disabled=no\n`;
+    
+    document.getElementById('mikrotikScript').innerText = script;
+}
+
+function copyScript() {
+    let text = document.getElementById('mikrotikScript').innerText;
+    navigator.clipboard.writeText(text).then(function() {
+        alert('Script copied to clipboard!');
+    });
 }
 </script>
 
