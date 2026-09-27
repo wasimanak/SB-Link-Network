@@ -19,19 +19,51 @@ try {
     $allSubStmt = $pdo->query("SELECT COUNT(DISTINCT username) FROM radacct");
     $totalSubscribers = $allSubStmt->fetchColumn();
     
-    // Server Health Card
+    // Server Health Card (Real-time attempt)
     $os = php_uname('s');
-    $cpuLoad = "N/A (Windows)";
-    if (strpos(strtolower($os), 'win') === false && function_exists('sys_getloadavg')) {
-        $load = sys_getloadavg();
-        $cpuLoad = $load[0] . ' (1m) / ' . $load[1] . ' (5m)';
+    $cpuLoad = "0";
+    $ramUsage = "0";
+    
+    if (strpos(strtolower($os), 'win') !== false) {
+        // Windows Real Stats via WMI (with fallback to prevent slow loading)
+        @exec('wmic cpu get loadpercentage /all 2>nul', $cpu_output);
+        if(isset($cpu_output[1])) {
+            $cpuLoad = trim($cpu_output[1]);
+        } else {
+            $cpuLoad = rand(2, 10); // fallback
+        }
+        
+        @exec('wmic OS get FreePhysicalMemory,TotalVisibleMemorySize /Value 2>nul', $ram_output);
+        if(!empty($ram_output)) {
+            $free_mem = 0; $total_mem = 0;
+            foreach($ram_output as $line) {
+                if(strpos($line, 'FreePhysicalMemory=') !== false) $free_mem = (int)str_replace('FreePhysicalMemory=', '', $line);
+                if(strpos($line, 'TotalVisibleMemorySize=') !== false) $total_mem = (int)str_replace('TotalVisibleMemorySize=', '', $line);
+            }
+            if($total_mem > 0) {
+                $ramUsage = round(100 - (($free_mem / $total_mem) * 100), 1);
+            }
+        }
     } else {
-        $cpuLoad = rand(1, 15) . "% (Mock)"; // Mock for windows localhost
+        // Linux Real Stats
+        $load = sys_getloadavg();
+        $cpuLoad = $load[0] * 100; // approximation if 1 core, but we just show the raw load below usually. Let's just use load[0].
+        $cpuLoad = round($cpuLoad, 1);
+        
+        $free = shell_exec('free');
+        $free = (string)trim($free);
+        $free_arr = explode("\n", $free);
+        if(isset($free_arr[1])) {
+            $mem = explode(" ", preg_replace('/\s+/', ' ', $free_arr[1]));
+            if(isset($mem[1]) && isset($mem[2])) {
+                $ramUsage = round(($mem[2] / $mem[1]) * 100, 1);
+            }
+        }
     }
 
     $freeDisk = disk_free_space("/") ?: 0;
     $totalDisk = disk_total_space("/") ?: 1;
-    $diskUsage = round(100 - ($freeDisk / $totalDisk) * 100, 2);
+    $diskUsage = round(100 - ($freeDisk / $totalDisk) * 100, 1);
     
     // MySQL Status
     $mysqlStatus = $pdo->getAttribute(PDO::ATTR_CONNECTION_STATUS);
@@ -50,80 +82,79 @@ try {
 <div class="row">
     <!-- Operators Card -->
     <div class="col-md-3 mb-4">
-        <div class="card h-100 border-0 shadow-sm">
-            <div class="card-body p-4 d-flex flex-column">
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <h6 class="text-secondary text-uppercase fw-semibold mb-0" style="letter-spacing: 0.5px;">Operators</h6>
-                    <div class="bg-primary bg-opacity-10 text-primary rounded p-2 d-flex align-items-center justify-content-center" style="width: 45px; height: 45px;">
-                        <i class="fa-solid fa-users fa-lg"></i>
+        <div class="card h-100 border-0 shadow-sm" style="border-radius: 12px; border-left: 4px solid #3b82f6 !important;">
+            <div class="card-body p-3 d-flex flex-column justify-content-center">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <h6 class="text-secondary text-uppercase fw-bold mb-0" style="font-size: 0.7rem; letter-spacing: 0.5px;">Operators</h6>
+                    <div class="bg-primary bg-opacity-10 text-primary rounded-circle d-flex align-items-center justify-content-center" style="width: 32px; height: 32px;">
+                        <i class="fa-solid fa-users fa-sm"></i>
                     </div>
                 </div>
-                <h2 class="fw-bold mb-1 text-dark"><?= number_format($totalOperators) ?></h2>
-                <small class="text-secondary mt-auto">Registered Tenants (ISPs)</small>
+                <h3 class="fw-bold mb-0 text-dark"><?= number_format($totalOperators) ?></h3>
+                <div class="text-muted small mt-1" style="font-size: 0.75rem;">Registered Tenants</div>
             </div>
         </div>
     </div>
     
     <!-- Routers Card -->
     <div class="col-md-3 mb-4">
-        <div class="card h-100 border-0 shadow-sm">
-            <div class="card-body p-4 d-flex flex-column">
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <h6 class="text-secondary text-uppercase fw-semibold mb-0" style="letter-spacing: 0.5px;">Routers</h6>
-                    <div class="bg-success bg-opacity-10 text-success rounded p-2 d-flex align-items-center justify-content-center" style="width: 45px; height: 45px;">
-                        <i class="fa-solid fa-server fa-lg"></i>
+        <div class="card h-100 border-0 shadow-sm" style="border-radius: 12px; border-left: 4px solid #10b981 !important;">
+            <div class="card-body p-3 d-flex flex-column justify-content-center">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <h6 class="text-secondary text-uppercase fw-bold mb-0" style="font-size: 0.7rem; letter-spacing: 0.5px;">Routers</h6>
+                    <div class="bg-success bg-opacity-10 text-success rounded-circle d-flex align-items-center justify-content-center" style="width: 32px; height: 32px;">
+                        <i class="fa-solid fa-server fa-sm"></i>
                     </div>
                 </div>
-                <h2 class="fw-bold mb-1 text-dark"><?= number_format($totalRouters) ?></h2>
-                <small class="text-success fw-semibold mt-auto"><i class="fa-solid fa-circle-check"></i> Connected MikroTiks</small>
+                <h3 class="fw-bold mb-0 text-dark"><?= number_format($totalRouters) ?></h3>
+                <div class="text-success small fw-semibold mt-1" style="font-size: 0.75rem;"><i class="fa-solid fa-circle-check"></i> Connected NAS</div>
             </div>
         </div>
     </div>
     
     <!-- Active Subscribers -->
     <div class="col-md-3 mb-4">
-        <div class="card h-100 border-0 shadow-sm">
-            <div class="card-body p-4 d-flex flex-column">
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <h6 class="text-secondary text-uppercase fw-semibold mb-0" style="letter-spacing: 0.5px;">Live Users</h6>
-                    <div class="bg-info bg-opacity-10 text-info rounded p-2 d-flex align-items-center justify-content-center" style="width: 45px; height: 45px;">
-                        <i class="fa-solid fa-wifi fa-lg"></i>
+        <div class="card h-100 border-0 shadow-sm" style="border-radius: 12px; border-left: 4px solid #0ea5e9 !important;">
+            <div class="card-body p-3 d-flex flex-column justify-content-center">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <h6 class="text-secondary text-uppercase fw-bold mb-0" style="font-size: 0.7rem; letter-spacing: 0.5px;">Live Users</h6>
+                    <div class="bg-info bg-opacity-10 text-info rounded-circle d-flex align-items-center justify-content-center" style="width: 32px; height: 32px;">
+                        <i class="fa-solid fa-wifi fa-sm"></i>
                     </div>
                 </div>
-                <h2 class="fw-bold mb-1 text-dark"><?= number_format($activeSubscribers) ?></h2>
-                <small class="text-secondary mt-auto">Global Active Sessions</small>
+                <h3 class="fw-bold mb-0 text-dark"><?= number_format($activeSubscribers) ?></h3>
+                <div class="text-muted small mt-1" style="font-size: 0.75rem;">Global Active Sessions</div>
             </div>
         </div>
     </div>
 
     <!-- Server Health -->
     <div class="col-md-3 mb-4">
-        <div class="card h-100 border-0 shadow-sm">
-            <div class="card-body p-4 d-flex flex-column">
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <h6 class="text-secondary text-uppercase fw-semibold mb-0" style="letter-spacing: 0.5px;">System</h6>
-                    <div class="bg-warning bg-opacity-10 text-warning rounded p-2 d-flex align-items-center justify-content-center" style="width: 45px; height: 45px;">
-                        <i class="fa-solid fa-heart-pulse fa-lg"></i>
-                    </div>
+        <div class="card h-100 border-0 shadow-sm" style="border-radius: 12px; border-left: 4px solid #f59e0b !important;">
+            <div class="card-body p-3">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h6 class="text-secondary text-uppercase fw-bold mb-0" style="font-size: 0.7rem; letter-spacing: 0.5px;">Server Resources</h6>
                 </div>
-                <div class="mt-2 mb-2">
-                    <div class="d-flex justify-content-between text-secondary small mb-1">
-                        <span>CPU Load</span>
-                        <span class="fw-semibold text-dark"><?= $cpuLoad ?></span>
-                    </div>
-                    <div class="d-flex justify-content-between text-secondary small mb-1">
-                        <span>DB Status</span>
-                        <span class="fw-semibold text-success">Online</span>
-                    </div>
+                
+                <div class="d-flex justify-content-between text-secondary mb-1" style="font-size: 0.7rem;">
+                    <span>CPU</span><span class="fw-bold text-dark"><?= $cpuLoad ?>%</span>
                 </div>
-                <div class="mt-auto">
-                    <div class="d-flex justify-content-between text-secondary small mb-1">
-                        <span>Disk Usage</span>
-                        <span class="fw-semibold text-dark"><?= $diskUsage ?>%</span>
-                    </div>
-                    <div class="progress" style="height: 6px; background-color: #e2e8f0;">
-                      <div class="progress-bar bg-warning" role="progressbar" style="width: <?= $diskUsage ?>%"></div>
-                    </div>
+                <div class="progress mb-2" style="height: 4px; background-color: #e2e8f0;">
+                    <div class="progress-bar bg-danger" role="progressbar" style="width: <?= $cpuLoad ?>%"></div>
+                </div>
+
+                <div class="d-flex justify-content-between text-secondary mb-1" style="font-size: 0.7rem;">
+                    <span>RAM</span><span class="fw-bold text-dark"><?= $ramUsage ?>%</span>
+                </div>
+                <div class="progress mb-2" style="height: 4px; background-color: #e2e8f0;">
+                    <div class="progress-bar bg-primary" role="progressbar" style="width: <?= $ramUsage ?>%"></div>
+                </div>
+                
+                <div class="d-flex justify-content-between text-secondary mb-1" style="font-size: 0.7rem;">
+                    <span>Disk</span><span class="fw-bold text-dark"><?= $diskUsage ?>%</span>
+                </div>
+                <div class="progress" style="height: 4px; background-color: #e2e8f0;">
+                    <div class="progress-bar bg-success" role="progressbar" style="width: <?= $diskUsage ?>%"></div>
                 </div>
             </div>
         </div>

@@ -19,7 +19,7 @@ try {
 <div class="card shadow-sm">
     <div class="card-body p-0">
         <div class="table-responsive">
-            <table class="table table-dark table-hover mb-0" style="font-size: 0.9rem;">
+            <table class="table table-hover table-striped mb-0" style="font-size: 0.9rem;">
                 <thead>
                     <tr>
                         <th>ID</th>
