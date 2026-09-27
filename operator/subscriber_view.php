@@ -8,6 +8,39 @@ if (!isset($_GET['id'])) {
 }
 $id = (int)$_GET['id'];
 
+require_once '../config/routeros_api.class.php';
+
+function kick_user_mikrotik($pdo, $client_id, $username) {
+    $stmt = $pdo->prepare("SELECT * FROM nas WHERE client_id = ? LIMIT 1");
+    $stmt->execute([$client_id]);
+    $nas = $stmt->fetch();
+    if ($nas) {
+        $api = new RouterosAPI();
+        $api->timeout = 2;
+        if ($api->connect($nas['nasname'], $nas['api_user'], $nas['api_password'], $nas['api_port'])) {
+            // Kick from Hotspot
+            $api->write('/ip/hotspot/active/print', false);
+            $api->write('?user=' . $username, true);
+            $hotspot = $api->read();
+            if (!empty($hotspot) && isset($hotspot[0]['.id'])) {
+                $api->write('/ip/hotspot/active/remove', false);
+                $api->write('=.id=' . $hotspot[0]['.id'], true);
+                $api->read();
+            }
+            // Kick from PPPoE
+            $api->write('/ppp/active/print', false);
+            $api->write('?name=' . $username, true);
+            $ppp = $api->read();
+            if (!empty($ppp) && isset($ppp[0]['.id'])) {
+                $api->write('/ppp/active/remove', false);
+                $api->write('=.id=' . $ppp[0]['.id'], true);
+                $api->read();
+            }
+            $api->disconnect();
+        }
+    }
+}
+
 // --- HANDLE ACTIONS ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
@@ -17,18 +50,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($u) {
         if ($action === 'delete_user') {
+            kick_user_mikrotik($pdo, $client_id, $u);
             $pdo->prepare("DELETE FROM subscribers WHERE id = ?")->execute([$id]);
             $pdo->prepare("DELETE FROM radcheck WHERE username = ?")->execute([$u]);
             $pdo->prepare("DELETE FROM radreply WHERE username = ?")->execute([$u]);
             echo "<script>alert('Profile deleted successfully!'); window.location='subscribers.php';</script>";
             exit;
         }
+        elseif ($action === 'disconnect_user') {
+            kick_user_mikrotik($pdo, $client_id, $u);
+            $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, 'Admin', ?, 'User', 'User Disconnected')")->execute([$client_id, $u]);
+            echo "<script>alert('User Kicked Successfully!'); window.location='subscriber_view.php?id=$id';</script>";
+            exit;
+        }
         elseif ($action === 'disable_net' || $action === 'profile_disable') {
+            kick_user_mikrotik($pdo, $client_id, $u);
             $pdo->prepare("UPDATE subscribers SET status = 'disabled' WHERE id = ?")->execute([$id]);
             $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute = 'Auth-Type'")->execute([$u]);
             $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Auth-Type', ':=', 'Reject')")->execute([$u]);
             $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, 'Admin', ?, 'User', 'Profile Disabled')")->execute([$client_id, $u]);
-            echo "<script>alert('Internet Disabled!'); window.location='subscriber_view.php?id=$id';</script>";
+            echo "<script>alert('Internet Disabled & User Kicked!'); window.location='subscriber_view.php?id=$id';</script>";
             exit;
         }
         elseif ($action === 'enable_net') {
@@ -225,8 +266,23 @@ $ledger_history = $ledgerStmt->fetchAll();
 ?>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<!-- DataTables & Buttons CSS -->
+<link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
+<link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.2/css/buttons.bootstrap5.min.css">
 
 <style>
+    .dt-buttons .btn {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.8rem;
+        margin-right: 2px;
+        margin-bottom: 10px;
+    }
+    .dataTables_filter {
+        margin-bottom: 10px;
+    }
+    .dataTables_filter input { background-color: #ffffff; border: 1px solid #ced4da; color: #333; border-radius: 20px; padding: 4px 15px; }
+    .dataTables_length select { background-color: #ffffff; border: 1px solid #ced4da; color: #333; border-radius: 6px; }
+
     .view-card { background: #fff; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.03); border: 1px solid #f1f5f9; margin-bottom: 20px; }
     
     .profile-header { display: flex; align-items: center; gap: 15px; padding: 20px; border-bottom: 1px solid #f1f5f9; }
@@ -316,7 +372,10 @@ $ledger_history = $ledgerStmt->fetchAll();
                         <button type="submit" class="btn-pill" style="color: #10b981; border-color: rgba(16, 185, 129, 0.3);"><i class="fa-solid fa-wifi"></i> Enable Net</button>
                     </form>
                     
-                    <button class="btn-pill danger"><i class="fa-solid fa-plug-circle-xmark"></i> Disconnect</button>
+                    <form method="POST" class="d-inline" onsubmit="return confirm('Disconnect user from router?');">
+                        <input type="hidden" name="action" value="disconnect_user">
+                        <button type="submit" class="btn-pill danger"><i class="fa-solid fa-plug-circle-xmark"></i> Disconnect</button>
+                    </form>
                     
                     <form method="POST" class="d-inline">
                         <input type="hidden" name="action" value="enable_net">
@@ -328,7 +387,10 @@ $ledger_history = $ledgerStmt->fetchAll();
                         <button type="submit" class="btn-pill danger"><i class="fa-solid fa-wifi"></i> Disable Net</button>
                     </form>
                     
-                    <button class="btn-pill danger"><i class="fa-solid fa-plug-circle-xmark"></i> Disconnect</button>
+                    <form method="POST" class="d-inline" onsubmit="return confirm('Disconnect user from router?');">
+                        <input type="hidden" name="action" value="disconnect_user">
+                        <button type="submit" class="btn-pill danger"><i class="fa-solid fa-plug-circle-xmark"></i> Disconnect</button>
+                    </form>
 
                     <form method="POST" class="d-inline" onsubmit="return confirm('Disable this profile?');">
                         <input type="hidden" name="action" value="profile_disable">
@@ -459,8 +521,18 @@ $ledger_history = $ledgerStmt->fetchAll();
                         <?php if (empty($ledger_history)): ?>
                             <p class="p-3 mb-0">No ledger transactions found yet.</p>
                         <?php else: ?>
-                            <div class="table-responsive">
-                                <table class="table table-hover table-bordered mb-0 text-secondary" style="font-size: 0.85rem;">
+                            <div class="row px-3 pt-3 pb-0">
+                                <div class="col-md-4 mb-2">
+                                    <label class="form-label small text-secondary mb-1">From Date</label>
+                                    <input type="date" id="minLedgerDate" class="form-control form-control-sm">
+                                </div>
+                                <div class="col-md-4 mb-2">
+                                    <label class="form-label small text-secondary mb-1">To Date</label>
+                                    <input type="date" id="maxLedgerDate" class="form-control form-control-sm">
+                                </div>
+                            </div>
+                            <div class="table-responsive p-3 pt-0">
+                                <table id="ledgerTable" class="table table-hover table-bordered mb-0 text-secondary w-100" style="font-size: 0.85rem;">
                                     <thead class="table-light">
                                         <tr>
                                             <th>Date</th>
@@ -472,7 +544,7 @@ $ledger_history = $ledgerStmt->fetchAll();
                                     <tbody>
                                         <?php foreach ($ledger_history as $l): ?>
                                             <tr>
-                                                <td><?= date('d M Y, h:i A', strtotime($l['created_at'])) ?></td>
+                                                <td data-order="<?= date('Y-m-d H:i:s', strtotime($l['created_at'])) ?>"><?= date('d M Y, h:i A', strtotime($l['created_at'])) ?></td>
                                                 <td><?= htmlspecialchars($l['description']) ?></td>
                                                 <td class="<?= $l['type'] == 'credit' ? 'text-success' : 'text-danger' ?>">
                                                     <?= $l['type'] == 'credit' ? '+' : '-' ?> Rs <?= number_format($l['amount'], 2) ?>
@@ -633,7 +705,62 @@ $ledger_history = $ledgerStmt->fetchAll();
   </div>
 </div>
 
+<!-- jQuery & DataTables JS -->
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+<!-- DataTables Buttons JS -->
+<script src="https://cdn.datatables.net/buttons/2.4.2/js/dataTables.buttons.min.js"></script>
+<script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.bootstrap5.min.js"></script>
+<script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.html5.min.js"></script>
+<script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.print.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.7/pdfmake.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.7/vfs_fonts.js"></script>
+
 <script>
+$(document).ready(function() {
+    // Custom filtering function for date range
+    $.fn.dataTable.ext.search.push(function(settings, data, dataIndex, rowData, counter) {
+        let min = $('#minLedgerDate').val();
+        let max = $('#maxLedgerDate').val();
+        // Get the date string from the data-order attribute
+        let dateStr = settings.aoData[dataIndex].anCells[0].getAttribute('data-order');
+        if (!dateStr) return true;
+        
+        let rowDate = new Date(dateStr.split(' ')[0]); // Get Y-m-d part
+        let minDate = min ? new Date(min) : null;
+        let maxDate = max ? new Date(max) : null;
+
+        if (
+            (minDate === null && maxDate === null) ||
+            (minDate === null && rowDate <= maxDate) ||
+            (minDate <= rowDate && maxDate === null) ||
+            (minDate <= rowDate && rowDate <= maxDate)
+        ) {
+            return true;
+        }
+        return false;
+    });
+
+    var table = $('#ledgerTable').DataTable({
+        dom: '<"row"<"col-sm-12 col-md-6"B><"col-sm-12 col-md-6"f>>rt<"row"<"col-sm-12 col-md-5"i><"col-sm-12 col-md-7"p>>',
+        buttons: [
+            { extend: 'copy', className: 'btn btn-light border btn-sm text-secondary', title: 'Ledger Details' },
+            { extend: 'csv', className: 'btn btn-light border btn-sm text-secondary', title: 'Ledger Details' },
+            { extend: 'excel', className: 'btn btn-light border btn-sm text-secondary', title: 'Ledger Details' },
+            { extend: 'pdf', className: 'btn btn-light border btn-sm text-secondary', title: 'Ledger Details' },
+            { extend: 'print', className: 'btn btn-light border btn-sm text-secondary', title: 'Ledger Details' }
+        ],
+        pageLength: 10,
+        order: [[0, 'desc']]
+    });
+
+    // Refilter the table on input change
+    $('#minLedgerDate, #maxLedgerDate').on('change', function() {
+        table.draw();
+    });
+});
 const ctxLedger = document.getElementById('ledgerChart').getContext('2d');
 new Chart(ctxLedger, {
     type: 'line',

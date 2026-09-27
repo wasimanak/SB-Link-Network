@@ -174,15 +174,98 @@ $isTicketMenu = in_array($p, ['requests.php']);
     <!-- Top Navbar -->
     <div class="top-nav">
         <div>
-            <span class="fs-5 fw-bold text-dark">Dashboard</span>
+            <a href="dashboard.php" class="text-decoration-none d-flex align-items-center gap-2">
+                <div class="bg-primary text-white d-flex align-items-center justify-content-center rounded shadow-sm" style="width: 38px; height: 38px; background: linear-gradient(135deg, #3b82f6, #2563eb);">
+                    <i class="fa-solid fa-wifi"></i>
+                </div>
+                <span class="fs-4 fw-bold text-dark" style="letter-spacing: -0.5px;">SB-Link <span class="text-primary">Piplan</span></span>
+            </a>
         </div>
-        <div>
-            <div class="input-group">
-                <input type="text" class="form-control bg-light border-secondary text-dark" placeholder="Search...">
-                <button class="btn btn-outline-secondary"><i class="fa-solid fa-search"></i></button>
+        <div class="position-relative d-none d-md-block" style="width: 350px;">
+            <div class="input-group" style="box-shadow: 0 2px 10px rgba(0,0,0,0.05); border-radius: 20px;">
+                <span class="input-group-text bg-white border-end-0 text-muted px-3" style="border-radius: 20px 0 0 20px; border-color: #e5e7eb;">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                </span>
+                <input type="text" id="omniSearch" class="form-control border-start-0 ps-0 shadow-none" placeholder="Search users, packages, tools..." style="border-radius: 0 20px 20px 0; background: #fff; border-color: #e5e7eb; font-size: 0.95rem;">
+                <!-- Loading Spinner -->
+                <span id="omniLoader" class="position-absolute end-0 top-50 translate-middle-y me-3 d-none" style="z-index: 5;">
+                    <i class="fa-solid fa-circle-notch fa-spin text-primary"></i>
+                </span>
+            </div>
+            
+            <!-- Dropdown Results -->
+            <div id="omniResults" class="position-absolute w-100 bg-white rounded shadow-lg mt-2 d-none" style="z-index: 1050; max-height: 400px; overflow-y: auto; border: 1px solid #f1f5f9; overflow-x: hidden;">
+                <div class="list-group list-group-flush" id="omniResultsList"></div>
             </div>
         </div>
     </div>
+
+    <!-- Omni Search Script -->
+    <script>
+    document.addEventListener("DOMContentLoaded", function() {
+        let debounceTimer;
+        const searchInput = document.getElementById('omniSearch');
+        const searchResults = document.getElementById('omniResults');
+        const resultsList = document.getElementById('omniResultsList');
+        const loader = document.getElementById('omniLoader');
+        
+        if (!searchInput) return;
+
+        searchInput.addEventListener('input', function() {
+            let q = this.value.trim();
+            
+            if (q.length < 2) {
+                searchResults.classList.add('d-none');
+                return;
+            }
+            
+            clearTimeout(debounceTimer);
+            loader.classList.remove('d-none');
+            
+            debounceTimer = setTimeout(function() {
+                fetch('api_search.php?q=' + encodeURIComponent(q))
+                    .then(response => response.json())
+                    .then(data => {
+                        resultsList.innerHTML = '';
+                        
+                        if (data.length === 0) {
+                            resultsList.innerHTML = `<div class="p-3 text-center text-muted small"><i class="fa-solid fa-box-open mb-2 fs-4"></i><br>No results found for "<b>${q}</b>"</div>`;
+                        } else {
+                            let currentType = '';
+                            
+                            data.forEach(item => {
+                                if (item.type !== currentType) {
+                                    currentType = item.type;
+                                    resultsList.innerHTML += `<div class="bg-light px-3 py-1 text-muted text-uppercase fw-bold" style="font-size: 0.7rem; letter-spacing: 0.5px;">${currentType}</div>`;
+                                }
+                                
+                                resultsList.innerHTML += `
+                                    <a href="${item.url}" class="list-group-item list-group-item-action border-0 px-3 py-2 d-flex align-items-center gap-3" style="transition: 0.2s;">
+                                        <div class="bg-light text-primary rounded-circle d-flex align-items-center justify-content-center" style="width: 32px; height: 32px;">
+                                            <i class="fa-solid ${item.icon}"></i>
+                                        </div>
+                                        <div class="fw-medium text-dark" style="font-size: 0.9rem;">${item.title}</div>
+                                    </a>
+                                `;
+                            });
+                        }
+                        
+                        searchResults.classList.remove('d-none');
+                        loader.classList.add('d-none');
+                    })
+                    .catch(() => {
+                        loader.classList.add('d-none');
+                    });
+            }, 300);
+        });
+
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('.position-relative')) {
+                searchResults.classList.add('d-none');
+            }
+        });
+    });
+    </script>
 
     <!-- Main Content wrapper -->
     <div class="main-content">
