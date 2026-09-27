@@ -2,6 +2,10 @@
 session_start();
 require_once '../config/db.php';
 
+// Prune old activity logs (30 days)
+try { $pdo->exec("DELETE FROM activity_logs WHERE created_at < NOW() - INTERVAL 30 DAY"); } catch (Exception $e) {}
+
+
 // Auth Check
 if (!isset($_SESSION['operator_logged_in']) || !isset($_SESSION['operator_id'])) {
     header("Location: login.php");
@@ -173,12 +177,13 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
             </a>
 
         <!-- Team -->
-        <a href="#teamMenu" data-bs-toggle="collapse" class="nav-link-main has-submenu <?= $p==='dealers.php' ? 'active-parent' : 'collapsed' ?>" aria-expanded="<?= $p==='dealers.php' ? 'true' : 'false' ?>">
+        <a href="#teamMenu" data-bs-toggle="collapse" class="nav-link-main has-submenu <?= $isTeamMenu ? 'active-parent' : 'collapsed' ?>" aria-expanded="<?= $isTeamMenu ? 'true' : 'false' ?>">
             <i class="fa-solid fa-sitemap menu-icon"></i> Team
         </a>
-        <div class="collapse submenu <?= $p==='dealers.php' ? 'show' : '' ?>" id="teamMenu">
-            <a href="dealers.php" class="<?= $p==='dealers.php' ? 'active' : '' ?>">Dealer</a>
-            <a href="#">Add Member</a>
+        <div class="collapse submenu <?= $isTeamMenu ? 'show' : '' ?>" id="teamMenu">
+            <a href="dealers.php" class="<?= $p==='dealers.php' || $p==='dealer_view.php' ? 'active' : '' ?>">Dealer</a>
+            <a href="recovery_man.php" class="<?= $p==='recovery_man.php' ? 'active' : '' ?>">Recovery Man</a>
+            <a href="line_man.php" class="<?= $p==='line_man.php' ? 'active' : '' ?>">Line Man</a>
         </div>
 
         <!-- User -->

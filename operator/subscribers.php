@@ -39,6 +39,63 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($pkg) {
                 try {
                     $pdo->beginTransaction();
+                    
+                    // Deduct balance if user belongs to a dealer (Handling Upgrades & Renewals)
+                    $dStmt = $pdo->prepare("SELECT dealer_id, package_id as old_package_id, expiry_date as old_expiry FROM subscribers WHERE id = ?");
+                    $dStmt->execute([$id]);
+                    $subData = $dStmt->fetch(PDO::FETCH_ASSOC);
+                    $sub_dealer_id = $subData['dealer_id'] ?? 0;
+                    
+                    if ($sub_dealer_id > 0) {
+                        // 1. Calculate Old Package Remaining Value
+                        $old_remaining_value = 0;
+                        if (!empty($subData['old_expiry']) && strtotime($subData['old_expiry']) > time()) {
+                            $old_dpStmt = $pdo->prepare("SELECT dealer_price FROM dealer_packages WHERE dealer_id = ? AND package_id = ?");
+                            $old_dpStmt->execute([$sub_dealer_id, $subData['old_package_id']]);
+                            $old_dp_price = $old_dpStmt->fetchColumn();
+                            if ($old_dp_price === false) {
+                                $opq = $pdo->prepare("SELECT price FROM packages WHERE id = ?");
+                                $opq->execute([$subData['old_package_id']]);
+                                $old_dp_price = $opq->fetchColumn() ?: 0;
+                            }
+                            $old_seconds = strtotime($subData['old_expiry']) - time();
+                            $old_days = $old_seconds / 86400; // Exact fractional days
+                            $old_price_per_day = $old_dp_price / 30;
+                            $old_remaining_value = $old_days * $old_price_per_day;
+                        }
+
+                        // 2. Calculate New Package Total Value
+                        $new_dpStmt = $pdo->prepare("SELECT dealer_price FROM dealer_packages WHERE dealer_id = ? AND package_id = ?");
+                        $new_dpStmt->execute([$sub_dealer_id, $package_id]);
+                        $new_dp_price = $new_dpStmt->fetchColumn();
+                        if ($new_dp_price === false) {
+                            $new_dp_price = $pkg['price'] ?? 0;
+                        }
+                        
+                        $new_total_value = 0;
+                        $new_seconds = strtotime($expiry_date) - time();
+                        if ($new_seconds > 0) {
+                            $new_days = $new_seconds / 86400; // Exact fractional days
+                            $new_price_per_day = $new_dp_price / 30;
+                            $new_total_value = $new_days * $new_price_per_day;
+                        }
+
+                        // 3. Net Deduction
+                        $net_deduction = round($new_total_value - $old_remaining_value, 2);
+
+                        if ($net_deduction > 0) {
+                            // Deduct from dealer
+                            $pdo->prepare("UPDATE dealers SET balance = balance - ? WHERE id = ?")->execute([$net_deduction, $sub_dealer_id]);
+                            
+                            $note = "Package Upgrade/Renew for user $u. Total Cost: Rs." . round($new_total_value, 2) . ", Old Credit: Rs." . round($old_remaining_value, 2) . ". Net Deducted: Rs. $net_deduction";
+                            $pdo->prepare("INSERT INTO dealer_notes (dealer_id, note) VALUES (?, ?)")->execute([$sub_dealer_id, $note]);
+                        } else {
+                            // Downgrade or unused credit covers it. No deduction.
+                            $note = "Package Downgrade/Change for user $u. Total Cost: Rs." . round($new_total_value, 2) . " covered by Old Credit Rs." . round($old_remaining_value, 2) . ". No balance deducted.";
+                            $pdo->prepare("INSERT INTO dealer_notes (dealer_id, note) VALUES (?, ?)")->execute([$sub_dealer_id, $note]);
+                        }
+                    }
+
                     $pdo->prepare("UPDATE subscribers SET package_id = ?, expiry_date = ?, status = 'active' WHERE id = ?")->execute([$package_id, $expiry_date, $id]);
                     $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Rate-Limit'")->execute([$u]);
                     if (!empty($pkg['rate_limit']) && $pkg['rate_limit'] !== 'No Limit') {
@@ -47,7 +104,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $formatted_expiry = date('d M Y H:i:s', strtotime($expiry_date));
                     $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute IN ('Expiration', 'Auth-Type')")->execute([$u]);
                     $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Expiration', ':=', ?)")->execute([$u, $formatted_expiry]);
-                    $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, 'Admin', ?, 'User', 'Package Renewed & Expiry Updated')")->execute([$client_id, $u]);
+                    
+                    $act_dealer_id = ($sub_dealer_id > 0) ? $sub_dealer_id : null;
+                    $pdo->prepare("INSERT INTO activity_logs (client_id, dealer_id, by_user, against_to, against_role, activity) VALUES (?, ?, 'Admin', ?, 'User', 'Package Renewed & Expiry Updated')")->execute([$client_id, $act_dealer_id, $u]);
                     $pdo->commit();
                     echo "<script>alert('Subscriber renewed and expiry updated successfully!'); window.location='subscribers.php';</script>";
                     exit;
@@ -61,6 +120,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // ADD USER (From Modal)
     if ($action === 'add_user') {
+        $dealer_id = isset($_POST['dealer_id']) ? (int)$_POST['dealer_id'] : 0;
+        $expiry_date = !empty($_POST['expiry_date']) ? $_POST['expiry_date'] : null;
         $full_name = trim($_POST['full_name']);
         $username = trim($_POST['username']);
         $password = trim($_POST['password']);
@@ -91,8 +152,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($pkg) {
                 try {
                     $pdo->beginTransaction();
-                    $pdo->prepare("INSERT INTO subscribers (client_id, package_id, username, password, service_type, full_name, national_id, mobile, phone, email, address, subarea, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-                        ->execute([$client_id, $package_id, $username, $password, $service_type, $full_name, $national_id, $mobile, $phone, $email, $address, $subarea, $latitude, $longitude]);
+                    
+                    if ($dealer_id > 0) {
+                        // Find price
+                        $dpStmt = $pdo->prepare("SELECT dealer_price FROM dealer_packages WHERE dealer_id = ? AND package_id = ?");
+                        $dpStmt->execute([$dealer_id, $package_id]);
+                        $dp_price = $dpStmt->fetchColumn();
+                        if ($dp_price === false) {
+                            $dp_price = $pkg['price'] ?? 0;
+                        }
+                        
+                        $deduction = 0;
+                        if ($expiry_date) {
+                            $seconds = strtotime($expiry_date) - time();
+                            if ($seconds > 0) {
+                                $days = ceil($seconds / 86400);
+                                $price_per_day = $dp_price / 30;
+                                $deduction = round($days * $price_per_day, 2);
+                            }
+                        } else {
+                            $deduction = $dp_price; // Standard 1 month deduction
+                        }
+                        
+                        if ($deduction > 0) {
+                            $pdo->prepare("UPDATE dealers SET balance = balance - ? WHERE id = ?")->execute([$deduction, $dealer_id]);
+                            $note = "Created user $username. Deducted Rs. $deduction";
+                            $pdo->prepare("INSERT INTO dealer_notes (dealer_id, note) VALUES (?, ?)")->execute([$dealer_id, $note]);
+                        }
+                    }
+
+                    $pdo->prepare("INSERT INTO subscribers (client_id, dealer_id, package_id, username, password, service_type, full_name, national_id, mobile, phone, email, address, subarea, latitude, longitude, expiry_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                        ->execute([$client_id, $dealer_id > 0 ? $dealer_id : null, $package_id, $username, $password, $service_type, $full_name, $national_id, $mobile, $phone, $email, $address, $subarea, $latitude, $longitude, $expiry_date]);
                     
                     $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Cleartext-Password', ':=', ?)")
                         ->execute([$username, $password]);
@@ -101,6 +191,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Rate-Limit', '=', ?)")
                             ->execute([$username, $pkg['rate_limit']]);
                     }
+                    
+                    $act_dealer_id = ($dealer_id > 0) ? $dealer_id : null;
+                    $pdo->prepare("INSERT INTO activity_logs (client_id, dealer_id, by_user, against_to, against_role, activity) VALUES (?, ?, 'Admin', ?, 'User', 'Created New User')")->execute([$client_id, $act_dealer_id, $username]);
                     
                     $pdo->commit();
                     echo "<script>alert('User created successfully!'); window.location='subscribers.php';</script>";
@@ -113,6 +206,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 }
+
+// Fetch Dealers for Dropdown
+$dealerStmt = $pdo->prepare("SELECT id, username, full_name, balance FROM dealers WHERE client_id = ? AND status = 'active'");
+$dealerStmt->execute([$client_id]);
+$dealers = $dealerStmt->fetchAll();
 
 // Fetch Packages for Dropdown
 $pkgStmt = $pdo->prepare("SELECT * FROM packages WHERE client_id = ?");
@@ -452,6 +550,20 @@ function formatUptime($seconds) {
                                             <option value="<?= $p['id'] ?>"><?= htmlspecialchars($p['name']) ?> (<?= htmlspecialchars($p['rate_limit']) ?>)</option>
                                         <?php endforeach; ?>
                                     </select>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="col-form-label">Assign Dealer (Optional)</label>
+                                    <select name="dealer_id" class="form-select">
+                                        <option value="">None</option>
+                                        <?php foreach($dealers as $d): ?>
+                                            <option value="<?= $d['id'] ?>"><?= htmlspecialchars($d['full_name']) ?> (Bal: <?= $d['balance'] ?>)</option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="col-form-label">Custom Expiry (Optional)</label>
+                                    <input type="datetime-local" name="expiry_date" class="form-control">
+                                    <small class="text-muted" style="font-size: 0.75rem;">If dealer selected, balance deducts by days.</small>
                                 </div>
                             </div>
                         </div>
