@@ -282,25 +282,6 @@ $subs = $pdo->query("SELECT s.*, p.name as package_name,
     <a href="#" class="quick-btn" data-bs-toggle="modal" data-bs-target="#restoreModal"><i class="fa-solid fa-upload text-warning"></i><span>Restore Expiry</span></a>
 </div>
 
-<!-- Forms Row -->
-<div class="row mb-4">
-    <div class="col-md-6">
-        <div class="card-ui search-card">
-            <i class="fa-solid fa-user text-primary"></i> <strong class="me-auto text-secondary">View Profile</strong>
-            <select class="form-select w-auto"><option>Select Profile Type</option></select>
-            <select class="form-select w-auto"><option>Select an Option</option></select>
-            <button class="btn-dark-custom">View Profile</button>
-        </div>
-    </div>
-    <div class="col-md-6">
-        <div class="card-ui search-card">
-            <i class="fa-solid fa-ticket text-primary"></i> <strong class="me-auto text-secondary">Token</strong>
-            <select class="form-select w-auto"><option>Token Type</option></select>
-            <input type="text" class="form-control w-auto" placeholder="Token Secret">
-            <button class="btn-dark-custom">Status</button>
-        </div>
-    </div>
-</div>
 
 <!-- Reports & Statistics Card -->
 <div class="card-ui p-4">

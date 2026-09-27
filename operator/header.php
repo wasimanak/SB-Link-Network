@@ -160,6 +160,10 @@ $isTicketMenu = in_array($p, ['requests.php']);
             <a href="requests.php" class="<?= $p==='requests.php' ? 'active' : '' ?>">Renewal Requests</a>
             <a href="#">Support Tickets</a>
         </div>
+        <!-- Payment Gateways -->
+        <a href="payment_gateways.php" class="nav-link-main <?= $p==='payment_gateways.php' ? 'active-parent' : '' ?>">
+            <i class="fa-brands fa-cc-stripe menu-icon"></i> Payment Gateways
+        </a>
 
         <a href="#" class="nav-link-main">
             <i class="fa-solid fa-bell menu-icon"></i> Notices

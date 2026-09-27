@@ -52,6 +52,7 @@ $user = $stmt->fetch();
 
 $total_users = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id")->fetchColumn();
 $total_packages = $pdo->query("SELECT COUNT(*) FROM packages WHERE client_id = $client_id")->fetchColumn();
+$total_advance = $pdo->query("SELECT SUM(balance) FROM subscribers WHERE client_id = $client_id")->fetchColumn() ?: 0;
 $total_dealers = 3; // Placeholder as per UI
 $total_subdealers = 0; // Placeholder as per UI
 
@@ -182,8 +183,8 @@ $packages_list = $pkgStmt->fetchAll();
                 <div class="metric-card-sm py-4">
                     <div class="metric-icon-sm bg-light-grey" style="background:#f1f5f9; color:#475569;"><i class="fa-regular fa-credit-card"></i></div>
                     <div class="metric-data-sm">
-                        <h6>Current Balance</h6>
-                        <h4><?= number_format($user['balance'], 2) ?></h4>
+                        <h6>Total Advance / Balance</h6>
+                        <h4 class="<?= $total_advance < 0 ? 'text-danger' : 'text-success' ?>">Rs. <?= number_format($total_advance, 2) ?></h4>
                     </div>
                 </div>
             </div>
