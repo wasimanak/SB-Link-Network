@@ -87,18 +87,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['package_id'])) {
         }
 
     } else {
-        // Manual Verification Logic for Bank Transfer
+        // Online Payment Logic (Bank Transfer / QR)
+        // Send a pending request to the operator
         if (empty($payment_reference)) {
             echo "<script>alert('Transaction ID is required for online payments.'); window.history.back();</script>";
             exit;
         }
 
-        // Insert pending request
-        $stmt = $pdo->prepare("INSERT INTO package_requests (subscriber_id, package_id, client_id, status, payment_method, payment_reference) VALUES (?, ?, ?, 'pending', 'bank_transfer', ?)");
-        $stmt->execute([$current_user['id'], $package_id, $client_id, $payment_reference]);
-        
-        echo "<script>alert('Request submitted! Operator will verify your transaction shortly.'); window.location='dashboard.php';</script>";
-        exit;
+        try {
+            // Insert pending request
+            $stmt = $pdo->prepare("INSERT INTO package_requests (subscriber_id, package_id, client_id, status, payment_method, payment_reference) VALUES (?, ?, ?, 'pending', 'bank_transfer', ?)");
+            $stmt->execute([$current_user['id'], $package_id, $client_id, $payment_reference]);
+            
+            echo "<script>alert('Request submitted successfully! Your package will be activated once the payment is verified.'); window.location='dashboard.php';</script>";
+            exit;
+        } catch (Exception $e) {
+            echo "<script>alert('Error submitting request. Please try again.'); window.location='dashboard.php';</script>";
+            exit;
+        }
     }
 }
 header("Location: dashboard.php");

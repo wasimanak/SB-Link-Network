@@ -204,65 +204,79 @@ $bank_details = $operator_info['bank_details'] ?: "Bank details not provided. Pl
 
 <!-- Buy Now Modal -->
 <div class="modal fade" id="buyModal" tabindex="-1">
-  <div class="modal-dialog">
-    <div class="modal-content bg-dark border-secondary text-light">
-      <div class="modal-header border-secondary">
-        <h5 class="modal-title text-accent"><i class="fa-solid fa-cart-shopping"></i> Purchase Package</h5>
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content bg-dark border border-secondary shadow-lg text-light" style="border-radius: 16px;">
+      <div class="modal-header border-bottom border-secondary p-4">
+        <h5 class="modal-title fw-bold text-accent"><i class="fa-solid fa-cart-shopping me-2"></i> Purchase Package</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <form action="request_action.php" method="POST">
         <input type="hidden" name="package_id" id="modal_pkg_id">
         <div class="modal-body p-4">
             
-            <div class="text-center mb-4">
-                <h5 id="modal_pkg_name" class="fw-bold">Package Name</h5>
-                <h3 class="text-accent">Rs <span id="modal_pkg_price">0.00</span></h3>
+            <div class="text-center mb-4 p-3 rounded" style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.2);">
+                <h5 id="modal_pkg_name" class="fw-bold mb-1">Package Name</h5>
+                <h2 class="text-accent fw-bold mb-0">Rs <span id="modal_pkg_price">0.00</span></h2>
             </div>
 
-            <div class="mb-4">
-                <label class="form-label text-secondary fw-bold">Select Payment Method</label>
-                <div class="form-check mb-2">
-                    <input class="form-check-input" type="radio" name="payment_method" id="pay_balance" value="balance" checked onchange="togglePaymentUI()">
-                    <label class="form-check-label" for="pay_balance">
-                        Use Account Balance (Current: Rs <?= number_format($current_user['balance'], 2) ?>)
-                    </label>
-                </div>
-                <div class="form-check">
-                    <input class="form-check-input" type="radio" name="payment_method" id="pay_online" value="bank_transfer" onchange="togglePaymentUI()">
-                    <label class="form-check-label" for="pay_online">
-                        Online Transfer (Bank / EasyPaisa / JazzCash)
-                    </label>
-                </div>
+            <h6 class="text-secondary fw-bold mb-3">Select Payment Method</h6>
+            
+            <!-- Payment Options -->
+            <div class="d-flex flex-column gap-2 mb-4">
+                
+                <!-- Online Transfer (Default) -->
+                <label class="form-check-label w-100 m-0" style="cursor: pointer;">
+                    <div class="d-flex align-items-center p-3 rounded border border-primary bg-primary bg-opacity-10 payment-option" id="opt_online_box" style="transition: 0.2s;">
+                        <input class="form-check-input mt-0 me-3 fs-5" type="radio" name="payment_method" id="pay_online" value="bank_transfer" checked onchange="togglePaymentUI()">
+                        <div>
+                            <div class="fw-bold text-light"><i class="fa-solid fa-qrcode text-accent me-1"></i> Scan & Pay (Auto-Verify)</div>
+                            <div class="small text-secondary">Pay directly via Bank, EasyPaisa, or JazzCash app</div>
+                        </div>
+                    </div>
+                </label>
+
+                <!-- Account Balance -->
+                <label class="form-check-label w-100 m-0" style="cursor: pointer;">
+                    <div class="d-flex align-items-center p-3 rounded border border-secondary payment-option" id="opt_balance_box" style="background: rgba(255,255,255,0.02); transition: 0.2s;">
+                        <input class="form-check-input mt-0 me-3 fs-5" type="radio" name="payment_method" id="pay_balance" value="balance" onchange="togglePaymentUI()">
+                        <div>
+                            <div class="fw-bold text-light"><i class="fa-solid fa-wallet text-success me-1"></i> Account Balance</div>
+                            <div class="small text-secondary">Current Balance: <strong class="text-success">Rs <?= number_format($current_user['balance'], 2) ?></strong></div>
+                        </div>
+                    </div>
+                </label>
+                
             </div>
 
             <!-- Online Payment Details Box -->
-            <div id="onlinePaymentBox" class="d-none border border-secondary p-3 rounded bg-transparent">
-                <h6 class="text-accent mb-3"><i class="fa-solid fa-building-columns"></i> Operator Payment Details</h6>
-                <div class="mb-3 text-secondary" style="white-space: pre-wrap; font-size: 0.9rem;"><?= htmlspecialchars($bank_details) ?></div>
-                
-                <?php if(!empty($operator_info['qr_code'])): ?>
-                    <!-- Optional QR Code Display (if URL/Path provided) -->
-                    <div class="text-center mb-3">
-                        <img src="<?= htmlspecialchars($operator_info['qr_code']) ?>" alt="QR Code" style="max-width: 150px; border-radius: 8px;">
-                    </div>
-                <?php endif; ?>
-
-                <div class="mb-2">
-                    <label class="form-label text-light">Enter Transaction ID / Reference No.</label>
-                    <input type="text" name="payment_reference" id="payment_reference" class="form-control bg-dark text-light border-secondary" placeholder="e.g. TID123456789">
-                    <small class="text-secondary mt-1 d-block">Operator will verify this transaction before activating the package.</small>
+            <div id="onlinePaymentBox" class="border border-secondary p-4 rounded text-center" style="background: rgba(0,0,0,0.2);">
+                <div class="mb-3">
+                    <span class="badge bg-primary bg-opacity-10 text-primary rounded-pill px-3 py-2 border border-primary"><i class="fa-solid fa-qrcode"></i> Scan to Pay</span>
                 </div>
+                
+                <p class="text-secondary small mb-3">Scan the QR Code below with your Banking App to pay.</p>
+                
+                <div class="d-inline-block bg-white p-2 rounded shadow mb-3" style="border: 2px solid #3b82f6;">
+                    <img id="qr_code_img" src="" alt="Dynamic QR" class="img-fluid rounded" style="width: 160px; height: 160px;">
+                </div>
+                
+                <h5 class="text-light fw-bold mb-1"><?= htmlspecialchars($operator_info['company_name'] ?: 'SB-Link Network') ?></h5>
+                <p class="text-secondary small mb-0">Bank Name: <span class="text-light fw-bold">Meezan Bank</span></p>
+
+                <div class="alert alert-info border-info bg-transparent text-info mt-3 mb-0" style="font-size: 0.85rem;">
+                    <i class="fa-solid fa-circle-info"></i> After scanning and paying, click <b>Submit Request</b>. The operator will verify and activate your package.
+                </div>
+
+                <input type="hidden" name="payment_reference" id="payment_reference" value="AUTO_<?= time() ?>_<?= $current_user['id'] ?>">
             </div>
 
-            <!-- Balance Payment Info -->
-            <div id="balancePaymentBox" class="alert alert-info border-info bg-transparent text-info mt-3">
-                <i class="fa-solid fa-bolt"></i> Auto-Verification Enabled! Amount will be deducted from your wallet and package activated instantly.
-            </div>
+            <!-- Balance Payment Info (Hidden / Removed) -->
+            <div id="balancePaymentBox" class="d-none"></div>
 
         </div>
-        <div class="modal-footer border-secondary">
-          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-accent">Confirm Purchase</button>
+        <div class="modal-footer border-top border-secondary p-3">
+          <button type="button" class="btn btn-outline-secondary px-4 rounded-pill" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" id="submitBtn" class="btn btn-accent px-4 rounded-pill fw-bold"><i class="fa-solid fa-paper-plane me-1"></i> Submit Request</button>
         </div>
       </form>
     </div>
@@ -275,6 +289,12 @@ function openBuyModal(id, name, price) {
     document.getElementById('modal_pkg_name').innerText = name;
     document.getElementById('modal_pkg_price').innerText = price.toFixed(2);
     
+    // Generate unique QR code URL (using goqr.me or qrserver API)
+    // Data inside: user_id | amount | timestamp
+    var qrData = encodeURIComponent("PAY_<?= $current_user['id'] ?>_AMT_" + price.toFixed(2) + "_TS_" + Date.now());
+    var qrUrl = "https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=" + qrData;
+    document.getElementById('qr_code_img').src = qrUrl;
+    
     var modal = new bootstrap.Modal(document.getElementById('buyModal'));
     modal.show();
 }
@@ -282,14 +302,41 @@ function openBuyModal(id, name, price) {
 function togglePaymentUI() {
     var isOnline = document.getElementById('pay_online').checked;
     
+    // UI Styling for the blocks
+    var optOnline = document.getElementById('opt_online_box');
+    var optBalance = document.getElementById('opt_balance_box');
+    
     if (isOnline) {
+        // Show Online UI
         document.getElementById('onlinePaymentBox').classList.remove('d-none');
         document.getElementById('payment_reference').setAttribute('required', 'required');
-        document.getElementById('balancePaymentBox').classList.add('d-none');
+        document.getElementById('submitBtn').innerHTML = '<i class="fa-solid fa-paper-plane me-1"></i> Submit Request';
+        
+        // Highlight Online Option
+        optOnline.classList.add('border-primary', 'bg-primary', 'bg-opacity-10');
+        optOnline.classList.remove('border-secondary');
+        optOnline.style.background = '';
+        
+        // Unhighlight Balance Option
+        optBalance.classList.remove('border-primary', 'bg-primary', 'bg-opacity-10');
+        optBalance.classList.add('border-secondary');
+        optBalance.style.background = 'rgba(255,255,255,0.02)';
+        
     } else {
+        // Hide Online UI
         document.getElementById('onlinePaymentBox').classList.add('d-none');
         document.getElementById('payment_reference').removeAttribute('required');
-        document.getElementById('balancePaymentBox').classList.remove('d-none');
+        document.getElementById('submitBtn').innerHTML = '<i class="fa-solid fa-bolt me-1"></i> Confirm & Activate';
+        
+        // Highlight Balance Option
+        optBalance.classList.add('border-primary', 'bg-primary', 'bg-opacity-10');
+        optBalance.classList.remove('border-secondary');
+        optBalance.style.background = '';
+        
+        // Unhighlight Online Option
+        optOnline.classList.remove('border-primary', 'bg-primary', 'bg-opacity-10');
+        optOnline.classList.add('border-secondary');
+        optOnline.style.background = 'rgba(255,255,255,0.02)';
     }
 }
 </script>
