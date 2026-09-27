@@ -174,12 +174,15 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
         </div>
         
         <!-- MikroTik Menu -->
-        <a href="#mikrotikMenu" data-bs-toggle="collapse" class="nav-link-main has-submenu <?= in_array($p, ['mikrotik_connect.php', 'mikrotik_sync.php']) ? 'active-parent' : 'collapsed' ?>" aria-expanded="<?= in_array($p, ['mikrotik_connect.php', 'mikrotik_sync.php']) ? 'true' : 'false' ?>">
+        <a href="#mikrotikMenu" data-bs-toggle="collapse" class="nav-link-main has-submenu <?= in_array($p, ['mikrotik_connect.php', 'mikrotik_sync.php', 'mikrotik_pools.php', 'mikrotik_active.php', 'mikrotik_dhcp.php']) ? 'active-parent' : 'collapsed' ?>" aria-expanded="<?= in_array($p, ['mikrotik_connect.php', 'mikrotik_sync.php', 'mikrotik_pools.php', 'mikrotik_active.php', 'mikrotik_dhcp.php']) ? 'true' : 'false' ?>">
             <i class="fa-solid fa-router menu-icon"></i> MikroTik
         </a>
-        <div class="collapse submenu <?= in_array($p, ['mikrotik_connect.php', 'mikrotik_sync.php']) ? 'show' : '' ?>" id="mikrotikMenu">
+        <div class="collapse submenu <?= in_array($p, ['mikrotik_connect.php', 'mikrotik_sync.php', 'mikrotik_pools.php', 'mikrotik_active.php', 'mikrotik_dhcp.php']) ? 'show' : '' ?>" id="mikrotikMenu">
             <a href="mikrotik_connect.php" class="<?= $p==='mikrotik_connect.php' ? 'active' : '' ?>">Connection Settings</a>
             <a href="mikrotik_sync.php" class="<?= $p==='mikrotik_sync.php' ? 'active' : '' ?>">Live Sync</a>
+            <a href="mikrotik_pools.php" class="<?= $p==='mikrotik_pools.php' ? 'active' : '' ?>">IP Pools</a>
+            <a href="mikrotik_active.php" class="<?= $p==='mikrotik_active.php' ? 'active' : '' ?>">Active PPPoE (Live)</a>
+            <a href="mikrotik_dhcp.php" class="<?= $p==='mikrotik_dhcp.php' ? 'active' : '' ?>">DHCP Leases</a>
         </div>
 
         <!-- Tickets -->
