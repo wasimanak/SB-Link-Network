@@ -279,13 +279,14 @@ $subs = $pdo->query("SELECT s.*, p.name as package_name,
     <h6 class="fw-bold text-secondary mb-4"><i class="fa-solid fa-chart-pie me-2 text-primary"></i> Reports & Statistics</h6>
     
     <div class="stat-tabs">
-        <a href="#" class="stat-tab active"><i class="fa-solid fa-user me-1"></i> User</a>
-        <a href="packages.php" class="stat-tab"><i class="fa-solid fa-dollar-sign me-1"></i> Accounting</a>
-        <a href="activity_logs.php" class="stat-tab"><i class="fa-solid fa-chart-line me-1"></i> Usage</a>
+        <a href="javascript:void(0)" onclick="switchStatTab('user', this)" class="stat-tab active"><i class="fa-solid fa-user me-1"></i> User</a>
+        <a href="javascript:void(0)" onclick="switchStatTab('accounting', this)" class="stat-tab"><i class="fa-solid fa-dollar-sign me-1"></i> Accounting</a>
+        <a href="javascript:void(0)" onclick="switchStatTab('usage', this)" class="stat-tab"><i class="fa-solid fa-chart-line me-1"></i> Usage</a>
         <a href="#" class="stat-tab"><i class="fa-solid fa-map-location-dot me-1"></i> Map</a>
     </div>
 
-    <div class="row">
+    <!-- User Tab Content -->
+    <div id="stat-content-user" class="row">
         <!-- Donut Chart -->
         <div class="col-lg-3 col-md-4 mb-4 text-center">
             <h6 class="text-start fw-bold text-secondary mb-3 border-start border-3 border-primary ps-2">All Users</h6>
@@ -369,6 +370,26 @@ $subs = $pdo->query("SELECT s.*, p.name as package_name,
             </div>
         </div>
     </div>
+
+    <!-- Usage Tab Content -->
+    <div id="stat-content-usage" class="row d-none">
+        <div class="col-12 text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <div class="text-muted mt-2 small">Loading Usage Statistics...</div>
+        </div>
+    </div>
+
+    <!-- Accounting Tab Content -->
+    <div id="stat-content-accounting" class="row d-none">
+        <div class="col-12 text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <div class="text-muted mt-2 small">Loading Accounting Statistics...</div>
+        </div>
+    </div>
 </div>
 
 <!-- User Reports Table -->
@@ -430,7 +451,14 @@ $subs = $pdo->query("SELECT s.*, p.name as package_name,
                     </td>
                     <td>
                         <?php if($s['expiry_date']): ?>
-                            <span class="badge rounded-pill badge-soft-success px-3 py-2"><?= date('d M Y H:i:s', strtotime($s['expiry_date'])) ?></span>
+                            <?php if(strtotime($s['expiry_date']) < time()): ?>
+                                <div class="d-flex flex-column align-items-center gap-1">
+                                    <span class="badge rounded-pill bg-danger text-white fw-bold px-3 py-1 text-uppercase" style="letter-spacing: 0.5px;">Expired</span>
+                                    <small class="text-muted font-monospace" style="font-size: 0.70rem;"><?= date('d M Y', strtotime($s['expiry_date'])) ?></small>
+                                </div>
+                            <?php else: ?>
+                                <span class="badge rounded-pill badge-soft-success px-3 py-2"><?= date('d M Y H:i:s', strtotime($s['expiry_date'])) ?></span>
+                            <?php endif; ?>
                         <?php else: ?>
                             <span class="badge rounded-pill badge-soft-secondary px-3 py-2">N/A</span>
                         <?php endif; ?>
@@ -542,20 +570,16 @@ $subs = $pdo->query("SELECT s.*, p.name as package_name,
         <h5 class="modal-title fw-bold"><i class="fa-solid fa-user-plus text-primary me-2"></i> Add New User</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
-      <form method="POST">
+      <form method="POST" class="needs-validation" novalidate>
         <input type="hidden" name="action" value="add_user">
         <div class="modal-body p-4 pt-2">
             
-            <div class="accordion shadow-sm rounded overflow-hidden" id="addUserAccordion">
+            <div class="add-user-flat-form">
                 <!-- Account Info -->
-                <div class="accordion-item border-0 border-bottom">
-                    <h2 class="accordion-header">
-                        <button class="accordion-button bg-white text-dark fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#collapseAccount">
-                            <i class="fa-solid fa-user me-2 text-muted"></i> Account Information
-                        </button>
-                    </h2>
-                    <div id="collapseAccount" class="accordion-collapse collapse show" data-bs-parent="#addUserAccordion">
-                        <div class="accordion-body bg-white">
+                <div class="mb-4">
+            <h6 class="fw-bold text-primary mb-3 border-bottom pb-2"><i class="fa-solid fa-user me-2 text-muted"></i> Account Information
+                        </h6>
+            
                             <div class="row">
                                 <div class="col-md-6 mb-3">
                                     <label class="col-form-label text-secondary small fw-bold">Full Name</label>
@@ -578,18 +602,11 @@ $subs = $pdo->query("SELECT s.*, p.name as package_name,
                                 </div>
                             </div>
                         </div>
-                    </div>
-                </div>
-
-                <!-- Service Info -->
-                <div class="accordion-item border-0 border-bottom">
-                    <h2 class="accordion-header">
-                        <button class="accordion-button collapsed bg-white text-dark fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#collapseService">
-                            <i class="fa-solid fa-wifi me-2 text-muted"></i> Service & Package
-                        </button>
-                    </h2>
-                    <div id="collapseService" class="accordion-collapse collapse" data-bs-parent="#addUserAccordion">
-                        <div class="accordion-body bg-white">
+        <!-- Service Info -->
+        <div class="mb-4">
+            <h6 class="fw-bold text-primary mb-3 border-bottom pb-2"><i class="fa-solid fa-wifi me-2 text-muted"></i> Service & Package
+                        </h6>
+            
                             <div class="row">
                                 <div class="col-md-6 mb-3">
                                     <label class="col-form-label text-secondary small fw-bold">Service Type</label>
@@ -609,18 +626,11 @@ $subs = $pdo->query("SELECT s.*, p.name as package_name,
                                 </div>
                             </div>
                         </div>
-                    </div>
-                </div>
-
-                <!-- Contact Info -->
-                <div class="accordion-item border-0">
-                    <h2 class="accordion-header">
-                        <button class="accordion-button collapsed bg-white text-dark fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#collapseContact">
-                            <i class="fa-solid fa-address-book me-2 text-muted"></i> Contact & Location
-                        </button>
-                    </h2>
-                    <div id="collapseContact" class="accordion-collapse collapse" data-bs-parent="#addUserAccordion">
-                        <div class="accordion-body bg-white">
+        <!-- Contact Info -->
+        <div class="mb-4">
+            <h6 class="fw-bold text-primary mb-3 border-bottom pb-2"><i class="fa-solid fa-address-book me-2 text-muted"></i> Contact & Location
+                        </h6>
+            
                             <div class="row">
                                 <div class="col-md-6 mb-3">
                                     <label class="col-form-label text-secondary small fw-bold">Mobile</label>
@@ -652,11 +662,6 @@ $subs = $pdo->query("SELECT s.*, p.name as package_name,
                                 </div>
                             </div>
                         </div>
-                    </div>
-                </div>
-
-            </div>
-            
         </div>
         <div class="modal-footer bg-white border-top-0 pt-0">
           <button type="button" class="btn btn-light border" data-bs-dismiss="modal">Cancel</button>
@@ -910,6 +915,80 @@ $(document).ready(function() {
     });
 
 });
+
+function switchStatTab(tabName, el) {
+    // Save to localStorage
+    localStorage.setItem('activeStatTab', tabName);
+
+    // Update active class on tabs
+    document.querySelectorAll('.stat-tabs .stat-tab').forEach(function(tab) {
+        tab.classList.remove('active');
+    });
+    el.classList.add('active');
+
+    // Toggle content visibility
+    if(tabName === 'user') {
+        document.getElementById('stat-content-user').classList.remove('d-none');
+        document.getElementById('stat-content-usage').classList.add('d-none');
+        document.getElementById('stat-content-accounting').classList.add('d-none');
+    } else if(tabName === 'usage') {
+        document.getElementById('stat-content-user').classList.add('d-none');
+        document.getElementById('stat-content-accounting').classList.add('d-none');
+        var usageContainer = document.getElementById('stat-content-usage');
+        usageContainer.classList.remove('d-none');
+        
+        // Fetch via AJAX
+        usageContainer.innerHTML = '<div class="col-12 text-center py-5"><div class="spinner-border text-primary" role="status"></div><div class="text-muted mt-2 small">Loading Usage Statistics...</div></div>';
+        fetch('ajax_usage_stats.php')
+            .then(res => res.text())
+            .then(html => {
+                usageContainer.innerHTML = html;
+            })
+            .catch(err => {
+                usageContainer.innerHTML = '<div class="col-12 text-center py-5 text-danger">Failed to load statistics.</div>';
+            });
+    } else if(tabName === 'accounting') {
+        document.getElementById('stat-content-user').classList.add('d-none');
+        document.getElementById('stat-content-usage').classList.add('d-none');
+        var accContainer = document.getElementById('stat-content-accounting');
+        accContainer.classList.remove('d-none');
+        
+        // Fetch via AJAX
+        accContainer.innerHTML = '<div class="col-12 text-center py-5"><div class="spinner-border text-primary" role="status"></div><div class="text-muted mt-2 small">Loading Accounting Statistics...</div></div>';
+        fetch('ajax_accounting_stats.php')
+            .then(res => res.text())
+            .then(html => {
+                accContainer.innerHTML = html;
+            })
+            .catch(err => {
+                accContainer.innerHTML = '<div class="col-12 text-center py-5 text-danger">Failed to load statistics.</div>';
+            });
+    }
+}
+
+// Restore active tab on page load
+document.addEventListener('DOMContentLoaded', function() {
+    var savedTab = localStorage.getItem('activeStatTab');
+    if (savedTab === 'usage') {
+        var usageBtn = document.querySelector('.stat-tabs a[onclick*="usage"]');
+        if (usageBtn) switchStatTab('usage', usageBtn);
+    }
+});
 </script>
 
 <?php require_once 'footer.php'; ?>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var forms = document.querySelectorAll('.needs-validation');
+    Array.prototype.slice.call(forms).forEach(function (form) {
+        form.addEventListener('submit', function (event) {
+            if (!form.checkValidity()) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+            form.classList.add('was-validated');
+        }, false);
+    });
+});
+</script>

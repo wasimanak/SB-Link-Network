@@ -173,11 +173,11 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
             </a>
 
         <!-- Team -->
-        <a href="#teamMenu" data-bs-toggle="collapse" class="nav-link-main has-submenu collapsed" aria-expanded="false">
+        <a href="#teamMenu" data-bs-toggle="collapse" class="nav-link-main has-submenu <?= $p==='dealers.php' ? 'active-parent' : 'collapsed' ?>" aria-expanded="<?= $p==='dealers.php' ? 'true' : 'false' ?>">
             <i class="fa-solid fa-sitemap menu-icon"></i> Team
         </a>
-        <div class="collapse submenu" id="teamMenu">
-            <a href="#">All Teams</a>
+        <div class="collapse submenu <?= $p==='dealers.php' ? 'show' : '' ?>" id="teamMenu">
+            <a href="dealers.php" class="<?= $p==='dealers.php' ? 'active' : '' ?>">Dealer</a>
             <a href="#">Add Member</a>
         </div>
 

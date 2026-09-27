@@ -339,9 +339,16 @@ function formatUptime($seconds) {
                     <td><?= $usage_gb ?> GB<br><?= $uptime_fmt ?></td>
                     <td>
                         <?php if($s['expiry_date']): ?>
-                            <span class="badge rounded-pill badge-soft-success px-3 py-2">
-                                <?= date('d M Y h:i A', strtotime($s['expiry_date'])) ?>
-                            </span>
+                            <?php if(strtotime($s['expiry_date']) < time()): ?>
+                                <div class="d-flex flex-column align-items-center gap-1">
+                                    <span class="badge rounded-pill bg-danger text-white fw-bold px-3 py-1 text-uppercase" style="letter-spacing: 0.5px;">Expired</span>
+                                    <small class="text-muted font-monospace" style="font-size: 0.70rem;"><?= date('d M Y h:i A', strtotime($s['expiry_date'])) ?></small>
+                                </div>
+                            <?php else: ?>
+                                <span class="badge rounded-pill badge-soft-success px-3 py-2">
+                                    <?= date('d M Y h:i A', strtotime($s['expiry_date'])) ?>
+                                </span>
+                            <?php endif; ?>
                         <?php else: ?>
                             <span class="badge rounded-pill badge-soft-secondary px-3 py-2">N/A</span>
                         <?php endif; ?>
@@ -391,21 +398,17 @@ function formatUptime($seconds) {
         <h5 class="modal-title"><i class="fa-solid fa-user-plus text-primary"></i> Add New User</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
-      <form method="POST">
+      <form method="POST" class="needs-validation" novalidate>
         <input type="hidden" name="action" value="add_user">
         <div class="modal-body p-4">
             
-            <div class="accordion" id="addUserAccordion">
+            <div class="add-user-flat-form">
                 
                 <!-- Account Info -->
-                <div class="accordion-item">
-                    <h2 class="accordion-header">
-                        <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapseAccount">
-                            <i class="fa-solid fa-user"></i> Account Information
-                        </button>
-                    </h2>
-                    <div id="collapseAccount" class="accordion-collapse collapse show" data-bs-parent="#addUserAccordion">
-                        <div class="accordion-body">
+                <div class="mb-4">
+            <h6 class="fw-bold text-primary mb-3 border-bottom pb-2"><i class="fa-solid fa-user"></i> Account Information
+                        </h6>
+            
                             <div class="row">
                                 <div class="col-md-6 mb-3">
                                     <label class="col-form-label">Full Name</label>
@@ -428,18 +431,11 @@ function formatUptime($seconds) {
                                 </div>
                             </div>
                         </div>
-                    </div>
-                </div>
-
-                <!-- Service Info -->
-                <div class="accordion-item">
-                    <h2 class="accordion-header">
-                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseService">
-                            <i class="fa-solid fa-wifi"></i> Service & Package
-                        </button>
-                    </h2>
-                    <div id="collapseService" class="accordion-collapse collapse" data-bs-parent="#addUserAccordion">
-                        <div class="accordion-body">
+        <!-- Service Info -->
+        <div class="mb-4">
+            <h6 class="fw-bold text-primary mb-3 border-bottom pb-2"><i class="fa-solid fa-wifi"></i> Service & Package
+                        </h6>
+            
                             <div class="row">
                                 <div class="col-md-6 mb-3">
                                     <label class="col-form-label">Service Type</label>
@@ -459,18 +455,11 @@ function formatUptime($seconds) {
                                 </div>
                             </div>
                         </div>
-                    </div>
-                </div>
-
-                <!-- Contact Info -->
-                <div class="accordion-item">
-                    <h2 class="accordion-header">
-                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseContact">
-                            <i class="fa-solid fa-address-book"></i> Contact & Location
-                        </button>
-                    </h2>
-                    <div id="collapseContact" class="accordion-collapse collapse" data-bs-parent="#addUserAccordion">
-                        <div class="accordion-body">
+        <!-- Contact Info -->
+        <div class="mb-4">
+            <h6 class="fw-bold text-primary mb-3 border-bottom pb-2"><i class="fa-solid fa-address-book"></i> Contact & Location
+                        </h6>
+            
                             <div class="row">
                                 <div class="col-md-6 mb-3">
                                     <label class="col-form-label">Mobile</label>
@@ -502,11 +491,6 @@ function formatUptime($seconds) {
                                 </div>
                             </div>
                         </div>
-                    </div>
-                </div>
-
-            </div>
-            
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -622,3 +606,18 @@ $(document).ready(function() {
 </script>
 
 <?php require_once 'footer.php'; ?>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var forms = document.querySelectorAll('.needs-validation');
+    Array.prototype.slice.call(forms).forEach(function (form) {
+        form.addEventListener('submit', function (event) {
+            if (!form.checkValidity()) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+            form.classList.add('was-validated');
+        }, false);
+    });
+});
+</script>
