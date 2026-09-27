@@ -118,18 +118,59 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
     });
     function showGlobalLoader() { document.getElementById('global-loader').style.display = 'flex'; }
     function hideGlobalLoader() { document.getElementById('global-loader').style.display = 'none'; }
+    
+    // Live Sidebar Clock
+    function updateSidebarClock() {
+        var now = new Date();
+        var timeStr = now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        
+        // Format date as YYYY-MM-DD
+        var y = now.getFullYear();
+        var m = String(now.getMonth() + 1).padStart(2, '0');
+        var d = String(now.getDate()).padStart(2, '0');
+        var dateStr = y + '-' + m + '-' + d;
+        
+        var timeSpan = document.getElementById('sb_time');
+        var dateSpan = document.getElementById('sb_date');
+        if(timeSpan) timeSpan.innerText = timeStr;
+        if(dateSpan) dateSpan.innerText = dateStr;
+    }
+    setInterval(updateSidebarClock, 1000);
+    document.addEventListener("DOMContentLoaded", updateSidebarClock);
     </script>
 
     <!-- Sidebar -->
     <div class="sidebar">
         
-        <a href="dashboard.php" class="nav-link-main <?= $p==='dashboard.php' ? 'active-parent' : '' ?>">
-            <i class="fa-solid fa-house menu-icon"></i> Home
-        </a>
+        <!-- Brand / Logo Area -->
+        <div class="d-flex align-items-center px-4 pt-3 pb-3">
+            <div class="bg-primary text-white rounded d-flex align-items-center justify-content-center me-3 shadow-sm" style="width: 40px; height: 40px;">
+                <i class="fa-solid fa-bolt fs-5"></i>
+            </div>
+            <div>
+                <h5 class="fw-bold mb-0 text-dark" style="letter-spacing: -0.5px;">SB-Link</h5>
+                <div class="text-muted" style="font-size: 0.70rem; font-weight: 500; text-transform: uppercase; letter-spacing: 1px;">Operator Panel</div>
+            </div>
+        </div>
 
-        <a href="profile.php" class="nav-link-main <?= $p==='profile.php' ? 'active-parent' : '' ?>">
-            <i class="fa-solid fa-user menu-icon"></i> My Profile
-        </a>
+        <!-- Router Network Time Box -->
+        <div class="px-4 mb-4">
+            <div class="bg-light border rounded-3 p-2 text-center shadow-sm">
+                <div class="text-secondary fw-bold" style="font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.5px;">Router Network Time</div>
+                <div id="sb_time" class="text-primary fw-bold font-monospace mt-1" style="font-size: 1.1rem; letter-spacing: 1px;">--:--:--</div>
+                <div id="sb_date" class="text-muted small font-monospace" style="font-size: 0.75rem;">----/--/--</div>
+            </div>
+        </div>
+
+        <div class="px-3">
+            <div class="text-muted fw-bold mb-2 px-3" style="font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px;">Main Menu</div>
+            <a href="dashboard.php" class="nav-link-main rounded-3 mb-1 <?= $p==='dashboard.php' ? 'active-parent' : '' ?>">
+                <i class="fa-solid fa-house menu-icon"></i> Home
+            </a>
+
+            <a href="profile.php" class="nav-link-main rounded-3 mb-1 <?= $p==='profile.php' ? 'active-parent' : '' ?>">
+                <i class="fa-solid fa-user menu-icon"></i> My Profile
+            </a>
 
         <!-- Team -->
         <a href="#teamMenu" data-bs-toggle="collapse" class="nav-link-main has-submenu collapsed" aria-expanded="false">
@@ -221,10 +262,12 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
             <i class="fa-solid fa-bell menu-icon"></i> Notices
         </a>
 
-        <a href="logout.php" class="nav-link-main mt-3">
-            <i class="fa-solid fa-circle-xmark menu-icon"></i> Logout
-        </a>
+        <hr class="text-muted opacity-25 mx-3 my-3">
 
+        <a href="logout.php" class="nav-link-main text-danger rounded-3 mb-4 <?= $p==='logout.php' ? 'active-parent' : '' ?>">
+            <i class="fa-solid fa-arrow-right-from-bracket menu-icon text-danger"></i> Logout
+        </a>
+        </div>
     </div>
 
     <!-- Top Navbar -->

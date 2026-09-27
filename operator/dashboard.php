@@ -256,19 +256,9 @@ $subs = $pdo->query("SELECT s.*, p.name as package_name,
     .badge-soft-warning { background-color: rgba(245, 158, 11, 0.15); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.2); }
 </style>
 
-<!-- Dashboard Header with Clock -->
+<!-- Dashboard Header -->
 <div class="d-flex flex-wrap justify-content-between align-items-center mb-4">
     <h4 class="m-0 text-secondary fw-bold mb-3 mb-md-0"><i class="fa-solid fa-gauge-high text-primary me-2"></i> Operator Dashboard</h4>
-    <div class="card-ui px-4 py-2 mb-0 d-flex align-items-center gap-3" style="border-left: 4px solid #3b82f6;">
-        <div class="text-end">
-            <div class="text-secondary small fw-bold text-uppercase" style="letter-spacing: 0.5px;">Router Network Time</div>
-            <div class="fw-bold text-dark" style="font-size: 1.1rem; font-family: monospace;" id="live_router_time">
-                <i class="fa-solid fa-circle-notch fa-spin text-muted fs-6"></i>
-            </div>
-            <div class="text-muted" style="font-size: 0.7rem;" id="live_router_date">Fetching...</div>
-        </div>
-        <i class="fa-regular fa-clock text-primary border-start ps-3 border-2" style="font-size: 2rem;"></i>
-    </div>
 </div>
 
 <!-- Quick Actions -->
@@ -732,49 +722,6 @@ $(document).ready(function() {
         language: { search: "Search User:", searchPlaceholder: "Username / Name" }
     });
 
-    // Router Clock Sync Logic
-    let routerTimeOffset = 0; // ms difference between browser and router
-    let clockInterval = null;
-
-    function fetchRouterTime() {
-        $.getJSON('api_router_time.php', function(data) {
-            if (data.success && data.date && data.time) {
-                // MikroTik date format is usually 'mmm/dd/yyyy' or 'yyyy-mm-dd'
-                // Let's create a valid JS date string. 
-                // Replacing mikrotik's 'jan/01/2020' to 'Jan 01 2020'
-                let dateStr = data.date.replace(/\//g, ' '); 
-                let routerDate = new Date(dateStr + ' ' + data.time);
-                
-                if (!isNaN(routerDate.getTime())) {
-                    routerTimeOffset = routerDate.getTime() - Date.now();
-                    
-                    if (!clockInterval) {
-                        clockInterval = setInterval(updateClockUI, 1000);
-                    }
-                    updateClockUI();
-                    $('#live_router_date').html(data.date + ' &bull; ' + data.time_zone);
-                }
-            } else {
-                $('#live_router_time').html('<span class="text-danger">Offline</span>');
-                $('#live_router_date').html('Cannot reach router');
-            }
-        }).fail(function() {
-            $('#live_router_time').html('<span class="text-danger">Error</span>');
-            $('#live_router_date').html('API failed');
-        });
-    }
-
-    function updateClockUI() {
-        let now = new Date(Date.now() + routerTimeOffset);
-        let h = String(now.getHours()).padStart(2, '0');
-        let m = String(now.getMinutes()).padStart(2, '0');
-        let s = String(now.getSeconds()).padStart(2, '0');
-        $('#live_router_time').text(`${h}:${m}:${s}`);
-    }
-
-    // Initial fetch and resync every 60 seconds
-    fetchRouterTime();
-    setInterval(fetchRouterTime, 60000);
 });
 </script>
 
