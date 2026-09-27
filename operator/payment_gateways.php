@@ -9,13 +9,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($action === 'add_gateway') {
         $gateway_name = trim($_POST['gateway_name']);
+        $account_name = trim($_POST['account_name']);
         $merchant_id = trim($_POST['merchant_id']);
         $api_key = trim($_POST['api_key']);
         $api_secret = trim($_POST['api_secret']);
         $mode = $_POST['mode'] ?? 'sandbox';
 
-        $stmt = $pdo->prepare("INSERT INTO payment_gateways (client_id, gateway_name, merchant_id, api_key, api_secret, mode, status) VALUES (?, ?, ?, ?, ?, ?, 'active')");
-        $stmt->execute([$client_id, $gateway_name, $merchant_id, $api_key, $api_secret, $mode]);
+        $pdo->prepare("UPDATE payment_gateways SET status='disabled' WHERE client_id=?")->execute([$client_id]);
+
+        $stmt = $pdo->prepare("INSERT INTO payment_gateways (client_id, gateway_name, account_name, merchant_id, api_key, api_secret, mode, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'active')");
+        $stmt->execute([$client_id, $gateway_name, $account_name, $merchant_id, $api_key, $api_secret, $mode]);
         
         echo "<script>alert('Payment Gateway added successfully!'); window.location='payment_gateways.php';</script>";
         exit;
@@ -23,14 +26,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     elseif ($action === 'edit_gateway') {
         $id = (int)$_POST['id'];
         $gateway_name = trim($_POST['gateway_name']);
+        $account_name = trim($_POST['account_name']);
         $merchant_id = trim($_POST['merchant_id']);
         $api_key = trim($_POST['api_key']);
         $api_secret = trim($_POST['api_secret']);
         $mode = $_POST['mode'];
         $status = $_POST['status'];
 
-        $stmt = $pdo->prepare("UPDATE payment_gateways SET gateway_name=?, merchant_id=?, api_key=?, api_secret=?, mode=?, status=? WHERE id=? AND client_id=?");
-        $stmt->execute([$gateway_name, $merchant_id, $api_key, $api_secret, $mode, $status, $id, $client_id]);
+        if ($status === 'active') {
+            $pdo->prepare("UPDATE payment_gateways SET status='disabled' WHERE client_id=?")->execute([$client_id]);
+        }
+
+        $stmt = $pdo->prepare("UPDATE payment_gateways SET gateway_name=?, account_name=?, merchant_id=?, api_key=?, api_secret=?, mode=?, status=? WHERE id=? AND client_id=?");
+        $stmt->execute([$gateway_name, $account_name, $merchant_id, $api_key, $api_secret, $mode, $status, $id, $client_id]);
         
         echo "<script>alert('Payment Gateway updated successfully!'); window.location='payment_gateways.php';</script>";
         exit;
@@ -44,6 +52,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     elseif ($action === 'toggle_status') {
         $id = (int)$_POST['id'];
         $new_status = $_POST['new_status'];
+        
+        if ($new_status === 'active') {
+            // Disable all other gateways for this client first
+            $pdo->prepare("UPDATE payment_gateways SET status='disabled' WHERE client_id=?")->execute([$client_id]);
+        }
+        
         $pdo->prepare("UPDATE payment_gateways SET status=? WHERE id=? AND client_id=?")->execute([$new_status, $id, $client_id]);
         echo "<script>window.location='payment_gateways.php';</script>";
         exit;
@@ -94,6 +108,10 @@ $gateways = $pdo->query("SELECT * FROM payment_gateways WHERE client_id = $clien
                         </div>
                         <div class="card-body">
                             <div class="mb-2">
+                                <span class="text-muted small fw-bold">Account Name:</span><br>
+                                <span class="text-dark fw-bold"><?= htmlspecialchars($g['account_name'] ?: 'N/A') ?></span>
+                            </div>
+                            <div class="mb-2">
                                 <span class="text-muted small fw-bold">Merchant ID:</span><br>
                                 <span class="text-dark font-monospace"><?= htmlspecialchars($g['merchant_id'] ?: 'N/A') ?></span>
                             </div>
@@ -125,6 +143,7 @@ $gateways = $pdo->query("SELECT * FROM payment_gateways WHERE client_id = $clien
                                     <button class="btn btn-sm btn-light border text-primary edit-btn" 
                                         data-id="<?= $g['id'] ?>"
                                         data-name="<?= htmlspecialchars($g['gateway_name']) ?>"
+                                        data-account="<?= htmlspecialchars($g['account_name']) ?>"
                                         data-merchant="<?= htmlspecialchars($g['merchant_id']) ?>"
                                         data-key="<?= htmlspecialchars($g['api_key']) ?>"
                                         data-secret="<?= htmlspecialchars($g['api_secret']) ?>"
@@ -172,6 +191,10 @@ $gateways = $pdo->query("SELECT * FROM payment_gateways WHERE client_id = $clien
                     <option value="PayPal">PayPal</option>
                     <option value="Custom">Other (Custom)</option>
                 </select>
+            </div>
+            <div class="mb-3">
+                <label class="form-label fw-bold text-secondary small">Account Name (Title)</label>
+                <input type="text" name="account_name" class="form-control" placeholder="e.g. John Doe">
             </div>
             <div class="mb-3">
                 <label class="form-label fw-bold text-secondary small">Merchant ID</label>
@@ -226,6 +249,10 @@ $gateways = $pdo->query("SELECT * FROM payment_gateways WHERE client_id = $clien
                 </select>
             </div>
             <div class="mb-3">
+                <label class="form-label fw-bold text-secondary small">Account Name (Title)</label>
+                <input type="text" name="account_name" id="edit_account_name" class="form-control" placeholder="e.g. John Doe">
+            </div>
+            <div class="mb-3">
                 <label class="form-label fw-bold text-secondary small">Merchant ID</label>
                 <input type="text" name="merchant_id" id="edit_merchant_id" class="form-control">
             </div>
@@ -276,6 +303,7 @@ $(document).ready(function() {
             $('#edit_gateway_name').val(gName);
         }
         
+        $('#edit_account_name').val($(this).data('account'));
         $('#edit_merchant_id').val($(this).data('merchant'));
         $('#edit_api_key').val($(this).data('key'));
         $('#edit_api_secret').val($(this).data('secret'));

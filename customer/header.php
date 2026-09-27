@@ -77,6 +77,30 @@
     </style>
 </head>
 <body>
+
+    <!-- Global Loading Overlay -->
+    <div id="global-loader" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0, 0, 0, 0.7); z-index: 99999; align-items: center; justify-content: center; flex-direction: column; backdrop-filter: blur(5px);">
+        <div class="spinner-border text-info" style="width: 3rem; height: 3rem;" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <h5 class="text-white mt-3 fw-bold">Processing, please wait...</h5>
+        <div class="text-white-50 small">Do not close or refresh this page</div>
+    </div>
+    <script>
+    document.addEventListener("DOMContentLoaded", function() {
+        document.querySelectorAll('form').forEach(function(form) {
+            form.addEventListener('submit', function() {
+                if(!form.classList.contains('no-loader') && form.checkValidity()) {
+                    document.getElementById('global-loader').style.display = 'flex';
+                    setTimeout(() => { document.getElementById('global-loader').style.display = 'none'; }, 15000); 
+                }
+            });
+        });
+    });
+    function showGlobalLoader() { document.getElementById('global-loader').style.display = 'flex'; }
+    function hideGlobalLoader() { document.getElementById('global-loader').style.display = 'none'; }
+    </script>
+
 <nav class="navbar navbar-expand-lg navbar-dark mb-5 sticky-top">
     <div class="container">
         <a class="navbar-brand text-accent fw-bold" href="dashboard.php">
@@ -89,6 +113,7 @@
             <ul class="navbar-nav ms-auto align-items-center">
                 <li class="nav-item me-2"><a class="nav-link" href="dashboard.php"><i class="fa-solid fa-chart-pie me-1"></i> Dashboard</a></li>
                 <li class="nav-item me-2"><a class="nav-link" href="history.php"><i class="fa-solid fa-clock-rotate-left me-1"></i> History</a></li>
+                <li class="nav-item me-2"><a class="nav-link" href="tickets.php"><i class="fa-solid fa-headset me-1"></i> Support</a></li>
                 <li class="nav-item ms-lg-3 mt-3 mt-lg-0">
                     <a class="btn btn-outline-danger btn-sm rounded-pill px-3" href="logout.php">
                         <i class="fa-solid fa-right-from-bracket me-1"></i> Logout

@@ -30,6 +30,29 @@ require_once '../config/db.php';
     </style>
 </head>
 <body>
+
+    <!-- Global Loading Overlay -->
+    <div id="global-loader" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0, 0, 0, 0.7); z-index: 99999; align-items: center; justify-content: center; flex-direction: column; backdrop-filter: blur(5px);">
+        <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <h5 class="text-white mt-3 fw-bold">Processing, please wait...</h5>
+        <div class="text-white-50 small">Do not close or refresh this page</div>
+    </div>
+    <script>
+    document.addEventListener("DOMContentLoaded", function() {
+        document.querySelectorAll('form').forEach(function(form) {
+            form.addEventListener('submit', function() {
+                if(!form.classList.contains('no-loader') && form.checkValidity()) {
+                    document.getElementById('global-loader').style.display = 'flex';
+                    setTimeout(() => { document.getElementById('global-loader').style.display = 'none'; }, 15000); 
+                }
+            });
+        });
+    });
+    function showGlobalLoader() { document.getElementById('global-loader').style.display = 'flex'; }
+    function hideGlobalLoader() { document.getElementById('global-loader').style.display = 'none'; }
+    </script>
 <div class="d-flex">
     <!-- Sidebar -->
     <div class="sidebar flex-shrink-0 shadow-sm" style="width: 250px;">

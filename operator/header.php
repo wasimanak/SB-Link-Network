@@ -25,7 +25,13 @@ $filter = $_GET['filter'] ?? '';
 // Menu Active States
 $isUserMenu = in_array($p, ['subscribers.php', 'live_sessions.php']);
 $isAccMenu = in_array($p, ['packages.php']);
-$isTicketMenu = in_array($p, ['requests.php']);
+$isTicketMenu = in_array($p, ['requests.php', 'fund_requests.php', 'support_tickets.php', 'view_ticket.php']);
+
+// Fetch Pending Requests Count for Badges
+$pending_pkgs = $pdo->query("SELECT COUNT(*) FROM package_requests WHERE client_id = {$_SESSION['operator_id']} AND status = 'pending'")->fetchColumn() ?: 0;
+$pending_funds = $pdo->query("SELECT COUNT(*) FROM fund_requests WHERE client_id = {$_SESSION['operator_id']} AND status = 'pending'")->fetchColumn() ?: 0;
+$open_tickets = $pdo->query("SELECT COUNT(*) FROM support_tickets WHERE client_id = {$_SESSION['operator_id']} AND status = 'open'")->fetchColumn() ?: 0;
+$total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -91,6 +97,29 @@ $isTicketMenu = in_array($p, ['requests.php']);
 </head>
 <body>
 
+    <!-- Global Loading Overlay -->
+    <div id="global-loader" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0, 0, 0, 0.7); z-index: 99999; align-items: center; justify-content: center; flex-direction: column; backdrop-filter: blur(5px);">
+        <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <h5 class="text-white mt-3 fw-bold">Processing, please wait...</h5>
+        <div class="text-white-50 small">Do not close or refresh this page</div>
+    </div>
+    <script>
+    document.addEventListener("DOMContentLoaded", function() {
+        document.querySelectorAll('form').forEach(function(form) {
+            form.addEventListener('submit', function() {
+                if(!form.classList.contains('no-loader') && form.checkValidity()) {
+                    document.getElementById('global-loader').style.display = 'flex';
+                    setTimeout(() => { document.getElementById('global-loader').style.display = 'none'; }, 15000); 
+                }
+            });
+        });
+    });
+    function showGlobalLoader() { document.getElementById('global-loader').style.display = 'flex'; }
+    function hideGlobalLoader() { document.getElementById('global-loader').style.display = 'none'; }
+    </script>
+
     <!-- Sidebar -->
     <div class="sidebar">
         
@@ -135,12 +164,13 @@ $isTicketMenu = in_array($p, ['requests.php']);
         </div>
 
         <!-- Logs & Reports -->
-        <a href="#logsMenu" data-bs-toggle="collapse" class="nav-link-main has-submenu <?= in_array($p, ['activity_logs.php']) ? 'active-parent' : 'collapsed' ?>" aria-expanded="<?= in_array($p, ['activity_logs.php']) ? 'true' : 'false' ?>">
+        <a href="#logsMenu" data-bs-toggle="collapse" class="nav-link-main has-submenu <?= in_array($p, ['activity_logs.php', 'package_logs.php', 'session_logs.php']) ? 'active-parent' : 'collapsed' ?>" aria-expanded="<?= in_array($p, ['activity_logs.php', 'package_logs.php', 'session_logs.php']) ? 'true' : 'false' ?>">
             <i class="fa-regular fa-file-lines menu-icon"></i> Logs & Reports
         </a>
-        <div class="collapse submenu <?= in_array($p, ['activity_logs.php']) ? 'show' : '' ?>" id="logsMenu">
+        <div class="collapse submenu <?= in_array($p, ['activity_logs.php', 'package_logs.php', 'session_logs.php']) ? 'show' : '' ?>" id="logsMenu">
             <a href="activity_logs.php" class="<?= $p==='activity_logs.php' ? 'active' : '' ?>">Activity Logs</a>
-            <a href="#">Session Logs</a>
+            <a href="package_logs.php" class="<?= $p==='package_logs.php' ? 'active' : '' ?>">Package Logs</a>
+            <a href="session_logs.php" class="<?= $p==='session_logs.php' ? 'active' : '' ?>">Session Logs</a>
         </div>
         
         <!-- MikroTik Menu -->
@@ -155,10 +185,29 @@ $isTicketMenu = in_array($p, ['requests.php']);
         <!-- Tickets -->
         <a href="#ticketsMenu" data-bs-toggle="collapse" class="nav-link-main has-submenu <?= $isTicketMenu ? 'active-parent' : 'collapsed' ?>" aria-expanded="<?= $isTicketMenu ? 'true' : 'false' ?>">
             <i class="fa-solid fa-receipt menu-icon"></i> Tickets
+            <?php if ($total_pending_requests > 0): ?>
+                <span class="badge bg-danger rounded-pill ms-auto me-2 px-2"><?= $total_pending_requests ?></span>
+            <?php endif; ?>
         </a>
         <div class="collapse submenu <?= $isTicketMenu ? 'show' : '' ?>" id="ticketsMenu">
-            <a href="requests.php" class="<?= $p==='requests.php' ? 'active' : '' ?>">Renewal Requests</a>
-            <a href="#">Support Tickets</a>
+            <a href="requests.php" class="<?= $p==='requests.php' ? 'active' : '' ?>">
+                Renewal Requests 
+                <?php if ($pending_pkgs > 0): ?>
+                    <span class="badge bg-danger rounded-pill float-end"><?= $pending_pkgs ?></span>
+                <?php endif; ?>
+            </a>
+            <a href="fund_requests.php" class="<?= $p==='fund_requests.php' ? 'active' : '' ?>">
+                Fund Requests 
+                <?php if ($pending_funds > 0): ?>
+                    <span class="badge bg-danger rounded-pill float-end"><?= $pending_funds ?></span>
+                <?php endif; ?>
+            </a>
+            <a href="support_tickets.php" class="<?= $p==='support_tickets.php' ? 'active' : '' ?>">
+                Support Tickets
+                <?php if ($open_tickets > 0): ?>
+                    <span class="badge bg-danger rounded-pill float-end"><?= $open_tickets ?></span>
+                <?php endif; ?>
+            </a>
         </div>
         <!-- Payment Gateways -->
         <a href="payment_gateways.php" class="nav-link-main <?= $p==='payment_gateways.php' ? 'active-parent' : '' ?>">
