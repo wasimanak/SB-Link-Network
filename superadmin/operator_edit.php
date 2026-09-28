@@ -111,10 +111,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $hs_users = $api->read();
                         
                         $total_users = 0;
-                        foreach (array_merge($ppp_users, $hs_users) as $u) {
+                                                // Tag them with service types
+                        $all_users = [];
+                        foreach ($ppp_users as $u) { $u['service_type'] = 'pppoe'; $all_users[] = $u; }
+                        foreach ($hs_users as $u) { $u['service_type'] = 'hotspot'; $all_users[] = $u; }
+
+                        foreach ($all_users as $u) {
                             $uname = $u['name'] ?? '';
                             $upass = $u['password'] ?? '';
                             $uprof = $u['profile'] ?? 'default';
+                            $stype = $u['service_type'];
                             if (!$uname || $uname === 'default') continue;
                             
                             $uChk = $pdo->prepare("SELECT id FROM subscribers WHERE username = ?");
@@ -125,8 +131,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 $pkg = $pkgStmt->fetch();
                                 $pkg_id = $pkg ? $pkg['id'] : null;
                                 
-                                $pdo->prepare("INSERT INTO subscribers (client_id, username, password, full_name, package_id, status) VALUES (?, ?, ?, ?, ?, 'active')")
-                                    ->execute([$id, $uname, $upass, $uname, $pkg_id]);
+                                $pdo->prepare("INSERT INTO subscribers (client_id, username, password, full_name, package_id, status, service_type) VALUES (?, ?, ?, ?, ?, 'active', ?)")
+                                    ->execute([$id, $uname, $upass, $uname, $pkg_id, $stype]);
                                 $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Cleartext-Password', ':=', ?)")->execute([$uname, $upass]);
                                 
                                 if ($uprof !== 'default') {
