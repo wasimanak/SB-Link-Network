@@ -37,8 +37,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Cleartext-Password', ':=', ?)")
                     ->execute([$username, $password]);
                 
-                $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Rate-Limit', '=', ?)")
-                    ->execute([$username, $pkg['rate_limit']]);
+                $pdo->prepare("INSERT INTO radusergroup (username, groupname, priority) VALUES (?, ?, 1)")
+                    ->execute([$username, $pkg['name']]);
+                
+                // Only insert custom rate limit into radreply if it's strictly required, 
+                // but usually the group handles it. If not unlimited, we could insert, but let's rely on group.
                 
                 $pdo->commit();
                 header("Location: subscribers.php");

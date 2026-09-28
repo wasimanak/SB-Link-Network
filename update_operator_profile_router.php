@@ -1,4 +1,9 @@
 <?php
+$root = 'C:/xampp/htdocs/SB Link Network';
+$file = $root . '/superadmin/operator_edit.php';
+
+$content = <<<'PHP'
+<?php
 require_once 'header.php';
 
 $id = (int)($_GET['id'] ?? 0);
@@ -100,7 +105,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 if ($rate !== 'Unlimited') {
                                     $pdo->prepare("INSERT INTO radgroupreply (groupname, attribute, op, value) VALUES (?, 'Mikrotik-Rate-Limit', ':=', ?)")->execute([$name, $rate]);
                                 }
-                                
+                                $pdo->prepare("INSERT INTO radgroupreply (groupname, attribute, op, value) VALUES (?, 'Framed-Pool', ':=', 'pool1')")->execute([$name]);
                             }
                         }
                         
@@ -261,3 +266,8 @@ $nas = $nasStmt->fetch();
 </div>
 
 <?php require_once 'footer.php'; ?>
+PHP;
+
+file_put_contents($file, $content);
+echo "operator_edit.php updated to include MikroTik linking and syncing.\n";
+?>

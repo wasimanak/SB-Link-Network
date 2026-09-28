@@ -8,7 +8,7 @@ try { $pdo->exec("DELETE FROM activity_logs WHERE created_at < NOW() - INTERVAL 
 
 // Auth Check
 if (!isset($_SESSION['operator_logged_in']) || !isset($_SESSION['operator_id'])) {
-    header("Location: login.php");
+    header("Location: ../login.php");
     exit;
 }
 
@@ -220,44 +220,7 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
         </div>
         
         <!-- MikroTik Menu -->
-        <a href="#mikrotikMenu" data-bs-toggle="collapse" class="nav-link-main has-submenu <?= in_array($p, ['mikrotik_connect.php', 'mikrotik_sync.php', 'mikrotik_pools.php', 'mikrotik_active.php', 'mikrotik_dhcp.php']) ? 'active-parent' : 'collapsed' ?>" aria-expanded="<?= in_array($p, ['mikrotik_connect.php', 'mikrotik_sync.php', 'mikrotik_pools.php', 'mikrotik_active.php', 'mikrotik_dhcp.php']) ? 'true' : 'false' ?>">
-            <i class="fa-solid fa-router menu-icon"></i> MikroTik
-        </a>
-        <div class="collapse submenu <?= in_array($p, ['mikrotik_connect.php', 'mikrotik_sync.php', 'mikrotik_pools.php', 'mikrotik_active.php', 'mikrotik_dhcp.php']) ? 'show' : '' ?>" id="mikrotikMenu">
-            <a href="mikrotik_connect.php" class="<?= $p==='mikrotik_connect.php' ? 'active' : '' ?>">Connection Settings</a>
-            <a href="mikrotik_sync.php" class="<?= $p==='mikrotik_sync.php' ? 'active' : '' ?>">Live Sync</a>
-            <a href="mikrotik_pools.php" class="<?= $p==='mikrotik_pools.php' ? 'active' : '' ?>">IP Pools</a>
-            <a href="mikrotik_active.php" class="<?= $p==='mikrotik_active.php' ? 'active' : '' ?>">Active PPPoE (Live)</a>
-            <a href="mikrotik_dhcp.php" class="<?= $p==='mikrotik_dhcp.php' ? 'active' : '' ?>">DHCP Leases</a>
-        </div>
-
-        <!-- Tickets -->
-        <a href="#ticketsMenu" data-bs-toggle="collapse" class="nav-link-main has-submenu <?= $isTicketMenu ? 'active-parent' : 'collapsed' ?>" aria-expanded="<?= $isTicketMenu ? 'true' : 'false' ?>">
-            <i class="fa-solid fa-receipt menu-icon"></i> Tickets
-            <?php if ($total_pending_requests > 0): ?>
-                <span class="badge bg-danger rounded-pill ms-auto me-2 px-2"><?= $total_pending_requests ?></span>
-            <?php endif; ?>
-        </a>
-        <div class="collapse submenu <?= $isTicketMenu ? 'show' : '' ?>" id="ticketsMenu">
-            <a href="requests.php" class="<?= $p==='requests.php' ? 'active' : '' ?>">
-                Renewal Requests 
-                <?php if ($pending_pkgs > 0): ?>
-                    <span class="badge bg-danger rounded-pill float-end"><?= $pending_pkgs ?></span>
-                <?php endif; ?>
-            </a>
-            <a href="fund_requests.php" class="<?= $p==='fund_requests.php' ? 'active' : '' ?>">
-                Fund Requests 
-                <?php if ($pending_funds > 0): ?>
-                    <span class="badge bg-danger rounded-pill float-end"><?= $pending_funds ?></span>
-                <?php endif; ?>
-            </a>
-            <a href="support_tickets.php" class="<?= $p==='support_tickets.php' ? 'active' : '' ?>">
-                Support Tickets
-                <?php if ($open_tickets > 0): ?>
-                    <span class="badge bg-danger rounded-pill float-end"><?= $open_tickets ?></span>
-                <?php endif; ?>
-            </a>
-        </div>
+        <!-- Mikrotik Menu Removed -->
         <!-- Payment Gateways -->
         <a href="payment_gateways.php" class="nav-link-main <?= $p==='payment_gateways.php' ? 'active-parent' : '' ?>">
             <i class="fa-brands fa-cc-stripe menu-icon"></i> Payment Gateways

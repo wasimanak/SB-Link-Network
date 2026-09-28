@@ -29,7 +29,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'ms' => $max_subscribers
             ]);
             $success = "Operator added successfully!";
-        } catch (PDOException $e) {
+        } catch (Exception $e) {
             $error = "Database Error: " . $e->getMessage();
         }
     }

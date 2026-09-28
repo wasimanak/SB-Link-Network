@@ -23,9 +23,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($client['status'] === 'expired' || $client['status'] === 'suspended') {
                     $error = "Your account is {$client['status']}. Please contact Super Admin.";
                 } else {
+                    $_SESSION['operator_logged_in'] = true;
                     $_SESSION['operator_id'] = $client['id'];
                     $_SESSION['operator_email'] = $client['email'];
                     $_SESSION['operator_name'] = $client['company_name'];
+                    $_SESSION['operator_company'] = $client['company_name'];
                     
                     // Also set client_id for generic compatibility if needed
                     $_SESSION['client_id'] = $client['id'];
@@ -38,7 +40,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
         } elseif ($role === 'dealer') {
-            $stmt = $pdo->prepare("SELECT * FROM dealers WHERE username = ? AND status = 'active'");
+            $stmt = $pdo->prepare("SELECT d.*, c.status as op_status FROM dealers d JOIN clients c ON d.client_id = c.id WHERE d.username = ? AND d.status = 'active' AND c.status = 'active'");
             $stmt->execute([$identifier]);
             $user = $stmt->fetch();
             if ($user && $user['password'] === $password) {
@@ -47,11 +49,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 header("Location: dealer/dashboard.php");
                 exit;
             } else {
-                $error = 'Invalid Dealer Username or inactive account.';
+                $error = 'Invalid Dealer credentials, or Operator is suspended.';
             }
 
         } elseif ($role === 'lineman') {
-            $stmt = $pdo->prepare("SELECT * FROM linemen WHERE username = ? AND status = 'active'");
+            $stmt = $pdo->prepare("SELECT l.*, c.status as op_status FROM linemen l JOIN clients c ON l.client_id = c.id WHERE l.username = ? AND l.status = 'active' AND c.status = 'active'");
             $stmt->execute([$identifier]);
             $user = $stmt->fetch();
             if ($user && $user['password'] === $password) {
@@ -61,11 +63,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 header("Location: lineman/dashboard.php");
                 exit;
             } else {
-                $error = 'Invalid Line Man Username or inactive account.';
+                $error = 'Invalid Line Man credentials, or Operator is suspended.';
             }
 
         } elseif ($role === 'recoveryman') {
-            $stmt = $pdo->prepare("SELECT * FROM recovery_men WHERE username = ? AND status = 'active'");
+            $stmt = $pdo->prepare("SELECT r.*, c.status as op_status FROM recovery_men r JOIN clients c ON r.client_id = c.id WHERE r.username = ? AND r.status = 'active' AND c.status = 'active'");
             $stmt->execute([$identifier]);
             $user = $stmt->fetch();
             if ($user && $user['password'] === $password) {
@@ -75,7 +77,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 header("Location: recoveryman/dashboard.php");
                 exit;
             } else {
-                $error = 'Invalid Recovery Man Username or inactive account.';
+                $error = 'Invalid Recovery Man credentials, or Operator is suspended.';
             }
         }
     }
