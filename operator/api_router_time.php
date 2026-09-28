@@ -1,49 +1,61 @@
 <?php
 session_start();
+if (!isset($_SESSION['operator_logged_in'])) {
+    http_response_code(401);
+    exit;
+}
+
+$client_id = (int)$_SESSION['operator_id'];
+
 require_once '../config/db.php';
 require_once '../config/routeros_api.class.php';
 
 header('Content-Type: application/json');
 
-if (!isset($_SESSION['operator_id'])) {
-    echo json_encode(['error' => 'Unauthorized']);
-    exit;
-}
-
-$client_id = $_SESSION['operator_id'];
+$log_file = 'time_debug.log';
+file_put_contents($log_file, "Client ID: $client_id\n", FILE_APPEND);
 
 try {
     $stmt = $pdo->prepare("SELECT * FROM nas WHERE client_id = ? LIMIT 1");
     $stmt->execute([$client_id]);
     $nas = $stmt->fetch();
 
-    if (!$nas) {
-        echo json_encode(['error' => 'No router found']);
-        exit;
-    }
+    if ($nas) {
+        $api = new RouterosAPI();
+        $api->timeout = 2;
+        $port = !empty($nas['api_port']) ? $nas['api_port'] : 8728;
+        if ($api->connect($nas['nasname'], $nas['api_user'], $nas['api_password'], $port)) {
+            $api->write('/system/clock/print');
+            $clock = $api->read();
+            $api->disconnect();
 
-    $api = new RouterosAPI();
-    // Reduce timeout so it doesn't hang forever if router is offline
-    $api->timeout = 2; 
-    
-    if ($api->connect($nas['nasname'], $nas['api_user'], $nas['api_password'], $nas['api_port'])) {
-        $api->write('/system/clock/print', true);
-        $clock = $api->read();
-        $api->disconnect();
+            file_put_contents($log_file, "Router clock: " . print_r($clock, true) . "\n", FILE_APPEND);
 
-        if (!empty($clock) && isset($clock[0]['time']) && isset($clock[0]['date'])) {
-            echo json_encode([
-                'success' => true,
-                'time' => $clock[0]['time'],
-                'date' => $clock[0]['date'],
-                'time_zone' => $clock[0]['time-zone-name'] ?? 'Unknown'
-            ]);
+            if (isset($clock[0]['time']) && isset($clock[0]['date'])) {
+                $raw_date = $clock[0]['date'];
+                if (strpos($raw_date, '/') !== false) {
+                    $parts = explode('/', $raw_date);
+                    if (count($parts) == 3) {
+                        $raw_date = $parts[2] . '-' . $parts[0] . '-' . $parts[1];
+                    }
+                }
+                
+                $out = json_encode(['status' => 'success', 'time_str' => $raw_date . 'T' . $clock[0]['time']]);
+                file_put_contents($log_file, "Output: $out\n", FILE_APPEND);
+                echo $out;
+                exit;
+            }
         } else {
-            echo json_encode(['error' => 'Could not read clock']);
+            file_put_contents($log_file, "Failed to connect to router.\n", FILE_APPEND);
         }
     } else {
-        echo json_encode(['error' => 'API connection failed']);
+        file_put_contents($log_file, "No NAS found.\n", FILE_APPEND);
     }
 } catch (Exception $e) {
-    echo json_encode(['error' => $e->getMessage()]);
+    file_put_contents($log_file, "Exception: " . $e->getMessage() . "\n", FILE_APPEND);
 }
+
+$out = json_encode(['status' => 'error', 'time_str' => date('Y-m-d\TH:i:s')]);
+file_put_contents($log_file, "Fallback Output: $out\n", FILE_APPEND);
+echo $out;
+?>

@@ -1,5 +1,4 @@
 <?php
-$pdo = new PDO('mysql:host=10.133.13.69;dbname=radius_admin;charset=utf8mb4', 'syncuser', 'admin123');
-$rows = $pdo->query("SELECT * FROM radcheck")->fetchAll(PDO::FETCH_ASSOC);
-print_r($rows);
+$p = new PDO('mysql:host=10.133.13.69;dbname=radius_admin', 'syncuser', 'admin123');
+print_r($p->query('SELECT attribute, value FROM radcheck LIMIT 10')->fetchAll(PDO::FETCH_ASSOC));
 ?>
