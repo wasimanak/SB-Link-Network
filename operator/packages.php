@@ -10,18 +10,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'create' || $action === 'edit') {
         $id = $_POST['package_id'] ?? null;
         $name = trim($_POST['name']);
-        $rate_limit = trim($_POST['rate_limit']);
+        $rate_up = trim($_POST['rate_up'] ?? '');
+        $rate_down = trim($_POST['rate_down'] ?? '');
+        
+        if (strcasecmp($rate_up, 'Unlimited') === 0 || empty($rate_up) || empty($rate_down)) {
+            $rate_limit = 'Unlimited';
+        } else {
+            $rate_limit = $rate_up . '/' . $rate_down;
+        }
         $price = (float)$_POST['price'];
         $validity_days = (int)$_POST['validity_days'];
         $data_limit_gb = (int)$_POST['data_limit_gb'];
 
         // Handle Speed Scheduler
         $scheduler = null;
-        if (!empty($_POST['sched_start']) && !empty($_POST['sched_end']) && !empty($_POST['sched_speed'])) {
+        if (!empty($_POST['sched_start']) && !empty($_POST['sched_end']) && (!empty($_POST['sched_up']) || !empty($_POST['sched_down']))) {
             $sched_array = [
                 'start_time' => $_POST['sched_start'], // e.g., '22:00'
-                'end_time' => $_POST['sched_end'],     // e.g., '06:00'
-                'speed' => $_POST['sched_speed']       // e.g., '20M/20M'
+                'end_time' => $_POST['sched_end'],
+                'speed' => trim($_POST['sched_up'] ?? '') . '/' . trim($_POST['sched_down'] ?? '')
             ];
             $scheduler = json_encode($sched_array);
         }
@@ -160,27 +167,55 @@ $packages = $stmt->fetchAll();
                     <input type="number" name="data_limit_gb" id="pkg_data" class="form-control" placeholder="e.g. 100" value="0">
                     <small class="text-muted">Set 0 for Unlimited Data</small>
                 </div>
-                <div class="col-md-12 mb-3">
-                    <label class="form-label fw-bold">Standard Rate Limit (Speed) <span class="text-danger">*</span></label>
-                    <input type="text" name="rate_limit" id="pkg_rate" class="form-control" required placeholder="e.g. 10M/10M">
-                    <small class="text-muted">MikroTik Format: RX/TX (Upload/Download)</small>
-                </div>
+                                  <div class="col-md-12 mb-3">
+                      <label class="form-label fw-bold text-dark">Standard Speed (Rate Limit)</label>
+                      <div class="row g-2">
+                          <div class="col-6">
+                              <label class="form-label small text-muted mb-1">Upload Speed</label>
+                              <div class="input-group">
+                                  <span class="input-group-text bg-light"><i class="fa-solid fa-upload text-danger"></i></span>
+                                  <input type="text" name="rate_up" id="pkg_rate_up" class="form-control" placeholder="e.g. 10M, 512k" required>
+                              </div>
+                          </div>
+                          <div class="col-6">
+                              <label class="form-label small text-muted mb-1">Download Speed</label>
+                              <div class="input-group">
+                                  <span class="input-group-text bg-light"><i class="fa-solid fa-download text-success"></i></span>
+                                  <input type="text" name="rate_down" id="pkg_rate_down" class="form-control" placeholder="e.g. 10M, 512k" required>
+                              </div>
+                          </div>
+                      </div>
+                      <small class="text-muted d-block mt-2">Type <strong>Unlimited</strong> in any field to remove speed caps entirely.</small>
+                  </div>
             </div>
 
             <hr>
-            <h6 class="text-primary mb-3"><i class="fa-regular fa-clock"></i> Night / Speed Scheduler (Optional)</h6>
+                        <h6 class="text-primary mb-3"><i class="fa-regular fa-clock"></i> Night / Speed Scheduler (Optional)</h6>
             <div class="row bg-light p-3 rounded border">
-                <div class="col-md-4 mb-2">
+                <div class="col-md-6 mb-2">
                     <label class="form-label small fw-bold">Start Time</label>
                     <input type="time" name="sched_start" id="sched_start" class="form-control">
                 </div>
-                <div class="col-md-4 mb-2">
+                <div class="col-md-6 mb-2">
                     <label class="form-label small fw-bold">End Time</label>
                     <input type="time" name="sched_end" id="sched_end" class="form-control">
                 </div>
-                <div class="col-md-4 mb-2">
-                    <label class="form-label small fw-bold">Scheduled Speed</label>
-                    <input type="text" name="sched_speed" id="sched_speed" class="form-control" placeholder="e.g. 20M/20M">
+                <div class="col-12 mb-2">
+                    <label class="form-label small fw-bold">Night Speed</label>
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <div class="input-group">
+                                <span class="input-group-text bg-white"><i class="fa-solid fa-upload text-danger"></i></span>
+                                <input type="text" name="sched_up" id="sched_up" class="form-control" placeholder="Upload (e.g. 20M)">
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="input-group">
+                                <span class="input-group-text bg-white"><i class="fa-solid fa-download text-success"></i></span>
+                                <input type="text" name="sched_down" id="sched_down" class="form-control" placeholder="Download (e.g. 20M)">
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 <div class="col-12"><small class="text-muted">If set, FreeRADIUS/MikroTik will change user's speed during these hours automatically.</small></div>
             </div>
@@ -215,17 +250,31 @@ function openEditModal(pkg) {
     document.getElementById('pkg_price').value = pkg.price;
     document.getElementById('pkg_validity').value = pkg.validity_days;
     document.getElementById('pkg_data').value = pkg.data_limit_gb;
-    document.getElementById('pkg_rate').value = pkg.rate_limit;
+    
+    let rate = pkg.rate_limit || 'Unlimited';
+    if (rate.toLowerCase() === 'unlimited' || !rate.includes('/')) {
+        document.getElementById('pkg_rate_up').value = 'Unlimited';
+        document.getElementById('pkg_rate_down').value = 'Unlimited';
+    } else {
+        let parts = rate.split('/');
+        document.getElementById('pkg_rate_up').value = parts[0];
+        document.getElementById('pkg_rate_down').value = parts[1];
+    }
     
     if (pkg.speed_scheduler) {
         let sched = JSON.parse(pkg.speed_scheduler);
         document.getElementById('sched_start').value = sched.start_time;
         document.getElementById('sched_end').value = sched.end_time;
-        document.getElementById('sched_speed').value = sched.speed;
+        if (sched.speed && sched.speed.includes('/')) {
+            let sparts = sched.speed.split('/');
+            document.getElementById('sched_up').value = sparts[0];
+            document.getElementById('sched_down').value = sparts[1];
+        }
     } else {
         document.getElementById('sched_start').value = '';
         document.getElementById('sched_end').value = '';
-        document.getElementById('sched_speed').value = '';
+        document.getElementById('sched_up').value = '';
+        document.getElementById('sched_down').value = '';
     }
     
     document.getElementById('modalBtn').innerText = 'Update Package';
