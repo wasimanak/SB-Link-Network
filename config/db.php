@@ -1,5 +1,5 @@
 <?php
-$host = '10.133.13.69'; // Ubuntu Server IP (Wi-Fi Bridge)
+$host = '192.168.20.100'; // Ubuntu Server IP (Wi-Fi Bridge)
 $db   = 'radius_admin';
 $user = 'syncuser';
 $pass = 'admin123';
