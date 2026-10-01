@@ -11,6 +11,7 @@ if (!isset($_SESSION['operator_id']) || !isset($_GET['username'])) {
 }
 
 $client_id = $_SESSION['operator_id'];
+session_write_close(); // Unlock session
 $username = $_GET['username'];
 
 try {

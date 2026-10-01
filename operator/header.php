@@ -28,7 +28,7 @@ $filter = $_GET['filter'] ?? '';
 
 // Menu Active States
 $isUserMenu = in_array($p, ['subscribers.php', 'live_sessions.php']);
-$isAccMenu = in_array($p, ['packages.php']);
+$isAccMenu = in_array($p, ['packages.php', 'fund_requests.php', 'invoices.php']);
 $isTicketMenu = in_array($p, ['requests.php', 'fund_requests.php', 'support_tickets.php', 'view_ticket.php']);
 
 // Fetch Pending Requests Count for Badges
@@ -205,8 +205,8 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
         </a>
         <div class="collapse submenu <?= $isAccMenu ? 'show' : '' ?>" id="accountingMenu">
             <a href="packages.php" class="<?= $p==='packages.php' ? 'active' : '' ?>">All Packages</a>
-            <a href="#">Invoices</a>
-            <a href="#">Payments</a>
+            <a href="invoices.php" class="<?= $p==='invoices.php' ? 'active' : '' ?>">Invoices / Receipts</a>
+            <a href="fund_requests.php" class="<?= $p==='fund_requests.php' ? 'active' : '' ?>">Payments / Fund Requests</a>
         </div>
 
         <!-- Logs & Reports -->
@@ -222,6 +222,22 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
         <!-- MikroTik Menu -->
         <!-- Mikrotik Menu Removed -->
         <!-- Payment Gateways -->
+        
+        <!-- Requests & Support -->
+        <a href="#ticketMenu" data-bs-toggle="collapse" class="nav-link-main has-submenu <?= $isTicketMenu ? 'active-parent' : 'collapsed' ?>" aria-expanded="<?= $isTicketMenu ? 'true' : 'false' ?>">
+            <i class="fa-solid fa-headset menu-icon"></i> Support & Requests
+            <?php if($total_pending_requests > 0): ?>
+                <span class="badge bg-danger ms-auto rounded-pill"><?= $total_pending_requests ?></span>
+            <?php endif; ?>
+        </a>
+        <div class="collapse submenu <?= $isTicketMenu ? 'show' : '' ?>" id="ticketMenu">
+            <a href="requests.php" class="<?= $p==='requests.php' ? 'active' : '' ?>">Package Requests
+                <?php if($pending_pkgs > 0): ?><span class="badge bg-danger float-end rounded-pill"><?= $pending_pkgs ?></span><?php endif; ?>
+            </a>
+            <a href="support_tickets.php" class="<?= $p==='support_tickets.php' || $p==='view_ticket.php' ? 'active' : '' ?>">Support Tickets
+                <?php if($open_tickets > 0): ?><span class="badge bg-danger float-end rounded-pill"><?= $open_tickets ?></span><?php endif; ?>
+            </a>
+        </div>
         <a href="payment_gateways.php" class="nav-link-main <?= $p==='payment_gateways.php' ? 'active-parent' : '' ?>">
             <i class="fa-brands fa-cc-stripe menu-icon"></i> Payment Gateways
         </a>

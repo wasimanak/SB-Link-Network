@@ -6,6 +6,7 @@ if (!isset($_SESSION['operator_logged_in'])) {
 }
 
 $client_id = (int)$_SESSION['operator_id'];
+session_write_close(); // Unlock session immediately so it doesn't block other pages
 
 require_once '../config/db.php';
 require_once '../config/routeros_api.class.php';

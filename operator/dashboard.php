@@ -7,42 +7,147 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     if (isset($_FILES['backup_file']) && $_FILES['backup_file']['error'] === UPLOAD_ERR_OK) {
         $tmpName = $_FILES['backup_file']['tmp_name'];
         if (($file = fopen($tmpName, 'r')) !== FALSE) {
-            fgetcsv($file); // skip header row
+            $headers = fgetcsv($file); // Read header row
+            
+            // Map header names to their index
+            $colMap = [];
+            foreach ($headers as $index => $name) {
+                $colMap[trim($name)] = $index;
+            }
+            
+            // Determine if this is the OLD basic CSV or NEW full CSV
+            $is_new_format = isset($colMap['Package Name']);
+            
             $pdo->beginTransaction();
             try {
                 while (($data = fgetcsv($file)) !== FALSE) {
-                    // ID = 0, Username = 1, Full Name = 2, Package ID = 3, Status = 4, Expiry Date = 5
-                    if (count($data) >= 6) {
-                        $id = (int)$data[0];
-                        $username = trim($data[1]);
-                        $expiry = trim($data[5]);
+                    if (empty($data[0]) && empty($data[1])) continue; // Skip empty rows
+
+                    if ($is_new_format) {
+                        // NEW FULL FORMAT
+                        $username = trim($data[$colMap['Username']] ?? '');
+                        $password = trim($data[$colMap['Password']] ?? '');
+                        $full_name = trim($data[$colMap['Full Name']] ?? '');
+                        $service_type = trim($data[$colMap['Service Type']] ?? 'pppoe');
+                        $package_name = trim($data[$colMap['Package Name']] ?? '');
+                        $dealer_username = trim($data[$colMap['Dealer Username']] ?? '');
+                        $mobile = trim($data[$colMap['Mobile']] ?? '');
+                        $phone = trim($data[$colMap['Phone']] ?? '');
+                        $national_id = trim($data[$colMap['National ID']] ?? '');
+                        $city = trim($data[$colMap['City']] ?? '');
+                        $subarea = trim($data[$colMap['Subarea']] ?? '');
+                        $address = trim($data[$colMap['Address']] ?? '');
+                        $gps_lat = trim($data[$colMap['GPS Lat']] ?? '');
+                        $gps_lng = trim($data[$colMap['GPS Lng']] ?? '');
+                        $notes = trim($data[$colMap['Notes']] ?? '');
+                        $balance = (float)($data[$colMap['Balance']] ?? 0);
+                        $status = trim($data[$colMap['Status']] ?? 'active');
+                        $expiry = trim($data[$colMap['Expiry Date']] ?? '');
                         
+                        // Resolve Package ID
+                        $package_id = 0;
+                        if (!empty($package_name)) {
+                            $pkgStmt = $pdo->prepare("SELECT id FROM packages WHERE name = ? AND (client_id = ? OR client_id = 0) LIMIT 1");
+                            $pkgStmt->execute([$package_name, $client_id]);
+                            $package_id = (int)$pkgStmt->fetchColumn();
+                        }
+                        
+                        // Resolve Dealer ID
+                        $dealer_id = null;
+                        if (!empty($dealer_username)) {
+                            $dlrStmt = $pdo->prepare("SELECT id FROM dealers WHERE username = ? AND client_id = ? LIMIT 1");
+                            $dlrStmt->execute([$dealer_username, $client_id]);
+                            $did = $dlrStmt->fetchColumn();
+                            if ($did) $dealer_id = (int)$did;
+                        }
+                        
+                        // Check if user exists
+                        $chkStmt = $pdo->prepare("SELECT id FROM subscribers WHERE username = ? AND client_id = ?");
+                        $chkStmt->execute([$username, $client_id]);
+                        $existing_id = $chkStmt->fetchColumn();
+                        
+                        if ($existing_id) {
+                            // UPDATE
+                            $upd = $pdo->prepare("UPDATE subscribers SET 
+                                password=?, full_name=?, service_type=?, package_id=?, dealer_id=?, 
+                                mobile=?, phone=?, national_id=?, city=?, subarea=?, address=?, 
+                                gps_lat=?, gps_lng=?, notes=?, balance=?, status=? 
+                                WHERE id=?");
+                            $upd->execute([
+                                $password, $full_name, $service_type, $package_id, $dealer_id,
+                                $mobile, $phone, $national_id, $city, $subarea, $address,
+                                $gps_lat, $gps_lng, $notes, $balance, $status, $existing_id
+                            ]);
+                            
+                            // Update Radcheck Password
+                            $pdo->prepare("UPDATE radcheck SET value = ? WHERE username = ? AND attribute = 'Cleartext-Password'")->execute([$password, $username]);
+                            
+                        } else {
+                            // INSERT NEW
+                            $ins = $pdo->prepare("INSERT INTO subscribers (client_id, username, password, full_name, service_type, package_id, dealer_id, mobile, phone, national_id, city, subarea, address, gps_lat, gps_lng, notes, balance, status) 
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                            $ins->execute([
+                                $client_id, $username, $password, $full_name, $service_type, $package_id, $dealer_id,
+                                $mobile, $phone, $national_id, $city, $subarea, $address,
+                                $gps_lat, $gps_lng, $notes, $balance, $status
+                            ]);
+                            
+                            // RADIUS Basics
+                            $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Cleartext-Password', ':=', ?)")->execute([$username, $password]);
+                            if ($package_name) {
+                                $pdo->prepare("INSERT INTO radusergroup (username, groupname, priority) VALUES (?, ?, 1)")->execute([$username, $package_name]);
+                            }
+                            // NAS Restriction trigger will handle NAS-IP-Address
+                        }
+                        
+                        // Process Expiry
                         if (!empty($expiry) && $expiry !== 'N/A') {
                             $parsed_time = strtotime($expiry);
                             if ($parsed_time !== false) {
-                                $db_expiry = date('Y-m-d H:i:s', $parsed_time); // Strictly for MySQL
-                                $formatted_expiry = date('d M Y H:i:s', $parsed_time); // Strictly for FreeRADIUS
+                                $db_expiry = date('Y-m-d H:i:s', $parsed_time);
+                                $formatted_expiry = date('d M Y H:i:s', $parsed_time);
                                 
-                                $pdo->prepare("UPDATE subscribers SET expiry_date = ?, status = 'active' WHERE id = ? AND client_id = ?")->execute([$db_expiry, $id, $client_id]);
+                                $pdo->prepare("UPDATE subscribers SET expiry_date = ? WHERE username = ? AND client_id = ?")->execute([$db_expiry, $username, $client_id]);
                                 
                                 $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute IN ('Expiration', 'Auth-Type')")->execute([$username]);
                                 $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Expiration', ':=', ?)")->execute([$username, $formatted_expiry]);
                             }
                         }
+
+                    } else {
+                        // OLD BASIC FORMAT
+                        if (count($data) >= 6) {
+                            $id = (int)$data[0];
+                            $username = trim($data[1]);
+                            $expiry = trim($data[5]);
+                            
+                            if (!empty($expiry) && $expiry !== 'N/A') {
+                                $parsed_time = strtotime($expiry);
+                                if ($parsed_time !== false) {
+                                    $db_expiry = date('Y-m-d H:i:s', $parsed_time);
+                                    $formatted_expiry = date('d M Y H:i:s', $parsed_time);
+                                    
+                                    $pdo->prepare("UPDATE subscribers SET expiry_date = ?, status = 'active' WHERE id = ? AND client_id = ?")->execute([$db_expiry, $id, $client_id]);
+                                    
+                                    $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute IN ('Expiration', 'Auth-Type')")->execute([$username]);
+                                    $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Expiration', ':=', ?)")->execute([$username, $formatted_expiry]);
+                                }
+                            }
+                        }
                     }
                 }
                 $pdo->commit();
-                echo "<script>alert('Expiry Dates Restored Successfully!'); window.location='dashboard.php';</script>";
+                echo "<script>alert('Backup Restored Successfully!'); window.location='dashboard.php';</script>";
                 exit;
             } catch (Exception $e) {
                 $pdo->rollBack();
-                echo "<script>alert('Error parsing CSV file.');</script>";
+                echo "<script>alert('Error parsing CSV file: " . addslashes($e->getMessage()) . "'); window.history.back();</script>";
+                exit;
             }
             fclose($file);
         }
     }
 }
-
 // --- ADD USER LOGIC ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_user') {
     $full_name = trim($_POST['full_name']);
@@ -268,9 +373,9 @@ $subs = $pdo->query("SELECT s.*, p.name as package_name,
     <a href="#" class="quick-btn" data-bs-toggle="modal" data-bs-target="#addBalanceModal"><i class="fa-solid fa-coins"></i><span>User Balance</span></a>
     <a href="#" class="quick-btn" data-bs-toggle="modal" data-bs-target="#addUserModal"><i class="fa-solid fa-user-plus"></i><span>Add New User</span></a>
     <a href="#" class="quick-btn" data-bs-toggle="modal" data-bs-target="#renewUserModal"><i class="fa-solid fa-bolt text-warning"></i><span>Activate/Renew</span></a>
-    <a href="mikrotik_sync.php" class="quick-btn"><i class="fa-solid fa-file-import"></i><span>Import Users</span></a>
+    
     <a href="backup_users.php" class="quick-btn"><i class="fa-solid fa-download text-success"></i><span>Backup (CSV)</span></a>
-    <a href="#" class="quick-btn" data-bs-toggle="modal" data-bs-target="#restoreModal"><i class="fa-solid fa-upload text-warning"></i><span>Restore Expiry</span></a>
+    <a href="#" class="quick-btn" data-bs-toggle="modal" data-bs-target="#restoreModal"><i class="fa-solid fa-upload text-warning"></i><span>Restore CSV</span></a>
 </div>
 
 
