@@ -45,7 +45,7 @@ try {
         } else {
             // Check PPPoE / Simple Queue (if rate limit exists)
             $api->write('/queue/simple/print', false);
-            $api->write('?name=' . $username, true);
+            $api->write('?name=<pppoe-' . $username . '>', true);
             $queues = $api->read();
             if (!empty($queues) && isset($queues[0]['bytes'])) {
                 $bytes = explode('/', $queues[0]['bytes']);

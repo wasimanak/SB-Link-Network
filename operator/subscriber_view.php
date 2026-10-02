@@ -265,7 +265,8 @@ $online = $onStmt->fetch();
 
 $uptime_str = "0.00";
 if ($online) {
-    $diff = time() - strtotime($online['acctstarttime']);
+    $start_time = is_numeric($online['acctstarttime']) ? $online['acctstarttime'] : strtotime($online['acctstarttime']);
+    $diff = time() - $start_time;
     $hours = floor($diff / 3600);
     $mins = floor(($diff % 3600) / 60);
     $uptime_str = "{$hours}h {$mins}m";
@@ -546,7 +547,7 @@ $ledger_history = $ledgerStmt->fetchAll();
                                 <tr><td class="fw-bold">Used Session Time</td><td><?= $used_sess_str ?></td></tr>
                                 <tr><td class="fw-bold">Remaining Session Time</td><td>Unlimited</td></tr>
                                 <tr><td class="fw-bold">Last Activation Date</td><td><?= $last_act ? date('d M Y H:i:s', strtotime($last_act)) : 'N/A' ?></td></tr>
-                                <tr><td class="fw-bold">Last Login</td><td><?= $latest_conn ? date('d M Y H:i:s', strtotime($latest_conn['acctstarttime'])) : 'N/A' ?></td></tr>
+                                <tr><td class="fw-bold">Last Login</td><td><?= $latest_conn ? date('d M Y H:i:s', (is_numeric($latest_conn['acctstarttime']) ? $latest_conn['acctstarttime'] : strtotime($latest_conn['acctstarttime']))) : 'N/A' ?></td></tr>
                                 <tr><td class="fw-bold">IPv6 IP Address</td><td><?= !empty($latest_conn['framedipv6address']) ? htmlspecialchars($latest_conn['framedipv6address']) : 'N/A' ?></td></tr>
                                 <tr><td class="fw-bold">Connected IP</td><td><?= !empty($latest_conn['framedipaddress']) ? htmlspecialchars($latest_conn['framedipaddress']) : 'N/A' ?></td></tr>
                                 <tr><td class="fw-bold">Connected MAC</td><td><?= !empty($latest_conn['callingstationid']) ? htmlspecialchars($latest_conn['callingstationid']) : 'N/A' ?></td></tr>
