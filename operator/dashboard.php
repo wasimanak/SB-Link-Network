@@ -45,11 +45,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                         $expiry = trim($data[$colMap['Expiry Date']] ?? '');
                         
                         // Resolve Package ID
-                        $package_id = 0;
+                        $package_id = null;
                         if (!empty($package_name)) {
                             $pkgStmt = $pdo->prepare("SELECT id FROM packages WHERE name = ? AND (client_id = ? OR client_id = 0) LIMIT 1");
                             $pkgStmt->execute([$package_name, $client_id]);
-                            $package_id = (int)$pkgStmt->fetchColumn();
+                            $pid = $pkgStmt->fetchColumn();
+                            if ($pid) {
+                                $package_id = (int)$pid;
+                            } else {
+                                // AUTO-CREATE missing package to prevent foreign key errors
+                                $insPkg = $pdo->prepare("INSERT INTO packages (client_id, name, rate_limit, price) VALUES (?, ?, '1M/1M', 0)");
+                                $insPkg->execute([$client_id, $package_name]);
+                                $package_id = (int)$pdo->lastInsertId();
+                            }
                         }
                         
                         // Resolve Dealer ID
@@ -586,7 +594,7 @@ $subs = $pdo->query("SELECT s.*, p.name as package_name,
   <div class="modal-dialog">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title"><i class="fa-solid fa-upload text-warning"></i> Restore User Expiries (CSV)</h5>
+        <h5 class="modal-title"><i class="fa-solid fa-upload text-warning"></i> Import / Restore Users (CSV)</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <form method="POST" enctype="multipart/form-data">
@@ -596,8 +604,8 @@ $subs = $pdo->query("SELECT s.*, p.name as package_name,
                 <strong>How to use:</strong>
                 <ol class="mb-0 ps-3">
                     <li>Click <b>Backup (CSV)</b> to download your users.</li>
-                    <li>Open the CSV in Excel and change the <b>Expiry Date</b> column (Format: YYYY-MM-DD HH:MM:SS).</li>
-                    <li>Save the CSV and upload it here to apply the changes.</li>
+                    <li>You can add new users, update passwords, change packages, or modify expiry dates directly in Excel.</li>
+                    <li>Save the CSV and upload it here. The system will automatically update existing users and insert new ones!</li>
                 </ol>
             </div>
             <div class="mb-3">
@@ -607,7 +615,7 @@ $subs = $pdo->query("SELECT s.*, p.name as package_name,
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-dark">Restore Dates</button>
+          <button type="submit" class="btn btn-dark">Import / Restore Users</button>
         </div>
       </form>
     </div>

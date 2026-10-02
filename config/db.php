@@ -1,8 +1,8 @@
 <?php
-$host = '192.168.20.100'; // Ubuntu Server IP (Wi-Fi Bridge)
-$db   = 'radius_admin';
-$user = 'syncuser';
-$pass = 'admin123';
+$host = 'localhost';
+$db   = 'radius'; // Changed back to 'radius' so FreeRADIUS and Website use the exact same DB
+$user = 'radius';
+$pass = 'Wasi1234';
 $charset = 'utf8mb4';
 
 $dsn = "mysql:host=$host;dbname=$db;charset=$charset";
@@ -15,6 +15,5 @@ $options = [
 try {
     $pdo = new PDO($dsn, $user, $pass, $options);
 } catch (\PDOException $e) {
-    // Fail gracefully and quietly rather than leaking credentials, although in development we might want to see the error.
     die("Database connection failed. Please check your database configuration.");
 }
