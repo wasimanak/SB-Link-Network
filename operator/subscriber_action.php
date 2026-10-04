@@ -8,10 +8,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'kick') {
         $username = trim($_POST['username'] ?? '');
         
-        // Fetch NAS info for PoD
-        $nasStmt = $pdo->prepare("SELECT nasname, coa_port, secret FROM nas WHERE client_id = ? LIMIT 1");
-        $nasStmt->execute([$client_id]);
+        // Fetch exact NAS info for PoD based on the active session
+        $nasStmt = $pdo->prepare("SELECT n.nasname, n.coa_port, n.secret FROM nas n 
+                                JOIN radacct r ON n.nasname = r.nasipaddress 
+                                WHERE r.username = ? AND n.client_id = ? AND r.acctstoptime IS NULL LIMIT 1");
+        $nasStmt->execute([$username, $client_id]);
         $nas = $nasStmt->fetch();
+        
+        // Fallback to first NAS if session not found
+        if (!$nas) {
+            $fallback = $pdo->prepare("SELECT nasname, coa_port, secret FROM nas WHERE client_id = ? LIMIT 1");
+            $fallback->execute([$client_id]);
+            $nas = $fallback->fetch();
+        }
 
         if ($nas && $username) {
             // PoD command formulation for radclient
@@ -25,11 +34,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $cmd = "echo $user | radclient -x $ip disconnect $secret 2>&1";
             exec($cmd, $output, $return_var);
             
-            $_SESSION['msg'] = "Live Kick command sent to router.";
+            // CRITICAL FIX: Manually clear the ghost/stuck session from radacct
+            $pdo->prepare("UPDATE radacct SET acctstoptime = NOW(), acctterminatecause = 'Admin-Reset' WHERE username = ? AND acctstoptime IS NULL")->execute([$username]);
+            
+            $_SESSION['msg'] = "User kicked and session cleared successfully.";
         } else {
             $_SESSION['error'] = "NAS not configured for PoD.";
         }
-        header("Location: subscribers.php");
+        $redirect = $_SERVER['HTTP_REFERER'] ?? 'subscribers.php';
+        header("Location: " . $redirect);
         exit;
     }
 

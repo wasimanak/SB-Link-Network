@@ -280,7 +280,7 @@ if (!$active_method) {
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body p-4">
-        <form action="fund_action.php" method="POST">
+        <form action="request_action.php" method="POST">
             <input type="hidden" name="action" value="buy_package">
             <input type="hidden" name="package_id" id="modal_pkg_id">
             
@@ -446,7 +446,10 @@ function openBuyModal(id, name, price) {
     // Data inside: user_id | amount | timestamp
     var qrData = encodeURIComponent("PAY_<?= $current_user['id'] ?>_AMT_" + price.toFixed(2) + "_TS_" + Date.now());
     var qrUrl = "https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=" + qrData;
-    document.getElementById('qr_code_img').src = qrUrl;
+    var qrElement = document.getElementById('qr_code_img');
+    if (qrElement) {
+        qrElement.src = qrUrl;
+    }
     
     var modal = new bootstrap.Modal(document.getElementById('buyModal'));
     modal.show();
