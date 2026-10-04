@@ -9,9 +9,21 @@ try {
 } catch (PDOException $e) {}
 
 
+
 $rm_id = $_SESSION['rm_id'];
 $client_id = $_SESSION['client_id'];
 $rm_name = $_SESSION['rm_name'];
+
+// Check RM permissions
+$chkStmt = $pdo->prepare("SELECT status FROM recovery_men WHERE id = ?");
+$chkStmt->execute([$rm_id]);
+$rm_data = $chkStmt->fetch();
+if (!$rm_data || $rm_data['status'] === 'disabled') {
+    session_destroy();
+    header("Location: login.php");
+    exit;
+}
+
 
 // Handle Receive Payment
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'receive_payment') {

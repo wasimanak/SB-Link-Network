@@ -1,112 +1,17 @@
 <?php
-session_start();
-if (!isset($_SESSION['lineman_id'])) { header("Location: login.php"); exit; }
-require_once '../config/db.php';
+$f = 'lineman/dashboard.php';
+$c = file_get_contents($f);
 
-// Auto-upgrade subscribers table to support linemen
-try {
-    $pdo->exec("ALTER TABLE `subscribers` ADD COLUMN `lineman_id` int(11) DEFAULT 0");
-} catch (PDOException $e) {
-    // Silently ignore if already exists
-}
-
-
-
-$lineman_id = $_SESSION['lineman_id'];
-$client_id = $_SESSION['client_id'];
-$lineman_name = $_SESSION['lineman_name'];
-
-// Check lineman permissions
-$chkStmt = $pdo->prepare("SELECT status, can_create_users FROM linemen WHERE id = ?");
-$chkStmt->execute([$lineman_id]);
-$lm_data = $chkStmt->fetch();
-if (!$lm_data || $lm_data['status'] === 'disabled') {
-    session_destroy();
-    header("Location: login.php");
+// Separate PHP logic from HTML
+$parts = explode('?>', $c, 2);
+if (count($parts) < 2) {
+    echo "Could not parse file structure.";
     exit;
 }
-$can_create = (isset($lm_data['can_create_users']) && $lm_data['can_create_users'] == 1) ? true : false;
 
+$phpLogic = $parts[0] . "?>";
 
-// Handle Add User
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_user') {
-    if (!$can_create) { echo "<script>alert('Permission Denied: You do not have permission to create users.'); window.location='dashboard.php';</script>"; exit; }
-    $username = trim($_POST['username']);
-    $password = trim($_POST['password']);
-    $package_id = (int)$_POST['package_id'];
-    $full_name = trim($_POST['full_name']);
-    $expiry_date = date('Y-m-d\TH:i', strtotime('+30 days')); // Default 30 days
-
-    $p = $pdo->prepare("SELECT rate_limit FROM packages WHERE id = ? AND client_id = ?");
-    $p->execute([$package_id, $client_id]);
-    $pkg = $p->fetch();
-
-    if ($pkg) {
-        try {
-            $pdo->beginTransaction();
-            $pdo->prepare("INSERT INTO subscribers (client_id, lineman_id, package_id, username, password, service_type, full_name, expiry_date) VALUES (?, ?, ?, ?, ?, 'pppoe', ?, ?)")
-                ->execute([$client_id, $lineman_id, $package_id, $username, $password, $full_name, $expiry_date]);
-            
-            $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Cleartext-Password', ':=', ?)")->execute([$username, $password]);
-            
-            if (!empty($pkg['rate_limit']) && $pkg['rate_limit'] !== 'No Limit') {
-                $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Rate-Limit', '=', ?)")->execute([$username, $pkg['rate_limit']]);
-            }
-            
-            $formatted_expiry = date('d M Y H:i:s', strtotime($expiry_date));
-            $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Expiration', ':=', ?)")->execute([$username, $formatted_expiry]);
-            
-            $pdo->commit();
-            echo "<script>alert('User created successfully!'); window.location='dashboard.php';</script>";
-            exit;
-        } catch (PDOException $e) {
-            $pdo->rollBack();
-            echo "<script>alert('Error: Username might already exist.');</script>";
-        }
-    }
-}
-
-// Search Logic
-$search_result = null;
-if (isset($_GET['search_username']) && !empty(trim($_GET['search_username']))) {
-    $search = trim($_GET['search_username']);
-    $sStmt = $pdo->prepare("
-        SELECT s.*, p.name as package_name,
-               (SELECT SUM(acctinputoctets) FROM radacct r WHERE r.username = s.username) as upload_bytes,
-               (SELECT SUM(acctoutputoctets) FROM radacct r WHERE r.username = s.username) as download_bytes,
-               (SELECT framedipaddress FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL ORDER BY radacctid DESC LIMIT 1) as live_ip
-        FROM subscribers s
-        LEFT JOIN packages p ON s.package_id = p.id
-        WHERE s.username = ? AND s.client_id = ?
-    ");
-    $sStmt->execute([$search, $client_id]);
-    $search_result = $sStmt->fetch(PDO::FETCH_ASSOC);
-}
-
-// Fetch 7 Days History created by this lineman
-$hStmt = $pdo->prepare("
-    SELECT s.username, s.full_name, s.created_at, p.name as package_name
-    FROM subscribers s
-    LEFT JOIN packages p ON s.package_id = p.id
-    WHERE s.lineman_id = ? AND s.created_at >= NOW() - INTERVAL 7 DAY
-    ORDER BY s.created_at DESC
-");
-$hStmt->execute([$lineman_id]);
-$history = $hStmt->fetchAll(PDO::FETCH_ASSOC);
-
-// Fetch Packages for Create User Form
-$pkgStmt = $pdo->prepare("SELECT id, name FROM packages WHERE client_id = ? OR client_id = 0 ORDER BY name ASC");
-$pkgStmt->execute([$client_id]);
-$packages = $pkgStmt->fetchAll(PDO::FETCH_ASSOC);
-
-function formatBytes($bytes) {
-    if ($bytes <= 0) return "0 MB";
-    $bytes = $bytes / (1024 * 1024);
-    if ($bytes > 1024) return round($bytes/1024, 2) . ' GB';
-    return round($bytes, 2) . ' MB';
-}
-?>
-
+$premiumHtml = '
 <!DOCTYPE html>
 <html>
 <head>
@@ -115,7 +20,7 @@ function formatBytes($bytes) {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        body { background-color: #f8fafc; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body { background-color: #f8fafc; font-family: \'Segoe UI\', Tahoma, Geneva, Verdana, sans-serif; }
         .top-navbar { background: linear-gradient(135deg, #1e3a8a, #0f172a); color: white; padding: 18px 20px; border-bottom: 4px solid #3b82f6; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
         
         .card-custom { border: none; border-radius: 16px; background: white; box-shadow: 0 4px 15px rgba(0,0,0,0.03); transition: transform 0.2s ease, box-shadow 0.2s ease; margin-bottom: 20px; overflow: hidden; }
@@ -154,21 +59,21 @@ function formatBytes($bytes) {
     <div class="row justify-content-center mb-4">
         <div class="col-md-8">
             <form method="GET" class="d-flex shadow-sm rounded-pill bg-white p-1 border">
-                <input type="text" name="search_username" class="form-control form-control-lg border-0 bg-transparent" placeholder="Enter Username to search..." value="<?= isset($_GET['search_username']) ? htmlspecialchars($_GET['search_username']) : '' ?>" required>
+                <input type="text" name="search_username" class="form-control form-control-lg border-0 bg-transparent" placeholder="Enter Username to search..." value="<?= isset($_GET[\'search_username\']) ? htmlspecialchars($_GET[\'search_username\']) : \'\' ?>" required>
                 <button type="submit" class="btn btn-primary btn-search fw-bold shadow-sm"><i class="fa-solid fa-magnifying-glass me-2 d-none d-md-inline"></i> Search</button>
             </form>
         </div>
     </div>
 
     <!-- Search Result -->
-    <?php if(isset($_GET['search_username'])): ?>
+    <?php if(isset($_GET[\'search_username\'])): ?>
         <?php if($search_result): ?>
             <div class="card card-custom border-top border-primary border-4 mb-4">
                 <div class="card-body p-4 p-md-5">
                     <div class="d-flex justify-content-between align-items-center border-bottom pb-3 mb-4">
                         <h5 class="fw-bold text-primary mb-0"><i class="fa-solid fa-user-check me-2"></i> User Details</h5>
-                        <?php if($search_result['live_ip']): ?>
-                            <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-3 py-2 rounded-pill"><i class="fa-solid fa-circle text-success small me-1"></i> Online (<?= $search_result['live_ip'] ?>)</span>
+                        <?php if($search_result[\'live_ip\']): ?>
+                            <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-3 py-2 rounded-pill"><i class="fa-solid fa-circle text-success small me-1"></i> Online (<?= $search_result[\'live_ip\'] ?>)</span>
                         <?php else: ?>
                             <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 px-3 py-2 rounded-pill"><i class="fa-solid fa-circle text-secondary small me-1"></i> Offline</span>
                         <?php endif; ?>
@@ -177,15 +82,15 @@ function formatBytes($bytes) {
                     <div class="row g-4 mb-4">
                         <div class="col-6 col-md-4">
                             <div class="text-secondary small fw-bold text-uppercase tracking-wide mb-1"><i class="fa-solid fa-id-card me-1"></i> Name</div>
-                            <div class="fs-5 text-dark fw-bold"><?= htmlspecialchars($search_result['full_name']) ?></div>
+                            <div class="fs-5 text-dark fw-bold"><?= htmlspecialchars($search_result[\'full_name\']) ?></div>
                         </div>
                         <div class="col-6 col-md-4">
                             <div class="text-secondary small fw-bold text-uppercase tracking-wide mb-1"><i class="fa-solid fa-at me-1"></i> Username</div>
-                            <div class="fs-5"><span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25"><?= htmlspecialchars($search_result['username']) ?></span></div>
+                            <div class="fs-5"><span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25"><?= htmlspecialchars($search_result[\'username\']) ?></span></div>
                         </div>
                         <div class="col-12 col-md-4">
                             <div class="text-secondary small fw-bold text-uppercase tracking-wide mb-1"><i class="fa-solid fa-box me-1"></i> Package</div>
-                            <div class="fs-6 text-dark fw-bold mt-1"><?= htmlspecialchars($search_result['package_name']) ?></div>
+                            <div class="fs-6 text-dark fw-bold mt-1"><?= htmlspecialchars($search_result[\'package_name\']) ?></div>
                         </div>
                     </div>
                     
@@ -196,7 +101,7 @@ function formatBytes($bytes) {
                                     <i class="fa-solid fa-arrow-down fs-4"></i>
                                 </div>
                                 <div class="text-secondary small fw-bold text-uppercase mb-1">Total Download</div>
-                                <div class="fs-3 fw-bold text-dark"><?= formatBytes($search_result['download_bytes']) ?></div>
+                                <div class="fs-3 fw-bold text-dark"><?= formatBytes($search_result[\'download_bytes\']) ?></div>
                                 <div class="mt-3 pt-3 border-top">
                                     <div class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 w-100 py-2"><i class="fa-solid fa-bolt me-1"></i> Live: <span id="live_down" class="fs-6">0.00</span> Mbps</div>
                                 </div>
@@ -208,7 +113,7 @@ function formatBytes($bytes) {
                                     <i class="fa-solid fa-arrow-up fs-4"></i>
                                 </div>
                                 <div class="text-secondary small fw-bold text-uppercase mb-1">Total Upload</div>
-                                <div class="fs-3 fw-bold text-dark"><?= formatBytes($search_result['upload_bytes']) ?></div>
+                                <div class="fs-3 fw-bold text-dark"><?= formatBytes($search_result[\'upload_bytes\']) ?></div>
                                 <div class="mt-3 pt-3 border-top">
                                     <div class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 w-100 py-2"><i class="fa-solid fa-bolt me-1"></i> Live: <span id="live_up" class="fs-6">0.00</span> Mbps</div>
                                 </div>
@@ -250,7 +155,7 @@ function formatBytes($bytes) {
                             <select name="package_id" class="form-select fw-bold text-dark" required>
                                 <option value="">Choose...</option>
                                 <?php foreach($packages as $p): ?>
-                                    <option value="<?= $p['id'] ?>"><?= htmlspecialchars($p['name']) ?></option>
+                                    <option value="<?= $p[\'id\'] ?>"><?= htmlspecialchars($p[\'name\']) ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
@@ -262,7 +167,7 @@ function formatBytes($bytes) {
         <?php endif; ?>
         
         <!-- 7 Days History -->
-        <div class="col-md-<?= $can_create ? '7' : '12' ?>">
+        <div class="col-md-<?= $can_create ? \'7\' : \'12\' ?>">
             <div class="card card-custom h-100">
                 <div class="card-header bg-transparent border-bottom-0 pt-4 pb-0 px-4 d-flex justify-content-between align-items-center">
                     <h5 class="fw-bold mb-0 text-dark"><i class="fa-solid fa-clock-rotate-left text-primary me-2"></i> History <span class="text-muted fs-6 fw-normal">(Last 7 Days)</span></h5>
@@ -281,9 +186,9 @@ function formatBytes($bytes) {
                             <tbody>
                                 <?php foreach($history as $h): ?>
                                 <tr>
-                                    <td class="text-secondary small fw-bold"><?= date('d M Y', strtotime($h['created_at'])) ?><br><span class="text-muted" style="font-size:0.7rem;"><?= date('h:i A', strtotime($h['created_at'])) ?></span></td>
-                                    <td class="fw-bold text-dark"><i class="fa-solid fa-user text-muted small me-1"></i> <?= htmlspecialchars($h['username']) ?></td>
-                                    <td><span class="badge bg-light text-dark border px-2 py-1"><?= htmlspecialchars($h['package_name']) ?></span></td>
+                                    <td class="text-secondary small fw-bold"><?= date(\'d M Y\', strtotime($h[\'created_at\'])) ?><br><span class="text-muted" style="font-size:0.7rem;"><?= date(\'h:i A\', strtotime($h[\'created_at\'])) ?></span></td>
+                                    <td class="fw-bold text-dark"><i class="fa-solid fa-user text-muted small me-1"></i> <?= htmlspecialchars($h[\'username\']) ?></td>
+                                    <td><span class="badge bg-light text-dark border px-2 py-1"><?= htmlspecialchars($h[\'package_name\']) ?></span></td>
                                 </tr>
                                 <?php endforeach; ?>
                                 <?php if(empty($history)): ?>
@@ -306,19 +211,19 @@ function formatBytes($bytes) {
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<?php if(isset($_GET['search_username']) && $search_result): ?>
+<?php if(isset($_GET[\'search_username\']) && $search_result): ?>
 <script>
 let lastBytesIn = null;
 let lastBytesOut = null;
 let lastTime = null;
 
 function fetchLiveBandwidth() {
-    fetch('api_bandwidth.php?username=<?= urlencode($search_result['username']) ?>')
+    fetch(\'api_bandwidth.php?username=<?= urlencode($search_result[\'username\']) ?>\')
         .then(response => response.json())
         .then(data => {
             if (data.error || data.msg) {
-                document.getElementById('live_down').innerText = "0.00";
-                document.getElementById('live_up').innerText = "0.00";
+                document.getElementById(\'live_down\').innerText = "0.00";
+                document.getElementById(\'live_up\').innerText = "0.00";
                 return;
             }
 
@@ -339,8 +244,8 @@ function fetchLiveBandwidth() {
                     let rx_mbps = (bytesInDiff * 8 / timeDiffSecs) / 1048576; // Upload
                     let tx_mbps = (bytesOutDiff * 8 / timeDiffSecs) / 1048576; // Download
 
-                    document.getElementById('live_up').innerText = rx_mbps.toFixed(2);
-                    document.getElementById('live_down').innerText = tx_mbps.toFixed(2);
+                    document.getElementById(\'live_up\').innerText = rx_mbps.toFixed(2);
+                    document.getElementById(\'live_down\').innerText = tx_mbps.toFixed(2);
                 }
             }
 
@@ -357,3 +262,8 @@ fetchLiveBandwidth();
 <?php endif; ?>
 </body>
 </html>
+';
+
+file_put_contents($f, $phpLogic . "\n" . $premiumHtml);
+echo "Premium UI applied to lineman/dashboard.php!\n";
+?>

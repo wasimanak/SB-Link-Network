@@ -79,9 +79,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $stmt->execute([$identifier, $client_id]);
                     $user = $stmt->fetch();
                     if ($user && $user['password'] === $password) {
-                        $_SESSION['recovery_id'] = $user['id'];
+                        $_SESSION['rm_id'] = $user['id'];
                         $_SESSION['client_id'] = $user['client_id'];
-                        $_SESSION['recovery_name'] = $user['full_name'];
+                        $_SESSION['rm_name'] = $user['full_name'];
                         header("Location: recoveryman/dashboard.php");
                         exit;
                     } else {
