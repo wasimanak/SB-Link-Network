@@ -184,14 +184,42 @@ $dpStmt->execute([$dealer_id]);
 $dealer_packages = $dpStmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Fetch Dealer's Users
+// Handle Filter Logic
+$filter = $_GET['filter'] ?? '';
+$filter_sql = "";
+$params = [$dealer_id];
+
+if ($filter === 'active') {
+    $filter_sql = " AND s.status = 'active'";
+} elseif ($filter === 'expired') {
+    $filter_sql = " AND (s.status = 'expired' OR (s.expiry_date IS NOT NULL AND s.expiry_date < NOW()))";
+} elseif ($filter === 'expiring_1w') {
+    $filter_sql = " AND (s.expiry_date IS NOT NULL AND s.expiry_date >= NOW() AND s.expiry_date <= DATE_ADD(NOW(), INTERVAL 7 DAY))";
+} elseif ($filter === 'expiring_2w') {
+    $filter_sql = " AND (s.expiry_date IS NOT NULL AND s.expiry_date >= NOW() AND s.expiry_date <= DATE_ADD(NOW(), INTERVAL 14 DAY))";
+} elseif ($filter === 'suspended') {
+    $filter_sql = " AND s.status = 'suspended'";
+} elseif ($filter === 'online') {
+    $filter_sql = " AND EXISTS (SELECT 1 FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL)";
+} elseif ($filter === 'offline') {
+    $filter_sql = " AND NOT EXISTS (SELECT 1 FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL)";
+}
+
 $sql = "SELECT s.*, p.name as package_name, 
-        (SELECT COUNT(*) FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL) as is_online
+        (SELECT COUNT(*) FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL) as is_online,
+        (SELECT framedipaddress FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL ORDER BY radacctid DESC LIMIT 1) as live_ip,
+        (SELECT MAX(acctstarttime) FROM radacct r WHERE r.username = s.username) as last_on_time,
+        (SELECT MAX(acctstoptime) FROM radacct r WHERE r.username = s.username) as last_off_time,
+        (SELECT SUM(acctinputoctets + acctoutputoctets) FROM radacct r WHERE r.username = s.username) as total_usage_bytes,
+        (SELECT SUM(acctsessiontime) FROM radacct r WHERE r.username = s.username) as total_time_sec,
+        (SELECT nasipaddress FROM radacct r WHERE r.username = s.username ORDER BY radacctid DESC LIMIT 1) as nas_ip
         FROM subscribers s 
         LEFT JOIN packages p ON s.package_id = p.id 
-        WHERE s.dealer_id = ? 
+        WHERE s.dealer_id = ? $filter_sql
         ORDER BY s.id DESC";
+
 $stmt = $pdo->prepare($sql);
-$stmt->execute([$dealer_id]);
+$stmt->execute($params);
 $subs = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
 

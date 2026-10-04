@@ -2,6 +2,48 @@
 require_once 'header.php';
 $client_id = $_SESSION['operator_id'];
 
+
+// Auto-upgrade schema if columns are missing
+try {
+    $pdo->exec("ALTER TABLE `recovery_men` ADD COLUMN `city` varchar(50) DEFAULT NULL");
+} catch (PDOException $e) {
+    // Column already exists or other error, ignore silently
+}
+try {
+    $pdo->exec("ALTER TABLE `recovery_men` ADD COLUMN `phone` varchar(20) DEFAULT NULL");
+} catch (PDOException $e) {
+}
+try {
+    $pdo->exec("ALTER TABLE `recovery_men` ADD COLUMN `address` text DEFAULT NULL");
+} catch (PDOException $e) {
+}
+
+
+// Auto-upgrade recovery_men table for cash_in_hand
+try {
+    $pdo->exec("ALTER TABLE `recovery_men` ADD COLUMN `cash_in_hand` DECIMAL(10,2) DEFAULT 0.00");
+} catch (PDOException $e) {}
+
+// Auto-create table if not exists to prevent insertion errors
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS `recovery_men` (
+        `id` int(11) NOT NULL AUTO_INCREMENT,
+        `client_id` int(11) NOT NULL,
+        `full_name` varchar(100) NOT NULL,
+        `username` varchar(50) NOT NULL,
+        `password` varchar(255) NOT NULL,
+        `phone` varchar(20) DEFAULT NULL,
+        `address` text DEFAULT NULL,
+        `city` varchar(50) DEFAULT NULL,
+        `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+        PRIMARY KEY (`id`),
+        UNIQUE KEY `username` (`username`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+} catch (PDOException $e) {
+    // Ignore schema errors silently
+}
+
+
 // Handle Actions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
@@ -21,7 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             echo "<script>alert('Recovery Man created successfully!'); window.location='$_SERVER[PHP_SELF]';</script>";
             exit;
         } catch (PDOException $e) {
-            echo "<script>alert('Error: Username might already exist.');</script>";
+            echo "<script>alert('Error: ' + " . json_encode($e->getMessage()) . "); window.history.back();</script>";
         }
     }
     
@@ -68,6 +110,7 @@ $members = $stmt->fetchAll();
                         <th>Password</th>
                         <th>City</th>
                         <th>Contact</th>
+                        <th>Cash in Hand</th>
                         <th>Created On</th>
                         <th>Actions</th>
                     </tr>
@@ -75,13 +118,18 @@ $members = $stmt->fetchAll();
                 <tbody>
                     <?php foreach($members as $m): ?>
                     <tr>
-                        <td class="fw-bold text-dark"><?= htmlspecialchars($m['full_name']) ?></td>
+                        <td><a href="recoveryman_profile.php?id=<?= $m['id'] ?>" class="fw-bold text-primary text-decoration-none"><i class="fa-solid fa-user-circle me-1"></i> <?= htmlspecialchars($m['full_name']) ?></a></td>
                         <td><span class="badge bg-primary fs-6"><?= htmlspecialchars($m['username']) ?></span></td>
                         <td class="font-monospace text-muted"><?= htmlspecialchars($m['password']) ?></td>
                         <td><?= htmlspecialchars($m['city'] ?: 'N/A') ?></td>
                         <td>
                             <div><i class="fa-solid fa-phone text-secondary small me-1"></i> <?= htmlspecialchars($m['phone'] ?: 'N/A') ?></div>
                             <div class="small text-muted"><i class="fa-solid fa-map-location-dot text-secondary small me-1"></i> <?= htmlspecialchars($m['address'] ?: 'N/A') ?></div>
+                        </td>
+                        <td>
+                            <div class="fw-bold <?= ($m['cash_in_hand']>0)?'text-success':'text-muted' ?>">
+                                Rs. <?= number_format($m['cash_in_hand'] ?? 0) ?>
+                            </div>
                         </td>
                         <td class="text-secondary small"><?= date('d M Y', strtotime($m['created_at'])) ?></td>
                         <td>

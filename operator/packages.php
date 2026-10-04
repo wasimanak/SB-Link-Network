@@ -78,53 +78,69 @@ $packages = $stmt->fetchAll();
 ?>
 
 <div class="d-flex justify-content-between align-items-center mb-4">
-    <h4><i class="fa-solid fa-box-open text-primary"></i> Manage Packages</h4>
-    <button class="btn btn-primary shadow-sm" data-bs-toggle="modal" data-bs-target="#packageModal" onclick="openCreateModal()">
-        <i class="fa-solid fa-plus me-1"></i> Create New Package
+    <h3 class="fw-bold mb-0 text-dark" style="letter-spacing: 0.5px;">
+        <i class="fa-solid fa-box-open text-primary me-2"></i>Manage Packages
+    </h3>
+    <button class="btn btn-accent rounded-pill px-4 shadow-lg" data-bs-toggle="modal" data-bs-target="#packageModal" onclick="openCreateModal()">
+        <i class="fa-solid fa-plus me-2"></i> Create Package
     </button>
 </div>
 
-<div class="card shadow-sm border-0">
-    <div class="card-body">
+<div class="card border-0 shadow-sm mb-4" style="border-radius: 12px; overflow: hidden;">
+    <div class="card-body p-0">
         <div class="table-responsive">
-            <table class="table table-hover align-middle">
-                <thead class="table-light">
+            <table class="table table-hover table-borderless align-middle text-dark mb-0" style="background: white;">
+                <thead style="background: #f8fafc; border-bottom: 1px solid #e2e8f0;">
                     <tr>
-                        <th>Package Name</th>
-                        <th>Speed (Rate Limit)</th>
-                        <th>Price (Rs)</th>
-                        <th>Validity (Days)</th>
-                        <th>Data Limit</th>
-                        <th>Speed Scheduler</th>
-                        <th class="text-end">Actions</th>
+                        <th class="py-3 ps-4 text-uppercase text-muted" style="font-size: 0.75rem; letter-spacing: 1px;">Package Name</th>
+                        <th class="py-3 text-uppercase text-muted" style="font-size: 0.75rem; letter-spacing: 1px;">Speed</th>
+                        <th class="py-3 text-uppercase text-muted" style="font-size: 0.75rem; letter-spacing: 1px;">Price</th>
+                        <th class="py-3 text-uppercase text-muted" style="font-size: 0.75rem; letter-spacing: 1px;">Validity</th>
+                        <th class="py-3 text-uppercase text-muted" style="font-size: 0.75rem; letter-spacing: 1px;">Data Limit</th>
+                        <th class="py-3 text-uppercase text-muted" style="font-size: 0.75rem; letter-spacing: 1px;">Night Scheduler</th>
+                        <th class="py-3 pe-4 text-end text-uppercase text-muted" style="font-size: 0.75rem; letter-spacing: 1px;">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php if (empty($packages)): ?>
-                        <tr><td colspan="7" class="text-center py-4 text-muted">No packages found. Click "Create New Package" to add one.</td></tr>
+                        <tr><td colspan="7" class="text-center py-5 text-muted">
+                            <i class="fa-solid fa-box-open fa-3x mb-3 opacity-25"></i><br>
+                            No packages found. Click "Create Package" to add one.
+                        </td></tr>
                     <?php else: ?>
                         <?php foreach($packages as $p): 
                             $sched = json_decode($p['speed_scheduler'], true);
                         ?>
-                        <tr>
-                            <td class="fw-bold"><?= htmlspecialchars($p['name']) ?></td>
-                            <td><span class="badge bg-secondary"><?= htmlspecialchars($p['rate_limit'] ?: 'Unlimited') ?></span></td>
-                            <td class="text-success fw-bold"><?= number_format($p['price'], 2) ?></td>
-                            <td><?= $p['validity_days'] ?> Days</td>
-                            <td><?= $p['data_limit_gb'] > 0 ? $p['data_limit_gb'] . ' GB' : 'Unlimited' ?></td>
-                            <td>
-                                <?php if ($sched): ?>
-                                    <small class="text-info"><i class="fa-regular fa-clock"></i> <?= $sched['start_time'] ?> to <?= $sched['end_time'] ?> <br> <i class="fa-solid fa-gauge-high"></i> <?= htmlspecialchars($sched['speed']) ?></small>
+                        <tr style="border-bottom: 1px solid #f1f5f9;">
+                            <td class="py-3 ps-4 fw-bold text-dark fs-6"><?= htmlspecialchars($p['name']) ?></td>
+                            <td class="py-3">
+                                <?php if($p['rate_limit'] === 'Unlimited' || empty($p['rate_limit'])): ?>
+                                    <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-2 py-1 rounded-pill"><i class="fa-solid fa-infinity me-1"></i> Unlimited</span>
                                 <?php else: ?>
-                                    <span class="text-muted small">None</span>
+                                    <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 px-2 py-1 rounded-pill"><i class="fa-solid fa-gauge-high me-1"></i> <?= htmlspecialchars($p['rate_limit']) ?></span>
                                 <?php endif; ?>
                             </td>
-                            <td class="text-end">
-                                <button class="btn btn-sm btn-light border text-primary me-1" onclick='openEditModal(<?= json_encode($p) ?>)'><i class="fa-solid fa-pen"></i></button>
+                            <td class="py-3 text-success fw-bold fs-5"><small class="text-muted fs-6 me-1">Rs</small><?= number_format($p['price'], 0) ?></td>
+                            <td class="py-3"><span class="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25"><i class="fa-regular fa-calendar me-1"></i> <?= $p['validity_days'] ?> Days</span></td>
+                            <td class="py-3">
+                                <?= $p['data_limit_gb'] > 0 ? '<span class="badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-25 px-2 py-1 rounded-pill"><i class="fa-solid fa-database me-1"></i> ' . $p['data_limit_gb'] . ' GB</span>' : '<span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-2 py-1 rounded-pill"><i class="fa-solid fa-infinity me-1"></i> Unlimited</span>' ?>
+                            </td>
+                            <td class="py-3">
+                                <?php if ($sched): ?>
+                                    <div class="d-flex flex-column">
+                                        <small class="text-info fw-bold" style="font-size: 0.75rem;"><i class="fa-regular fa-clock"></i> <?= $sched['start_time'] ?> to <?= $sched['end_time'] ?></small>
+                                        <small class="text-dark" style="font-size: 0.75rem;"><i class="fa-solid fa-gauge-high text-primary"></i> <?= htmlspecialchars($sched['speed']) ?></small>
+                                    </div>
+                                <?php else: ?>
+                                    <span class="text-muted small"><i class="fa-solid fa-ban me-1"></i> None</span>
+                                <?php endif; ?>
+                            </td>
+                            <td class="py-3 pe-4 text-end">
+                                <button class="btn btn-sm btn-outline-info rounded-circle me-1" style="width: 32px; height: 32px; padding: 0;" onclick='openEditModal(<?= json_encode($p) ?>)' title="Edit Package"><i class="fa-solid fa-pen"></i></button>
                                 <form method="POST" class="d-inline" onsubmit="return confirm('Are you sure you want to delete this package?');">
                                     <input type="hidden" name="action" value="delete">
                                     <input type="hidden" name="package_id" value="<?= $p['id'] ?>">
-                                    <button type="submit" class="btn btn-sm btn-light border text-danger"><i class="fa-solid fa-trash"></i></button>
+                                    <button type="submit" class="btn btn-sm btn-outline-danger rounded-circle" style="width: 32px; height: 32px; padding: 0;" title="Delete Package"><i class="fa-solid fa-trash"></i></button>
                                 </form>
                             </td>
                         </tr>
@@ -136,94 +152,99 @@ $packages = $stmt->fetchAll();
     </div>
 </div>
 
-<!-- Package Modal (Create & Edit) -->
+<!-- Package Modal (Premium UI) -->
 <div class="modal fade" id="packageModal" tabindex="-1">
-  <div class="modal-dialog modal-lg">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title" id="modalTitle"><i class="fa-solid fa-box text-primary"></i> Create Package</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content bg-white border border shadow-lg text-dark" style="border-radius: 16px;">
+      <div class="modal-header border-bottom border p-4">
+        <h5 class="modal-title fw-bold" id="modalTitle"><i class="fa-solid fa-box text-primary me-2"></i> Create Package</h5>
+        <button type="button" class="btn-close btn-close" data-bs-dismiss="modal"></button>
       </div>
       <form method="POST" id="packageForm">
         <input type="hidden" name="action" id="modalAction" value="create">
         <input type="hidden" name="package_id" id="modalPackageId" value="">
         <div class="modal-body p-4">
             
-            <div class="row">
-                <div class="col-md-6 mb-3">
-                    <label class="form-label fw-bold">Package Name <span class="text-danger">*</span></label>
-                    <input type="text" name="name" id="pkg_name" class="form-control" required placeholder="e.g. 10Mbps Unlimited">
+            <div class="row g-4">
+                <div class="col-md-6">
+                    <label class="form-label fw-bold text-muted small text-uppercase mb-1" style="letter-spacing: 1px;">Package Name <span class="text-danger">*</span></label>
+                    <input type="text" name="name" id="pkg_name" class="form-control px-3 py-2" required placeholder="e.g. 10Mbps Unlimited">
                 </div>
-                <div class="col-md-6 mb-3">
-                    <label class="form-label fw-bold">Price (Amount) <span class="text-danger">*</span></label>
-                    <input type="number" step="0.01" name="price" id="pkg_price" class="form-control" required placeholder="e.g. 1500.00">
+                <div class="col-md-6">
+                    <label class="form-label fw-bold text-muted small text-uppercase mb-1" style="letter-spacing: 1px;">Price (Rs) <span class="text-danger">*</span></label>
+                    <input type="number" step="1" name="price" id="pkg_price" class="form-control px-3 py-2" required placeholder="e.g. 1500">
                 </div>
-                <div class="col-md-6 mb-3">
-                    <label class="form-label fw-bold">Validity (Days) <span class="text-danger">*</span></label>
-                    <input type="number" name="validity_days" id="pkg_validity" class="form-control" required placeholder="e.g. 30" value="30">
+                <div class="col-md-6">
+                    <label class="form-label fw-bold text-muted small text-uppercase mb-1" style="letter-spacing: 1px;">Validity (Days) <span class="text-danger">*</span></label>
+                    <input type="number" name="validity_days" id="pkg_validity" class="form-control px-3 py-2" required placeholder="e.g. 30" value="30">
                 </div>
-                <div class="col-md-6 mb-3">
-                    <label class="form-label fw-bold">Data Limit (GB)</label>
-                    <input type="number" name="data_limit_gb" id="pkg_data" class="form-control" placeholder="e.g. 100" value="0">
-                    <small class="text-muted">Set 0 for Unlimited Data</small>
+                <div class="col-md-6">
+                    <label class="form-label fw-bold text-muted small text-uppercase mb-1" style="letter-spacing: 1px;">Data Limit (GB)</label>
+                    <input type="number" name="data_limit_gb" id="pkg_data" class="form-control px-3 py-2" placeholder="e.g. 100" value="0">
+                    <small class="text-muted" style="font-size: 0.75rem;">Set <strong class="text-success">0</strong> for Unlimited Data</small>
                 </div>
-                                  <div class="col-md-12 mb-3">
-                      <label class="form-label fw-bold text-dark">Standard Speed (Rate Limit)</label>
-                      <div class="row g-2">
-                          <div class="col-6">
-                              <label class="form-label small text-muted mb-1">Upload Speed</label>
-                              <div class="input-group">
-                                  <span class="input-group-text bg-light"><i class="fa-solid fa-upload text-danger"></i></span>
-                                  <input type="text" name="rate_up" id="pkg_rate_up" class="form-control" placeholder="e.g. 10M, 512k" required>
-                              </div>
-                          </div>
-                          <div class="col-6">
-                              <label class="form-label small text-muted mb-1">Download Speed</label>
-                              <div class="input-group">
-                                  <span class="input-group-text bg-light"><i class="fa-solid fa-download text-success"></i></span>
-                                  <input type="text" name="rate_down" id="pkg_rate_down" class="form-control" placeholder="e.g. 10M, 512k" required>
-                              </div>
-                          </div>
-                      </div>
-                      <small class="text-muted d-block mt-2">Type <strong>Unlimited</strong> in any field to remove speed caps entirely.</small>
-                  </div>
-            </div>
-
-            <hr>
-                        <h6 class="text-primary mb-3"><i class="fa-regular fa-clock"></i> Night / Speed Scheduler (Optional)</h6>
-            <div class="row bg-light p-3 rounded border">
-                <div class="col-md-6 mb-2">
-                    <label class="form-label small fw-bold">Start Time</label>
-                    <input type="time" name="sched_start" id="sched_start" class="form-control">
-                </div>
-                <div class="col-md-6 mb-2">
-                    <label class="form-label small fw-bold">End Time</label>
-                    <input type="time" name="sched_end" id="sched_end" class="form-control">
-                </div>
-                <div class="col-12 mb-2">
-                    <label class="form-label small fw-bold">Night Speed</label>
-                    <div class="row g-2">
-                        <div class="col-6">
-                            <div class="input-group">
-                                <span class="input-group-text bg-white"><i class="fa-solid fa-upload text-danger"></i></span>
-                                <input type="text" name="sched_up" id="sched_up" class="form-control" placeholder="Upload (e.g. 20M)">
+                
+                <div class="col-md-12 mt-2">
+                    <div class="p-3 rounded border border" style="background: #f8fafc;">
+                        <label class="form-label fw-bold text-dark mb-3"><i class="fa-solid fa-gauge-high text-primary me-2"></i>Standard Speed (Rate Limit)</label>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label small text-muted mb-1">Upload Speed</label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-light border text-danger"><i class="fa-solid fa-upload"></i></span>
+                                    <input type="text" name="rate_up" id="pkg_rate_up" class="form-control" placeholder="e.g. 10M, 512k" required>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small text-muted mb-1">Download Speed</label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-light border text-success"><i class="fa-solid fa-download"></i></span>
+                                    <input type="text" name="rate_down" id="pkg_rate_down" class="form-control" placeholder="e.g. 10M, 512k" required>
+                                </div>
                             </div>
                         </div>
-                        <div class="col-6">
-                            <div class="input-group">
-                                <span class="input-group-text bg-white"><i class="fa-solid fa-download text-success"></i></span>
-                                <input type="text" name="sched_down" id="sched_down" class="form-control" placeholder="Download (e.g. 20M)">
-                            </div>
-                        </div>
+                        <small class="text-muted d-block mt-2" style="font-size: 0.75rem;">Type <strong class="text-info">Unlimited</strong> in any field to remove speed caps entirely.</small>
                     </div>
                 </div>
-                <div class="col-12"><small class="text-muted">If set, FreeRADIUS/MikroTik will change user's speed during these hours automatically.</small></div>
+            </div>
+
+            <hr class="border opacity-25 my-4">
+            
+            <div class="p-3 rounded border border" style="background: #f8fafc;">
+                <h6 class="text-primary mb-3 fw-bold"><i class="fa-regular fa-clock me-2"></i> Night / Speed Scheduler (Optional)</h6>
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label small text-muted mb-1">Start Time</label>
+                        <input type="time" name="sched_start" id="sched_start" class="form-control">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small text-muted mb-1">End Time</label>
+                        <input type="time" name="sched_end" id="sched_end" class="form-control">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small text-muted mb-1">Night Upload Speed</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-light border text-danger"><i class="fa-solid fa-upload"></i></span>
+                            <input type="text" name="sched_up" id="sched_up" class="form-control" placeholder="e.g. 20M">
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small text-muted mb-1">Night Download Speed</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-light border text-success"><i class="fa-solid fa-download"></i></span>
+                            <input type="text" name="sched_down" id="sched_down" class="form-control" placeholder="e.g. 20M">
+                        </div>
+                    </div>
+                    <div class="col-12 mt-2">
+                        <small class="text-muted" style="font-size: 0.75rem;"><i class="fa-solid fa-circle-info me-1"></i> If set, FreeRADIUS/MikroTik will change user's speed during these hours automatically.</small>
+                    </div>
+                </div>
             </div>
 
         </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-primary" id="modalBtn">Save Package</button>
+        <div class="modal-footer border-top border p-3">
+          <button type="button" class="btn btn-outline-secondary px-4 rounded-pill" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-accent px-4 rounded-pill fw-bold" id="modalBtn">Save Package</button>
         </div>
       </form>
     </div>

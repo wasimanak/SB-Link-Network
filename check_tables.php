@@ -1,5 +1,16 @@
 <?php
-$pdo = new PDO('mysql:host=10.133.13.69;dbname=radius_admin;charset=utf8mb4', 'syncuser', 'admin123');
-$tables = $pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN);
-print_r($tables);
+require 'config/db.php';
+try {
+    $stmt = $pdo->query("DESCRIBE recovery_men");
+    print_r($stmt->fetchAll(PDO::FETCH_ASSOC));
+} catch(Exception $e) {
+    echo "recovery_men table error: " . $e->getMessage() . "\n";
+}
+
+try {
+    $stmt = $pdo->query("DESCRIBE line_men");
+    print_r($stmt->fetchAll(PDO::FETCH_ASSOC));
+} catch(Exception $e) {
+    echo "line_men table error: " . $e->getMessage() . "\n";
+}
 ?>

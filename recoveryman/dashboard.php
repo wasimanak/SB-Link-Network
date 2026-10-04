@@ -3,6 +3,12 @@ session_start();
 if (!isset($_SESSION['rm_id'])) { header("Location: login.php"); exit; }
 require_once '../config/db.php';
 
+// Auto-upgrade recovery_men table for cash_in_hand
+try {
+    $pdo->exec("ALTER TABLE `recovery_men` ADD COLUMN `cash_in_hand` DECIMAL(10,2) DEFAULT 0.00");
+} catch (PDOException $e) {}
+
+
 $rm_id = $_SESSION['rm_id'];
 $client_id = $_SESSION['client_id'];
 $rm_name = $_SESSION['rm_name'];
@@ -76,6 +82,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'credit', ?, ?, ?)")
                 ->execute([$client_id, $sub_username, $amount, $new_balance, $desc]);
             
+            
+            // Update Recovery Man's Cash in Hand
+            $pdo->prepare("UPDATE recovery_men SET cash_in_hand = cash_in_hand + ? WHERE id = ?")->execute([$amount, $rm_id]);
+
             // Insert into activity log
             $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, 'RecoveryMan', ?, 'User', ?)")
                 ->execute([$client_id, $rm_name, $sub_username, $activity_msg]);
@@ -113,20 +123,47 @@ if (isset($_GET['search_query']) && !empty(trim($_GET['search_query']))) {
     $search_results = $sStmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
-// Fetch Expired Users
-$expiredStmt = $pdo->prepare("
+// Metric Queries
+$now = date('Y-m-d H:i:s');
+$count_expired = $pdo->prepare("SELECT COUNT(*) FROM subscribers WHERE client_id = ? AND (expiry_date < NOW() OR status = 'expired')"); $count_expired->execute([$client_id]); $c_expired = $count_expired->fetchColumn();
+$count_1d = $pdo->prepare("SELECT COUNT(*) FROM subscribers WHERE client_id = ? AND expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 1 DAY)"); $count_1d->execute([$client_id]); $c_1d = $count_1d->fetchColumn();
+$count_3d = $pdo->prepare("SELECT COUNT(*) FROM subscribers WHERE client_id = ? AND expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 3 DAY)"); $count_3d->execute([$client_id]); $c_3d = $count_3d->fetchColumn();
+$count_1w = $pdo->prepare("SELECT COUNT(*) FROM subscribers WHERE client_id = ? AND expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 7 DAY)"); $count_1w->execute([$client_id]); $c_1w = $count_1w->fetchColumn();
+$count_2w = $pdo->prepare("SELECT COUNT(*) FROM subscribers WHERE client_id = ? AND expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 14 DAY)"); $count_2w->execute([$client_id]); $c_2w = $count_2w->fetchColumn();
+
+// Filter Logic for Main Table
+$filter = $_GET['filter'] ?? 'expired';
+$filter_sql = "AND (s.expiry_date < NOW() OR s.status = 'expired')";
+$filter_title = "Expired Users";
+
+if ($filter === 'expiring_1d') {
+    $filter_sql = "AND s.expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 1 DAY)";
+    $filter_title = "Expiring in 1 Day";
+} elseif ($filter === 'expiring_3d') {
+    $filter_sql = "AND s.expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 3 DAY)";
+    $filter_title = "Expiring in 3 Days";
+} elseif ($filter === 'expiring_1w') {
+    $filter_sql = "AND s.expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 7 DAY)";
+    $filter_title = "Expiring in 1 Week";
+} elseif ($filter === 'expiring_2w') {
+    $filter_sql = "AND s.expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 14 DAY)";
+    $filter_title = "Expiring in 2 Weeks";
+}
+
+// Fetch Filtered Users
+$filteredStmt = $pdo->prepare("
     SELECT s.id, s.username, s.full_name, s.balance, s.status, s.expiry_date, s.phone, s.address, p.name as package_name, p.price as package_price,
            (SELECT SUM(acctinputoctets) FROM radacct r WHERE r.username = s.username) as upload_bytes,
            (SELECT SUM(acctoutputoctets) FROM radacct r WHERE r.username = s.username) as download_bytes,
            (SELECT framedipaddress FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL ORDER BY radacctid DESC LIMIT 1) as live_ip
     FROM subscribers s
     LEFT JOIN packages p ON s.package_id = p.id
-    WHERE s.client_id = ? AND s.expiry_date < NOW()
-    ORDER BY s.expiry_date DESC
+    WHERE s.client_id = ? $filter_sql
+    ORDER BY s.expiry_date ASC
     LIMIT 100
 ");
-$expiredStmt->execute([$client_id]);
-$expired_users = $expiredStmt->fetchAll(PDO::FETCH_ASSOC);
+$filteredStmt->execute([$client_id]);
+$expired_users = $filteredStmt->fetchAll(PDO::FETCH_ASSOC); // Overwrite the expired_users variable so the table renders it
 
 // Fetch Today's Collection for this RM
 $collStmt = $pdo->prepare("
@@ -135,6 +172,12 @@ $collStmt = $pdo->prepare("
 ");
 $collStmt->execute([$client_id, "Cash collected by {$rm_name} RM%"]);
 $today_collection = $collStmt->fetchColumn() ?: 0;
+
+// Fetch RM Cash in Hand
+$cashStmt = $pdo->prepare("SELECT cash_in_hand FROM recovery_men WHERE id = ?");
+$cashStmt->execute([$rm_id]);
+$rm_cash_in_hand = $cashStmt->fetchColumn() ?: 0;
+
 function formatBytes($bytes) {
     if ($bytes <= 0) return "0 MB";
     $bytes = $bytes / (1024 * 1024);
@@ -160,22 +203,28 @@ function formatBytes($bytes) {
 <div class="top-navbar">
     <div class="fw-bold fs-5"><i class="fa-solid fa-motorcycle me-2 text-danger"></i> Recovery Portal</div>
     <div>
-        <span class="me-3 small text-light"><i class="fa-regular fa-user me-1"></i> <?= htmlspecialchars($rm_name) ?></span>
+        <span class="me-3 small text-light d-none d-md-inline"><i class="fa-regular fa-user me-1"></i> <?= htmlspecialchars($rm_name) ?></span>
+        <a href="history.php" class="btn btn-sm btn-light text-dark fw-bold me-2"><i class="fa-solid fa-clock-rotate-left me-1"></i> History</a>
         <a href="logout.php" class="btn btn-sm btn-outline-light"><i class="fa-solid fa-right-from-bracket"></i></a>
     </div>
 </div>
 
 <div class="container mt-4">
     <div class="row">
-        <!-- Collection Stat -->
-        <div class="col-md-12 mb-3">
-            <div class="card card-custom bg-danger text-white">
-                <div class="card-body d-flex justify-content-between align-items-center p-3">
-                    <div>
-                        <h6 class="mb-0 text-white-50 fw-bold">Today's Collection</h6>
-                        <h3 class="mb-0 fw-bold">Rs. <?= number_format($today_collection, 2) ?></h3>
-                    </div>
-                    <i class="fa-solid fa-wallet fs-1 opacity-50"></i>
+        <!-- Collection & Balance Stats -->
+        <div class="col-6 mb-3">
+            <div class="card card-custom bg-danger text-white h-100 shadow-sm">
+                <div class="card-body p-3 text-center">
+                    <h6 class="mb-1 text-white-50 fw-bold small">Today's Collection</h6>
+                    <h4 class="mb-0 fw-bold">Rs. <?= number_format($today_collection) ?></h4>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 mb-3">
+            <div class="card card-custom bg-success text-white h-100 shadow-sm">
+                <div class="card-body p-3 text-center">
+                    <h6 class="mb-1 text-white-50 fw-bold small">Pending Cash</h6>
+                    <h4 class="mb-0 fw-bold">Rs. <?= number_format($rm_cash_in_hand) ?></h4>
                 </div>
             </div>
         </div>
@@ -248,11 +297,66 @@ function formatBytes($bytes) {
             
             <!-- Expired Users List -->
             <?php if(!isset($_GET['search_query']) || empty(trim($_GET['search_query']))): ?>
-                <h5 class="fw-bold text-danger mt-5 border-bottom pb-2 mb-3"><i class="fa-solid fa-clock text-danger me-2"></i> Expired Users</h5>
+                
+<!-- Upcoming Recovery Metrics -->
+<div class="row g-3 mb-4 mt-2">
+    <div class="col-md col-6">
+        <a href="?filter=expired" class="text-decoration-none">
+            <div class="card card-custom h-100 <?= ($filter=='expired')?'bg-danger text-white':'bg-white' ?> shadow-sm">
+                <div class="card-body text-center p-3">
+                    <div class="fs-6 fw-bold mb-1 <?= ($filter=='expired')?'':'text-danger' ?>">Expired</div>
+                    <div class="fs-3 fw-bold"><?= $c_expired ?></div>
+                </div>
+            </div>
+        </a>
+    </div>
+    <div class="col-md col-6">
+        <a href="?filter=expiring_1d" class="text-decoration-none">
+            <div class="card card-custom h-100 <?= ($filter=='expiring_1d')?'bg-warning text-dark':'bg-white' ?> shadow-sm">
+                <div class="card-body text-center p-3">
+                    <div class="fs-6 fw-bold mb-1 <?= ($filter=='expiring_1d')?'':'text-warning' ?>">1 Day</div>
+                    <div class="fs-3 fw-bold <?= ($filter=='expiring_1d')?'':'text-dark' ?>"><?= $c_1d ?></div>
+                </div>
+            </div>
+        </a>
+    </div>
+    <div class="col-md col-6">
+        <a href="?filter=expiring_3d" class="text-decoration-none">
+            <div class="card card-custom h-100 <?= ($filter=='expiring_3d')?'bg-info text-white':'bg-white' ?> shadow-sm">
+                <div class="card-body text-center p-3">
+                    <div class="fs-6 fw-bold mb-1 <?= ($filter=='expiring_3d')?'':'text-info' ?>">3 Days</div>
+                    <div class="fs-3 fw-bold <?= ($filter=='expiring_3d')?'':'text-dark' ?>"><?= $c_3d ?></div>
+                </div>
+            </div>
+        </a>
+    </div>
+    <div class="col-md col-6">
+        <a href="?filter=expiring_1w" class="text-decoration-none">
+            <div class="card card-custom h-100 <?= ($filter=='expiring_1w')?'bg-primary text-white':'bg-white' ?> shadow-sm">
+                <div class="card-body text-center p-3">
+                    <div class="fs-6 fw-bold mb-1 <?= ($filter=='expiring_1w')?'':'text-primary' ?>">1 Week</div>
+                    <div class="fs-3 fw-bold <?= ($filter=='expiring_1w')?'':'text-dark' ?>"><?= $c_1w ?></div>
+                </div>
+            </div>
+        </a>
+    </div>
+    <div class="col-md col-12">
+        <a href="?filter=expiring_2w" class="text-decoration-none">
+            <div class="card card-custom h-100 <?= ($filter=='expiring_2w')?'bg-secondary text-white':'bg-white' ?> shadow-sm">
+                <div class="card-body text-center p-3">
+                    <div class="fs-6 fw-bold mb-1 <?= ($filter=='expiring_2w')?'':'text-secondary' ?>">2 Weeks</div>
+                    <div class="fs-3 fw-bold <?= ($filter=='expiring_2w')?'':'text-dark' ?>"><?= $c_2w ?></div>
+                </div>
+            </div>
+        </a>
+    </div>
+</div>
+
+<h5 class="fw-bold mt-5 border-bottom pb-2 mb-3 <?= ($filter==='expired')?'text-danger':'text-primary' ?>"><i class="fa-solid <?= ($filter==='expired')?'fa-triangle-exclamation':'fa-clock-rotate-left' ?> me-2"></i> <?= htmlspecialchars($filter_title) ?></h5>
                 <?php if($expired_users): ?>
                     <div class="list-group border-0 mb-4">
                         <?php foreach($expired_users as $u): ?>
-                        <div class="list-group-item p-3 border border-danger border-opacity-25 rounded-3 mb-2 shadow-sm bg-white">
+                        <div class="list-group-item p-3 border <?= ($filter==='expired')?'border-danger':'border-primary' ?> border-opacity-25 rounded-3 mb-2 shadow-sm bg-white">
                             <div class="d-flex justify-content-between align-items-start mb-2">
                                 <div>
                                     <h6 class="fw-bold mb-1 text-dark"><?= htmlspecialchars($u['full_name']) ?> <span class="badge bg-primary ms-1"><?= htmlspecialchars($u['username']) ?></span></h6>

@@ -58,6 +58,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    
+    // SINGLE PAYMENT
+    if ($action === 'single_payment') {
+        $id = (int)$_POST['id'];
+        $amount = (float)$_POST['amount'];
+        if ($amount != 0) {
+            $uStmt = $pdo->prepare("SELECT username FROM subscribers WHERE id = ? AND client_id = ?");
+            $uStmt->execute([$id, $client_id]);
+            if ($uStmt->fetchColumn()) {
+                $pdo->prepare("UPDATE subscribers SET balance = balance + ? WHERE id = ?")->execute([$amount, $id]);
+                echo "<script>alert('Payment applied successfully!'); window.location='subscribers.php';</script>";
+                exit;
+            }
+        }
+    }
+
     // DELETE
     if ($action === 'delete_id' && isset($_POST['id'])) {
         $del = (int)$_POST['id'];
@@ -270,6 +286,27 @@ $pkgStmt->execute([$client_id]);
 $packages = $pkgStmt->fetchAll();
 
 // Advanced Fetch for Export Data
+// Handle Filter Logic
+$filter = $_GET['filter'] ?? '';
+$filter_sql = "";
+$params = [$client_id];
+
+if ($filter === 'active') {
+    $filter_sql = " AND s.status = 'active'";
+} elseif ($filter === 'expired') {
+    $filter_sql = " AND (s.status = 'expired' OR (s.expiry_date IS NOT NULL AND s.expiry_date < NOW()))";
+} elseif ($filter === 'expiring_1w') {
+    $filter_sql = " AND (s.expiry_date IS NOT NULL AND s.expiry_date >= NOW() AND s.expiry_date <= DATE_ADD(NOW(), INTERVAL 7 DAY))";
+} elseif ($filter === 'expiring_2w') {
+    $filter_sql = " AND (s.expiry_date IS NOT NULL AND s.expiry_date >= NOW() AND s.expiry_date <= DATE_ADD(NOW(), INTERVAL 14 DAY))";
+} elseif ($filter === 'suspended') {
+    $filter_sql = " AND s.status = 'suspended'";
+} elseif ($filter === 'online') {
+    $filter_sql = " AND EXISTS (SELECT 1 FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL)";
+} elseif ($filter === 'offline') {
+    $filter_sql = " AND NOT EXISTS (SELECT 1 FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL)";
+}
+
 $sql = "SELECT s.*, p.name as package_name, 
         (SELECT COUNT(*) FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL) as is_online,
         (SELECT framedipaddress FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL ORDER BY radacctid DESC LIMIT 1) as live_ip,
@@ -280,10 +317,11 @@ $sql = "SELECT s.*, p.name as package_name,
         (SELECT nasipaddress FROM radacct r WHERE r.username = s.username ORDER BY radacctid DESC LIMIT 1) as nas_ip
         FROM subscribers s 
         LEFT JOIN packages p ON s.package_id = p.id 
-        WHERE s.client_id = ? 
+        WHERE s.client_id = ? $filter_sql
         ORDER BY s.id DESC";
+
 $stmt = $pdo->prepare($sql);
-$stmt->execute([$client_id]);
+$stmt->execute($params);
 $subs = $stmt->fetchAll();
 
 function formatUptime($seconds) {
@@ -507,12 +545,10 @@ function formatUptime($seconds) {
                     <td><?= $s['created_at'] ? date('Y-m-d H:i:s', strtotime($s['created_at'])) : 'N/A' ?></td>
                     <td>
                         <div class="d-flex flex-column gap-1">
-                            <a href="#" class="badge rounded-pill badge-soft-primary text-decoration-none px-3 py-2"><i class="fa-brands fa-paypal"></i> Payment</a>
+                            <button type="button" class="badge rounded-pill badge-soft-primary border-0 px-3 py-2 w-100 btn-payment" data-id="<?= $s['id'] ?>" data-username="<?= htmlspecialchars($s['username']) ?>" data-balance="<?= number_format($s['balance'], 2) ?>"><i class="fa-brands fa-paypal"></i> Payment</button>
                             <div class="d-flex gap-1">
                                 <!-- Trigger Renew Modal -->
                                 <button type="button" class="badge rounded-pill badge-soft-success border-0 px-2 py-2 w-100 btn-renew" 
-                                    data-bs-toggle="modal" 
-                                    data-bs-target="#renewModal" 
                                     data-id="<?= $s['id'] ?>" 
                                     data-username="<?= htmlspecialchars($s['username']) ?>" 
                                     data-pkg="<?= $s['package_id'] ?>" 
@@ -750,25 +786,67 @@ $(document).ready(function() {
         $('input[type="checkbox"]', rows).prop('checked', this.checked);
     });
 
-    $('#usersTable tbody').on('click', '.btn-renew', function() {
-        var id = $(this).data('id');
-        var username = $(this).data('username');
-        var pkg = $(this).data('pkg');
-        var expiry = $(this).data('expiry'); 
-
-        $('#renew_user_id').val(id);
-        $('#renew_username_display').text(username);
-        $('#renew_package_id').val(pkg);
-        
-        if(expiry) {
-            $('#renew_expiry_date').val(expiry);
-        } else {
-            $('#renew_expiry_date').val('');
-        }
+    // Robust DataTables Modal Triggers
+    $('#usersTable tbody').on('click', '.btn-renew', function(e) {
+        e.preventDefault();
+        $('#renew_user_id').val($(this).attr('data-id'));
+        $('#renew_username_display').text($(this).attr('data-username'));
+        $('#renew_package_id').val($(this).attr('data-pkg'));
+        var exp = $(this).attr('data-expiry');
+        $('#renew_expiry_date').val(exp ? exp : '');
+        var m = new bootstrap.Modal(document.getElementById('renewModal'));
+        m.show();
     });
+
+    $('#usersTable tbody').on('click', '.btn-payment', function(e) {
+        e.preventDefault();
+        $('#pay_user_id').val($(this).attr('data-id'));
+        $('#pay_username_display').text($(this).attr('data-username'));
+        $('#pay_current_balance').text($(this).attr('data-balance'));
+        var m = new bootstrap.Modal(document.getElementById('singlePaymentModal'));
+        m.show();
+    });
+    
+    // Append modals to body to prevent z-index backdrop bugs inside card containers
+    $('.modal').appendTo('body');
+
 });
 </script>
 
+
+<!-- Single Payment Modal -->
+<div class="modal fade" id="singlePaymentModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content bg-white border-0 shadow-lg" style="border-radius: 16px; overflow: hidden;">
+      <div class="modal-header border-bottom p-4" style="background-color: #f8fafc; border-color: #e2e8f0 !important;">
+        <h5 class="modal-title text-dark fw-bold"><i class="fa-brands fa-paypal text-primary me-2"></i> Add Payment</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST">
+        <input type="hidden" name="action" value="single_payment">
+        <input type="hidden" name="id" id="pay_user_id" value="">
+        <div class="modal-body p-4">
+            <div class="mb-4 text-center p-3 rounded" style="background-color: #f1f5f9; border: 1px dashed #cbd5e1;">
+                <h5 class="text-primary fw-bold mb-1" id="pay_username_display">Username</h5>
+                <div class="text-muted small">Current Balance: <span class="text-success fw-bold fs-6">Rs <span id="pay_current_balance">0.00</span></span></div>
+            </div>
+            <div class="mb-2">
+                <label class="form-label text-dark fw-bold small text-uppercase" style="letter-spacing: 0.5px;">Amount to Add (Rs) <span class="text-danger">*</span></label>
+                <div class="input-group shadow-sm" style="border-radius: 10px; overflow: hidden;">
+                    <span class="input-group-text bg-light border-0 text-muted px-3 fw-bold">Rs</span>
+                    <input type="number" step="1" name="amount" class="form-control bg-light border-0 px-3 py-2 text-dark fs-5 fw-bold" placeholder="e.g. 500" required>
+                </div>
+                <small class="text-muted mt-2 d-block"><i class="fa-solid fa-circle-info me-1"></i>Use negative amount to deduct balance.</small>
+            </div>
+        </div>
+        <div class="modal-footer border-top p-3" style="background-color: #f8fafc; border-color: #e2e8f0 !important;">
+          <button type="button" class="btn btn-outline-secondary rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary rounded-pill px-4 fw-bold shadow-sm"><i class="fa-solid fa-check me-1"></i> Apply Payment</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 <!-- Mass Payment Modal -->
 <div class="modal fade" id="massPaymentModal" tabindex="-1">
     <div class="modal-dialog">

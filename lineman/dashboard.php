@@ -3,12 +3,34 @@ session_start();
 if (!isset($_SESSION['lineman_id'])) { header("Location: login.php"); exit; }
 require_once '../config/db.php';
 
+// Auto-upgrade subscribers table to support linemen
+try {
+    $pdo->exec("ALTER TABLE `subscribers` ADD COLUMN `lineman_id` int(11) DEFAULT 0");
+} catch (PDOException $e) {
+    // Silently ignore if already exists
+}
+
+
+
 $lineman_id = $_SESSION['lineman_id'];
 $client_id = $_SESSION['client_id'];
 $lineman_name = $_SESSION['lineman_name'];
 
+// Check lineman permissions
+$chkStmt = $pdo->prepare("SELECT status, can_create_users FROM linemen WHERE id = ?");
+$chkStmt->execute([$lineman_id]);
+$lm_data = $chkStmt->fetch();
+if (!$lm_data || $lm_data['status'] === 'disabled') {
+    session_destroy();
+    header("Location: login.php");
+    exit;
+}
+$can_create = (isset($lm_data['can_create_users']) && $lm_data['can_create_users'] == 1) ? true : false;
+
+
 // Handle Add User
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_user') {
+    if (!$can_create) { echo "<script>alert('Permission Denied: You do not have permission to create users.'); window.location='dashboard.php';</script>"; exit; }
     $username = trim($_POST['username']);
     $password = trim($_POST['password']);
     $package_id = (int)$_POST['package_id'];
@@ -183,6 +205,7 @@ function formatBytes($bytes) {
         </div>
 
         <!-- Create User -->
+        <?php if($can_create): ?>
         <div class="col-md-5">
             <div class="card card-custom">
                 <div class="card-header bg-white border-bottom-0 pt-4 px-4">
@@ -218,8 +241,10 @@ function formatBytes($bytes) {
             </div>
         </div>
 
+        <?php endif; ?>
+        
         <!-- 7 Days History -->
-        <div class="col-md-7">
+        <div class="col-md-<?= $can_create ? '7' : '12' ?>">
             <div class="card card-custom h-100">
                 <div class="card-header bg-white border-bottom-0 pt-4 px-4 d-flex justify-content-between align-items-center">
                     <h5 class="fw-bold mb-0 text-dark"><i class="fa-solid fa-clock-rotate-left text-primary me-2"></i> My History (Last 7 Days)</h5>

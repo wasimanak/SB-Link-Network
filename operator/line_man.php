@@ -2,6 +2,54 @@
 require_once 'header.php';
 $client_id = $_SESSION['operator_id'];
 
+
+// Auto-upgrade schema if columns are missing
+
+try { $pdo->exec("ALTER TABLE `linemen` ADD COLUMN `status` ENUM('active', 'disabled') DEFAULT 'active'"); } catch (Exception $e) {}
+try { $pdo->exec("ALTER TABLE `linemen` ADD COLUMN `can_create_users` TINYINT(1) DEFAULT 1"); } catch (Exception $e) {}
+try {
+    $pdo->exec("ALTER TABLE `linemen` ADD COLUMN `city` varchar(50) DEFAULT NULL");
+} catch (PDOException $e) {
+    // Column already exists or other error, ignore silently
+}
+
+try { $pdo->exec("ALTER TABLE `linemen` ADD COLUMN `status` ENUM('active', 'disabled') DEFAULT 'active'"); } catch (Exception $e) {}
+try { $pdo->exec("ALTER TABLE `linemen` ADD COLUMN `can_create_users` TINYINT(1) DEFAULT 1"); } catch (Exception $e) {}
+try {
+    $pdo->exec("ALTER TABLE `linemen` ADD COLUMN `phone` varchar(20) DEFAULT NULL");
+} catch (PDOException $e) {
+}
+
+try { $pdo->exec("ALTER TABLE `linemen` ADD COLUMN `status` ENUM('active', 'disabled') DEFAULT 'active'"); } catch (Exception $e) {}
+try { $pdo->exec("ALTER TABLE `linemen` ADD COLUMN `can_create_users` TINYINT(1) DEFAULT 1"); } catch (Exception $e) {}
+try {
+    $pdo->exec("ALTER TABLE `linemen` ADD COLUMN `address` text DEFAULT NULL");
+} catch (PDOException $e) {
+}
+
+// Auto-create table if not exists to prevent insertion errors
+
+try { $pdo->exec("ALTER TABLE `linemen` ADD COLUMN `status` ENUM('active', 'disabled') DEFAULT 'active'"); } catch (Exception $e) {}
+try { $pdo->exec("ALTER TABLE `linemen` ADD COLUMN `can_create_users` TINYINT(1) DEFAULT 1"); } catch (Exception $e) {}
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS `linemen` (
+        `id` int(11) NOT NULL AUTO_INCREMENT,
+        `client_id` int(11) NOT NULL,
+        `full_name` varchar(100) NOT NULL,
+        `username` varchar(50) NOT NULL,
+        `password` varchar(255) NOT NULL,
+        `phone` varchar(20) DEFAULT NULL,
+        `address` text DEFAULT NULL,
+        `city` varchar(50) DEFAULT NULL,
+        `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+        PRIMARY KEY (`id`),
+        UNIQUE KEY `username` (`username`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+} catch (PDOException $e) {
+    // Ignore schema errors silently
+}
+
+
 // Handle Actions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
@@ -15,16 +63,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $address = trim($_POST['address'] ?? '');
         $city = trim($_POST['city'] ?? '');
         
-        try {
-            $stmt = $pdo->prepare("INSERT INTO linemen (client_id, full_name, username, password, phone, address, city) VALUES (?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$client_id, $full_name, $username, $password, $phone, $address, $city]);
+        
+try { $pdo->exec("ALTER TABLE `linemen` ADD COLUMN `status` ENUM('active', 'disabled') DEFAULT 'active'"); } catch (Exception $e) {}
+try { $pdo->exec("ALTER TABLE `linemen` ADD COLUMN `can_create_users` TINYINT(1) DEFAULT 1"); } catch (Exception $e) {}
+try {
+            $status = $_POST['status'] ?? 'active';
+            $can_create = isset($_POST['can_create_users']) ? (int)$_POST['can_create_users'] : 1;
+            $stmt = $pdo->prepare("INSERT INTO linemen (client_id, full_name, username, password, phone, address, city, status, can_create_users) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$client_id, $full_name, $username, $password, $phone, $address, $city, $status, $can_create]);
             echo "<script>alert('Line Man created successfully!'); window.location='$_SERVER[PHP_SELF]';</script>";
             exit;
         } catch (PDOException $e) {
-            echo "<script>alert('Error: Username might already exist.');</script>";
+            echo "<script>alert('Error: ' + " . json_encode($e->getMessage()) . "); window.history.back();</script>";
         }
     }
     
+    
+    // Edit Member
+    if ($action === 'edit_member' && isset($_POST['id'])) {
+        $id = (int)$_POST['id'];
+        $full_name = trim($_POST['full_name']);
+        $password = trim($_POST['password']);
+        $phone = trim($_POST['phone'] ?? '');
+        $address = trim($_POST['address'] ?? '');
+        $city = trim($_POST['city'] ?? '');
+        $status = $_POST['status'] ?? 'active';
+        $can_create = isset($_POST['can_create_users']) ? (int)$_POST['can_create_users'] : 1;
+        
+        try {
+            $stmt = $pdo->prepare("UPDATE linemen SET full_name=?, password=?, phone=?, address=?, city=?, status=?, can_create_users=? WHERE id=? AND client_id=?");
+            $stmt->execute([$full_name, $password, $phone, $address, $city, $status, $can_create, $id, $client_id]);
+            echo "<script>alert('Line Man updated successfully!'); window.location='$_SERVER[PHP_SELF]';</script>";
+            exit;
+        } catch (PDOException $e) {
+            echo "<script>alert('Error: ' + " . json_encode($e->getMessage()) . "); window.history.back();</script>";
+        }
+    }
     // Delete Member
     if ($action === 'delete_member' && isset($_POST['id'])) {
         $del = (int)$_POST['id'];
@@ -69,6 +143,7 @@ $members = $stmt->fetchAll();
                         <th>City</th>
                         <th>Contact</th>
                         <th>Created On</th>
+                        <th>Access</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -85,7 +160,35 @@ $members = $stmt->fetchAll();
                         </td>
                         <td class="text-secondary small"><?= date('d M Y', strtotime($m['created_at'])) ?></td>
                         <td>
-                            <form method="POST" onsubmit="return confirm('Are you sure you want to delete this Line Man?');" class="m-0">
+                            <div class="mb-1">
+                            <?php if(isset($m['status']) && $m['status'] === 'active'): ?>
+                                <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25">Active</span>
+                            <?php else: ?>
+                                <span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25">Disabled</span>
+                            <?php endif; ?>
+                            </div>
+                            <div>
+                            <?php if(isset($m['can_create_users']) && $m['can_create_users']): ?>
+                                <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25"><i class="fa-solid fa-user-plus"></i> Allow</span>
+                            <?php else: ?>
+                                <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25"><i class="fa-solid fa-ban"></i> Deny</span>
+                            <?php endif; ?>
+                            </div>
+                        </td>
+                        <td>
+                            <button type="button" class="btn btn-sm btn-outline-primary me-1 btn-edit" 
+                                data-id="<?= $m['id'] ?>"
+                                data-fullname="<?= htmlspecialchars($m['full_name']) ?>"
+                                data-username="<?= htmlspecialchars($m['username']) ?>"
+                                data-password="<?= htmlspecialchars($m['password']) ?>"
+                                data-phone="<?= htmlspecialchars($m['phone']) ?>"
+                                data-city="<?= htmlspecialchars($m['city']) ?>"
+                                data-address="<?= htmlspecialchars($m['address']) ?>"
+                                data-status="<?= $m['status'] ?? 'active' ?>"
+                                data-create="<?= $m['can_create_users'] ?? 1 ?>">
+                                <i class="fa-solid fa-pen"></i>
+                            </button>
+                            <form method="POST" onsubmit="return confirm('Are you sure you want to delete this Line Man?');" class="d-inline">
                                 <input type="hidden" name="action" value="delete_member">
                                 <input type="hidden" name="id" value="<?= $m['id'] ?>">
                                 <button type="submit" class="btn btn-sm btn-outline-danger"><i class="fa-solid fa-trash"></i></button>
@@ -150,28 +253,94 @@ $members = $stmt->fetchAll();
 <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
 <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
 <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+
 <script>
 $(document).ready(function() {
-    $('#membersTable').DataTable({
-        language: { lengthMenu: "Show _MENU_ entries" },
-        order: [[0, 'desc']]
+    $("#membersTable").DataTable({ order: [[0, "desc"]] });
+    
+    // Robust delegation for edit button
+    $("#membersTable tbody").on("click", ".btn-edit", function(e) {
+        e.preventDefault();
+        $("#edit_id").val($(this).attr("data-id"));
+        $("#edit_fullname").val($(this).attr("data-fullname"));
+        $("#edit_username").val($(this).attr("data-username"));
+        $("#edit_password").val($(this).attr("data-password"));
+        $("#edit_phone").val($(this).attr("data-phone"));
+        $("#edit_city").val($(this).attr("data-city"));
+        $("#edit_address").val($(this).attr("data-address"));
+        $("#edit_status").val($(this).attr("data-status"));
+        $("#edit_can_create").val($(this).attr("data-create"));
+        
+        var m = new bootstrap.Modal(document.getElementById("editMemberModal"));
+        m.show();
     });
+    
+    $(".modal").appendTo("body");
 });
-
-// Form Validation
-(function () {
-  'use strict'
-  var forms = document.querySelectorAll('.needs-validation')
-  Array.prototype.slice.call(forms).forEach(function (form) {
-      form.addEventListener('submit', function (event) {
-        if (!form.checkValidity()) {
-          event.preventDefault()
-          event.stopPropagation()
-        }
-        form.classList.add('was-validated')
-      }, false)
-    })
-})()
 </script>
+        
+
+
+<!-- Edit Member Modal -->
+<div class="modal fade" id="editMemberModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content bg-white border-0 shadow-lg" style="border-radius: 16px;">
+      <div class="modal-header border-bottom p-4">
+        <h5 class="modal-title fw-bold"><i class="fa-solid fa-pen text-primary me-2"></i> Edit Line Man</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST">
+        <input type="hidden" name="action" value="edit_member">
+        <input type="hidden" name="id" id="edit_id" value="">
+        <div class="modal-body p-4">
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label class="form-label fw-bold small text-muted">Full Name</label>
+                    <input type="text" name="full_name" id="edit_fullname" class="form-control bg-light" required>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label fw-bold small text-muted">Username (Read Only)</label>
+                    <input type="text" id="edit_username" class="form-control bg-light" readonly>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label fw-bold small text-muted">Password</label>
+                    <input type="text" name="password" id="edit_password" class="form-control bg-light" required>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label fw-bold small text-muted">Phone Number</label>
+                    <input type="text" name="phone" id="edit_phone" class="form-control bg-light">
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label fw-bold small text-muted">City</label>
+                    <input type="text" name="city" id="edit_city" class="form-control bg-light">
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label fw-bold small text-muted">Status</label>
+                    <select name="status" id="edit_status" class="form-select bg-light" required>
+                        <option value="active">Active (Can Login)</option>
+                        <option value="disabled">Disabled (Blocked)</option>
+                    </select>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label fw-bold small text-muted">Create Users?</label>
+                    <select name="can_create_users" id="edit_can_create" class="form-select bg-light" required>
+                        <option value="1">Yes, Allow Creation</option>
+                        <option value="0">No, View Only</option>
+                    </select>
+                </div>
+                <div class="col-12 mb-3">
+                    <label class="form-label fw-bold small text-muted">Address</label>
+                    <textarea name="address" id="edit_address" class="form-control bg-light" rows="2"></textarea>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer border-top p-3">
+          <button type="button" class="btn btn-outline-secondary rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary rounded-pill px-4 fw-bold shadow-sm">Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 
 <?php require_once 'footer.php'; ?>
