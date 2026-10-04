@@ -6,6 +6,58 @@ $client_id = $_SESSION['operator_id'];
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     
+    // MASS ACTIONS
+    if ($action === 'mass_delete' && !empty($_POST['selected_ids'])) {
+        $ids = explode(',', $_POST['selected_ids']);
+        foreach($ids as $id) {
+            $del = (int)$id;
+            $uStmt = $pdo->prepare("SELECT username FROM subscribers WHERE id = ? AND client_id = ?");
+            $uStmt->execute([$del, $client_id]);
+            $u = $uStmt->fetchColumn();
+            if ($u) {
+                $pdo->prepare("DELETE FROM subscribers WHERE id = ?")->execute([$del]);
+                $pdo->prepare("DELETE FROM radcheck WHERE username = ?")->execute([$u]);
+                $pdo->prepare("DELETE FROM radreply WHERE username = ?")->execute([$u]);
+            }
+        }
+        echo "<script>alert('Selected subscribers deleted successfully!'); window.location='subscribers.php';</script>";
+        exit;
+    }
+
+    if ($action === 'mass_payment' && !empty($_POST['selected_ids'])) {
+        $ids = explode(',', $_POST['selected_ids']);
+        $amount = (float)$_POST['amount'];
+        if ($amount != 0) {
+            foreach($ids as $id) {
+                $sub_id = (int)$id;
+                $uStmt = $pdo->prepare("SELECT username FROM subscribers WHERE id = ? AND client_id = ?");
+                $uStmt->execute([$sub_id, $client_id]);
+                if ($uStmt->fetchColumn()) {
+                    $pdo->prepare("UPDATE subscribers SET balance = balance + ? WHERE id = ?")->execute([$amount, $sub_id]);
+                }
+            }
+            echo "<script>alert('Mass Payment applied successfully!'); window.location='subscribers.php';</script>";
+            exit;
+        }
+    }
+
+    if ($action === 'mass_renew' && !empty($_POST['selected_ids'])) {
+        $ids = explode(',', $_POST['selected_ids']);
+        $expiry_date = !empty($_POST['expiry_date']) ? $_POST['expiry_date'] : null;
+        if ($expiry_date) {
+            foreach($ids as $id) {
+                $sub_id = (int)$id;
+                $uStmt = $pdo->prepare("SELECT username FROM subscribers WHERE id = ? AND client_id = ?");
+                $uStmt->execute([$sub_id, $client_id]);
+                if ($uStmt->fetchColumn()) {
+                    $pdo->prepare("UPDATE subscribers SET expiry_date = ? WHERE id = ?")->execute([$expiry_date, $sub_id]);
+                }
+            }
+            echo "<script>alert('Mass Expiry updated successfully!'); window.location='subscribers.php';</script>";
+            exit;
+        }
+    }
+
     // DELETE
     if ($action === 'delete_id' && isset($_POST['id'])) {
         $del = (int)$_POST['id'];
@@ -357,11 +409,11 @@ function formatUptime($seconds) {
 
 <!-- Top Action Bar -->
 <div class="action-bar-top">
-    <button class="btn shadow-sm"><i class="fa-solid fa-trash me-1"></i> Mass Delete</button>
-    <button class="btn shadow-sm"><i class="fa-brands fa-paypal me-1"></i> Mass Payment</button>
-    <button class="btn shadow-sm"><i class="fa-solid fa-user-check me-1"></i> Mass Activation/Renew</button>
+    <button class="btn shadow-sm" onclick="submitMassAction('delete')"><i class="fa-solid fa-trash me-1"></i> Mass Delete</button>
+    <button class="btn shadow-sm" onclick="openMassPaymentModal()"><i class="fa-brands fa-paypal me-1"></i> Mass Payment</button>
+    <button class="btn shadow-sm" onclick="openMassRenewModal()"><i class="fa-solid fa-user-check me-1"></i> Mass Activation/Renew</button>
     <button class="btn shadow-sm" data-bs-toggle="modal" data-bs-target="#addUserModal"><i class="fa-solid fa-user-plus me-1"></i> Add New User</button>
-    <a href="mikrotik_sync.php" class="btn shadow-sm text-decoration-none"><i class="fa-solid fa-file-import me-1"></i> Import Users</a>
+    <button class="btn shadow-sm" data-bs-toggle="modal" data-bs-target="#restoreModal"><i class="fa-solid fa-file-import me-1"></i> Import Users</button>
 </div>
 
 <div class="card table-custom-ui p-3 mt-3 shadow-sm border-0">
@@ -715,6 +767,138 @@ $(document).ready(function() {
         }
     });
 });
+</script>
+
+<!-- Mass Payment Modal -->
+<div class="modal fade" id="massPaymentModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fa-brands fa-paypal text-primary"></i> Mass Payment</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST">
+                <input type="hidden" name="action" value="mass_payment">
+                <input type="hidden" name="selected_ids" id="massPaymentIds">
+                <div class="modal-body">
+                    <p>Apply balance change to <strong id="massPaymentCount">0</strong> selected users.</p>
+                    <div class="mb-3">
+                        <label class="form-label">Amount (Rs.) <small class="text-muted">Use negative for deduction</small></label>
+                        <input type="number" step="0.01" name="amount" class="form-control" required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Apply Mass Payment</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Mass Renew Modal -->
+<div class="modal fade" id="massRenewModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fa-solid fa-user-check text-success"></i> Mass Activation / Renew</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST">
+                <input type="hidden" name="action" value="mass_renew">
+                <input type="hidden" name="selected_ids" id="massRenewIds">
+                <div class="modal-body">
+                    <p>Set a new expiry date for <strong id="massRenewCount">0</strong> selected users.</p>
+                    <div class="mb-3">
+                        <label class="form-label">New Expiry Date & Time</label>
+                        <input type="datetime-local" name="expiry_date" class="form-control" required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">Update Expiry</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Restore Backup / Import Modal -->
+<div class="modal fade" id="restoreModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fa-solid fa-upload text-warning"></i> Import / Restore Users (CSV)</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form action="dashboard.php" method="POST" enctype="multipart/form-data">
+                <input type="hidden" name="action" value="restore_backup">
+                <div class="modal-body">
+                    <div class="alert alert-info">
+                        <strong>How to use:</strong>
+                        <ol class="mb-0 ps-3">
+                            <li>Go to Dashboard and click <b>Backup (CSV)</b>.</li>
+                            <li>Add/edit users in Excel.</li>
+                            <li>Upload here to auto-update the system.</li>
+                        </ol>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Select CSV File</label>
+                        <input type="file" name="backup_file" class="form-control" accept=".csv" required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-dark">Import Users</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<form id="massDeleteForm" method="POST" style="display:none;">
+    <input type="hidden" name="action" value="mass_delete">
+    <input type="hidden" name="selected_ids" id="massDeleteIds">
+</form>
+
+<script>
+function getSelectedUserIds() {
+    var ids = [];
+    document.querySelectorAll('.row-checkbox:checked').forEach(function(cb) {
+        ids.push(cb.value);
+    });
+    return ids;
+}
+
+function submitMassAction(actionType) {
+    var ids = getSelectedUserIds();
+    if (ids.length === 0) {
+        alert("Please select at least one user!");
+        return;
+    }
+    if (actionType === 'delete') {
+        if (confirm("Are you sure you want to completely delete " + ids.length + " selected users?")) {
+            document.getElementById('massDeleteIds').value = ids.join(',');
+            document.getElementById('massDeleteForm').submit();
+        }
+    }
+}
+
+function openMassPaymentModal() {
+    var ids = getSelectedUserIds();
+    if (ids.length === 0) { alert("Please select at least one user!"); return; }
+    $('#massPaymentIds').val(ids.join(','));
+    $('#massPaymentCount').text(ids.length);
+    $('#massPaymentModal').appendTo("body").modal('show');
+}
+
+function openMassRenewModal() {
+    var ids = getSelectedUserIds();
+    if (ids.length === 0) { alert("Please select at least one user!"); return; }
+    $('#massRenewIds').val(ids.join(','));
+    $('#massRenewCount').text(ids.length);
+    $('#massRenewModal').appendTo("body").modal('show');
+}
 </script>
 
 <?php require_once 'footer.php'; ?>

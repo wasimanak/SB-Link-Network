@@ -159,24 +159,92 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             echo "<script>alert('Note saved!'); window.location='subscriber_view.php?id=$id';</script>";
             exit;
         }
+        
+        elseif ($action === 'upload_photo') {
+            if (!isset($_FILES['profile_photo'])) {
+                echo "<script>alert('No file uploaded.'); window.location='subscriber_view.php?id=$id';</script>";
+                exit;
+            }
+            if ($_FILES['profile_photo']['error'] !== UPLOAD_ERR_OK) {
+                $errCode = $_FILES['profile_photo']['error'];
+                echo "<script>alert('Upload error code: $errCode. (1=Too large for PHP, 2=Too large for form, 3=Partial, 4=No file)'); window.location='subscriber_view.php?id=$id';</script>";
+                exit;
+            }
+            
+            $ext = strtolower(pathinfo($_FILES['profile_photo']['name'], PATHINFO_EXTENSION));
+            $allowed = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+            if (!in_array($ext, $allowed)) {
+                echo "<script>alert('Invalid file format: $ext. Allowed: JPG, PNG, GIF, WEBP'); window.location='subscriber_view.php?id=$id';</script>";
+                exit;
+            }
+
+            // Ensure directory exists
+            $uploadDir = '../uploads/profiles/';
+            if (!is_dir($uploadDir)) {
+                mkdir($uploadDir, 0777, true);
+            }
+
+            $filename = 'user_' . $id . '_' . time() . '.' . $ext;
+            $dest = $uploadDir . $filename;
+            
+            if (move_uploaded_file($_FILES['profile_photo']['tmp_name'], $dest)) {
+                
+                // Safely add column if it doesn't exist
+                try {
+                    $pdo->exec("ALTER TABLE subscribers ADD COLUMN photo VARCHAR(255) DEFAULT NULL");
+                } catch (PDOException $e) {
+                    // Ignore, column likely exists
+                }
+
+                try {
+                    // Delete old photo if exists
+                    $oldStmt = $pdo->prepare('SELECT photo FROM subscribers WHERE id=?');
+                    $oldStmt->execute([$id]);
+                    $oldPhoto = $oldStmt->fetchColumn();
+                    if ($oldPhoto && file_exists('../uploads/profiles/' . $oldPhoto)) {
+                        unlink('../uploads/profiles/' . $oldPhoto);
+                    }
+                    
+                    $pdo->prepare('UPDATE subscribers SET photo = ? WHERE id=?')->execute([$filename, $id]);
+                    $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, 'Admin', ?, 'User', 'Updated Profile Photo')")->execute([$client_id, $u]);
+                    
+                    echo "<script>window.location='subscriber_view.php?id=$id';</script>";
+                    exit;
+                } catch (PDOException $e) {
+                    $dbErr = addslashes($e->getMessage());
+                    echo "<script>alert('Database error: $dbErr'); window.location='subscriber_view.php?id=$id';</script>";
+                    exit;
+                }
+            } else {
+                echo "<script>alert('Server error: Failed to save file. Check directory permissions for uploads/profiles/'); window.location='subscriber_view.php?id=$id';</script>";
+                exit;
+            }
+        }
         elseif ($action === 'add_balance') {
             $amount = (float)$_POST['amount'];
-            
-            // Get current balance before adding
-            $bStmt = $pdo->prepare("SELECT balance FROM subscribers WHERE id=?");
-            $bStmt->execute([$id]);
-            $current_bal = (float)$bStmt->fetchColumn();
-            $new_bal = $current_bal + $amount;
-            
-            $pdo->prepare("UPDATE subscribers SET balance = ? WHERE id=?")->execute([$new_bal, $id]);
-            $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, 'Admin', ?, 'User', 'Added Balance: $amount')")->execute([$client_id, $u]);
-            
-            // Insert into ledger
-            $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'credit', ?, ?, ?)")
-                ->execute([$client_id, $u, $amount, $new_bal, "Funds added by Operator"]);
+            if ($amount != 0) {
+                // Get current balance before adding
+                $bStmt = $pdo->prepare("SELECT balance FROM subscribers WHERE id=?");
+                $bStmt->execute([$id]);
+                $current_bal = (float)$bStmt->fetchColumn();
+                $new_bal = $current_bal + $amount;
+                
+                $pdo->prepare("UPDATE subscribers SET balance = ? WHERE id=?")->execute([$new_bal, $id]);
+                
+                $type = $amount > 0 ? 'credit' : 'debit';
+                $absAmount = abs($amount);
+                $desc = $amount > 0 ? 'Funds added by Operator' : 'Funds deducted by Operator';
+                $actStr = $amount > 0 ? "Added Balance: Rs. $absAmount" : "Deducted Balance: Rs. $absAmount";
 
-            echo "<script>alert('Balance added!'); window.location='subscriber_view.php?id=$id';</script>";
-            exit;
+                $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, 'Admin', ?, 'User', ?)")->execute([$client_id, $u, $actStr]);
+                
+                // Insert into ledger
+                $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, ?, ?, ?, ?)")
+                    ->execute([$client_id, $u, $type, $absAmount, $new_bal, $desc]);
+
+                echo "<script>alert('Balance updated!'); window.location='subscriber_view.php?id=$id';</script>";
+                exit;
+            }
         }
         elseif ($action === 'renew_user') {
             $package_id = (int)$_POST['package_id'];
@@ -389,7 +457,13 @@ $ledger_history = $ledgerStmt->fetchAll();
     <div class="col-lg-4 col-md-5">
         <div class="view-card">
             <div class="profile-header">
-                <div class="avatar-large"><i class="fa-solid fa-user"></i></div>
+                <?php if (!empty($user['photo']) && file_exists("../uploads/profiles/" . $user['photo'])): ?>
+                    <div style="width: 60px; height: 60px; border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; background-color: #e2e8f0; flex-shrink: 0; cursor: pointer;" data-bs-toggle="modal" data-bs-target="#photoViewModal" title="Click to view">
+                        <img src="../uploads/profiles/<?= htmlspecialchars($user['photo']) ?>" alt="Profile" style="width: 100%; height: 100%; object-fit: cover;">
+                    </div>
+                <?php else: ?>
+                    <div class="avatar-large"><i class="fa-solid fa-user"></i></div>
+                <?php endif; ?>
                 <div class="profile-info">
                     <h5><?= htmlspecialchars($user['full_name'] ?: 'Unknown Name') ?></h5>
                     <p><?= htmlspecialchars($user['username']) ?></p>
@@ -416,7 +490,11 @@ $ledger_history = $ledgerStmt->fetchAll();
                 <button type="button" class="btn-pill" data-bs-toggle="modal" data-bs-target="#renewModal"><i class="fa-solid fa-rotate"></i> Renew</button>
                 <button type="button" class="btn-pill" onclick="alert('User Password: <?= htmlspecialchars($user['password']) ?>')"><i class="fa-solid fa-lock"></i> Toggle Password</button>
                 <button type="button" class="btn-pill dark" data-bs-toggle="modal" data-bs-target="#editProfileModal"><i class="fa-solid fa-user-pen"></i> Edit Profile</button>
-                <button type="button" class="btn-pill"><i class="fa-regular fa-image"></i> Change Photo</button>
+                <form method="POST" enctype="multipart/form-data" id="photoForm" style="display:none;">
+                    <input type="hidden" name="action" value="upload_photo">
+                    <input type="file" name="profile_photo" id="photoInput" accept="image/*" onchange="document.getElementById('photoForm').submit();">
+                </form>
+                <button type="button" class="btn-pill" onclick="document.getElementById('photoInput').click();"><i class="fa-regular fa-image"></i> Change Photo</button>
                 <button type="button" class="btn-pill" data-bs-toggle="modal" data-bs-target="#noteModal"><i class="fa-regular fa-note-sticky"></i> Add Note</button>
                 <button type="button" class="btn-pill" data-bs-toggle="modal" data-bs-target="#passwordModal"><i class="fa-solid fa-key"></i> Change Password</button>
                 <button type="button" class="btn-pill"><i class="fa-solid fa-bars-progress"></i> Service Settings</button>
@@ -1019,5 +1097,22 @@ setInterval(fetchLiveBandwidth, 3000);
 fetchLiveBandwidth(); // initial call
 
 </script>
+
+
+<!-- View Photo Modal -->
+<div class="modal fade" id="photoViewModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content bg-transparent border-0">
+            <div class="modal-header border-0 pb-0 justify-content-end">
+                <button type="button" class="btn-close bg-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body text-center pt-0">
+                <?php if (!empty($user['photo'])): ?>
+                    <img src="../uploads/profiles/<?= htmlspecialchars($user['photo']) ?>" class="img-fluid rounded shadow-lg" oncontextmenu="return false;" style="max-height: 80vh; pointer-events: none; border: 4px solid white;" alt="Profile View">
+                <?php endif; ?>
+            </div>
+        </div>
+    </div>
+</div>
 
 <?php require_once 'footer.php'; ?>

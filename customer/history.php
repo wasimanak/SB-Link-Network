@@ -10,6 +10,11 @@ $radStmt = $pdo->prepare("SELECT * FROM radacct WHERE username = ? AND acctstopt
 $radStmt->execute([$current_user['username']]);
 $sessions = $radStmt->fetchAll();
 
+// Fetch past fund requests
+$fundStmt = $pdo->prepare("SELECT * FROM fund_requests WHERE subscriber_id = ? ORDER BY id DESC LIMIT 10");
+$fundStmt->execute([$current_user['id']]);
+$fund_requests = $fundStmt->fetchAll();
+
 function formatBytes($bytes) {
     if ($bytes == 0) return '0 B';
     $k = 1024;
@@ -78,6 +83,44 @@ function formatBytes($bytes) {
                                 <td class="border-secondary"><?= date('d M Y, H:i', strtotime($s['acctstarttime'])) ?></td>
                                 <td class="border-secondary"><?= $h ?>h <?= $m ?>m</td>
                                 <td class="border-secondary text-end font-monospace text-accent"><?= formatBytes($total) ?></td>
+                            </tr>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12 mb-4">
+        <h5 class="mb-3"><i class="fa-solid fa-wallet text-accent"></i> Recent Fund Requests (Recharges)</h5>
+        <div class="card-ui overflow-hidden">
+            <div class="table-responsive">
+                <table class="table table-dark table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th class="border-secondary text-secondary">Date</th>
+                            <th class="border-secondary text-secondary">Amount</th>
+                            <th class="border-secondary text-secondary">TID (Reference)</th>
+                            <th class="border-secondary text-secondary">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php if (empty($fund_requests)): ?>
+                            <tr><td colspan="4" class="text-center text-secondary py-3">No fund requests found.</td></tr>
+                        <?php else: ?>
+                            <?php foreach($fund_requests as $fr): 
+                                $badge = 'bg-warning';
+                                if ($fr['status'] == 'approved') $badge = 'bg-success';
+                                if ($fr['status'] == 'rejected') $badge = 'bg-danger';
+                            ?>
+                            <tr>
+                                <td class="border-secondary"><?= date('d M Y, h:i A', strtotime($fr['created_at'])) ?></td>
+                                <td class="border-secondary fw-bold text-success">Rs <?= number_format($fr['amount'], 2) ?></td>
+                                <td class="border-secondary font-monospace"><?= htmlspecialchars($fr['payment_reference']) ?></td>
+                                <td class="border-secondary"><span class="badge <?= $badge ?> text-uppercase"><?= $fr['status'] ?></span></td>
                             </tr>
                             <?php endforeach; ?>
                         <?php endif; ?>

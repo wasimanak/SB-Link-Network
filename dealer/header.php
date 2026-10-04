@@ -1,7 +1,7 @@
 <?php
 session_start();
 if (!isset($_SESSION['dealer_id'])) {
-    header("Location: login.php");
+    header("Location: ../login.php");
     exit;
 }
 require_once '../config/db.php';
@@ -16,7 +16,7 @@ $current_dealer = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$current_dealer) {
     session_destroy();
-    header("Location: login.php");
+    header("Location: ../login.php");
     exit;
 }
 
@@ -37,6 +37,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dealer Dashboard - SB Link</title>

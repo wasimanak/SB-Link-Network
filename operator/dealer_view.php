@@ -303,7 +303,7 @@ body { background-color: #f1f5f9; }
             <div class="profile-header">
                 <div class="sidebar-avatar">
                     <?php if($dealer['photo']): ?>
-                        <img src="<?= htmlspecialchars($dealer['photo']) ?>" alt="Avatar">
+                        <img src="<?= htmlspecialchars($dealer['photo']) ?>" alt="Avatar" style="cursor:pointer;" data-bs-toggle="modal" data-bs-target="#photoViewModal" title="Click to view">
                     <?php else: ?>
                         <i class="fa-solid fa-user"></i>
                     <?php endif; ?>
@@ -850,5 +850,22 @@ $(document).ready(function() {
         */
 });
 </script>
+
+
+<!-- View Photo Modal -->
+<div class="modal fade" id="photoViewModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content bg-transparent border-0">
+            <div class="modal-header border-0 pb-0 justify-content-end">
+                <button type="button" class="btn-close bg-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body text-center pt-0">
+                <?php if (!empty($dealer['photo'])): ?>
+                    <img src="<?= htmlspecialchars($dealer['photo']) ?>" class="img-fluid rounded shadow-lg" oncontextmenu="return false;" style="max-height: 80vh; pointer-events: none; border: 4px solid white;" alt="Profile View">
+                <?php endif; ?>
+            </div>
+        </div>
+    </div>
+</div>
 
 <?php require_once 'footer.php'; ?>

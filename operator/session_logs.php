@@ -3,7 +3,7 @@ require_once 'header.php';
 $client_id = $_SESSION['operator_id'];
 
 // Delete session logs older than 14 days
-$pdo->exec("DELETE FROM radacct WHERE acctstoptime IS NOT NULL AND acctstoptime < DATE_SUB(NOW(), INTERVAL 14 DAY)");
+$pdo->exec("DELETE FROM radacct WHERE acctstoptime IS NOT NULL AND acctstoptime < (UNIX_TIMESTAMP() - 1209600)");
 
 // Fetch the last 1500 session logs to avoid crashing the browser for massive databases
 // Operator can only see sessions belonging to their subscribers
@@ -73,9 +73,9 @@ function formatDuration($seconds) {
                             <div class="font-monospace text-secondary" style="font-size: 0.75rem;"><i class="fa-solid fa-laptop me-1"></i> <?= htmlspecialchars($log['callingstationid'] ?? 'N/A') ?></div>
                         </td>
                         <td class="text-secondary" style="font-size: 0.85rem;">
-                            <div class="text-success"><i class="fa-solid fa-arrow-right-to-bracket me-1"></i> <?= date('d M Y, h:i A', strtotime($log['acctstarttime'])) ?></div>
+                            <div class="text-success"><i class="fa-solid fa-arrow-right-to-bracket me-1"></i> <?= date('d M Y, h:i A', is_numeric($log['acctstarttime']) ? $log['acctstarttime'] : strtotime($log['acctstarttime'])) ?></div>
                             <?php if(!$is_live): ?>
-                                <div class="text-danger mt-1"><i class="fa-solid fa-arrow-right-from-bracket me-1"></i> <?= date('d M Y, h:i A', strtotime($log['acctstoptime'])) ?></div>
+                                <div class="text-danger mt-1"><i class="fa-solid fa-arrow-right-from-bracket me-1"></i> <?= date('d M Y, h:i A', is_numeric($log['acctstoptime']) ? $log['acctstoptime'] : strtotime($log['acctstoptime'])) ?></div>
                             <?php else: ?>
                                 <div class="text-muted mt-1"><i class="fa-solid fa-spinner fa-spin me-1"></i> Still connected...</div>
                             <?php endif; ?>

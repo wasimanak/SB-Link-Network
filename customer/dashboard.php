@@ -46,8 +46,8 @@ if ($current_user['expiry_date']) {
     }
 }
 
-// Fetch available packages for this operator
-$pkgStmt = $pdo->prepare("SELECT * FROM packages WHERE client_id = ?");
+// Fetch available packages for this operator and global superadmin packages
+$pkgStmt = $pdo->prepare("SELECT * FROM packages WHERE client_id = ? OR client_id = 0");
 $pkgStmt->execute([$client_id]);
 $packages = $pkgStmt->fetchAll();
 
@@ -55,14 +55,43 @@ $packages = $pkgStmt->fetchAll();
 $opStmt = $pdo->prepare("SELECT company_name, bank_details, qr_code FROM clients WHERE id = ?");
 $opStmt->execute([$client_id]);
 $operator_info = $opStmt->fetch();
-$bank_details = $operator_info['bank_details'] ?: "Bank details not provided. Please contact operator.";
+$bank_details = (isset($operator_info['bank_details']) && $operator_info['bank_details']) ? $operator_info['bank_details'] : "Bank details not provided. Please contact operator.";
 
-// Fetch Active Payment Gateway
+// Fetch Active Payment Gateway or Bank Account
+$active_method = null;
+$gateway_display_name = '';
+$gateway_account_name = '';
+$account_number_str = '';
+$iban_str = '';
+
+// Check API Gateway first
 $gwStmt = $pdo->prepare("SELECT gateway_name, account_name FROM payment_gateways WHERE client_id = ? AND status = 'active' LIMIT 1");
 $gwStmt->execute([$client_id]);
-$active_gateway = $gwStmt->fetch();
-$gateway_display_name = $active_gateway ? $active_gateway['gateway_name'] : 'Meezan Bank';
-$gateway_account_name = $active_gateway && $active_gateway['account_name'] ? $active_gateway['account_name'] : ($operator_info['company_name'] ?: 'SB-Link Network');
+if ($gw = $gwStmt->fetch()) {
+    $active_method = 'api';
+    $gateway_display_name = $gw['gateway_name'];
+    $opCompany = isset($operator_info['company_name']) ? $operator_info['company_name'] : 'SB-Link Network';
+    $gateway_account_name = $gw['account_name'] ?: $opCompany;
+} else {
+    // Check Manual Bank
+    // For safety if table doesn't exist yet, we check
+    try {
+        $bkStmt = $pdo->prepare("SELECT bank_name, account_title, account_number, iban FROM operator_bank_accounts WHERE client_id = ? AND status = 'active' LIMIT 1");
+        $bkStmt->execute([$client_id]);
+        if ($bk = $bkStmt->fetch()) {
+            $active_method = 'bank';
+            $gateway_display_name = $bk['bank_name'];
+            $gateway_account_name = $bk['account_title'];
+            $account_number_str = $bk['account_number'];
+            $iban_str = $bk['iban'];
+        }
+    } catch(PDOException $e) {}
+}
+
+if (!$active_method) {
+    $gateway_display_name = 'No Active Payment Method';
+    $gateway_account_name = isset($operator_info['company_name']) ? $operator_info['company_name'] : 'SB-Link Network';
+}
 ?>
 
 <?php if ($pending_request): ?>
@@ -247,26 +276,49 @@ $gateway_account_name = $active_gateway && $active_gateway['account_name'] ? $ac
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content bg-dark border border-secondary shadow-lg text-light" style="border-radius: 16px;">
       <div class="modal-header border-bottom border-secondary p-4">
-        <h5 class="modal-title fw-bold text-accent"><i class="fa-solid fa-cart-shopping me-2"></i> Purchase Package</h5>
+        <h5 class="modal-title fw-bold"><i class="fa-solid fa-cart-shopping me-2 text-primary"></i> Confirm Purchase</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
-      <form action="request_action.php" method="POST">
-        <input type="hidden" name="package_id" id="modal_pkg_id">
-        <div class="modal-body p-3">
+      <div class="modal-body p-4">
+        <form action="fund_action.php" method="POST">
+            <input type="hidden" name="action" value="buy_package">
+            <input type="hidden" name="package_id" id="modal_pkg_id">
             
-            <div class="text-center mb-3">
+            <div class="text-center mb-4">
                 <h4 id="modal_pkg_name" class="fw-bold mb-0 text-light">Package Name</h4>
                 <h1 class="text-accent fw-bold mt-1 mb-0">Rs <span id="modal_pkg_price">0</span></h1>
             </div>
 
             <!-- Online Payment Details Box -->
             <div id="onlinePaymentBox" class="text-center mb-3">
-                <h6 class="text-light fw-bold mb-0"><?= htmlspecialchars($gateway_account_name) ?></h6>
-                <div class="text-secondary small mb-2">Bank Name: <span class="text-light fw-bold"><?= htmlspecialchars($gateway_display_name) ?></span></div>
-
-                <div class="d-inline-block bg-white p-2 rounded shadow mb-2" style="border: 2px solid #3b82f6;">
-                    <img id="qr_code_img" src="" alt="Dynamic QR" class="img-fluid rounded" style="width: 140px; height: 140px;">
-                </div>
+                <?php if($active_method === 'bank'): ?>
+                    <div class="bg-dark border border-secondary rounded p-3 text-start mx-auto shadow mb-2" style="max-width: 320px;">
+                        <div class="text-center mb-2 pb-2 border-bottom border-secondary border-opacity-50">
+                            <i class="fa-solid fa-building-columns fa-2x text-primary mb-1"></i>
+                            <h5 class="text-light fw-bold mb-0"><?= htmlspecialchars($gateway_display_name) ?></h5>
+                        </div>
+                        <div class="mb-2">
+                            <div class="text-secondary small text-uppercase" style="font-size: 0.7rem;">Account Title</div>
+                            <div class="fw-bold text-light fs-6"><?= htmlspecialchars($gateway_account_name) ?></div>
+                        </div>
+                        <div class="mb-2">
+                            <div class="text-secondary small text-uppercase" style="font-size: 0.7rem;">Account Number</div>
+                            <div class="fw-bold text-primary fs-5" style="letter-spacing: 1px;"><?= htmlspecialchars($account_number_str) ?></div>
+                        </div>
+                        <?php if(!empty($iban_str)): ?>
+                        <div class="mb-0">
+                            <div class="text-secondary small text-uppercase" style="font-size: 0.7rem;">IBAN</div>
+                            <div class="fw-bold text-info" style="font-family: monospace; font-size: 0.95rem;"><?= htmlspecialchars($iban_str) ?></div>
+                        </div>
+                        <?php endif; ?>
+                    </div>
+                <?php else: ?>
+                    <h6 class="text-light fw-bold mb-0"><?= htmlspecialchars($gateway_account_name) ?></h6>
+                    <div class="text-secondary small mb-2">Provider: <span class="text-light fw-bold"><?= htmlspecialchars($gateway_display_name) ?></span></div>
+                    <div class="d-inline-block bg-white p-2 rounded shadow mb-2" style="border: 2px solid #3b82f6;">
+                        <img id="qr_code_img" src="" alt="Dynamic QR" class="img-fluid rounded" style="width: 140px; height: 140px;">
+                    </div>
+                <?php endif; ?>
 
                 <div class="text-secondary" style="font-size: 0.75rem;">
                     Scan the QR Code to pay. After paying, click <b>Submit Request</b>.
@@ -308,18 +360,17 @@ $gateway_account_name = $active_gateway && $active_gateway['account_name'] ? $ac
                     </div>
                 </label>
             </div>
-
-        </div>
-        <div class="modal-footer border-top border-secondary p-2 d-flex justify-content-between">
-          <button type="button" class="btn btn-sm btn-outline-secondary px-3 rounded-pill" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" id="submitBtn" class="btn btn-sm btn-accent px-4 rounded-pill fw-bold"><i class="fa-solid fa-paper-plane me-1"></i> Submit Request</button>
-        </div>
+            
+      </div>
+      <div class="modal-footer border-top border-secondary p-3">
+        <button type="button" class="btn btn-outline-secondary px-4 rounded-pill" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" id="submitBtn" class="btn btn-primary px-4 rounded-pill fw-bold"><i class="fa-solid fa-paper-plane me-1"></i> Submit Request</button>
+      </div>
       </form>
     </div>
   </div>
 </div>
 
-<!-- Add Funds Modal -->
 <div class="modal fade" id="addFundsModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content bg-dark border border-secondary shadow-lg text-light" style="border-radius: 16px;">
@@ -331,12 +382,34 @@ $gateway_account_name = $active_gateway && $active_gateway['account_name'] ? $ac
         <div class="modal-body p-3">
             
             <div class="text-center mb-3">
-                <h6 class="text-light fw-bold mb-0"><?= htmlspecialchars($gateway_account_name) ?></h6>
-                <div class="text-secondary small mb-2">Bank Name: <span class="text-light fw-bold"><?= htmlspecialchars($gateway_display_name) ?></span></div>
-
-                <div class="d-inline-block bg-white p-2 rounded shadow mb-2" style="border: 2px solid #10b981;">
-                    <img id="fund_qr_code" src="https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=SB-LINK-FUNDS" alt="QR Code" class="img-fluid rounded" style="width: 140px; height: 140px;">
-                </div>
+                <?php if($active_method === 'bank'): ?>
+                    <div class="bg-dark border border-secondary rounded p-3 text-start mx-auto shadow mb-2" style="max-width: 320px;">
+                        <div class="text-center mb-2 pb-2 border-bottom border-secondary border-opacity-50">
+                            <i class="fa-solid fa-building-columns fa-2x text-success mb-1"></i>
+                            <h5 class="text-light fw-bold mb-0"><?= htmlspecialchars($gateway_display_name) ?></h5>
+                        </div>
+                        <div class="mb-2">
+                            <div class="text-secondary small text-uppercase" style="font-size: 0.7rem;">Account Title</div>
+                            <div class="fw-bold text-light fs-6"><?= htmlspecialchars($gateway_account_name) ?></div>
+                        </div>
+                        <div class="mb-2">
+                            <div class="text-secondary small text-uppercase" style="font-size: 0.7rem;">Account Number</div>
+                            <div class="fw-bold text-success fs-5" style="letter-spacing: 1px;"><?= htmlspecialchars($account_number_str) ?></div>
+                        </div>
+                        <?php if(!empty($iban_str)): ?>
+                        <div class="mb-0">
+                            <div class="text-secondary small text-uppercase" style="font-size: 0.7rem;">IBAN</div>
+                            <div class="fw-bold text-info" style="font-family: monospace; font-size: 0.95rem;"><?= htmlspecialchars($iban_str) ?></div>
+                        </div>
+                        <?php endif; ?>
+                    </div>
+                <?php else: ?>
+                    <h6 class="text-light fw-bold mb-0"><?= htmlspecialchars($gateway_account_name) ?></h6>
+                    <div class="text-secondary small mb-2">Provider: <span class="text-light fw-bold"><?= htmlspecialchars($gateway_display_name) ?></span></div>
+                    <div class="d-inline-block bg-white p-2 rounded shadow mb-2" style="border: 2px solid #10b981;">
+                        <img id="fund_qr_code" src="https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=SB-LINK-FUNDS" alt="QR Code" class="img-fluid rounded" style="width: 140px; height: 140px;">
+                    </div>
+                <?php endif; ?>
             </div>
 
             <div class="mb-2">

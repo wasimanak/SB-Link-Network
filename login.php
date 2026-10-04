@@ -94,104 +94,303 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 ?>
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-bs-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SB Link - Unified Login</title>
-    <!-- Same Google Fonts & Bootstrap as before -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- Font Awesome -->
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <title>Login - SB Link Network</title>
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Bootstrap & FontAwesome -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <!-- Select2 -->
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+    
     <style>
-        body {
-            font-family: 'Inter', sans-serif;
-            background: #f1f5f9;
-            min-height: 100vh;
-        }
-        .login-card {
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px);
-            border-radius: 20px;
-            box-shadow: 0 15px 35px rgba(0,0,0,0.2);
-            overflow: hidden;
-            width: 100%;
-            max-width: 450px;
-            transition: all 0.3s ease;
-        }
-        .login-header {
-            background: #ffffff;
-            padding: 30px;
-            text-align: center;
-            border-bottom: 2px solid #f1f5f9;
-        }
-        .brand-icon {
-            font-size: 3rem;
-            color: #3b82f6;
-            margin-bottom: 10px;
-        }
-        .role-btn {
-            border: 2px solid #e2e8f0;
-            background: white;
-            color: #64748b;
-            font-weight: 600;
-            border-radius: 12px;
-            padding: 12px;
-            transition: all 0.2s;
-            cursor: pointer;
-            text-align: center;
-        }
-        .role-btn:hover {
-            border-color: #cbd5e1;
-            background: #f8fafc;
-        }
-        .role-btn.active {
-            border-color: #3b82f6;
-            background: #eff6ff;
-            color: #1d4ed8;
-            box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.1);
-        }
-        .input-group-text { background: transparent; border-right: none; color: #94a3b8; }
-        .form-control, .form-select { border-left: none; padding-left: 0; }
-        .form-select { border-left: 1px solid #dee2e6; padding-left: 10px; }
-        .form-control:focus, .form-select:focus { box-shadow: none; border-color: #dee2e6; }
-        .input-group:focus-within {
-            box-shadow: 0 0 0 0.25rem rgba(59, 130, 246, 0.25);
-            border-radius: 0.375rem;
-        }
-        .input-group:focus-within .input-group-text, 
-        .input-group:focus-within .form-control {
-            border-color: #86b7fe;
+        :root {
+            --primary: #0ea5e9;
+            --accent: #6366f1;
+            --bg-dark: #0b1120;
+            --card-bg: rgba(15, 23, 42, 0.7);
         }
         
-        #credentials_block {
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-dark);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0;
+            position: relative;
+            overflow: hidden;
+            color: #f8fafc;
+        }
+
+        /* Abstract Background Elements */
+        .bg-shape {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(120px);
+            opacity: 0.3;
+            z-index: 0;
+            animation: pulse 12s infinite alternate;
+        }
+        .shape-1 { top: -15%; left: -10%; width: 50vw; height: 50vw; background: var(--primary); }
+        .shape-2 { bottom: -15%; right: -10%; width: 60vw; height: 60vw; background: var(--accent); }
+        
+        @keyframes pulse {
+            0% { transform: scale(1) translate(0, 0); }
+            100% { transform: scale(1.1) translate(5%, 5%); }
+        }
+
+        /* Glassmorphism Login Card */
+        .login-wrapper {
+            position: relative;
+            z-index: 10;
+            width: 100%;
+            max-width: 460px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+
+        .login-card {
+            background: var(--card-bg);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 24px;
+            padding: 2.5rem;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            transition: all 0.4s ease;
+        }
+
+        /* Logo Area */
+        .brand-logo {
+            width: 72px;
+            height: 72px;
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+            font-weight: 800;
+            color: white;
+            margin: 0 auto 1.2rem;
+            box-shadow: 0 10px 25px -5px rgba(14, 165, 233, 0.5);
+            letter-spacing: 1px;
+        }
+
+        /* Role Selection Cards */
+        .role-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .role-card {
+            background: rgba(30, 41, 59, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            padding: 1.5rem 1rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .role-card:hover {
+            background: rgba(30, 41, 59, 0.8);
+            transform: translateY(-3px);
+            border-color: rgba(255, 255, 255, 0.1);
+        }
+
+        .role-card i {
+            font-size: 2rem;
+            margin-bottom: 12px;
+            display: block;
+            transition: transform 0.3s ease;
+        }
+        
+        .role-card:hover i { transform: scale(1.1); }
+
+        .role-card .role-name {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: #cbd5e1;
+        }
+
+        /* Active states for specific roles */
+        .role-card[data-role="operator"] i { color: #3b82f6; }
+        .role-card[data-role="dealer"] i { color: #10b981; }
+        .role-card[data-role="recoveryman"] i { color: #ef4444; }
+        .role-card[data-role="lineman"] i { color: #f59e0b; }
+
+        /* Form Controls */
+        .form-floating > .form-control {
+            background-color: rgba(15, 23, 42, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: white;
+            border-radius: 14px;
+            height: 62px;
+            font-size: 1rem;
+        }
+        
+        .form-floating > .form-control:focus {
+            background-color: rgba(15, 23, 42, 0.8);
+            border-color: var(--primary);
+            box-shadow: 0 0 0 4px rgba(14, 165, 233, 0.15);
+        }
+
+        .form-floating > label {
+            color: #94a3b8;
+            padding-left: 1.2rem;
+        }
+        
+        /* Select2 Custom Styling for Glassmorphism */
+        .select2-container--default .select2-selection {
+            background-color: rgba(15, 23, 42, 0.6) !important;
+            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            border-radius: 14px !important;
+            height: 62px !important;
+            color: white !important;
+            display: flex;
+            align-items: center;
+        }
+        .select2-container--default.select2-container--focus .select2-selection {
+            border-color: var(--primary) !important;
+            box-shadow: 0 0 0 4px rgba(14, 165, 233, 0.15) !important;
+        }
+        .select2-container--default .select2-selection__rendered {
+            color: white !important;
+            padding-left: 1rem !important;
+            line-height: 60px !important;
+        }
+        .select2-container--default .select2-selection__arrow {
+            height: 60px !important;
+            right: 15px !important;
+        }
+        .select2-dropdown {
+            background-color: #1e293b !important;
+            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            border-radius: 12px !important;
+            color: white !important;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5) !important;
+        }
+        .select2-results__option { color: #cbd5e1; padding: 10px 15px !important; }
+        .select2-results__option--highlighted { background-color: var(--primary) !important; color: white !important; }
+        .select2-search__field {
+            background-color: #0f172a !important;
+            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            color: white !important;
+            border-radius: 8px !important;
+            padding: 8px !important;
+        }
+
+        /* Custom Input Group for Password */
+        .password-wrapper { position: relative; }
+        .password-toggle {
+            position: absolute;
+            right: 18px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #94a3b8;
+            cursor: pointer;
+            z-index: 10;
+            padding: 10px;
+            transition: color 0.2s;
+        }
+        .password-toggle:hover { color: white; }
+
+        /* Button */
+        .btn-login {
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            border: none;
+            border-radius: 14px;
+            color: white;
+            padding: 15px;
+            font-weight: 600;
+            font-size: 1.15rem;
+            letter-spacing: 0.5px;
+            transition: all 0.3s ease;
+            box-shadow: 0 10px 20px -5px rgba(14, 165, 233, 0.4);
+            margin-top: 10px;
+        }
+        .btn-login:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 15px 25px -5px rgba(14, 165, 233, 0.6);
+            color: white;
+        }
+
+        /* Color variations for btn-login based on Role */
+        .btn-operator { background: linear-gradient(135deg, #3b82f6, #2563eb); box-shadow: 0 10px 20px -5px rgba(59, 130, 246, 0.4); }
+        .btn-dealer { background: linear-gradient(135deg, #10b981, #059669); box-shadow: 0 10px 20px -5px rgba(16, 185, 129, 0.4); }
+        .btn-recoveryman { background: linear-gradient(135deg, #ef4444, #dc2626); box-shadow: 0 10px 20px -5px rgba(239, 68, 68, 0.4); }
+        .btn-lineman { background: linear-gradient(135deg, #f59e0b, #d97706); box-shadow: 0 10px 20px -5px rgba(245, 158, 11, 0.4); }
+        
+        .btn-operator:hover { box-shadow: 0 15px 25px -5px rgba(59, 130, 246, 0.6); }
+        .btn-dealer:hover { box-shadow: 0 15px 25px -5px rgba(16, 185, 129, 0.6); }
+        .btn-recoveryman:hover { box-shadow: 0 15px 25px -5px rgba(239, 68, 68, 0.6); }
+        .btn-lineman:hover { box-shadow: 0 15px 25px -5px rgba(245, 158, 11, 0.6); }
+
+        /* Alert */
+        .alert-custom {
+            background-color: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            color: #fca5a5;
+            border-radius: 14px;
+            font-size: 0.95rem;
+            padding: 1rem;
+        }
+        
+        .credentials-block {
             display: none;
             animation: fadeIn 0.4s ease forwards;
         }
-        #op_dropdown_container {
-            display: none; /* Initially hidden for operators */
-        }
+        
         @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(-10px); }
+            from { opacity: 0; transform: translateY(15px); }
             to { opacity: 1; transform: translateY(0); }
         }
+
+        .back-link {
+            color: #94a3b8;
+            text-decoration: none;
+            font-size: 0.9rem;
+            transition: color 0.2s;
+            display: inline-block;
+            margin-top: 1rem;
+        }
+        .back-link:hover { color: white; }
     </style>
 </head>
 <body>
 
-<div class="container d-flex justify-content-center pt-5">
-    <div class="login-card mt-3 mb-5">
-        <div class="login-header">
-            <i class="fa-solid fa-network-wired brand-icon"></i>
-            <h4 class="fw-bold text-dark mb-0">SB Link Network</h4>
-            <p class="text-muted small mb-0 mt-1">Select your role to access your portal</p>
-        </div>
-        <div class="card-body p-4 p-md-5 pt-4">
+    <!-- Abstract Background -->
+    <div class="bg-shape shape-1"></div>
+    <div class="bg-shape shape-2"></div>
+
+    <div class="login-wrapper">
+        <div class="login-card">
             
-            <?php if($error): ?>
-                <div class="alert alert-danger border-0 shadow-sm d-flex align-items-center">
-                    <i class="fa-solid fa-triangle-exclamation me-2"></i> <?= htmlspecialchars($error) ?>
+            <div class="text-center mb-4">
+                <div class="brand-logo">SB</div>
+                <h3 class="fw-bold mb-1" style="letter-spacing: -0.5px;">SB Link Network</h3>
+                <p class="text-secondary small fw-semibold" id="dynamicSubtitle" style="letter-spacing: 1px; color: #64748b !important;">SELECT YOUR ROLE</p>
+            </div>
+            
+            <?php if ($error): ?>
+                <div class="alert alert-custom d-flex align-items-center mb-4 shadow-sm" role="alert">
+                    <i class="fa-solid fa-circle-exclamation me-3 fs-5"></i>
+                    <div><?= htmlspecialchars($error) ?></div>
                 </div>
             <?php endif; ?>
 
@@ -199,40 +398,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <input type="hidden" name="role" id="selected_role" value="<?= htmlspecialchars($_POST['role'] ?? '') ?>">
                 
                 <!-- Role Selection -->
-                <div class="row g-3 mb-4" id="role_selection">
-                    <div class="col-6">
-                        <div class="role-btn <?= (isset($_POST['role']) && $_POST['role']=='operator')?'active':'' ?>" data-role="operator" onclick="selectRole('operator', 'Email', 'fa-envelope')">
-                            <i class="fa-solid fa-user-tie fs-4 mb-2 d-block text-primary"></i>
-                            Operator
-                        </div>
+                <div class="role-grid" id="role_selection">
+                    <div class="role-card" data-role="operator" onclick="selectRole('operator', 'Email')">
+                        <i class="fa-solid fa-user-tie"></i>
+                        <div class="role-name">Operator</div>
                     </div>
-                    <div class="col-6">
-                        <div class="role-btn <?= (isset($_POST['role']) && $_POST['role']=='dealer')?'active':'' ?>" data-role="dealer" onclick="selectRole('dealer', 'Username', 'fa-user')">
-                            <i class="fa-solid fa-handshake fs-4 mb-2 d-block text-success"></i>
-                            Dealer
-                        </div>
+                    <div class="role-card" data-role="dealer" onclick="selectRole('dealer', 'Username')">
+                        <i class="fa-solid fa-handshake"></i>
+                        <div class="role-name">Dealer</div>
                     </div>
-                    <div class="col-6">
-                        <div class="role-btn <?= (isset($_POST['role']) && $_POST['role']=='recoveryman')?'active':'' ?>" data-role="recoveryman" onclick="selectRole('recoveryman', 'Username', 'fa-user')">
-                            <i class="fa-solid fa-motorcycle fs-4 mb-2 d-block text-danger"></i>
-                            Recovery
-                        </div>
+                    <div class="role-card" data-role="recoveryman" onclick="selectRole('recoveryman', 'Username')">
+                        <i class="fa-solid fa-motorcycle"></i>
+                        <div class="role-name">Recovery</div>
                     </div>
-                    <div class="col-6">
-                        <div class="role-btn <?= (isset($_POST['role']) && $_POST['role']=='lineman')?'active':'' ?>" data-role="lineman" onclick="selectRole('lineman', 'Username', 'fa-user')">
-                            <i class="fa-solid fa-hard-hat fs-4 mb-2 d-block text-warning"></i>
-                            Line Man
-                        </div>
+                    <div class="role-card" data-role="lineman" onclick="selectRole('lineman', 'Username')">
+                        <i class="fa-solid fa-hard-hat"></i>
+                        <div class="role-name">Line Man</div>
                     </div>
                 </div>
 
                 <!-- Credentials Block -->
-                <div id="credentials_block">
+                <div class="credentials-block" id="credentials_block">
                     
                     <div class="mb-3" id="op_dropdown_container">
-                        <label class="form-label fw-bold text-secondary small">Select Operator / Provider <span class="text-danger">*</span></label>
-                        <select name="client_id" id="client_id_select" class="form-select form-control-lg">
-                            <option value="">-- Choose Operator --</option>
+                        <select name="client_id" id="client_id_select" style="width: 100%;">
+                            <option value="">Select Operator / Provider</option>
                             <?php foreach($operators as $op): ?>
                                 <option value="<?= $op['id'] ?>" <?= (isset($_POST['client_id']) && $_POST['client_id']==$op['id'])?'selected':'' ?>>
                                     <?= htmlspecialchars($op['company_name']) ?> <?= !empty($op['subarea']) ? ' - ' . htmlspecialchars($op['subarea']) : '' ?>
@@ -241,83 +431,112 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </select>
                     </div>
 
-                    <div class="mb-3">
-                        <label class="form-label fw-bold text-secondary small" id="lbl_identifier">Identifier</label>
-                        <div class="input-group">
-                            <span class="input-group-text"><i id="icon_identifier" class="fa-solid fa-user"></i></span>
-                            <input type="text" name="identifier" id="input_identifier" class="form-control form-control-lg" value="<?= htmlspecialchars($_POST['identifier'] ?? '') ?>" required>
-                        </div>
-                    </div>
-                    <div class="mb-4">
-                        <label class="form-label fw-bold text-secondary small">Password</label>
-                        <div class="input-group">
-                            <span class="input-group-text"><i class="fa-solid fa-lock"></i></span>
-                            <input type="password" name="password" class="form-control form-control-lg" required>
-                        </div>
+                    <div class="form-floating mb-3 shadow-sm">
+                        <input type="text" name="identifier" id="input_identifier" class="form-control" value="<?= htmlspecialchars($_POST['identifier'] ?? '') ?>" required autocomplete="off" placeholder="Identifier">
+                        <label for="input_identifier" id="lbl_identifier"><i class="fa-regular fa-user me-2" id="icon_identifier"></i>Identifier</label>
                     </div>
                     
-                    <button type="submit" class="btn btn-primary btn-lg w-100 fw-bold shadow-sm" id="btn_submit">
-                        Secure Login <i class="fa-solid fa-arrow-right ms-2"></i>
+                    <div class="form-floating mb-4 password-wrapper shadow-sm">
+                        <input type="password" class="form-control pe-5" id="password" name="password" placeholder="Password" required>
+                        <label for="password"><i class="fa-solid fa-lock me-2"></i>Password</label>
+                        <span class="password-toggle" onclick="togglePassword()">
+                            <i class="fa-solid fa-eye" id="toggleIcon"></i>
+                        </span>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-login w-100" id="btn_submit">
+                        Secure Login <i class="fa-solid fa-arrow-right-to-bracket ms-2"></i>
                     </button>
                     
-                    <div class="text-center mt-3">
-                        <a href="javascript:void(0)" onclick="resetRole()" class="text-muted small text-decoration-none"><i class="fa-solid fa-arrow-left me-1"></i> Change Role</a>
+                    <div class="text-center">
+                        <a href="javascript:void(0)" onclick="resetRole()" class="back-link"><i class="fa-solid fa-arrow-left me-1"></i> Choose a different role</a>
                     </div>
                 </div>
             </form>
+            
+            <div class="text-center mt-4 pt-2">
+                <p class="text-secondary small mb-0" style="color: #64748b !important;">&copy; <?= date('Y') ?> SB Link Network.<br>All rights reserved.</p>
+            </div>
         </div>
     </div>
-</div>
 
-<script>
-    function selectRole(role, label, icon) {
-        document.getElementById('selected_role').value = role;
-        
-        document.querySelectorAll('.role-btn').forEach(btn => btn.classList.remove('active'));
-        document.querySelector(`.role-btn[data-role='${role}']`).classList.add('active');
+    <!-- Scripts -->
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+    <script>
+        $(document).ready(function() {
+            $('#client_id_select').select2({
+                placeholder: "Select Operator / Provider"
+            });
+        });
 
-        document.getElementById('lbl_identifier').innerText = label;
-        document.getElementById('input_identifier').placeholder = `Enter your ${label.toLowerCase()}...`;
-        document.getElementById('icon_identifier').className = `fa-solid ${icon}`;
-
-        let btnSubmit = document.getElementById('btn_submit');
-        btnSubmit.className = 'btn btn-lg w-100 fw-bold shadow-sm ';
-        
-        let opContainer = document.getElementById('op_dropdown_container');
-        let opSelect = document.getElementById('client_id_select');
-
-        if(role === 'operator') {
-            btnSubmit.classList.add('btn-primary');
-            opContainer.style.display = 'none'; // Operator doesn't need dropdown
-            opSelect.removeAttribute('required');
-        } else {
-            opContainer.style.display = 'block'; // Others DO need dropdown
-            opSelect.setAttribute('required', 'required');
-            if(role === 'dealer') btnSubmit.classList.add('btn-success');
-            if(role === 'recoveryman') btnSubmit.classList.add('btn-danger');
-            if(role === 'lineman') btnSubmit.classList.add('btn-warning');
+        function togglePassword() {
+            const passwordInput = document.getElementById('password');
+            const toggleIcon = document.getElementById('toggleIcon');
+            if (passwordInput.type === 'password') {
+                passwordInput.type = 'text';
+                toggleIcon.classList.remove('fa-eye');
+                toggleIcon.classList.add('fa-eye-slash');
+            } else {
+                passwordInput.type = 'password';
+                toggleIcon.classList.remove('fa-eye-slash');
+                toggleIcon.classList.add('fa-eye');
+            }
         }
 
-        document.getElementById('role_selection').style.display = 'none';
-        document.getElementById('credentials_block').style.display = 'block';
-        
-        setTimeout(() => { document.getElementById('input_identifier').focus(); }, 100);
-    }
-    
-    function resetRole() {
-        document.getElementById('selected_role').value = '';
-        document.getElementById('role_selection').style.display = 'flex';
-        document.getElementById('credentials_block').style.display = 'none';
-        document.querySelectorAll('.role-btn').forEach(btn => btn.classList.remove('active'));
-    }
+        function selectRole(role, label) {
+            document.getElementById('selected_role').value = role;
+            
+            let iconClass = 'fa-user';
+            if(role === 'operator') iconClass = 'fa-envelope';
 
-    // Auto-select role if form was submitted but had error
-    let preRole = document.getElementById('selected_role').value;
-    if (preRole) {
-        let lbl = preRole === 'operator' ? 'Email' : 'Username';
-        let ico = preRole === 'operator' ? 'fa-envelope' : 'fa-user';
-        selectRole(preRole, lbl, ico);
-    }
-</script>
+            document.getElementById('lbl_identifier').innerHTML = `<i class="fa-regular ${iconClass} me-2"></i>${label}`;
+            
+            let btnSubmit = document.getElementById('btn_submit');
+            btnSubmit.className = 'btn btn-login w-100'; // reset
+            
+            let opContainer = document.getElementById('op_dropdown_container');
+            let opSelect = document.getElementById('client_id_select');
+
+            // Dynamic Subtitle
+            let subtitle = "LOGIN";
+            
+            if(role === 'operator') {
+                btnSubmit.classList.add('btn-operator');
+                opContainer.style.display = 'none';
+                opSelect.removeAttribute('required');
+                subtitle = "OPERATOR LOGIN";
+            } else {
+                opContainer.style.display = 'block';
+                opSelect.setAttribute('required', 'required');
+                
+                if(role === 'dealer') { btnSubmit.classList.add('btn-dealer'); subtitle = "DEALER LOGIN"; }
+                if(role === 'recoveryman') { btnSubmit.classList.add('btn-recoveryman'); subtitle = "RECOVERY LOGIN"; }
+                if(role === 'lineman') { btnSubmit.classList.add('btn-lineman'); subtitle = "LINE MAN LOGIN"; }
+            }
+            
+            document.getElementById('dynamicSubtitle').innerText = subtitle;
+
+            document.getElementById('role_selection').style.display = 'none';
+            document.getElementById('credentials_block').style.display = 'block';
+            
+            setTimeout(() => { document.getElementById('input_identifier').focus(); }, 100);
+        }
+        
+        function resetRole() {
+            document.getElementById('selected_role').value = '';
+            document.getElementById('role_selection').style.display = 'grid';
+            document.getElementById('credentials_block').style.display = 'none';
+            document.getElementById('dynamicSubtitle').innerText = "SELECT YOUR ROLE";
+        }
+
+        // Auto-select role if form was submitted but had error
+        let preRole = document.getElementById('selected_role').value;
+        if (preRole) {
+            let lbl = preRole === 'operator' ? 'Email' : 'Username';
+            selectRole(preRole, lbl);
+        }
+    </script>
 </body>
 </html>

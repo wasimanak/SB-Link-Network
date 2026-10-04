@@ -215,7 +215,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_balance_multi') {
     $sub_id = (int)$_POST['sub_id'];
     $amount = (float)$_POST['amount'];
-    if ($amount > 0) {
+    if ($amount != 0) {
         $uStmt = $pdo->prepare("SELECT username FROM subscribers WHERE id = ? AND client_id = ?");
         $uStmt->execute([$sub_id, $client_id]);
         $sub_user = $uStmt->fetchColumn();
@@ -230,18 +230,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 $newBal->execute([$sub_id]);
                 $finalBal = $newBal->fetchColumn();
 
-                $pdo->prepare("INSERT INTO user_ledger (username, type, amount, description, balance_after) VALUES (?, 'credit', ?, 'Manual Balance Added', ?)")
-                    ->execute([$sub_user, $amount, $finalBal]);
+                $type = $amount > 0 ? 'credit' : 'debit';
+                $absAmount = abs($amount);
+                $desc = $amount > 0 ? 'Manual Balance Added' : 'Manual Balance Deducted';
+
+                $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, description, balance_after) VALUES (?, ?, ?, ?, ?, ?)")
+                    ->execute([$client_id, $sub_user, $type, $absAmount, $desc, $finalBal]);
                 
+                $actStr = $amount > 0 ? "Added Balance: Rs. $absAmount" : "Deducted Balance: Rs. $absAmount";
                 $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, 'Admin', ?, 'User', ?)")
-                    ->execute([$client_id, $sub_user, "Added Balance: Rs. $amount"]);
+                    ->execute([$client_id, $sub_user, $actStr]);
                 
                 $pdo->commit();
-                echo "<script>alert('Balance added successfully!'); window.location='dashboard.php';</script>";
+                echo "<script>alert('Balance updated successfully!'); window.location='dashboard.php';</script>";
                 exit;
             } catch (Exception $e) {
                 $pdo->rollBack();
-                echo "<script>alert('Error adding balance.');</script>";
+                echo "<script>alert('Error updating balance.');</script>";
             }
         }
     }
@@ -255,14 +260,24 @@ $total_balance_all = $pdo->query("SELECT SUM(balance) FROM subscribers WHERE cli
 
 // --- Data Fetching for Metrics ---
 $total_users = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id")->fetchColumn();
-$active_users = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND status = 'active'")->fetchColumn();
-$disabled_users = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND status = 'disabled'")->fetchColumn();
+
+// Base metrics for cards
+$expired = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND expiry_date < NOW()")->fetchColumn();
+$active_users = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND LOWER(status) = 'active' AND (expiry_date >= NOW() OR expiry_date IS NULL)")->fetchColumn();
+$disabled_users = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND LOWER(status) = 'disabled'")->fetchColumn();
 
 // Online Users
 $online_users = $pdo->query("SELECT COUNT(DISTINCT username) FROM radacct WHERE acctstoptime IS NULL AND username IN (SELECT username FROM subscribers WHERE client_id = $client_id)")->fetchColumn();
 $offline_users = max(0, $total_users - $online_users);
 
-// Expirations
+// Mutually Exclusive Slices for the Doughnut Chart
+$chart_online = $online_users;
+$chart_expired = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND expiry_date < NOW() AND username NOT IN (SELECT username FROM radacct WHERE acctstoptime IS NULL)")->fetchColumn();
+$chart_disabled = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND LOWER(status) = 'disabled' AND (expiry_date >= NOW() OR expiry_date IS NULL) AND username NOT IN (SELECT username FROM radacct WHERE acctstoptime IS NULL)")->fetchColumn();
+$chart_active = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND LOWER(status) = 'active' AND (expiry_date >= NOW() OR expiry_date IS NULL) AND username NOT IN (SELECT username FROM radacct WHERE acctstoptime IS NULL)")->fetchColumn();
+$chart_others = max(0, $total_users - ($chart_online + $chart_expired + $chart_disabled + $chart_active));
+
+// Expirations (Detailed)
 $expired = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND expiry_date < NOW()")->fetchColumn();
 $expiring_1d = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 1 DAY)")->fetchColumn();
 $expiring_3d = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 3 DAY)")->fetchColumn();
@@ -297,6 +312,11 @@ $subs = $pdo->query("SELECT s.*, p.name as package_name,
     WHERE $where ORDER BY s.id DESC")->fetchAll();
 
 ?>
+
+<!-- Select2 CSS -->
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<style>.select2-container .select2-selection--single { height: 31px; border: 1px solid #dee2e6; } .select2-container--default .select2-selection--single .select2-selection__rendered { line-height: 29px; color: #475569; font-size: 0.875rem; } .select2-container--default .select2-selection--single .select2-selection__arrow { height: 29px; } .select2-dropdown { border: 1px solid #dee2e6; }</style>
+
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
@@ -378,7 +398,7 @@ $subs = $pdo->query("SELECT s.*, p.name as package_name,
 <div class="d-flex flex-wrap gap-3 mb-4">
     <a href="profile.php" class="quick-btn"><i class="fa-solid fa-user"></i><span>My Profile</span></a>
     <a href="#" class="quick-btn" data-bs-toggle="modal" data-bs-target="#addBalanceModal"><i class="fa-solid fa-money-bills"></i><span>Add Payment</span></a>
-    <a href="#" class="quick-btn" data-bs-toggle="modal" data-bs-target="#addBalanceModal"><i class="fa-solid fa-coins"></i><span>User Balance</span></a>
+    
     <a href="#" class="quick-btn" data-bs-toggle="modal" data-bs-target="#addUserModal"><i class="fa-solid fa-user-plus"></i><span>Add New User</span></a>
     <a href="#" class="quick-btn" data-bs-toggle="modal" data-bs-target="#renewUserModal"><i class="fa-solid fa-bolt text-warning"></i><span>Activate/Renew</span></a>
     
@@ -422,63 +442,63 @@ $subs = $pdo->query("SELECT s.*, p.name as package_name,
             <div class="stats-grid">
                 <div class="stat-box bg-blue">
                     <div class="title"><i class="fa-solid fa-users"></i> Users</div>
-                    <div class="value"><?= number_format($total_users, 2) ?> <span class="pct">100.00%</span></div>
+                    <div class="value"><?= number_format($total_users) ?> <span class="pct">100.00%</span></div>
                 </div>
                 <div class="stat-box bg-green">
                     <div class="title"><i class="fa-solid fa-circle-check"></i> Active</div>
-                    <div class="value"><?= number_format($active_users, 2) ?> <span class="pct"><?= $pct($active_users) ?></span></div>
+                    <div class="value"><?= number_format($active_users) ?> <span class="pct"><?= $pct($active_users) ?></span></div>
                 </div>
                 <div class="stat-box bg-green" style="opacity: 0.8;">
                     <div class="title"><i class="fa-solid fa-wifi"></i> Online</div>
-                    <div class="value"><?= number_format($online_users, 2) ?> <span class="pct"><?= $pct($online_users) ?></span></div>
+                    <div class="value"><?= number_format($online_users) ?> <span class="pct"><?= $pct($online_users) ?></span></div>
                 </div>
                 
                 <div class="stat-box bg-yellow">
                     <div class="title"><i class="fa-solid fa-user-clock"></i> Expired Online</div>
-                    <div class="value">0.00 <span class="pct">0.00%</span></div>
+                    <div class="value">0 <span class="pct">0.00%</span></div>
                 </div>
                 <div class="stat-box bg-grey">
                     <div class="title"><i class="fa-solid fa-user-large-slash"></i> Offline</div>
-                    <div class="value"><?= number_format($offline_users, 2) ?> <span class="pct"><?= $pct($offline_users) ?></span></div>
+                    <div class="value"><?= number_format($offline_users) ?> <span class="pct"><?= $pct($offline_users) ?></span></div>
                 </div>
                 <div class="stat-box bg-grey">
                     <div class="title"><i class="fa-solid fa-user-plus"></i> Registered</div>
-                    <div class="value"><?= number_format($total_users, 2) ?> <span class="pct">100.00%</span></div>
+                    <div class="value"><?= number_format($total_users) ?> <span class="pct">100.00%</span></div>
                 </div>
 
                 <div class="stat-box bg-grey">
                     <div class="title"><i class="fa-solid fa-user-slash"></i> Disable</div>
-                    <div class="value"><?= number_format($disabled_users, 2) ?> <span class="pct"><?= $pct($disabled_users) ?></span></div>
+                    <div class="value"><?= number_format($disabled_users) ?> <span class="pct"><?= $pct($disabled_users) ?></span></div>
                 </div>
                 <div class="stat-box bg-red">
                     <div class="title"><i class="fa-solid fa-user-xmark"></i> Expired</div>
-                    <div class="value"><?= number_format($expired, 2) ?> <span class="pct"><?= $pct($expired) ?></span></div>
+                    <div class="value"><?= number_format($expired) ?> <span class="pct"><?= $pct($expired) ?></span></div>
                 </div>
                 <div class="stat-box bg-grey">
                     <div class="title"><i class="fa-solid fa-network-wired"></i> PPPoE</div>
-                    <div class="value"><?= number_format($pppoe_users, 2) ?> <span class="pct"><?= $pct($pppoe_users) ?></span></div>
+                    <div class="value"><?= number_format($pppoe_users) ?> <span class="pct"><?= $pct($pppoe_users) ?></span></div>
                 </div>
 
                 <div class="stat-box bg-grey">
                     <div class="title"><i class="fa-solid fa-wifi"></i> Hotspot</div>
-                    <div class="value"><?= number_format($hotspot_users, 2) ?> <span class="pct"><?= $pct($hotspot_users) ?></span></div>
+                    <div class="value"><?= number_format($hotspot_users) ?> <span class="pct"><?= $pct($hotspot_users) ?></span></div>
                 </div>
                 <div class="stat-box bg-yellow">
                     <div class="title"><i class="fa-solid fa-hourglass-end"></i> Expiring (1 Day)</div>
-                    <div class="value"><?= number_format($expiring_1d, 2) ?> <span class="pct"><?= $pct($expiring_1d) ?></span></div>
+                    <div class="value"><?= number_format($expiring_1d) ?> <span class="pct"><?= $pct($expiring_1d) ?></span></div>
                 </div>
                 <div class="stat-box bg-yellow">
                     <div class="title"><i class="fa-solid fa-hourglass-half"></i> Expiring (3 Days)</div>
-                    <div class="value"><?= number_format($expiring_3d, 2) ?> <span class="pct"><?= $pct($expiring_3d) ?></span></div>
+                    <div class="value"><?= number_format($expiring_3d) ?> <span class="pct"><?= $pct($expiring_3d) ?></span></div>
                 </div>
 
                 <div class="stat-box bg-yellow">
                     <div class="title"><i class="fa-solid fa-calendar-week"></i> Expiring (1 Week)</div>
-                    <div class="value"><?= number_format($expiring_1w, 2) ?> <span class="pct"><?= $pct($expiring_1w) ?></span></div>
+                    <div class="value"><?= number_format($expiring_1w) ?> <span class="pct"><?= $pct($expiring_1w) ?></span></div>
                 </div>
                 <div class="stat-box bg-yellow">
                     <div class="title"><i class="fa-solid fa-calendar-days"></i> Expiring (2 Weeks)</div>
-                    <div class="value"><?= number_format($expiring_2w, 2) ?> <span class="pct"><?= $pct($expiring_2w) ?></span></div>
+                    <div class="value"><?= number_format($expiring_2w) ?> <span class="pct"><?= $pct($expiring_2w) ?></span></div>
                 </div>
             </div>
         </div>
@@ -550,7 +570,7 @@ $subs = $pdo->query("SELECT s.*, p.name as package_name,
                     <td><?= htmlspecialchars($s['mobile'] ?: ($s['phone'] ?: 'N/A')) ?></td>
                     <td><?= htmlspecialchars($s['package_name'] ?? 'N/A') ?></td>
                     <td>shabir1</td> <!-- Placeholder seller -->
-                    <td><span class="badge rounded-pill badge-soft-warning px-3 py-2"><?= number_format($s['balance'], 2) ?></span></td>
+                    <td><span class="badge rounded-pill badge-soft-warning px-3 py-2"><?= number_format($s['balance']) ?></span></td>
                     <td><span class="badge rounded-pill badge-soft-primary px-3 py-2 fw-bold"><?= strtoupper(htmlspecialchars($s['service_type'])) ?></span></td>
                     <td>
                         <?php if($s['is_online'] > 0): ?>
@@ -635,7 +655,7 @@ $subs = $pdo->query("SELECT s.*, p.name as package_name,
               <i class="fa-solid fa-wallet fs-3 me-3 text-info"></i>
               <div>
                   <h6 class="mb-0 fw-bold">Total Advance / Balance</h6>
-                  <span class="fs-4 fw-bold">Rs. <?= number_format($total_balance_all, 2) ?></span>
+                  <span class="fs-4 fw-bold">Rs. <?= number_format($total_balance_all) ?></span>
               </div>
           </div>
           
@@ -655,7 +675,7 @@ $subs = $pdo->query("SELECT s.*, p.name as package_name,
                           <td class="align-middle fw-bold text-primary"><?= htmlspecialchars($s['username']) ?></td>
                           <td class="align-middle"><?= htmlspecialchars($s['full_name']) ?></td>
                           <td class="align-middle fw-bold <?= $s['balance'] < 0 ? 'text-danger' : 'text-success' ?>">
-                              Rs. <?= number_format($s['balance'], 2) ?>
+                              Rs. <?= number_format($s['balance']) ?>
                           </td>
                           <td class="align-middle">
                               <form method="POST" class="d-flex gap-2 m-0" onsubmit="return confirm('Add balance to this user?');">
@@ -826,7 +846,7 @@ $renewPackages = $pdo->query("SELECT id, name, price, validity_days FROM package
                                 data-name="<?= htmlspecialchars($rp['name']) ?>"
                                 data-duration="<?= $rp['validity_days'] ?>"
                                 data-price="<?= $rp['price'] ?>">
-                                <?= htmlspecialchars($rp['name']) ?> (Rs <?= number_format($rp['price'],2) ?>)
+                                <?= htmlspecialchars($rp['name']) ?> (Rs <?= number_format($rp['price']) ?>)
                             </option>
                         <?php endforeach; ?>
                     </select>
@@ -922,7 +942,7 @@ function updateRenewDetails() {
     var pOpt = pkgSelect.options[pkgSelect.selectedIndex];
     var pName = (pOpt && pOpt.value) ? pOpt.getAttribute('data-name') : 'N/A';
     var pDur = (pOpt && pOpt.value) ? parseInt(pOpt.getAttribute('data-duration')) : 0;
-    var pPrice = (pOpt && pOpt.value) ? parseFloat(pOpt.getAttribute('data-price')).toFixed(2) : '0.00';
+    var pPrice = (pOpt && pOpt.value) ? parseFloat(pOpt.getAttribute('data-price')).toFixed(0) : '0';
     
     // Formatting Current Expiry
     var curExpFormatted = "No Expiry";
@@ -984,15 +1004,18 @@ function updateRenewDetails() {
 
 <script>
 $(document).ready(function() {
+    // Fix modal backdrop z-index issues
+    $('.modal').appendTo('body');
+
     // Donut Chart initialization
     const ctx = document.getElementById('usersDonut').getContext('2d');
     new Chart(ctx, {
         type: 'doughnut',
         data: {
-            labels: ['Active', 'Expired', 'Others'],
+            labels: ['Online', 'Active (Offline)', 'Expired', 'Disabled', 'Others'],
             datasets: [{
-                data: [<?= $active_users ?>, <?= $expired ?>, <?= $disabled_users ?>],
-                backgroundColor: ['#22c55e', '#ef4444', '#94a3b8'],
+                data: [<?= $chart_online ?>, <?= $chart_active ?>, <?= $chart_expired ?>, <?= $chart_disabled ?>, <?= $chart_others ?>],
+                backgroundColor: ['#0ea5e9', '#22c55e', '#ef4444', '#f59e0b', '#94a3b8'],
                 borderWidth: 0,
                 cutout: '75%'
             }]
@@ -1089,6 +1112,16 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+<script>
+$(document).ready(function() {
+    $('#renew_user_id').select2({
+        dropdownParent: $('#renewUserModal'),
+        width: '100%',
+        placeholder: '-- Choose User --'
+    });
+});
+</script>
 <?php require_once 'footer.php'; ?>
 
 <script>

@@ -13,13 +13,13 @@ if (!isset($_SESSION['operator_logged_in']) || !isset($_SESSION['operator_id']))
 }
 
 // Check if tenant is still active
-$stmt = $pdo->prepare("SELECT status, expiry_date FROM clients WHERE id = ?");
+$stmt = $pdo->prepare("SELECT company_name, status, expiry_date FROM clients WHERE id = ?");
 $stmt->execute([$_SESSION['operator_id']]);
 $tenant = $stmt->fetch();
 
 if (!$tenant || $tenant['status'] !== 'active' || (strtotime($tenant['expiry_date']) < time())) {
     session_destroy();
-    echo "<script>alert('Account suspended or expired. Contact Super Admin.'); window.location='login.php';</script>";
+    echo "<script>alert('Account suspended or expired. Contact Super Admin.'); window.location='../login.php';</script>";
     exit;
 }
 
@@ -40,6 +40,7 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <meta charset="UTF-8">
     <title>Operator Portal</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -123,24 +124,7 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
     function showGlobalLoader() { document.getElementById('global-loader').style.display = 'flex'; }
     function hideGlobalLoader() { document.getElementById('global-loader').style.display = 'none'; }
     
-    // Live Sidebar Clock
-    function updateSidebarClock() {
-        var now = new Date();
-        var timeStr = now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        
-        // Format date as YYYY-MM-DD
-        var y = now.getFullYear();
-        var m = String(now.getMonth() + 1).padStart(2, '0');
-        var d = String(now.getDate()).padStart(2, '0');
-        var dateStr = y + '-' + m + '-' + d;
-        
-        var timeSpan = document.getElementById('sb_time');
-        var dateSpan = document.getElementById('sb_date');
-        if(timeSpan) timeSpan.innerText = timeStr;
-        if(dateSpan) dateSpan.innerText = dateStr;
-    }
-    setInterval(updateSidebarClock, 1000);
-    document.addEventListener("DOMContentLoaded", updateSidebarClock);
+
     </script>
 
     <!-- Sidebar -->
@@ -152,19 +136,12 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
                 <i class="fa-solid fa-bolt fs-5"></i>
             </div>
             <div>
-                <h5 class="fw-bold mb-0 text-dark" style="letter-spacing: -0.5px;">SB-Link</h5>
+                <h5 class="fw-bold mb-0 text-dark" style="letter-spacing: -0.5px;"><?= htmlspecialchars($tenant['company_name']) ?></h5>
                 <div class="text-muted" style="font-size: 0.70rem; font-weight: 500; text-transform: uppercase; letter-spacing: 1px;">Operator Panel</div>
             </div>
         </div>
 
-        <!-- Router Network Time Box -->
-        <div class="px-4 mb-4">
-            <div class="bg-light border rounded-3 p-2 text-center shadow-sm">
-                <div class="text-secondary fw-bold" style="font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.5px;">Router Network Time</div>
-                <div id="sb_time" class="text-primary fw-bold font-monospace mt-1" style="font-size: 1.1rem; letter-spacing: 1px;">--:--:--</div>
-                <div id="sb_date" class="text-muted small font-monospace" style="font-size: 0.75rem;">----/--/--</div>
-            </div>
-        </div>
+
 
         <div class="px-3">
             <div class="text-muted fw-bold mb-2 px-3" style="font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px;">Main Menu</div>
@@ -234,6 +211,9 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
             <a href="requests.php" class="<?= $p==='requests.php' ? 'active' : '' ?>">Package Requests
                 <?php if($pending_pkgs > 0): ?><span class="badge bg-danger float-end rounded-pill"><?= $pending_pkgs ?></span><?php endif; ?>
             </a>
+            <a href="fund_requests.php" class="<?= $p==='fund_requests.php' ? 'active' : '' ?>">Fund Requests
+                <?php if($pending_funds > 0): ?><span class="badge bg-danger float-end rounded-pill"><?= $pending_funds ?></span><?php endif; ?>
+            </a>
             <a href="support_tickets.php" class="<?= $p==='support_tickets.php' || $p==='view_ticket.php' ? 'active' : '' ?>">Support Tickets
                 <?php if($open_tickets > 0): ?><span class="badge bg-danger float-end rounded-pill"><?= $open_tickets ?></span><?php endif; ?>
             </a>
@@ -261,7 +241,7 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
                 <div class="bg-primary text-white d-flex align-items-center justify-content-center rounded shadow-sm" style="width: 38px; height: 38px; background: linear-gradient(135deg, #3b82f6, #2563eb);">
                     <i class="fa-solid fa-wifi"></i>
                 </div>
-                <span class="fs-4 fw-bold text-dark" style="letter-spacing: -0.5px;">SB-Link <span class="text-primary">Piplan</span></span>
+                <span class="fs-4 fw-bold text-dark" style="letter-spacing: -0.5px;">SB-Link <span class="text-primary"><?= htmlspecialchars($tenant['company_name']) ?></span></span>
             </a>
         </div>
         <div class="position-relative d-none d-md-block" style="width: 350px;">

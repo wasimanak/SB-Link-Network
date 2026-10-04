@@ -7,19 +7,40 @@ $client_id = $_SESSION['operator_id'];
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     
-    if ($action === 'edit_profile') {
-        $full_name = trim($_POST['full_name']);
-        $company_name = trim($_POST['company_name']);
-        $national_id = trim($_POST['national_id']);
-        $phone = trim($_POST['phone']);
-        $email = trim($_POST['email']);
-        $subarea = trim($_POST['subarea']);
-        $address = trim($_POST['address']);
+    if ($action === 'update_router') {
+        $nasname = trim($_POST['nasname'] ?? '');
+        $secret = trim($_POST['secret'] ?? '');
+        $api_user = trim($_POST['api_user'] ?? '');
+        $api_pass = trim($_POST['api_password'] ?? '');
         
-        $stmt = $pdo->prepare("UPDATE clients SET full_name=?, company_name=?, national_id=?, phone=?, email=?, subarea=?, address=? WHERE id=?");
-        $stmt->execute([$full_name, $company_name, $national_id, $phone, $email, $subarea, $address, $client_id]);
-        echo "<script>alert('Profile updated successfully!'); window.location='profile.php';</script>";
-        exit;
+        if (empty($nasname) || empty($secret) || empty($api_user)) {
+            echo "<script>alert('Router IP, Secret, and API Username are required.'); window.location='profile.php';</script>";
+            exit;
+        } else {
+            try {
+                $chk = $pdo->prepare("SELECT id FROM nas WHERE client_id = ?");
+                $chk->execute([$client_id]);
+                $existing_nas = $chk->fetch();
+                
+                if ($existing_nas) {
+                    if (empty($api_pass)) {
+                        $upd = $pdo->prepare("UPDATE nas SET nasname=?, secret=?, api_user=? WHERE client_id=?");
+                        $upd->execute([$nasname, $secret, $api_user, $client_id]);
+                    } else {
+                        $upd = $pdo->prepare("UPDATE nas SET nasname=?, secret=?, api_user=?, api_password=? WHERE client_id=?");
+                        $upd->execute([$nasname, $secret, $api_user, $api_pass, $client_id]);
+                    }
+                } else {
+                    $pdo->prepare("INSERT INTO nas (client_id, nasname, shortname, secret, api_port, api_user, api_password) VALUES (?, ?, 'Primary Router', ?, 8728, ?, ?)")
+                        ->execute([$client_id, $nasname, $secret, $api_user, $api_pass]);
+                }
+                echo "<script>alert('MikroTik Router settings updated successfully!'); window.location='profile.php';</script>";
+                exit;
+            } catch (PDOException $e) {
+                echo "<script>alert('Error updating router: " . addslashes($e->getMessage()) . "'); window.location='profile.php';</script>";
+                exit;
+            }
+        }
     }
     elseif ($action === 'change_password') {
         $current = $_POST['current_password'];
@@ -53,13 +74,18 @@ $user = $stmt->fetch();
 $total_users = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id")->fetchColumn();
 $total_packages = $pdo->query("SELECT COUNT(*) FROM packages WHERE client_id = $client_id")->fetchColumn();
 $total_advance = $pdo->query("SELECT SUM(balance) FROM subscribers WHERE client_id = $client_id")->fetchColumn() ?: 0;
-$total_dealers = 3; // Placeholder as per UI
+$total_dealers = $pdo->query("SELECT COUNT(*) FROM dealers WHERE client_id = $client_id")->fetchColumn() ?: 0;
 $total_subdealers = 0; // Placeholder as per UI
 
 // Fetch packages list for the accordion
 $pkgStmt = $pdo->prepare("SELECT * FROM packages WHERE client_id = ? ORDER BY id DESC");
 $pkgStmt->execute([$client_id]);
 $packages_list = $pkgStmt->fetchAll();
+
+// Fetch NAS
+$nasStmt = $pdo->prepare("SELECT * FROM nas WHERE client_id = ?");
+$nasStmt->execute([$client_id]);
+$nas = $nasStmt->fetch();
 
 ?>
 
@@ -125,7 +151,7 @@ $packages_list = $pkgStmt->fetchAll();
                 <li><i class="fa-solid fa-calendar-alt"></i> <?= date('Y-m-d H:i:s', strtotime($user['created_at'])) ?></li>
             </ul>
             <div class="action-grid">
-                <button type="button" class="btn-pill dark" data-bs-toggle="modal" data-bs-target="#editProfileModal"><i class="fa-solid fa-user-pen"></i> Edit Profile</button>
+                <button type="button" class="btn-pill dark" data-bs-toggle="modal" data-bs-target="#routerModal"><i class="fa-solid fa-server"></i> Router Settings</button>
                 <button type="button" class="btn-pill"><i class="fa-regular fa-image"></i> Change Photo</button>
                 <button type="button" class="btn-pill" data-bs-toggle="modal" data-bs-target="#changePasswordModal"><i class="fa-solid fa-lock"></i> Change Password</button>
                 <button type="button" class="btn-pill" data-bs-toggle="modal" data-bs-target="#noteModal"><i class="fa-regular fa-note-sticky"></i> Add Note</button>
@@ -290,50 +316,84 @@ $packages_list = $pkgStmt->fetchAll();
 
 <!-- ================= MODALS ================= -->
 
-<!-- Edit Profile Modal -->
-<div class="modal fade" id="editProfileModal" tabindex="-1">
+<!-- Router Settings Modal -->
+<div class="modal fade" id="routerModal" tabindex="-1">
   <div class="modal-dialog">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title"><i class="fa-solid fa-user-pen"></i> Edit Profile</h5>
+        <h5 class="modal-title"><i class="fa-solid fa-server text-primary"></i> MikroTik Router Settings</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <form method="POST">
-        <input type="hidden" name="action" value="edit_profile">
+        <input type="hidden" name="action" value="update_router">
         <div class="modal-body">
-            <div class="mb-2">
-                <label class="form-label">Full Name</label>
-                <input type="text" name="full_name" class="form-control" value="<?= htmlspecialchars($user['full_name'] ?? '') ?>">
+            <div class="alert alert-info" style="font-size: 0.85rem;">
+                Enter your MikroTik Router connection details here to sync Hotspot/PPPoE profiles and manage users.
             </div>
-            <div class="mb-2">
-                <label class="form-label">Company Name</label>
-                <input type="text" name="company_name" class="form-control" value="<?= htmlspecialchars($user['company_name'] ?? '') ?>">
+            <div class="mb-3">
+                <label class="form-label fw-bold text-secondary small">Router IP Address (NAS)</label>
+                <input type="text" name="nasname" class="form-control font-monospace" placeholder="e.g. 10.133.13.69" value="<?= htmlspecialchars($nas['nasname'] ?? '') ?>" required>
             </div>
-            <div class="mb-2">
-                <label class="form-label">National ID (CNIC)</label>
-                <input type="text" name="national_id" class="form-control" value="<?= htmlspecialchars($user['national_id'] ?? '') ?>">
+            <div class="mb-3">
+                <label class="form-label fw-bold text-secondary small">RADIUS Secret</label>
+                <input type="text" name="secret" class="form-control font-monospace" placeholder="e.g. 123456" value="<?= htmlspecialchars($nas['secret'] ?? '') ?>" required>
             </div>
-            <div class="mb-2">
-                <label class="form-label">Phone</label>
-                <input type="text" name="phone" class="form-control" value="<?= htmlspecialchars($user['phone'] ?? '') ?>">
+            <div class="mb-3">
+                <label class="form-label fw-bold text-secondary small">API Username</label>
+                <input type="text" name="api_user" class="form-control font-monospace" placeholder="e.g. admin" value="<?= htmlspecialchars($nas['api_user'] ?? '') ?>" required>
             </div>
-            <div class="mb-2">
-                <label class="form-label">Email</label>
-                <input type="email" name="email" class="form-control" value="<?= htmlspecialchars($user['email'] ?? '') ?>">
-            </div>
-            <div class="mb-2">
-                <label class="form-label">Area / City</label>
-                <input type="text" name="subarea" class="form-control" value="<?= htmlspecialchars($user['subarea'] ?? '') ?>">
-            </div>
-            <div class="mb-2">
-                <label class="form-label">Address</label>
-                <input type="text" name="address" class="form-control" value="<?= htmlspecialchars($user['address'] ?? '') ?>">
+            <div class="mb-3">
+                <label class="form-label fw-bold text-secondary small">API Password</label>
+                <input type="password" name="api_password" class="form-control font-monospace" placeholder="<?= $nas ? 'Leave blank to keep unchanged' : 'Required' ?>" <?= $nas ? '' : 'required' ?>>
             </div>
         </div>
-        <div class="modal-footer">
-          <button type="submit" class="btn btn-dark">Save Changes</button>
+        <div class="modal-footer d-flex justify-content-between">
+          <div>
+            <?php if($nas): ?>
+                <span class="badge bg-success rounded-pill px-3 py-2"><i class="fa-solid fa-link me-1"></i> Linked</span>
+            <?php else: ?>
+                <span class="badge bg-danger rounded-pill px-3 py-2"><i class="fa-solid fa-unlink me-1"></i> Not Linked</span>
+            <?php endif; ?>
+          </div>
+          <div>
+              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+              <button type="submit" class="btn btn-primary">Save Router</button>
+          </div>
         </div>
       </form>
+      
+      <?php if($nas): ?>
+        <div class="p-3 bg-light border-top">
+            <h6 class="fw-bold mb-2"><i class="fa-solid fa-terminal me-2"></i> MikroTik Quick Setup Script</h6>
+            <p class="small text-muted mb-2">Copy & paste this into the MikroTik <strong>New Terminal</strong> to auto-configure RADIUS.</p>
+            <div class="position-relative">
+                <?php 
+                    global $host; 
+                    $radius_ip = $host; 
+                    $secret = $nas['secret'];
+                    
+                    $mt_script = "/radius add address=$radius_ip secret=\"$secret\" service=ppp,hotspot\n";
+                    $mt_script .= "/radius incoming set accept=yes port=3799\n";
+                    $mt_script .= "/ppp aaa set use-radius=yes interim-update=1m\n";
+                    $mt_script .= "/ip hotspot profile set [find] use-radius=yes radius-interim-update=1m\n";
+                ?>
+                <textarea id="mtScript" class="form-control font-monospace bg-dark text-success" rows="4" readonly style="font-size: 13px; resize: none;"><?= htmlspecialchars($mt_script) ?></textarea>
+                <button type="button" class="btn btn-sm btn-light position-absolute top-0 end-0 m-2 shadow-sm fw-bold" onclick="copyScript()">
+                    <i class="fa-regular fa-copy me-1"></i> Copy
+                </button>
+            </div>
+            <script>
+            function copyScript() {
+                var copyText = document.getElementById("mtScript");
+                copyText.select();
+                copyText.setSelectionRange(0, 99999);
+                navigator.clipboard.writeText(copyText.value);
+                alert("Script copied to clipboard!");
+            }
+            </script>
+        </div>
+      <?php endif; ?>
+
     </div>
   </div>
 </div>
