@@ -15,13 +15,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $city = trim($_POST['city'] ?? '');
     
     try {
-        $stmt = $pdo->prepare("INSERT INTO dealers (client_id, full_name, username, password, national_id, email, phone, address, city) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        $stmt->execute([$client_id, $full_name, $username, $password, $national_id, $email, $phone, $address, $city]);
+        $arr = isset($_POST['assigned_routers']) ? $_POST['assigned_routers'] : [];
+      $arr = array_filter($arr, function($v) { return trim($v) !== ''; });
+      $assigned_routers = implode(',', $arr);
+        
+        $stmt = $pdo->prepare("INSERT INTO dealers (client_id, full_name, username, password, national_id, email, phone, address, city, assigned_routers) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$client_id, $full_name, $username, $password, $national_id, $email, $phone, $address, $city, $assigned_routers]);
         echo "<script>alert('Dealer added successfully!'); window.location.href='dealers.php';</script>";
     } catch(PDOException $e) {
         echo "<script>alert('Error: " . addslashes($e->getMessage()) . "');</script>";
     }
 }
+
+// Fetch Operator NAS
+$nasStmt = $pdo->prepare("SELECT id, nasname, shortname FROM nas WHERE client_id = ?");
+$nasStmt->execute([$client_id]);
+$all_nas = $nasStmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Fetch Dealers
 $stmt = $pdo->prepare("
@@ -214,6 +223,20 @@ $dealers = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 </div>
             </div>
 
+        
+            <div class="row mb-3 align-items-center">
+                <div class="col-sm-4 text-end">
+                    <label class="dealer-modal-label mb-0">Assign Routers <span class="text-danger">*</span></label>
+                </div>
+                <div class="col-sm-8">
+                    <select id="add_routers_select" name="assigned_routers[]" class="form-select" multiple required>
+                        <?php foreach($all_nas as $n): ?>
+                            <option value="<?= $n['id'] ?>"><?= htmlspecialchars($n['shortname'] ?: 'Router') ?> (<?= $n['nasname'] ?>)</option>
+                        <?php endforeach; ?>
+                    </select>
+                    
+                </div>
+            </div>
         </div>
         <div class="modal-footer bg-white border-top">
           <button type="button" class="btn bg-white border text-dark px-4" data-bs-dismiss="modal">Close</button>
@@ -255,3 +278,67 @@ $(document).ready(function() {
 </script>
 
 <?php require_once 'footer.php'; ?>
+
+
+<style>
+.choices__inner { border-radius: 8px; border: 1px solid #dee2e6; background-color: #fff; padding: 5px 10px; }
+.choices__list--multiple .choices__item { background-color: #0d6efd; border: none; border-radius: 5px; }
+.choices[data-type*="select-multiple"] .choices__button { border-left: 1px solid rgba(255,255,255,0.3); }
+</style>
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+    var addSelect = document.getElementById("add_routers_select");
+    if(addSelect) {
+        new Choices(addSelect, {
+            removeItemButton: true,
+            searchPlaceholderValue: "Search routers...",
+            itemSelectText: "",
+            placeholderValue: "Select routers..."
+        });
+    }
+});
+</script>
+
+<!-- Premium Dropdown UI (Select2) -->
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+<style>
+.select2-container--default .select2-selection--multiple {
+    border-radius: 8px;
+    border: 1px solid #dee2e6;
+    padding: 4px;
+    min-height: 45px;
+}
+.select2-container--default .select2-selection--multiple .select2-selection__choice {
+    background-color: #0d6efd;
+    border: none;
+    color: white;
+    border-radius: 5px;
+    padding: 5px 10px;
+    margin-top: 5px;
+}
+.select2-container--default .select2-selection--multiple .select2-selection__choice__remove {
+    color: white;
+    margin-right: 8px;
+    border-right: 1px solid rgba(255,255,255,0.3);
+    padding-right: 5px;
+}
+.select2-container--default .select2-selection--multiple .select2-selection__choice__remove:hover {
+    color: #f8d7da;
+    background: transparent;
+}
+.select2-dropdown {
+    border-radius: 8px;
+    border: 1px solid #dee2e6;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+}
+</style>
+<script>
+$(document).ready(function() {
+    $("#add_routers_select").select2({
+        placeholder: "Select one or more routers",
+        allowClear: true,
+        width: "100%", dropdownParent: $("#addDealerModal")
+    });
+});
+</script>

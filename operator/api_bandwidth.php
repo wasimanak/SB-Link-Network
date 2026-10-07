@@ -11,8 +11,8 @@ if (!isset($_SESSION['operator_id']) || !isset($_GET['username'])) {
 }
 
 $client_id = $_SESSION['operator_id'];
-session_write_close(); // Unlock session
-$username = $_GET['username'];
+session_write_close();
+$username_lower = strtolower($_GET['username']);
 
 try {
     $stmt = $pdo->prepare("SELECT * FROM nas WHERE client_id = ? LIMIT 1");
@@ -25,53 +25,75 @@ try {
     }
 
     $api = new RouterosAPI();
+    $api->timeout = 2; 
     if ($api->connect($nas['nasname'], $nas['api_user'], $nas['api_password'], $nas['api_port'])) {
         
         $bytes_in = 0;
         $bytes_out = 0;
-        $uptime_str = "Offline";
+        $rx_bps = 0;
+        $tx_bps = 0;
+        $uptime_str = null;
         $found = false;
-
-        // Check Hotspot
-        $api->write('/ip/hotspot/active/print', false);
-        $api->write('?user=' . $username, true);
-        $hotspot = $api->read();
-
-        if (!empty($hotspot) && isset($hotspot[0]['bytes-in'])) {
-            $bytes_in = (float)$hotspot[0]['bytes-in'];
-            $bytes_out = (float)$hotspot[0]['bytes-out'];
-            $uptime_str = $hotspot[0]['uptime'] ?? "Online";
-            $found = true;
-        } else {
-            // Check PPPoE / Simple Queue (if rate limit exists)
-            $api->write('/queue/simple/print', false);
-            $api->write('?name=<pppoe-' . $username . '>', true);
-            $queues = $api->read();
-            if (!empty($queues) && isset($queues[0]['bytes'])) {
-                $bytes = explode('/', $queues[0]['bytes']);
-                if (count($bytes) == 2) {
-                    $bytes_in = (float)$bytes[0];
-                    $bytes_out = (float)$bytes[1];
-                    $found = true;
-                }
-            }
-            // Fetch PPPoE Uptime
-            if ($found) {
-                $api->write('/ppp/active/print', false);
-                $api->write('?name=' . $username, true);
-                $ppp = $api->read();
-                if (!empty($ppp) && isset($ppp[0]['uptime'])) {
-                    $uptime_str = $ppp[0]['uptime'];
-                } else {
-                    $uptime_str = "Online";
+        
+        // 1. Find EXACT username case from Active PPP
+        $api->write('/ppp/active/print');
+        $ppp_active = $api->read();
+        
+        $exact_mikrotik_username = null;
+        if (!empty($ppp_active)) {
+            foreach ($ppp_active as $conn) {
+                if (isset($conn['name']) && strtolower($conn['name']) === $username_lower) {
+                    $exact_mikrotik_username = $conn['name'];
+                    $uptime_str = $conn['uptime'] ?? null;
+                    break;
                 }
             }
         }
-
+        
+        // 2. Fetch Live Speed & Total Bytes
+        if ($exact_mikrotik_username) {
+            $interface_names_to_try = [
+                '<pppoe-' . $exact_mikrotik_username . '>',
+                'pppoe-' . $exact_mikrotik_username
+            ];
+            
+            foreach ($interface_names_to_try as $iname) {
+                // Get Live Speed (Bits per second) directly from router
+                $api->write('/interface/monitor-traffic', false);
+                $api->write('=interface=' . $iname, false);
+                $api->write('=once=', true);
+                $traffic = $api->read();
+                
+                if (!empty($traffic) && isset($traffic[0]['rx-bits-per-second'])) {
+                    $rx_bps = (float)$traffic[0]['rx-bits-per-second'];
+                    $tx_bps = (float)$traffic[0]['tx-bits-per-second'];
+                    
+                    // Get Total Bytes for Used Volume
+                    $api->write('/interface/print', false);
+                    $api->write('?name=' . $iname, true);
+                    $iface = $api->read();
+                    if (!empty($iface)) {
+                        $bytes_in = (float)($iface[0]['rx-byte'] ?? 0);
+                        $bytes_out = (float)($iface[0]['tx-byte'] ?? 0);
+                    }
+                    
+                    $found = true;
+                    break;
+                }
+            }
+        }
+        
+        // Return Data
         if ($found) {
-            echo json_encode(['bytes_in' => $bytes_in, 'bytes_out' => $bytes_out, 'uptime' => $uptime_str]);
+            echo json_encode([
+                'bytes_in' => $bytes_in, 
+                'bytes_out' => $bytes_out, 
+                'rx_bps' => $rx_bps, 
+                'tx_bps' => $tx_bps, 
+                'uptime' => $uptime_str
+            ]);
         } else {
-            echo json_encode(['bytes_in' => 0, 'bytes_out' => 0, 'msg' => 'User not active', 'uptime' => 'Offline']);
+            echo json_encode(['bytes_in' => 0, 'bytes_out' => 0, 'msg' => 'User not active in MikroTik']);
         }
         $api->disconnect();
     } else {
@@ -80,3 +102,4 @@ try {
 } catch (Exception $e) {
     echo json_encode(['bytes_in' => 0, 'bytes_out' => 0, 'error' => $e->getMessage()]);
 }
+?>

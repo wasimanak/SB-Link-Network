@@ -1,12 +1,47 @@
 <?php
 require_once 'header.php';
 
+try {
+    $pdo->exec("DELETE t1 FROM dealer_packages t1 INNER JOIN dealer_packages t2 WHERE t1.id > t2.id AND t1.dealer_id = t2.dealer_id AND t1.package_id = t2.package_id");
+    $pdo->exec("ALTER TABLE dealer_packages ADD UNIQUE KEY unique_dealer_pkg (dealer_id, package_id)");
+} catch(Exception $e) {}
+
+
+?><style>
+.badge-soft-success { background-color: rgba(34,197,94,0.1); color: #22c55e; }
+.badge-soft-danger { background-color: rgba(239,68,68,0.1); color: #ef4444; }
+.badge-soft-warning { background-color: rgba(245,158,11,0.1); color: #f59e0b; }
+.badge-soft-primary { background-color: rgba(59,130,246,0.1); color: #3b82f6; }
+.badge-soft-secondary { background-color: rgba(100,116,139,0.1); color: #64748b; }
+.avatar-circle { width: 35px; height: 35px; background: #e2e8f0; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #64748b; font-size: 14px; }
+.table-custom-ui th { text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.5px; }
+.table-custom-ui td { vertical-align: middle; }
+</style><?php
+
+
+try {
+    $pdo->exec("ALTER TABLE dealers ADD COLUMN status ENUM('active', 'disabled') DEFAULT 'active'");
+} catch (Exception $e) {}
+
+
 $client_id = $_SESSION['operator_id'] ?? 0;
 $dealer_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 
 if (!$dealer_id) {
     echo "<script>window.location.href='dealers.php';</script>";
     exit;
+}
+
+
+// Handle Delete Package
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_package') {
+    $pkg_id = (int)$_POST['package_id'];
+    try {
+        $pdo->prepare("DELETE FROM dealer_packages WHERE dealer_id = ? AND package_id = ?")->execute([$dealer_id, $pkg_id]);
+        echo "<script>alert('Package removed from dealer successfully!'); window.location.href='dealer_view.php?id=$dealer_id';</script>";
+    } catch(PDOException $e) {
+        echo "<script>alert('Error: " . addslashes($e->getMessage()) . "');</script>";
+    }
 }
 
 // Handle Set New Package
@@ -26,17 +61,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
 // Handle Edit Profile
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'edit_profile') {
+    $arr = isset($_POST['assigned_routers']) ? $_POST['assigned_routers'] : [];
+      $arr = array_filter($arr, function($v) { return trim($v) !== ''; });
+      $assigned_routers = implode(',', $arr);
+    
     if (!empty($_POST['password'])) {
-        $stmt = $pdo->prepare("UPDATE dealers SET full_name=?, username=?, password=?, national_id=?, email=?, phone=?, franchise=?, address=?, city=? WHERE id=?");
+        $stmt = $pdo->prepare("UPDATE dealers SET full_name=?, username=?, password=?, national_id=?, email=?, phone=?, franchise=?, address=?, city=?, assigned_routers=? WHERE id=?");
         $stmt->execute([
             $_POST['full_name'], $_POST['username'], $_POST['password'], $_POST['national_id'], $_POST['email'], 
-            $_POST['phone'], $_POST['franchise'], $_POST['address'], $_POST['city'], $dealer_id
+            $_POST['phone'], $_POST['franchise'], $_POST['address'], $_POST['city'], $assigned_routers, $dealer_id
         ]);
     } else {
-        $stmt = $pdo->prepare("UPDATE dealers SET full_name=?, username=?, national_id=?, email=?, phone=?, franchise=?, address=?, city=? WHERE id=?");
+        $stmt = $pdo->prepare("UPDATE dealers SET full_name=?, username=?, national_id=?, email=?, phone=?, franchise=?, address=?, city=?, assigned_routers=? WHERE id=?");
         $stmt->execute([
             $_POST['full_name'], $_POST['username'], $_POST['national_id'], $_POST['email'], 
-            $_POST['phone'], $_POST['franchise'], $_POST['address'], $_POST['city'], $dealer_id
+            $_POST['phone'], $_POST['franchise'], $_POST['address'], $_POST['city'], $assigned_routers, $dealer_id
         ]);
     }
     echo "<script>alert('Profile updated!'); window.location.href='dealer_view.php?id=$dealer_id';</script>";
@@ -80,10 +119,75 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         }
     }
 }
+
+// Handle Toggle Status
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'toggle_status') {
+    $currStmt = $pdo->prepare("SELECT status FROM dealers WHERE id = ?");
+    $currStmt->execute([$dealer_id]);
+    $current_status = $currStmt->fetchColumn() ?: 'active';
+    $newStatus = $current_status === 'active' ? 'disabled' : 'active';
+    
+    $pdo->prepare("UPDATE dealers SET status = ? WHERE id = ?")->execute([$newStatus, $dealer_id]);
+    
+    if ($newStatus === 'disabled') {
+        $pdo->prepare("UPDATE subscribers SET status = 'disabled' WHERE dealer_id = ? AND status = 'active'")->execute([$dealer_id]);
+        
+        $stmt = $pdo->prepare("SELECT username FROM subscribers WHERE dealer_id = ?");
+        $stmt->execute([$dealer_id]);
+        $users = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        
+        if (!empty($users)) {
+            $in = str_repeat('?,', count($users) - 1) . '?';
+            $pdo->prepare("DELETE FROM radcheck WHERE attribute = 'Auth-Type' AND value = 'Reject' AND username IN ($in)")->execute($users);
+            
+            $insertQ = "INSERT INTO radcheck (username, attribute, op, value) VALUES ";
+            $insertData = [];
+            foreach($users as $u) {
+                $insertQ .= "(?, 'Auth-Type', ':=', 'Reject'),";
+                array_push($insertData, $u);
+            }
+            $insertQ = rtrim($insertQ, ',');
+            $pdo->prepare($insertQ)->execute($insertData);
+        }
+        $msg = "Dealer DISABLED. All associated users have been blocked from internet access.";
+    } else {
+        $pdo->prepare("UPDATE subscribers SET status = 'active' WHERE dealer_id = ? AND (expiry_date IS NULL OR expiry_date > NOW())")->execute([$dealer_id]);
+        
+        $stmt = $pdo->prepare("SELECT username FROM subscribers WHERE dealer_id = ? AND (expiry_date IS NULL OR expiry_date > NOW())");
+        $stmt->execute([$dealer_id]);
+        $users = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        
+        if (!empty($users)) {
+            $in = str_repeat('?,', count($users) - 1) . '?';
+            $pdo->prepare("DELETE FROM radcheck WHERE attribute = 'Auth-Type' AND value = 'Reject' AND username IN ($in)")->execute($users);
+        }
+        $msg = "Dealer ENABLED. Valid users have been restored.";
+    }
+    echo "<script>alert('$msg'); window.location.href='dealer_view.php?id=$dealer_id';</script>";
+}
+
 // Handle Delete Profile
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_profile') {
+    // 1. Fetch all users belonging to this dealer
+    $stmt = $pdo->prepare("SELECT username FROM subscribers WHERE dealer_id = ?");
+    $stmt->execute([$dealer_id]);
+    $users = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    
+    // 2. Delete all users from RADIUS tables
+    if (!empty($users)) {
+        $in = str_repeat('?,', count($users) - 1) . '?';
+        $pdo->prepare("DELETE FROM radcheck WHERE username IN ($in)")->execute($users);
+        $pdo->prepare("DELETE FROM radreply WHERE username IN ($in)")->execute($users);
+        $pdo->prepare("DELETE FROM radusergroup WHERE username IN ($in)")->execute($users);
+        
+        // 3. Delete from subscribers table
+        $pdo->prepare("DELETE FROM subscribers WHERE dealer_id = ?")->execute([$dealer_id]);
+    }
+    
+    // 4. Finally delete the dealer
     $pdo->prepare("DELETE FROM dealers WHERE id=?")->execute([$dealer_id]);
-    echo "<script>alert('Dealer deleted!'); window.location.href='dealers.php';</script>";
+    
+    echo "<script>alert('Dealer and all associated users deleted successfully!'); window.location.href='dealers.php';</script>";
 }
 
 // Handle Permissions Update
@@ -123,7 +227,7 @@ $operator_packages = $pkgStmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Fetch assigned dealer packages
 $assignedPkgStmt = $pdo->prepare("
-    SELECT dp.dealer_price, dp.dealer_profit, p.name 
+    SELECT dp.package_id, dp.dealer_price, dp.dealer_profit, p.name 
     FROM dealer_packages dp
     JOIN packages p ON dp.package_id = p.id
     WHERE dp.dealer_id = ?
@@ -132,22 +236,38 @@ $assignedPkgStmt = $pdo->prepare("
 $assignedPkgStmt->execute([$dealer_id]);
 $dealer_assigned_packages = $assignedPkgStmt->fetchAll(PDO::FETCH_ASSOC);
 
+
+$nasStmt = $pdo->prepare("SELECT id, nasname, shortname FROM nas WHERE client_id = ?");
+$nasStmt->execute([$client_id]);
+$all_nas = $nasStmt->fetchAll(PDO::FETCH_ASSOC);
+
 // Fetch Dealer Ledger / Notes
 $ledgerStmt = $pdo->prepare("SELECT note, created_at FROM dealer_notes WHERE dealer_id = ? ORDER BY id DESC");
 $ledgerStmt->execute([$dealer_id]);
 $dealer_ledger = $ledgerStmt->fetchAll(PDO::FETCH_ASSOC);
 
+
+$nasStmt = $pdo->prepare("SELECT id, nasname, shortname FROM nas WHERE client_id = ?");
+$nasStmt->execute([$client_id]);
+$all_nas = $nasStmt->fetchAll(PDO::FETCH_ASSOC);
+
 // Fetch Dealer Users
 $dUsersStmt = $pdo->prepare("
-    SELECT s.id, s.full_name, s.username, s.expiry_date, s.status,
-           (SELECT framedipaddress FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL ORDER BY radacctid DESC LIMIT 1) as live_ip,
-           (SELECT SUM(acctinputoctets + acctoutputoctets) FROM radacct r WHERE r.username = s.username) as total_usage
+    SELECT s.id, s.full_name, s.username, s.expiry_date, s.status, s.mobile, s.phone, s.balance, s.service_type, p.name as package_name,
+           (SELECT COUNT(*) FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL) as is_online,
+           (SELECT framedipaddress FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL ORDER BY radacctid DESC LIMIT 1) as live_ip
     FROM subscribers s
+    LEFT JOIN packages p ON s.package_id = p.id
     WHERE s.dealer_id = ?
     ORDER BY s.id DESC
 ");
 $dUsersStmt->execute([$dealer_id]);
 $dealer_users = $dUsersStmt->fetchAll(PDO::FETCH_ASSOC);
+
+
+$nasStmt = $pdo->prepare("SELECT id, nasname, shortname FROM nas WHERE client_id = ?");
+$nasStmt->execute([$client_id]);
+$all_nas = $nasStmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Fetch Dealer Activity Logs
 $alogsStmt = $pdo->prepare("SELECT activity, against_to, created_at FROM activity_logs WHERE dealer_id = ? ORDER BY id DESC LIMIT 500");
@@ -376,7 +496,13 @@ body { background-color: #f1f5f9; }
                 <button class="btn" data-bs-toggle="modal" data-bs-target="#addDocumentModal"><i class="fa-solid fa-file-arrow-up"></i> Add<br>Document</button>
                 <button class="btn" data-bs-toggle="modal" data-bs-target="#settingsModal"><i class="fa-solid fa-gear"></i> Settings</button>
                 
-                <form method="POST" class="m-0 p-0" onsubmit="return confirm('Are you sure you want to completely delete this dealer profile?');">
+                
+<form method="POST" class="m-0 p-0" onsubmit="return confirm('Are you sure you want to <?= ($dealer['status'] ?? 'active') === 'active' ? 'DISABLE' : 'ENABLE' ?> this dealer? <?= ($dealer['status'] ?? 'active') === 'active' ? 'This will block ALL their users.' : '' ?>');">
+    <input type="hidden" name="action" value="toggle_status">
+    <button type="submit" class="btn w-100 h-100 <?= ($dealer['status'] ?? 'active') === 'active' ? 'text-warning' : 'text-success' ?>"><i class="fa-solid <?= ($dealer['status'] ?? 'active') === 'active' ? 'fa-user-lock' : 'fa-user-check' ?>"></i> <?= ($dealer['status'] ?? 'active') === 'active' ? 'Disable<br>Dealer' : 'Enable<br>Dealer' ?></button>
+</form>
+
+                  <form method="POST" class="m-0 p-0" onsubmit="return confirm('Are you sure you want to completely delete this dealer profile?');">
                     <input type="hidden" name="action" value="delete_profile">
                     <button type="submit" class="btn w-100 h-100"><i class="fa-solid fa-ban"></i> Delete<br>Profile</button>
                 </form>
@@ -439,6 +565,7 @@ body { background-color: #f1f5f9; }
                                     <th class="fw-bold text-secondary ps-3">Package</th>
                                     <th class="fw-bold text-secondary">Dealer Price</th>
                                     <th class="fw-bold text-secondary">Dealer Profit</th>
+                                    <th class="fw-bold text-secondary text-end pe-3">Action</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -450,6 +577,14 @@ body { background-color: #f1f5f9; }
                                     </td>
                                     <td class="py-3 fw-bold text-dark">Rs. <?= number_format($ap['dealer_price'], 2) ?></td>
                                     <td class="py-3 fw-bold text-success">Rs. <?= number_format($ap['dealer_profit'], 2) ?></td>
+                                    <td class="py-3 text-end pe-3">
+                                        <button class="btn btn-sm btn-light text-primary me-1" onclick="editPackage(<?= $ap['package_id'] ?>, <?= $ap['dealer_price'] ?>, <?= $ap['dealer_profit'] ?>)" title="Edit"><i class="fa-solid fa-pen-to-square"></i></button>
+                                        <form method="POST" class="d-inline" onsubmit="return confirm('Are you sure you want to remove this package from the dealer?');">
+                                            <input type="hidden" name="action" value="delete_package">
+                                            <input type="hidden" name="package_id" value="<?= $ap['package_id'] ?>">
+                                            <button type="submit" class="btn btn-sm btn-light text-danger" title="Delete"><i class="fa-solid fa-trash-can"></i></button>
+                                        </form>
+                                    </td>
                                 </tr>
                                 <?php endforeach; ?>
                             </tbody>
@@ -499,38 +634,59 @@ body { background-color: #f1f5f9; }
                 <div id="collapseAllUsers" class="collapse">
                     <div class="card-body p-4 bg-white border-top">
                         <div class="table-responsive">
-                            <table class="table table-hover table-bordered w-100" id="dealerUsersTable">
-                                <thead class="table-light">
-                                    <tr>
-                                        <th>Name</th>
-                                        <th>Username</th>
-                                        <th>IP Address</th>
-                                        <th>Total Usage</th>
-                                        <th>Expiry Date</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php foreach($dealer_users as $u): ?>
-                                    <tr>
-                                        <td class="fw-bold"><?= htmlspecialchars($u['full_name']) ?></td>
-                                        <td><span class="badge bg-primary"><?= htmlspecialchars($u['username']) ?></span></td>
-                                        <td class="font-monospace text-muted"><?= htmlspecialchars($u['live_ip'] ?: 'Offline/None') ?></td>
-                                        <td class="fw-bold text-info"><?= formatBytes($u['total_usage']) ?></td>
-                                        <td>
-                                            <?php if($u['expiry_date']): ?>
-                                                <?php if(strtotime($u['expiry_date']) < time()): ?>
-                                                    <span class="badge bg-danger">Expired<br><small><?= date('d M Y', strtotime($u['expiry_date'])) ?></small></span>
-                                                <?php else: ?>
-                                                    <span class="badge bg-success"><?= date('d M Y H:i', strtotime($u['expiry_date'])) ?></span>
-                                                <?php endif; ?>
-                                            <?php else: ?>
-                                                <span class="badge bg-secondary">N/A</span>
-                                            <?php endif; ?>
-                                        </td>
-                                    </tr>
-                                    <?php endforeach; ?>
-                                </tbody>
-                            </table>
+                            
+<table class="table table-hover table-bordered table-custom-ui w-100" id="dealerUsersTable">
+    <thead class="table-light">
+        <tr>
+            <th>#ID</th>
+            <th>Photo</th>
+            <th>Username</th>
+            <th>Phone</th>
+            <th>Package</th>
+            <th>Balance</th>
+            <th>Service</th>
+            <th>On/Off</th>
+            <th>Expiry</th>
+        </tr>
+    </thead>
+    <tbody>
+        <?php foreach($dealer_users as $u): ?>
+        <tr>
+            <td><?= $u['id'] ?></td>
+            <td><div class="avatar-circle"><i class="fa-solid fa-user"></i></div></td>
+            <td>
+                <span class="badge rounded-pill badge-soft-success px-3 py-2"><?= htmlspecialchars($u['username']) ?></span>
+            </td>
+            <td><?= htmlspecialchars($u['mobile'] ?: ($u['phone'] ?: 'N/A')) ?></td>
+            <td><?= htmlspecialchars($u['package_name'] ?? 'N/A') ?></td>
+            <td><span class="badge rounded-pill badge-soft-warning px-3 py-2"><?= number_format($u['balance']) ?></span></td>
+            <td><span class="badge rounded-pill badge-soft-primary px-3 py-2 fw-bold"><?= strtoupper(htmlspecialchars($u['service_type'])) ?></span></td>
+            <td>
+                <?php if($u['is_online'] > 0): ?>
+                    <div class="d-flex flex-column align-items-center gap-1">
+                        <span class="badge rounded-pill badge-soft-success px-3 py-1">Online</span>
+                        <small class="text-muted font-monospace" style="font-size: 0.75rem;"><?= htmlspecialchars($u['live_ip']) ?></small>
+                    </div>
+                <?php else: ?>
+                    <span class="badge rounded-pill badge-soft-secondary px-3 py-1">Offline</span>
+                <?php endif; ?>
+            </td>
+            <td>
+                <?php if($u['expiry_date']): ?>
+                    <?php 
+                        $is_expired = strtotime($u['expiry_date']) < time(); 
+                        $badge_class = $is_expired ? 'badge-soft-danger' : 'badge-soft-success';
+                    ?>
+                    <span class="badge <?= $badge_class ?> px-3 py-2"><?= date('d M Y, h:i A', strtotime($u['expiry_date'])) ?></span>
+                <?php else: ?>
+                    <span class="badge badge-soft-secondary px-3 py-2">N/A</span>
+                <?php endif; ?>
+            </td>
+        </tr>
+        <?php endforeach; ?>
+    </tbody>
+</table>
+
                         </div>
                     </div>
                 </div>
@@ -666,6 +822,18 @@ body { background-color: #f1f5f9; }
                 <div class="col-md-6 mb-3"><label class="form-label">Franchise</label><input type="text" name="franchise" class="form-control" value="<?= htmlspecialchars($dealer['franchise']??'') ?>"></div>
                 <div class="col-md-6 mb-3"><label class="form-label">City</label><input type="text" name="city" class="form-control" value="<?= htmlspecialchars($dealer['city']??'') ?>"></div>
                 <div class="col-md-12 mb-3"><label class="form-label">Address</label><input type="text" name="address" class="form-control" value="<?= htmlspecialchars($dealer['address']??'') ?>"></div>
+                <div class="col-md-12 mb-3">
+                    <label class="form-label text-muted small fw-bold">Assign MikroTik Routers <span class="text-danger">*</span></label>
+                    <?php $curr_routers = explode(',', $dealer['assigned_routers'] ?? ''); ?>
+                    <select id="edit_routers_select" name="assigned_routers[]" class="form-select" multiple required>
+                          <?php foreach($all_nas as $n): ?>
+                              <option value="<?= $n['id'] ?>" <?= (in_array($n['id'], $curr_routers)) ? 'selected' : '' ?>>
+                                  <?= htmlspecialchars($n['shortname'] ?: 'Router') ?> (<?= $n['nasname'] ?>)
+                              </option>
+                          <?php endforeach; ?>
+                      </select>
+                      
+                </div>
             </div>
         </div>
         <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button><button type="submit" class="btn btn-primary">Save Changes</button></div>
@@ -868,4 +1036,78 @@ $(document).ready(function() {
     </div>
 </div>
 
+
+<script>
+function editPackage(pkgId, price, profit) {
+    $('select[name="package_id"]').val(pkgId).trigger('change');
+    $('input[name="dealer_price"]').val(price);
+    $('input[name="dealer_profit"]').val(profit);
+    $('#setNewPackageModal').modal('show');
+}
+</script>
+
 <?php require_once 'footer.php'; ?>
+
+
+<style>
+.choices__inner { border-radius: 8px; border: 1px solid #dee2e6; background-color: #fff; padding: 5px 10px; }
+.choices__list--multiple .choices__item { background-color: #0d6efd; border: none; border-radius: 5px; }
+.choices[data-type*="select-multiple"] .choices__button { border-left: 1px solid rgba(255,255,255,0.3); }
+</style>
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+    var editSelect = document.getElementById("edit_routers_select");
+    if(editSelect) {
+        new Choices(editSelect, {
+            removeItemButton: true,
+            searchPlaceholderValue: "Search routers...",
+            itemSelectText: "",
+            placeholderValue: "Select routers..."
+        });
+    }
+});
+</script>
+
+<!-- Premium Dropdown UI (Select2) -->
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+<style>
+.select2-container--default .select2-selection--multiple {
+    border-radius: 8px;
+    border: 1px solid #dee2e6;
+    padding: 4px;
+    min-height: 45px;
+}
+.select2-container--default .select2-selection--multiple .select2-selection__choice {
+    background-color: #0d6efd;
+    border: none;
+    color: white;
+    border-radius: 5px;
+    padding: 5px 10px;
+    margin-top: 5px;
+}
+.select2-container--default .select2-selection--multiple .select2-selection__choice__remove {
+    color: white;
+    margin-right: 8px;
+    border-right: 1px solid rgba(255,255,255,0.3);
+    padding-right: 5px;
+}
+.select2-container--default .select2-selection--multiple .select2-selection__choice__remove:hover {
+    color: #f8d7da;
+    background: transparent;
+}
+.select2-dropdown {
+    border-radius: 8px;
+    border: 1px solid #dee2e6;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+}
+</style>
+<script>
+$(document).ready(function() {
+    $("#edit_routers_select").select2({
+        placeholder: "Select one or more routers",
+        allowClear: true,
+        width: "100%", dropdownParent: $("#editProfileModal")
+    });
+});
+</script>

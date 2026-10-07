@@ -169,7 +169,8 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
         </a>
         <div class="collapse submenu <?= $isUserMenu ? 'show' : '' ?>" id="userMenu">
             <a href="subscribers.php" class="<?= ($p==='subscribers.php' && $filter==='') ? 'active' : '' ?>">All Users</a>
-            <a href="live_sessions.php" class="<?= $p==='live_sessions.php' ? 'active' : '' ?>">Online Users</a>
+            <a href="live_sessions.php" class="<?= ($p==='live_sessions.php' && $filter!=='expired_online') ? 'active' : '' ?>">Online Users</a>
+            <a href="live_sessions.php?filter=expired_online" class="<?= $filter==='expired_online' ? 'active' : '' ?>">Expired Online</a>
             <a href="subscribers.php?filter=offline" class="<?= $filter==='offline' ? 'active' : '' ?>">Offline Users (Radius)</a>
             <a href="subscribers.php?filter=expired" class="<?= $filter==='expired' ? 'active' : '' ?>">Expired Users</a>
             <a href="subscribers.php?filter=expiring_1w" class="<?= $filter==='expiring_1w' ? 'active' : '' ?>">Expiring In Week</a>

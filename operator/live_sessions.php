@@ -2,12 +2,31 @@
 require_once 'header.php';
 $client_id = $_SESSION['operator_id'];
 
+function formatMikroTikUptime($seconds) {
+    $d = floor($seconds / 86400);
+    $h = floor(($seconds % 86400) / 3600);
+    $m = floor(($seconds % 3600) / 60);
+    
+    $out = "";
+    if ($d > 0) $out .= $d . "d";
+    if ($h > 0 || $d > 0) $out .= $h . "h";
+    $out .= $m . "m";
+    return $out;
+}
+
+
 // Get Live Sessions mapped to this operator
 $sql = "SELECT r.*, s.package_id, p.name as package_name 
         FROM radacct r 
         JOIN subscribers s ON r.username = s.username 
         LEFT JOIN packages p ON s.package_id = p.id
-        WHERE s.client_id = ? AND r.acctstoptime IS NULL 
+        INNER JOIN (
+            SELECT username, MAX(radacctid) as max_id 
+            FROM radacct 
+            WHERE acctstoptime IS NULL 
+            GROUP BY username
+        ) as latest ON r.radacctid = latest.max_id
+        WHERE s.client_id = ?" . (isset($_GET['filter']) && $_GET['filter'] === 'expired_online' ? " AND s.expiry_date < CURDATE()" : "") . "
         ORDER BY r.acctstarttime DESC";
 $stmt = $pdo->prepare($sql);
 $stmt->execute([$client_id]);
@@ -48,6 +67,10 @@ $total_live = count($sessions);
         <div class="text-muted" style="font-size: 0.9rem;">Monitor currently active network connections</div>
     </div>
     <div class="d-flex gap-3 align-items-center">
+        <div class="input-group shadow-sm" style="max-width: 250px;">
+            <span class="input-group-text bg-white border-end-0"><i class="fa-solid fa-search text-muted"></i></span>
+            <input type="text" id="searchInput" class="form-control border-start-0 ps-0" placeholder="Search user...">
+        </div>
         <div class="bg-white shadow-sm border px-4 py-2 rounded-3 d-flex align-items-center gap-3">
             <div class="live-indicator"></div>
             <div>
@@ -80,7 +103,7 @@ $total_live = count($sessions);
         $colors = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4'];
         $color = $colors[crc32($sess['username']) % count($colors)];
     ?>
-    <div class="col-xl-4 col-lg-6 col-md-6">
+    <div class="col-xl-4 col-lg-6 col-md-6 session-card-container" data-username="<?= htmlspecialchars($sess['username']) ?>">
         <div class="card border-0 shadow-sm h-100 live-card" style="border-radius: 12px; transition: all 0.2s;">
             <div class="card-body p-4">
                 <div class="d-flex justify-content-between align-items-start mb-3">
@@ -117,7 +140,7 @@ $total_live = count($sessions);
                     <div class="col-4">
                         <div class="stat-box border-primary" style="background: #eff6ff;">
                             <div class="title"><i class="fa-regular fa-clock me-1 text-primary"></i>Uptime</div>
-                            <div class="value text-primary mt-1"><?= sprintf("%02d:%02d", $hrs, $mins) ?>h</div>
+                            <div class="value text-primary mt-1"><?= formatMikroTikUptime($upTime) ?></div>
                         </div>
                     </div>
                     <div class="col-4">
@@ -139,5 +162,21 @@ $total_live = count($sessions);
     </div>
     <?php endforeach; ?>
 </div>
+
+
+<script>
+document.getElementById('searchInput').addEventListener('keyup', function() {
+    let filter = this.value.toLowerCase();
+    let cards = document.querySelectorAll('.session-card-container');
+    cards.forEach(card => {
+        let username = card.getAttribute('data-username').toLowerCase();
+        if (username.includes(filter)) {
+            card.style.display = '';
+        } else {
+            card.style.display = 'none';
+        }
+    });
+});
+</script>
 
 <?php require_once 'footer.php'; ?>

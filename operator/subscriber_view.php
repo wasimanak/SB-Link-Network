@@ -310,7 +310,7 @@ $pkgStmt->execute([$client_id]);
 $packages = $pkgStmt->fetchAll();
 
 // Fetch metrics from past sessions (closed sessions)
-$volStmt = $pdo->prepare("SELECT SUM(acctinputoctets) as up, SUM(acctoutputoctets) as down FROM radacct WHERE username = ? AND acctstoptime IS NOT NULL");
+$volStmt = $pdo->prepare("SELECT SUM(acctinputoctets) as up, SUM(acctoutputoctets) as down FROM radacct WHERE username = ?");
 $volStmt->execute([$user['username']]);
 $vol = $volStmt->fetch();
 
@@ -1040,7 +1040,7 @@ function fetchLiveBandwidth() {
                 if (svcU) svcU.innerText = volStr;
                 
                 let svcR = document.getElementById('svc_rem_volume');
-                const dataLimitGb = <?= $data_limit_gb ?>;
+                const dataLimitGb = <?= (float)($user['data_limit_gb'] ?? 0) ?>;
                 if (svcR && dataLimitGb > 0) {
                     let remGb = dataLimitGb - (totalCurrentBytes / 1073741824);
                     svcR.innerText = remGb.toFixed(2) + " GB";
@@ -1050,24 +1050,26 @@ function fetchLiveBandwidth() {
                 let currentBytesIn = data.bytes_in;
                 let currentBytesOut = data.bytes_out;
                 
-                let tx_mbps = 0;
-                let rx_mbps = 0;
+                
+                  let tx_mbps = 0;
+                  let rx_mbps = 0;
 
-                if (prevBytesIn !== null && prevBytesOut !== null && lastTime !== null) {
-                    let timeDiffSecs = (nowTime - lastTime) / 1000;
-                    if (timeDiffSecs > 0) {
-                        // Bytes to Bits = * 8. Bits to Megabits = / 1048576
-                        // Hotspot bytes-in is user's upload (Rx to router). bytes-out is user's download (Tx from router).
-                        let bytesInDiff = currentBytesIn - prevBytesIn;
-                        let bytesOutDiff = currentBytesOut - prevBytesOut;
-                        
-                        if(bytesInDiff < 0) bytesInDiff = 0;
-                        if(bytesOutDiff < 0) bytesOutDiff = 0;
-                        
-                        rx_mbps = (bytesInDiff * 8 / timeDiffSecs) / 1048576;
-                        tx_mbps = (bytesOutDiff * 8 / timeDiffSecs) / 1048576;
-                    }
-                }
+                  if (data.rx_bps !== undefined && data.tx_bps !== undefined) {
+                      // We got direct bps from monitor-traffic API
+                      rx_mbps = data.rx_bps / 1048576;
+                      tx_mbps = data.tx_bps / 1048576;
+                  } else if (prevBytesIn !== null && prevBytesOut !== null && lastTime !== null) {
+                      let timeDiffSecs = (nowTime - lastTime) / 1000;
+                      if (timeDiffSecs > 0) {
+                          let bytesInDiff = currentBytesIn - prevBytesIn;
+                          let bytesOutDiff = currentBytesOut - prevBytesOut;
+                          if(bytesInDiff < 0) bytesInDiff = 0;
+                          if(bytesOutDiff < 0) bytesOutDiff = 0;
+                          rx_mbps = (bytesInDiff * 8 / timeDiffSecs) / 1048576;
+                          tx_mbps = (bytesOutDiff * 8 / timeDiffSecs) / 1048576;
+                      }
+                  }
+
                 
                 prevBytesIn = currentBytesIn;
                 prevBytesOut = currentBytesOut;
