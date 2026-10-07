@@ -295,7 +295,7 @@ $pct = function($val) use ($total_users) {
 };
 
 // --- Data Fetching for Reports Table ---
-$report_filter = $_GET['report'] ?? 'all';
+$report_filter = $_GET['report'] ?? 'expired';
 $where = "s.client_id = $client_id";
 if ($report_filter === 'expired') $where .= " AND s.expiry_date < NOW()";
 if ($report_filter === 'expiring_1') $where .= " AND s.expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 1 DAY)";
@@ -315,7 +315,9 @@ $subs = $pdo->query("SELECT s.*, p.name as package_name,
 
 <!-- Select2 CSS -->
 <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
-<style>.select2-container .select2-selection--single { height: 31px; border: 1px solid #dee2e6; } .select2-container--default .select2-selection--single .select2-selection__rendered { line-height: 29px; color: #475569; font-size: 0.875rem; } .select2-container--default .select2-selection--single .select2-selection__arrow { height: 29px; } .select2-dropdown { border: 1px solid #dee2e6; }</style>
+<style>
+    .cursor-pointer { cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; }
+    .cursor-pointer:hover { transform: translateY(-3px); box-shadow: 0 4px 8px rgba(0,0,0,0.15); }.select2-container .select2-selection--single { height: 31px; border: 1px solid #dee2e6; } .select2-container--default .select2-selection--single .select2-selection__rendered { line-height: 29px; color: #475569; font-size: 0.875rem; } .select2-container--default .select2-selection--single .select2-selection__arrow { height: 29px; } .select2-dropdown { border: 1px solid #dee2e6; }</style>
 
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -325,6 +327,8 @@ $subs = $pdo->query("SELECT s.*, p.name as package_name,
 <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.2/css/buttons.bootstrap5.min.css">
 
 <style>
+    .cursor-pointer { cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; }
+    .cursor-pointer:hover { transform: translateY(-3px); box-shadow: 0 4px 8px rgba(0,0,0,0.15); }
     .card-ui { background: #fff; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.02); border: 1px solid #f1f5f9; margin-bottom: 20px; }
     
     /* Top Quick Actions */
@@ -440,64 +444,64 @@ $subs = $pdo->query("SELECT s.*, p.name as package_name,
         <!-- Stats Grid -->
         <div class="col-lg-9 col-md-8">
             <div class="stats-grid">
-                <div class="stat-box bg-blue">
-                    <div class="title"><i class="fa-solid fa-users"></i> Users</div>
+                <div class="stat-box bg-blue cursor-pointer" onclick="window.location.href='subscribers.php'" title="View all subscribers">
+<div class="title"><i class="fa-solid fa-users"></i> Users</div>
                     <div class="value"><?= number_format($total_users) ?> <span class="pct">100.00%</span></div>
                 </div>
-                <div class="stat-box bg-green">
-                    <div class="title"><i class="fa-solid fa-circle-check"></i> Active</div>
+                <div class="stat-box bg-green cursor-pointer" onclick="window.location.href='subscribers.php'" title="View all subscribers">
+<div class="title"><i class="fa-solid fa-circle-check"></i> Active</div>
                     <div class="value"><?= number_format($active_users) ?> <span class="pct"><?= $pct($active_users) ?></span></div>
                 </div>
-                <div class="stat-box bg-green" style="opacity: 0.8;">
-                    <div class="title"><i class="fa-solid fa-wifi"></i> Online</div>
+                <div class="stat-box bg-green cursor-pointer" style="opacity: 0.8;" onclick="window.location.href='live_sessions.php'" title="View live sessions">
+<div class="title"><i class="fa-solid fa-wifi"></i> Online</div>
                     <div class="value"><?= number_format($online_users) ?> <span class="pct"><?= $pct($online_users) ?></span></div>
                 </div>
                 
-                <div class="stat-box bg-yellow">
+                <div class="stat-box bg-yellow cursor-pointer" onclick="window.location.href='live_sessions.php?filter=expired_online'" title="View users who are online but their package has expired">
                     <div class="title"><i class="fa-solid fa-user-clock"></i> Expired Online</div>
-                    <div class="value">0 <span class="pct">0.00%</span></div>
+                    <div class="value"><?= number_format($expired_online_users) ?> <span class="pct"><?= $pct($expired_online_users) ?></span></div>
                 </div>
-                <div class="stat-box bg-grey">
+                <div class="stat-box bg-grey cursor-pointer" onclick="window.location.href='subscribers.php?filter=offline'">
                     <div class="title"><i class="fa-solid fa-user-large-slash"></i> Offline</div>
                     <div class="value"><?= number_format($offline_users) ?> <span class="pct"><?= $pct($offline_users) ?></span></div>
                 </div>
-                <div class="stat-box bg-grey">
-                    <div class="title"><i class="fa-solid fa-user-plus"></i> Registered</div>
+                <div class="stat-box bg-grey cursor-pointer" onclick="window.location.href='subscribers.php'">
+<div class="title"><i class="fa-solid fa-user-plus"></i> Registered</div>
                     <div class="value"><?= number_format($total_users) ?> <span class="pct">100.00%</span></div>
                 </div>
 
-                <div class="stat-box bg-grey">
-                    <div class="title"><i class="fa-solid fa-user-slash"></i> Disable</div>
+                <div class="stat-box bg-grey cursor-pointer" onclick="window.location.href='?report=disabled#reportsSection'" title="View disabled users report">
+<div class="title"><i class="fa-solid fa-user-slash"></i> Disable</div>
                     <div class="value"><?= number_format($disabled_users) ?> <span class="pct"><?= $pct($disabled_users) ?></span></div>
                 </div>
-                <div class="stat-box bg-red">
-                    <div class="title"><i class="fa-solid fa-user-xmark"></i> Expired</div>
+                <div class="stat-box bg-red cursor-pointer" onclick="window.location.href='?report=expired#reportsSection'" title="View expired users report">
+<div class="title"><i class="fa-solid fa-user-xmark"></i> Expired</div>
                     <div class="value"><?= number_format($expired) ?> <span class="pct"><?= $pct($expired) ?></span></div>
                 </div>
-                <div class="stat-box bg-grey">
-                    <div class="title"><i class="fa-solid fa-network-wired"></i> PPPoE</div>
+                <div class="stat-box bg-grey cursor-pointer" onclick="window.location.href='subscribers.php'">
+<div class="title"><i class="fa-solid fa-network-wired"></i> PPPoE</div>
                     <div class="value"><?= number_format($pppoe_users) ?> <span class="pct"><?= $pct($pppoe_users) ?></span></div>
                 </div>
 
-                <div class="stat-box bg-grey">
-                    <div class="title"><i class="fa-solid fa-wifi"></i> Hotspot</div>
+                <div class="stat-box bg-grey cursor-pointer" onclick="window.location.href='subscribers.php'">
+<div class="title"><i class="fa-solid fa-wifi"></i> Hotspot</div>
                     <div class="value"><?= number_format($hotspot_users) ?> <span class="pct"><?= $pct($hotspot_users) ?></span></div>
                 </div>
-                <div class="stat-box bg-yellow">
-                    <div class="title"><i class="fa-solid fa-hourglass-end"></i> Expiring (1 Day)</div>
+                <div class="stat-box bg-yellow cursor-pointer" onclick="window.location.href='?report=expiring_1#reportsSection'">
+<div class="title"><i class="fa-solid fa-hourglass-end"></i> Expiring (1 Day)</div>
                     <div class="value"><?= number_format($expiring_1d) ?> <span class="pct"><?= $pct($expiring_1d) ?></span></div>
                 </div>
-                <div class="stat-box bg-yellow">
-                    <div class="title"><i class="fa-solid fa-hourglass-half"></i> Expiring (3 Days)</div>
+                <div class="stat-box bg-yellow cursor-pointer" onclick="window.location.href='?report=expiring_3#reportsSection'">
+<div class="title"><i class="fa-solid fa-hourglass-half"></i> Expiring (3 Days)</div>
                     <div class="value"><?= number_format($expiring_3d) ?> <span class="pct"><?= $pct($expiring_3d) ?></span></div>
                 </div>
 
-                <div class="stat-box bg-yellow">
-                    <div class="title"><i class="fa-solid fa-calendar-week"></i> Expiring (1 Week)</div>
+                <div class="stat-box bg-yellow cursor-pointer" onclick="window.location.href='?report=expiring_1w#reportsSection'">
+<div class="title"><i class="fa-solid fa-calendar-week"></i> Expiring (1 Week)</div>
                     <div class="value"><?= number_format($expiring_1w) ?> <span class="pct"><?= $pct($expiring_1w) ?></span></div>
                 </div>
-                <div class="stat-box bg-yellow">
-                    <div class="title"><i class="fa-solid fa-calendar-days"></i> Expiring (2 Weeks)</div>
+                <div class="stat-box bg-yellow cursor-pointer" onclick="window.location.href='?report=expiring_2w#reportsSection'">
+<div class="title"><i class="fa-solid fa-calendar-days"></i> Expiring (2 Weeks)</div>
                     <div class="value"><?= number_format($expiring_2w) ?> <span class="pct"><?= $pct($expiring_2w) ?></span></div>
                 </div>
             </div>
@@ -530,7 +534,6 @@ $subs = $pdo->query("SELECT s.*, p.name as package_name,
     <h6 class="fw-bold text-secondary mb-4"><i class="fa-solid fa-list-ul me-2 text-primary"></i> User Reports</h6>
     
     <div class="report-tabs">
-        <a href="?report=all#reportsSection" class="report-tab <?= $report_filter=='all'?'active':'' ?>"><i class="fa-solid fa-users"></i> All Users</a>
         <a href="?report=expired#reportsSection" class="report-tab <?= $report_filter=='expired'?'active':'' ?>"><i class="fa-solid fa-user-xmark"></i> Expired Users</a>
         <a href="?report=expiring_1#reportsSection" class="report-tab <?= $report_filter=='expiring_1'?'active':'' ?>"><i class="fa-solid fa-hourglass-end"></i> Expiring (1 Days)</a>
         <a href="?report=expiring_3#reportsSection" class="report-tab <?= $report_filter=='expiring_3'?'active':'' ?>"><i class="fa-solid fa-hourglass-half"></i> Expiring (3 Days)</a>
@@ -598,8 +601,8 @@ $subs = $pdo->query("SELECT s.*, p.name as package_name,
                     </td>
                     <td>
                         <div class="d-flex flex-column gap-1">
-                            <a href="subscriber_view.php?id=<?= $s['id'] ?>" class="badge rounded-pill badge-soft-primary text-decoration-none px-3 py-2"><i class="fa-brands fa-paypal"></i> Payment</a>
-                            <a href="subscriber_view.php?id=<?= $s['id'] ?>" class="badge rounded-pill badge-soft-success text-decoration-none px-3 py-2"><i class="fa-solid fa-rotate"></i> Renew</a>
+                            <a href="#" onclick="openPaymentModal(<?= $s['id'] ?>, '<?= addslashes(htmlspecialchars($s['username'])) ?>'); return false;" class="badge rounded-pill badge-soft-primary text-decoration-none px-3 py-2"><i class="fa-brands fa-paypal"></i> Payment</a>
+                            <a href="#" onclick="openRenewModal(<?= $s['id'] ?>); return false;" class="badge rounded-pill badge-soft-success text-decoration-none px-3 py-2"><i class="fa-solid fa-rotate"></i> Renew</a>
                         </div>
                     </td>
                 </tr>
@@ -693,6 +696,41 @@ $subs = $pdo->query("SELECT s.*, p.name as package_name,
       </div>
     </div>
   </div>
+
+<!-- Single Payment Modal -->
+<div class="modal fade" id="singlePaymentModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content light-modal">
+      <div class="modal-header bg-white border-bottom-0">
+        <h5 class="modal-title fw-bold" id="singlePaymentModalTitle"><i class="fa-brands fa-paypal text-primary me-2"></i> Add Payment</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST">
+        <div class="modal-body p-4 pt-2">
+            <input type="hidden" name="action" value="add_balance_multi">
+            <input type="hidden" name="sub_id" id="single_payment_sub_id">
+            
+            <div class="alert alert-info border-0 shadow-sm mb-4">
+                <i class="fa-solid fa-circle-info me-2"></i> This amount will be added to the user's current balance.
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label fw-bold text-secondary">Amount to Add <span class="text-danger">*</span></label>
+                <div class="input-group">
+                    <span class="input-group-text bg-light fw-bold text-dark">Rs.</span>
+                    <input type="number" step="0.01" name="amount" id="single_payment_amount" class="form-control" placeholder="Enter amount..." required>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer bg-white border-top-0">
+          <button type="button" class="btn btn-light px-4" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary px-4 fw-bold shadow-sm">Submit Payment</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 </div>
 
 <!-- Add User Modal -->
@@ -1122,6 +1160,23 @@ $(document).ready(function() {
     });
 });
 </script>
+
+<script>
+function openPaymentModal(userId, username) {
+    $('#single_payment_sub_id').val(userId);
+    $('#singlePaymentModalTitle').html('<i class="fa-brands fa-paypal text-primary me-2"></i> Add Payment for ' + username);
+    $('#single_payment_amount').val('');
+    var m = bootstrap.Modal.getOrCreateInstance(document.getElementById('singlePaymentModal'));
+    m.show();
+}
+
+function openRenewModal(userId) {
+    $('#renew_user_id').val(userId).trigger('change');
+    var m = bootstrap.Modal.getOrCreateInstance(document.getElementById('renewUserModal'));
+    m.show();
+}
+</script>
+
 <?php require_once 'footer.php'; ?>
 
 <script>

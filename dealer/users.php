@@ -282,6 +282,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $p->execute([$package_id]);
         $pkg = $p->fetch();
 
+        $router_nasname = trim($_POST['router_nasname'] ?? '');
+        if (empty($router_nasname)) {
+            echo "<script>alert('Please select a router for this user.'); window.location='users.php';</script>";
+            exit;
+        }
+        
         if ($pkg) {
             try {
                 $pdo->beginTransaction();
@@ -314,6 +320,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
                 $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Cleartext-Password', ':=', ?)")->execute([$username, $password]);
                 
+                // Enforce the specific router (NAS) for this user
+                $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'NAS-IP-Address', '==', ?)")->execute([$username, $router_nasname]);
+                
                 if (!empty($pkg['rate_limit']) && $pkg['rate_limit'] !== 'No Limit') {
                     $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Rate-Limit', '=', ?)")->execute([$username, $pkg['rate_limit']]);
                 }
@@ -332,6 +341,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     }
+}
+
+// Parse Dealer's Assigned Routers
+$raw_routers = explode(',', $current_dealer['assigned_routers'] ?? '');
+$assigned_nas_ips = [];
+foreach($raw_routers as $rr) {
+    $val = trim($rr);
+    if($val !== '') $assigned_nas_ips[] = $val;
+}
+
+$dealer_routers = [];
+if (!empty($assigned_nas_ips)) {
+    $in = str_repeat('?,', count($assigned_nas_ips) - 1) . '?';
+    // If the value contains a dot (e.g. an IP address), we search by nasname for backwards compatibility,
+    // otherwise we search by id. We'll just check both to be absolutely safe against cache issues.
+    $rStmt = $pdo->prepare("SELECT id, nasname, shortname FROM nas WHERE id IN ($in)");
+    $rStmt->execute($assigned_nas_ips);
+    $dealer_routers = $rStmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    // De-duplicate routers by ID just in case
+    $unique_routers = [];
+    foreach($dealer_routers as $r) {
+        $unique_routers[$r['id']] = $r;
+    }
+    $dealer_routers = array_values($unique_routers);
 }
 
 // Fetch Dealer Packages for Modals
@@ -379,6 +413,39 @@ $stmt->execute($params);
 $subs = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
 
+<style>
+.table-custom { border-collapse: separate; border-spacing: 0 12px; margin-top: -12px; }
+.table-custom thead th { border: none; color: #64748b; font-weight: 700; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; background: transparent; padding: 0 20px 5px 20px; }
+.table-custom tbody tr { background-color: #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.02); transition: all 0.2s ease; border-radius: 12px; }
+.table-custom tbody tr:hover { transform: translateY(-3px); box-shadow: 0 8px 20px rgba(0,0,0,0.06); }
+.table-custom tbody td { border: none; padding: 15px 20px; vertical-align: middle; }
+.table-custom tbody td:first-child { border-top-left-radius: 12px; border-bottom-left-radius: 12px; }
+.table-custom tbody td:last-child { border-top-right-radius: 12px; border-bottom-right-radius: 12px; }
+
+.user-avatar { width: 42px; height: 42px; border-radius: 12px; background: linear-gradient(135deg, #eff6ff, #bfdbfe); color: #2563eb; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 1.2rem; }
+
+.badge-soft-primary { background-color: rgba(37, 99, 235, 0.1); color: #2563eb; border: 1px solid rgba(37, 99, 235, 0.15); font-weight: 700; }
+.badge-soft-success { background-color: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.15); font-weight: 700; }
+.badge-soft-danger { background-color: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.15); font-weight: 700; }
+.badge-soft-secondary { background-color: rgba(100, 116, 139, 0.1); color: #64748b; border: 1px solid rgba(100, 116, 139, 0.15); font-weight: 700; }
+
+.action-btn { width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center; border-radius: 10px; transition: all 0.2s; border: none; cursor: pointer; }
+.action-btn:hover { transform: scale(1.1); box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+.btn-edit-user { background-color: #f1f5f9; color: #475569; }
+.btn-edit-user:hover { background-color: #2563eb; color: #fff; }
+.btn-renew-user { background-color: rgba(16, 185, 129, 0.1); color: #10b981; }
+.btn-renew-user:hover { background-color: #10b981; color: #fff; }
+.btn-toggle-active { background-color: rgba(245, 158, 11, 0.1); color: #d97706; }
+.btn-toggle-active:hover { background-color: #d97706; color: #fff; }
+.btn-toggle-disabled { background-color: rgba(16, 185, 129, 0.1); color: #10b981; }
+.btn-toggle-disabled:hover { background-color: #10b981; color: #fff; }
+.btn-delete-user { background-color: rgba(239, 68, 68, 0.1); color: #ef4444; }
+.btn-delete-user:hover { background-color: #ef4444; color: #fff; }
+
+.dt-buttons .btn { border-radius: 8px; margin-bottom: 15px; }
+.dataTables_wrapper .dataTables_filter input { border-radius: 20px; padding: 5px 15px; border: 1px solid #cbd5e1; outline: none; }
+.dataTables_wrapper .dataTables_filter input:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.2); }
+</style>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h4 class="fw-bold"><i class="fa-solid fa-users text-primary me-2"></i> My Users</h4>
     <?php if($can_create): ?>
@@ -386,69 +453,79 @@ $subs = $stmt->fetchAll(PDO::FETCH_ASSOC);
     <?php endif; ?>
 </div>
 
-<div class="card border-0 shadow-sm rounded-4 mb-4">
-    <div class="card-body p-4">
-        <div class="table-responsive">
-            <table id="usersTable" class="table table-hover table-borderless align-middle w-100">
-                <thead class="table-light">
+<div class="card border-0 bg-transparent mb-4">
+    <div class="card-body p-0">
+        <div class="table-responsive pb-3">
+            <table id="usersTable" class="table table-custom align-middle w-100">
+                <thead>
                     <tr>
-                        <th>Username</th>
-                        <th>Name</th>
+                        <th>User Identity</th>
                         <th>Package</th>
                         <th>Access</th>
-                        <th>Status</th>
+                        <th>Connection</th>
                         <th>Expiry</th>
-                        <th>Actions</th>
+                        <th class="text-end">Actions</th>
                     </tr>
                 </thead>
-                <tbody>
+                <tbody class="border-0">
                     <?php foreach($subs as $s): ?>
-                    <tr class="border-bottom">
-                        <td><a href="#" class="badge bg-primary fs-6 text-decoration-none edit-user-btn" data-id="<?= $s['id'] ?>" data-username="<?= htmlspecialchars($s['username']) ?>" data-fullname="<?= htmlspecialchars($s['full_name']) ?>" data-password="<?= htmlspecialchars($s['password']) ?>" data-expiry="<?= $s['expiry_date'] ? date('Y-m-d\TH:i', strtotime($s['expiry_date'])) : '' ?>" data-old-ts="<?= $s['expiry_date'] ? strtotime($s['expiry_date']) : 0 ?>" data-pkg="<?= $s['package_id'] ?>"><i class="fa-solid fa-pen me-1"></i> <?= htmlspecialchars($s['username']) ?></a></td>
-                        <td class="fw-bold"><?= htmlspecialchars($s['full_name']) ?></td>
-                        <td><?= htmlspecialchars($s['package_name']) ?></td>
+                    <tr>
+                        <td>
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="user-avatar shadow-sm"><i class="fa-solid fa-user-astronaut"></i></div>
+                                <div>
+                                    <a href="#" class="fw-bold text-dark fs-6 text-decoration-none edit-user-btn" data-id="<?= $s['id'] ?>" data-username="<?= htmlspecialchars($s['username']) ?>" data-fullname="<?= htmlspecialchars($s['full_name']) ?>" data-password="<?= htmlspecialchars($s['password']) ?>" data-expiry="<?= $s['expiry_date'] ? date('Y-m-d\TH:i', strtotime($s['expiry_date'])) : '' ?>" data-old-ts="<?= $s['expiry_date'] ? strtotime($s['expiry_date']) : 0 ?>" data-pkg="<?= $s['package_id'] ?>"><?= htmlspecialchars($s['username']) ?></a>
+                                    <div class="small text-muted fw-bold"><?= htmlspecialchars($s['full_name']) ?></div>
+                                </div>
+                            </div>
+                        </td>
+                        <td><span class="badge badge-soft-primary px-3 py-2 rounded-pill"><i class="fa-solid fa-box me-1"></i> <?= htmlspecialchars($s['package_name']) ?></span></td>
                         <td>
                             <?php if(isset($s['status']) && $s['status'] === 'active'): ?>
-                                <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25">Active</span>
+                                <span class="badge badge-soft-success px-3 py-2 rounded-pill"><i class="fa-solid fa-shield-check me-1"></i> Active</span>
                             <?php else: ?>
-                                <span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25">Disabled</span>
+                                <span class="badge badge-soft-danger px-3 py-2 rounded-pill"><i class="fa-solid fa-shield-halved me-1"></i> Disabled</span>
                             <?php endif; ?>
                         </td>
                         <td>
                             <?php if($s['is_online'] > 0): ?>
-                                <span class="badge bg-success">Online</span>
+                                <span class="badge badge-soft-success px-3 py-2 rounded-pill"><i class="fa-solid fa-wifi me-1"></i> Online</span>
                             <?php else: ?>
-                                <span class="badge bg-secondary">Offline</span>
+                                <span class="badge badge-soft-secondary px-3 py-2 rounded-pill"><i class="fa-solid fa-plug-circle-xmark me-1"></i> Offline</span>
                             <?php endif; ?>
                         </td>
                         <td>
                             <?php if($s['expiry_date']): ?>
                                 <?php if(strtotime($s['expiry_date']) < time()): ?>
-                                    <span class="badge bg-danger">Expired<br><small><?= date('d M Y', strtotime($s['expiry_date'])) ?></small></span>
+                                    <span class="badge badge-soft-danger px-3 py-2 rounded-pill">Expired (<?= date('d M Y', strtotime($s['expiry_date'])) ?>)</span>
                                 <?php else: ?>
-                                    <span class="badge bg-success"><?= date('d M Y H:i', strtotime($s['expiry_date'])) ?></span>
+                                    <span class="badge badge-soft-success px-3 py-2 rounded-pill">Valid (<?= date('d M Y', strtotime($s['expiry_date'])) ?>)</span>
                                 <?php endif; ?>
                             <?php else: ?>
-                                <span class="badge bg-secondary">N/A</span>
+                                <span class="badge badge-soft-secondary px-3 py-2 rounded-pill">Never</span>
                             <?php endif; ?>
                         </td>
-                        <td>
-                            <div class="d-flex gap-2">
+                        <td class="text-end">
+                            <div class="d-flex gap-2 justify-content-end position-relative" style="z-index: 2;">
+                                <button type="button" class="action-btn btn-edit-user edit-user-btn" title="Edit Profile" data-id="<?= $s['id'] ?>" data-username="<?= htmlspecialchars($s['username']) ?>" data-fullname="<?= htmlspecialchars($s['full_name']) ?>" data-password="<?= htmlspecialchars($s['password']) ?>" data-expiry="<?= $s['expiry_date'] ? date('Y-m-d\TH:i', strtotime($s['expiry_date'])) : '' ?>" data-old-ts="<?= $s['expiry_date'] ? strtotime($s['expiry_date']) : 0 ?>" data-pkg="<?= $s['package_id'] ?>"><i class="fa-solid fa-pen"></i></button>
+                                
                                 <form method="POST" onsubmit="return confirm('Are you sure you want to change this users access status?');" class="m-0">
                                     <input type="hidden" name="action" value="toggle_user">
                                     <input type="hidden" name="id" value="<?= $s['id'] ?>">
-                                    <?php if($s['status'] === 'active'): ?>
-                                        <button type="submit" class="btn btn-sm btn-outline-warning" title="Disable User"><i class="fa-solid fa-ban"></i></button>
+                                    <?php if(isset($s['status']) && $s['status'] === 'active'): ?>
+                                        <button type="submit" class="action-btn btn-toggle-active" title="Disable User"><i class="fa-solid fa-ban"></i></button>
                                     <?php else: ?>
-                                        <button type="submit" class="btn btn-sm btn-outline-success" title="Enable User"><i class="fa-solid fa-check"></i></button>
+                                        <button type="submit" class="action-btn btn-toggle-disabled" title="Enable User"><i class="fa-solid fa-check"></i></button>
                                     <?php endif; ?>
                                 </form>
-                                <button class="btn btn-sm btn-success" onclick="openRenewModal(<?= $s['id'] ?>, '<?= addslashes($s['username']) ?>')"><i class="fa-solid fa-rotate"></i> Renew</button>
+
+                                <button type="button" class="action-btn btn-renew-user" title="Renew / Upgrade" onclick="openRenewModal(<?= $s['id'] ?>, '<?= addslashes($s['username']) ?>')"><i class="fa-solid fa-rotate"></i></button>
+
                                 <?php if($can_delete): ?>
                                 <form method="POST" onsubmit="return confirm('Delete this user?');" class="m-0">
                                     <input type="hidden" name="action" value="delete_id">
                                     <input type="hidden" name="id" value="<?= $s['id'] ?>">
-                                    <button type="submit" class="btn btn-sm btn-danger"><i class="fa-solid fa-trash"></i></button>
+                                    <button type="submit" class="action-btn btn-delete-user" title="Delete User"><i class="fa-solid fa-trash"></i></button>
                                 </form>
                                 <?php endif; ?>
                             </div>
@@ -525,55 +602,68 @@ $subs = $stmt->fetchAll(PDO::FETCH_ASSOC);
 <!-- Add User Modal -->
 <div class="modal fade" id="addUserModal" tabindex="-1">
   <div class="modal-dialog">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title fw-bold">Create User</h5>
+    <div class="modal-content border-0 shadow-lg">
+      <div class="modal-header bg-light border-bottom-0">
+        <h5 class="modal-title fw-bold"><i class="fa-solid fa-user-plus text-primary me-2"></i> Create New User</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <form method="POST" class="needs-validation" novalidate>
         <input type="hidden" name="action" value="add_user">
-        <div class="modal-body p-4">
-            <div class="mb-3">
-                <label class="form-label">Full Name <span class="text-danger">*</span></label>
-                <input type="text" name="full_name" class="form-control" required>
+        <div class="modal-body p-4 bg-light">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label class="form-label text-muted small fw-bold">Full Name <span class="text-danger">*</span></label>
+                    <input type="text" name="full_name" class="form-control bg-white shadow-none" placeholder="e.g. Ali Khan" required>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label text-muted small fw-bold">Username <span class="text-danger">*</span></label>
+                    <input type="text" name="username" class="form-control bg-white shadow-none" placeholder="e.g. ali123" required>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label text-muted small fw-bold">Password <span class="text-danger">*</span></label>
+                    <input type="text" name="password" class="form-control bg-white shadow-none font-monospace" placeholder="Password" required>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label text-muted small fw-bold">Package <span class="text-danger">*</span></label>
+                    <select name="package_id" id="add_package_id" class="form-select bg-white shadow-none" required>
+                        <option value="">Select Package</option>
+                        <?php foreach($dealer_packages as $p): ?>
+                            <option value="<?= $p['id'] ?>"><?= htmlspecialchars($p['name']) ?> (Rs.<?= $p['dealer_price'] ?>)</option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="col-md-12">
+                    <label class="form-label text-muted small fw-bold">Select Router / City <span class="text-danger">*</span></label>
+                    <select name="router_nasname" class="form-select bg-white shadow-none" required>
+                        <?php if(empty($dealer_routers)): ?>
+                            <option value="">No Routers Assigned (Contact Operator)</option>
+                        <?php else: ?>
+                            <?php foreach($dealer_routers as $r): ?>
+                                <option value="<?= $r['nasname'] ?>"><?= htmlspecialchars($r['shortname'] ?: 'Router') ?> (<?= $r['nasname'] ?>)</option>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </select>
+                </div>
             </div>
-            <div class="mb-3">
-                <label class="form-label">Username <span class="text-danger">*</span></label>
-                <input type="text" name="username" class="form-control" required>
-            </div>
-            <div class="mb-3">
-                <label class="form-label">Password <span class="text-danger">*</span></label>
-                <input type="text" name="password" class="form-control" required>
-            </div>
-            <div class="mb-3">
-                <label class="form-label">Package <span class="text-danger">*</span></label>
-                <select name="package_id" id="add_package_id" class="form-select" required>
-                    <option value="">Select Package</option>
-                    <?php foreach($dealer_packages as $p): ?>
-                        <option value="<?= $p['id'] ?>"><?= htmlspecialchars($p['name']) ?> (Rs.<?= $p['dealer_price'] ?>)</option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
+            
             <?php if($can_custom_expiry): ?>
-            <div class="mb-3">
-                <label class="form-label">Custom Expiry (Optional)</label>
-                <input type="datetime-local" name="expiry_date" id="add_expiry" class="form-control">
-                <small class="text-muted">Leave blank for standard 30 days.</small>
+            <div class="mt-4 pt-3 border-top">
+                <label class="form-label text-muted small fw-bold">Custom Expiry (Optional)</label>
+                <input type="datetime-local" name="expiry_date" id="add_expiry" class="form-control bg-white shadow-none">
+                <div class="form-text small"><i class="fa-solid fa-circle-info me-1"></i>Leave blank for standard 30 days.</div>
             </div>
-            <?php endif; ?>
-        
-            <?php if(!$can_custom_expiry): ?>
+            <?php else: ?>
                 <input type="hidden" id="add_expiry" value="">
             <?php endif; ?>
-            <div class="mt-4 p-3 bg-light border rounded shadow-sm d-flex justify-content-between align-items-center">
+            
+            <div class="mt-4 p-3 bg-white border rounded shadow-sm d-flex justify-content-between align-items-center">
                 <div class="text-secondary fw-bold small text-uppercase">Est. Initial Deduction</div>
                 <h4 class="mb-0 fw-bold text-danger" id="add_live_deduction">Rs. 0.00</h4>
             </div>
-
-</div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-primary">Create User</button>
+        </div>
+        <div class="modal-footer bg-white border-top-0 pt-0 pb-4 pe-4">
+          <button type="button" class="btn btn-outline-secondary rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary rounded-pill px-4 fw-bold shadow-sm"><i class="fa-solid fa-check me-2"></i>Create User</button>
         </div>
       </form>
     </div>
@@ -601,6 +691,19 @@ $subs = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     <?php foreach($dealer_packages as $p): ?>
                         <option value="<?= $p['id'] ?>"><?= htmlspecialchars($p['name']) ?> (Rs.<?= $p['dealer_price'] ?>)</option>
                     <?php endforeach; ?>
+                </select>
+            </div>
+            
+            <div class="mb-3">
+                <label class="form-label">Select Router / City <span class="text-danger">*</span></label>
+                <select name="router_nasname" class="form-select" required>
+                    <?php if(empty($dealer_routers)): ?>
+                        <option value="">No Routers Assigned (Contact Operator)</option>
+                    <?php else: ?>
+                        <?php foreach($dealer_routers as $r): ?>
+                            <option value="<?= $r['nasname'] ?>"><?= htmlspecialchars($r['shortname'] ?: 'Router') ?> (<?= $r['nasname'] ?>)</option>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
                 </select>
             </div>
             <?php if($can_custom_expiry): ?>

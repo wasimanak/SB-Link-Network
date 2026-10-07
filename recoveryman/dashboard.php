@@ -14,6 +14,11 @@ $rm_id = $_SESSION['rm_id'];
 $client_id = $_SESSION['client_id'];
 $rm_name = $_SESSION['rm_name'];
 
+
+$pkgsStmt = $pdo->prepare("SELECT id, name, price FROM packages WHERE client_id = ? OR client_id = 0 ORDER BY name ASC");
+$pkgsStmt->execute([$client_id]);
+$all_packages = $pkgsStmt->fetchAll(PDO::FETCH_ASSOC);
+
 // Check RM permissions
 $chkStmt = $pdo->prepare("SELECT status FROM recovery_men WHERE id = ?");
 $chkStmt->execute([$rm_id]);
@@ -30,11 +35,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $sub_id = (int)$_POST['subscriber_id'];
     $sub_username = $_POST['subscriber_username'];
     $amount = (float)$_POST['amount'];
+    $new_package_id = isset($_POST['new_package_id']) && $_POST['new_package_id'] !== '' ? (int)$_POST['new_package_id'] : 0;
     $note = trim($_POST['note']);
 
     if ($amount > 0) {
         try {
             $pdo->beginTransaction();
+            
+            if ($new_package_id > 0) {
+                $pdo->prepare("UPDATE subscribers SET package_id = ? WHERE id = ?")->execute([$new_package_id, $sub_id]);
+            }
             
             // Fetch current expiry and package price
             $stmt = $pdo->prepare("SELECT s.expiry_date, p.price FROM subscribers s LEFT JOIN packages p ON s.package_id = p.id WHERE s.id = ?");
@@ -342,26 +352,8 @@ function formatBytes($bytes) {
             </div>
         </a>
     </div>
-    <div class="col-md col-6">
-        <a href="?filter=expiring_1w" class="text-decoration-none">
-            <div class="card card-custom h-100 <?= ($filter=='expiring_1w')?'bg-primary text-white':'bg-white' ?> shadow-sm">
-                <div class="card-body text-center p-3">
-                    <div class="fs-6 fw-bold mb-1 <?= ($filter=='expiring_1w')?'':'text-primary' ?>">1 Week</div>
-                    <div class="fs-3 fw-bold <?= ($filter=='expiring_1w')?'':'text-dark' ?>"><?= $c_1w ?></div>
-                </div>
-            </div>
-        </a>
-    </div>
-    <div class="col-md col-12">
-        <a href="?filter=expiring_2w" class="text-decoration-none">
-            <div class="card card-custom h-100 <?= ($filter=='expiring_2w')?'bg-secondary text-white':'bg-white' ?> shadow-sm">
-                <div class="card-body text-center p-3">
-                    <div class="fs-6 fw-bold mb-1 <?= ($filter=='expiring_2w')?'':'text-secondary' ?>">2 Weeks</div>
-                    <div class="fs-3 fw-bold <?= ($filter=='expiring_2w')?'':'text-dark' ?>"><?= $c_2w ?></div>
-                </div>
-            </div>
-        </a>
-    </div>
+    
+    
 </div>
 
 <h5 class="fw-bold mt-5 border-bottom pb-2 mb-3 <?= ($filter==='expired')?'text-danger':'text-primary' ?>"><i class="fa-solid <?= ($filter==='expired')?'fa-triangle-exclamation':'fa-clock-rotate-left' ?> me-2"></i> <?= htmlspecialchars($filter_title) ?></h5>
@@ -459,9 +451,20 @@ function formatBytes($bytes) {
                     <input type="hidden" name="subscriber_id" id="m_subid">
                     <input type="hidden" name="subscriber_username" id="m_subuser">
                     
-                    <div class="mb-3">
-                        <label class="form-label fw-bold text-secondary">Enter Amount Received (Rs) <span class="text-danger">*</span></label>
-                        <input type="number" step="0.01" name="amount" class="form-control form-control-lg fw-bold text-success text-center" placeholder="e.g. 1500" required>
+                    <div class="mb-3 text-start">
+                        <label class="form-label fw-bold text-secondary small">Change Package (Optional)</label>
+                        <select name="new_package_id" id="m_newpkg" class="form-select fw-bold text-primary" onchange="updatePkgAmount()">
+                            <option value="">-- Keep Current Package --</option>
+                            <?php foreach($all_packages as $pkg): ?>
+                                <option value="<?= $pkg['id'] ?>" data-price="<?= $pkg['price'] ?>"><?= htmlspecialchars($pkg['name']) ?> (Rs <?= number_format($pkg['price']) ?>)</option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
+                    <div class="mb-3 text-start">
+                        <label class="form-label fw-bold text-secondary small">Enter Amount Received (Rs) <span class="text-danger">*</span></label>
+                        <input type="number" step="0.01" name="amount" id="m_amount" class="form-control form-control-lg fw-bold text-success text-center" placeholder="e.g. 1500" required>
+                        <div class="form-text text-muted text-center" style="font-size: 0.75rem;"><i class="fa-solid fa-circle-info"></i> Expiry will be extended automatically based on amount vs package price.</div>
                     </div>
                     <div class="mb-4">
                         <label class="form-label fw-bold text-secondary small">Notes / Remarks (Optional)</label>

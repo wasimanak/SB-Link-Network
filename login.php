@@ -48,8 +48,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = "Please select your Operator/Provider first.";
             } else {
                 if ($role === 'dealer') {
-                    $stmt = $pdo->prepare("SELECT d.*, c.status as op_status FROM dealers d JOIN clients c ON d.client_id = c.id WHERE d.username = ? AND d.client_id = ? AND d.status = 'active' AND c.status = 'active'");
-                    $stmt->execute([$identifier, $client_id]);
+                    // Dealer logins do not require client_id to be selected
+                    $stmt = $pdo->prepare("SELECT d.*, c.status as op_status FROM dealers d JOIN clients c ON d.client_id = c.id WHERE d.username = ? AND d.status = 'active' AND c.status = 'active'");
+                    $stmt->execute([$identifier]);
                     $user = $stmt->fetch();
                     if ($user && $user['password'] === $password) {
                         $_SESSION['dealer_id'] = $user['id'];

@@ -167,10 +167,18 @@ function formatBytes($bytes) {
                 <div class="card-body p-4 p-md-5">
                     <div class="d-flex justify-content-between align-items-center border-bottom pb-3 mb-4">
                         <h5 class="fw-bold text-primary mb-0"><i class="fa-solid fa-user-check me-2"></i> User Details</h5>
-                        <?php if($search_result['live_ip']): ?>
-                            <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-3 py-2 rounded-pill"><i class="fa-solid fa-circle text-success small me-1"></i> Online (<?= $search_result['live_ip'] ?>)</span>
+                        <?php 
+                        $is_expired = ($search_result['expiry_date'] && strtotime($search_result['expiry_date']) < time());
+                        $is_disabled = ($search_result['status'] === 'disabled');
+                        
+                        if ($is_disabled): ?>
+                            <span class="badge bg-danger px-3 py-2 rounded-pill shadow-sm"><i class="fa-solid fa-ban me-1"></i> Disabled (Admin Blocked)</span>
+                        <?php elseif ($is_expired): ?>
+                            <span class="badge bg-danger px-3 py-2 rounded-pill shadow-sm"><i class="fa-solid fa-triangle-exclamation me-1"></i> Expired (Needs Renewal)</span>
+                        <?php elseif ($search_result['live_ip']): ?>
+                            <span class="badge bg-success px-3 py-2 rounded-pill shadow-sm"><i class="fa-solid fa-circle-check me-1"></i> Online (<?= $search_result['live_ip'] ?>) - Status OK</span>
                         <?php else: ?>
-                            <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 px-3 py-2 rounded-pill"><i class="fa-solid fa-circle text-secondary small me-1"></i> Offline</span>
+                            <span class="badge bg-warning text-dark px-3 py-2 rounded-pill shadow-sm"><i class="fa-solid fa-plug-circle-xmark me-1"></i> Offline (Check Power/Cable)</span>
                         <?php endif; ?>
                     </div>
                     
@@ -355,5 +363,47 @@ setInterval(fetchLiveBandwidth, 3000);
 fetchLiveBandwidth();
 </script>
 <?php endif; ?>
+
+<script>
+function testLineQuality(ip) {
+    document.getElementById('ping_results').classList.remove('d-none');
+    document.getElementById('ping_stats').style.opacity = '0.5';
+    document.getElementById('p_msg').className = 'alert alert-secondary mb-0 mt-3 small fw-bold border-0';
+    document.getElementById('p_msg').innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i> Analyzing optical line stability... please wait (takes ~4 seconds).';
+    
+    fetch('api_ping.php?ip=' + ip)
+    .then(res => res.json())
+    .then(data => {
+        document.getElementById('ping_stats').style.opacity = '1';
+        if (data.error) {
+            document.getElementById('p_msg').className = 'alert alert-danger mb-0 mt-3 small fw-bold border-0';
+            document.getElementById('p_msg').innerHTML = '<i class="fa-solid fa-triangle-exclamation me-2"></i> ' + data.error;
+            return;
+        }
+        
+        document.getElementById('p_loss').innerHTML = data.loss + '%';
+        document.getElementById('p_latency').innerHTML = data.avg_rtt + ' ms';
+        
+        if (data.status === 'ok') {
+            document.getElementById('p_health').innerHTML = '<span class="text-success"><i class="fa-solid fa-face-smile"></i> Excellent</span>';
+            document.getElementById('p_msg').className = 'alert alert-success mb-0 mt-3 small fw-bold border-0';
+        } else if (data.status === 'warning') {
+            document.getElementById('p_health').innerHTML = '<span class="text-warning"><i class="fa-solid fa-face-frown"></i> Weak Signal</span>';
+            document.getElementById('p_msg').className = 'alert alert-warning text-dark mb-0 mt-3 small fw-bold border-0';
+        } else {
+            document.getElementById('p_health').innerHTML = '<span class="text-danger"><i class="fa-solid fa-face-dizzy"></i> Disconnected</span>';
+            document.getElementById('p_msg').className = 'alert alert-danger mb-0 mt-3 small fw-bold border-0';
+        }
+        
+        document.getElementById('p_msg').innerHTML = '<i class="fa-solid fa-circle-info me-2"></i> <strong>Result:</strong> ' + data.msg;
+    })
+    .catch(err => {
+        document.getElementById('ping_stats').style.opacity = '1';
+        document.getElementById('p_msg').className = 'alert alert-danger mb-0 mt-3 small fw-bold border-0';
+        document.getElementById('p_msg').innerHTML = 'Network error checking line quality.';
+    });
+}
+</script>
+
 </body>
 </html>
