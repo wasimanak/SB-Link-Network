@@ -92,7 +92,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                             
                         } else {
                             // INSERT NEW
-                            $ins = $pdo->prepare("INSERT INTO subscribers (client_id, username, password, full_name, service_type, package_id, dealer_id, mobile, phone, national_id, city, subarea, address, gps_lat, gps_lng, notes, balance, status) 
+                            $ins = $pdo->prepare("INSERT IGNORE INTO subscribers (client_id, username, password, full_name, service_type, package_id, dealer_id, mobile, phone, national_id, city, subarea, address, gps_lat, gps_lng, notes, balance, status) 
                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
                             $ins->execute([
                                 $client_id, $username, $password, $full_name, $service_type, $package_id, $dealer_id,
@@ -101,9 +101,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                             ]);
                             
                             // RADIUS Basics
-                            $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Cleartext-Password', ':=', ?)")->execute([$username, $password]);
+                            $pdo->prepare("INSERT IGNORE INTO radcheck (username, attribute, op, value) VALUES (?, 'Cleartext-Password', ':=', ?)")->execute([$username, $password]);
                             if ($package_name) {
-                                $pdo->prepare("INSERT INTO radusergroup (username, groupname, priority) VALUES (?, ?, 1)")->execute([$username, $package_name]);
+                                $pdo->prepare("INSERT IGNORE INTO radusergroup (username, groupname, priority) VALUES (?, ?, 1)")->execute([$username, $package_name]);
                             }
                             // NAS Restriction trigger will handle NAS-IP-Address
                         }
@@ -118,7 +118,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                                 $pdo->prepare("UPDATE subscribers SET expiry_date = ? WHERE username = ? AND client_id = ?")->execute([$db_expiry, $username, $client_id]);
                                 
                                 $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute IN ('Expiration', 'Auth-Type')")->execute([$username]);
-                                $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Expiration', ':=', ?)")->execute([$username, $formatted_expiry]);
+                                $pdo->prepare("INSERT IGNORE INTO radcheck (username, attribute, op, value) VALUES (?, 'Expiration', ':=', ?)")->execute([$username, $formatted_expiry]);
                             }
                         }
 
@@ -138,7 +138,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                                     $pdo->prepare("UPDATE subscribers SET expiry_date = ?, status = 'active' WHERE id = ? AND client_id = ?")->execute([$db_expiry, $id, $client_id]);
                                     
                                     $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute IN ('Expiration', 'Auth-Type')")->execute([$username]);
-                                    $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Expiration', ':=', ?)")->execute([$username, $formatted_expiry]);
+                                    $pdo->prepare("INSERT IGNORE INTO radcheck (username, attribute, op, value) VALUES (?, 'Expiration', ':=', ?)")->execute([$username, $formatted_expiry]);
                                 }
                             }
                         }
@@ -192,7 +192,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 $pdo->prepare("INSERT INTO subscribers (client_id, package_id, username, password, service_type, full_name, national_id, mobile, phone, email, address, subarea, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
                     ->execute([$client_id, $package_id, $username, $password, $service_type, $full_name, $national_id, $mobile, $phone, $email, $address, $subarea, $latitude, $longitude]);
                 
-                $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Cleartext-Password', ':=', ?)")
+                $pdo->prepare("INSERT IGNORE INTO radcheck (username, attribute, op, value) VALUES (?, 'Cleartext-Password', ':=', ?)")
                     ->execute([$username, $password]);
                 
                 if (!empty($pkg['rate_limit']) && $pkg['rate_limit'] !== 'No Limit') {
@@ -262,8 +262,10 @@ $total_balance_all = $pdo->query("SELECT SUM(balance) FROM subscribers WHERE cli
 $total_users = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id")->fetchColumn();
 
 // Base metrics for cards
-$expired = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND expiry_date < NOW()")->fetchColumn();
-$active_users = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND LOWER(status) = 'active' AND (expiry_date >= NOW() OR expiry_date IS NULL)")->fetchColumn();
+// Expired: Date is strictly in the past, excluding zero-dates
+$expired = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND expiry_date < NOW() AND expiry_date > '2000-01-01'")->fetchColumn();
+// Active: Status is not disabled, and date is in future OR is null/zero
+$active_users = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND LOWER(status) != 'disabled' AND (expiry_date >= NOW() OR expiry_date IS NULL OR expiry_date < '2000-01-01')")->fetchColumn();
 $disabled_users = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND LOWER(status) = 'disabled'")->fetchColumn();
 
 // Online Users
@@ -272,21 +274,20 @@ $offline_users = max(0, $total_users - $online_users);
 
 // Mutually Exclusive Slices for the Doughnut Chart
 $chart_online = $online_users;
-$chart_expired = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND expiry_date < NOW() AND username NOT IN (SELECT username FROM radacct WHERE acctstoptime IS NULL)")->fetchColumn();
-$chart_disabled = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND LOWER(status) = 'disabled' AND (expiry_date >= NOW() OR expiry_date IS NULL) AND username NOT IN (SELECT username FROM radacct WHERE acctstoptime IS NULL)")->fetchColumn();
-$chart_active = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND LOWER(status) = 'active' AND (expiry_date >= NOW() OR expiry_date IS NULL) AND username NOT IN (SELECT username FROM radacct WHERE acctstoptime IS NULL)")->fetchColumn();
+$chart_expired = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND expiry_date < NOW() AND expiry_date > '2000-01-01' AND username NOT IN (SELECT username FROM radacct WHERE acctstoptime IS NULL)")->fetchColumn();
+$chart_disabled = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND LOWER(status) = 'disabled' AND username NOT IN (SELECT username FROM radacct WHERE acctstoptime IS NULL)")->fetchColumn();
+$chart_active = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND LOWER(status) != 'disabled' AND (expiry_date >= NOW() OR expiry_date IS NULL OR expiry_date < '2000-01-01') AND username NOT IN (SELECT username FROM radacct WHERE acctstoptime IS NULL)")->fetchColumn();
 $chart_others = max(0, $total_users - ($chart_online + $chart_expired + $chart_disabled + $chart_active));
 
 // Expirations (Detailed)
-$expired = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND expiry_date < NOW()")->fetchColumn();
 $expiring_1d = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 1 DAY)")->fetchColumn();
 $expiring_3d = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 3 DAY)")->fetchColumn();
 $expiring_1w = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 7 DAY)")->fetchColumn();
 $expiring_2w = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 14 DAY)")->fetchColumn();
 
 // Services
-$pppoe_users = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND service_type = 'pppoe'")->fetchColumn();
-$hotspot_users = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND service_type = 'hotspot'")->fetchColumn();
+$pppoe_users = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND LOWER(service_type) = 'pppoe'")->fetchColumn();
+$hotspot_users = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND LOWER(service_type) = 'hotspot'")->fetchColumn();
 
 // Helpers
 $pct = function($val) use ($total_users) {
@@ -396,6 +397,42 @@ $subs = $pdo->query("SELECT s.*, p.name as package_name,
 <!-- Dashboard Header -->
 <div class="d-flex flex-wrap justify-content-between align-items-center mb-4">
     <h4 class="m-0 text-secondary fw-bold mb-3 mb-md-0"><i class="fa-solid fa-gauge-high text-primary me-2"></i> Operator Dashboard</h4>
+    
+    <div class="d-flex align-items-center bg-white px-4 py-2 rounded-pill shadow-sm" style="border: 1px solid #e2e8f0;">
+        <i class="fa-regular fa-clock fs-5 text-primary me-3"></i>
+        <div>
+            <div class="text-muted" style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">Live System Time (<?= date_default_timezone_get() ?>)</div>
+            <div id="live-server-clock" class="fw-bold text-dark" style="font-size: 1.1rem; font-family: monospace;">Loading...</div>
+        </div>
+    </div>
+
+<script>
+(function() {
+    var tz = "<?= date_default_timezone_get() ?>";
+    
+    function updateClock() {
+        var now = new Date();
+        
+        // Format time in the exact timezone
+        var timeOptions = { timeZone: tz, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true };
+        var timeString = now.toLocaleTimeString('en-US', timeOptions);
+        
+        // Format date in the exact timezone
+        var dateOptions = { timeZone: tz, day: 'numeric', month: 'short', year: 'numeric' };
+        var dateString = now.toLocaleDateString('en-GB', dateOptions);
+        
+        var clockEl = document.getElementById('live-server-clock');
+        if(clockEl) {
+            clockEl.innerHTML = dateString + ' &nbsp;|&nbsp; <span class="text-primary">' + timeString + '</span>';
+        }
+    }
+    
+    updateClock();
+    setInterval(updateClock, 1000);
+})();
+</script>
+    
+    
 </div>
 
 <!-- Quick Actions -->

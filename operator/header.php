@@ -48,6 +48,21 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
     <style>
         body { font-family: 'Inter', sans-serif; background-color: #f4f6f9; color: #333; overflow-x: hidden; }
         
+                /* Mini Sidebar Styles */
+        .sidebar { transition: width 0.3s ease, padding 0.3s ease; z-index: 1040; overflow-x: hidden; }
+        .main-content, .top-nav { transition: margin-left 0.3s ease; }
+        
+        .sidebar.mini-sidebar { width: 75px !important; }
+        .sidebar.mini-sidebar .menu-text { display: none; }
+        .sidebar.mini-sidebar .brand-text { display: none; }
+        .sidebar.mini-sidebar .has-submenu::after { display: none; }
+        .sidebar.mini-sidebar .badge { display: none !important; }
+        .sidebar.mini-sidebar .submenu { display: none !important; }
+        .sidebar.mini-sidebar .nav-link-main { padding: 14px 10px; justify-content: center; }
+        .sidebar.mini-sidebar .nav-link-main i.menu-icon { width: auto; margin: 0; font-size: 1.3rem; }
+        
+        .main-content.mini-sidebar-active { margin-left: 75px; }
+        .top-nav.mini-sidebar-active { margin-left: 75px; }
         /* Sidebar Styles based on requested design */
         .sidebar {
             width: 260px; height: 100vh; position: fixed; background-color: #ffffff; 
@@ -92,11 +107,11 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
         .submenu a.active { color: #3b82f6; font-weight: 500; }
         .submenu a.active::before { background-color: #3b82f6; }
 
-        .main-content { margin-left: 260px; padding: 30px; min-height: 100vh; }
+        .main-content { margin-left: 75px; padding: 30px; min-height: 100vh; }
         @media (max-width: 768px) { .sidebar { display: none; } .main-content { margin-left: 0; } }
 
         /* Top Nav */
-        .top-nav { background-color: #ffffff; padding: 15px 30px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e5e7eb; margin-left: 260px; box-shadow: 0 1px 5px rgba(0,0,0,0.02); }
+        .top-nav { background-color: #ffffff; padding: 15px 30px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e5e7eb; margin-left: 75px; box-shadow: 0 1px 5px rgba(0,0,0,0.02); }
         @media (max-width: 768px) { .top-nav { margin-left: 0; } }
     </style>
 </head>
@@ -128,7 +143,7 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
     </script>
 
     <!-- Sidebar -->
-    <div class="sidebar">
+    <div class="sidebar mini-sidebar">
         
         <!-- Brand / Logo Area -->
         <div class="d-flex align-items-center px-4 pt-3 pb-3">
@@ -136,8 +151,7 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
                 <i class="fa-solid fa-bolt fs-5"></i>
             </div>
             <div>
-                <h5 class="fw-bold mb-0 text-dark" style="letter-spacing: -0.5px;"><?= htmlspecialchars($tenant['company_name']) ?></h5>
-                <div class="text-muted" style="font-size: 0.70rem; font-weight: 500; text-transform: uppercase; letter-spacing: 1px;">Operator Panel</div>
+                <div class="brand-text" style="white-space: nowrap; overflow: hidden; transition: opacity 0.3s;"><h5 class="fw-bold mb-0 text-dark" style="letter-spacing: -0.5px;"><?= htmlspecialchars($tenant['company_name']) ?></h5><div class="text-muted" style="font-size: 0.70rem; font-weight: 500; text-transform: uppercase; letter-spacing: 1px;">Operator Panel</div></div>
             </div>
         </div>
 
@@ -146,16 +160,16 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
         <div class="px-3">
             <div class="text-muted fw-bold mb-2 px-3" style="font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px;">Main Menu</div>
             <a href="dashboard.php" class="nav-link-main rounded-3 mb-1 <?= $p==='dashboard.php' ? 'active-parent' : '' ?>">
-                <i class="fa-solid fa-house menu-icon"></i> Home
+                <i class="fa-solid fa-house menu-icon"></i> <span class="menu-text">Home</span>
             </a>
 
             <a href="profile.php" class="nav-link-main rounded-3 mb-1 <?= $p==='profile.php' ? 'active-parent' : '' ?>">
-                <i class="fa-solid fa-user menu-icon"></i> My Profile
+                <i class="fa-solid fa-user menu-icon"></i> <span class="menu-text">My Profile</span>
             </a>
 
         <!-- Team -->
         <a href="#teamMenu" data-bs-toggle="collapse" class="nav-link-main has-submenu <?= $isTeamMenu ? 'active-parent' : 'collapsed' ?>" aria-expanded="<?= $isTeamMenu ? 'true' : 'false' ?>">
-            <i class="fa-solid fa-sitemap menu-icon"></i> Team
+            <i class="fa-solid fa-sitemap menu-icon"></i> <span class="menu-text">Team</span>
         </a>
         <div class="collapse submenu <?= $isTeamMenu ? 'show' : '' ?>" id="teamMenu">
             <a href="dealers.php" class="<?= $p==='dealers.php' || $p==='dealer_view.php' ? 'active' : '' ?>">Dealer</a>
@@ -165,7 +179,7 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
 
         <!-- User -->
         <a href="#userMenu" data-bs-toggle="collapse" class="nav-link-main has-submenu <?= $isUserMenu ? 'active-parent' : 'collapsed' ?>" aria-expanded="<?= $isUserMenu ? 'true' : 'false' ?>">
-            <i class="fa-solid fa-user menu-icon"></i> User
+            <i class="fa-solid fa-user menu-icon"></i> <span class="menu-text">User</span>
         </a>
         <div class="collapse submenu <?= $isUserMenu ? 'show' : '' ?>" id="userMenu">
             <a href="subscribers.php" class="<?= ($p==='subscribers.php' && $filter==='') ? 'active' : '' ?>">All Users</a>
@@ -179,7 +193,7 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
 
         <!-- Accounting -->
         <a href="#accountingMenu" data-bs-toggle="collapse" class="nav-link-main has-submenu <?= $isAccMenu ? 'active-parent' : 'collapsed' ?>" aria-expanded="<?= $isAccMenu ? 'true' : 'false' ?>">
-            <i class="fa-solid fa-dollar-sign menu-icon"></i> Accounting
+            <i class="fa-solid fa-dollar-sign menu-icon"></i> <span class="menu-text">Accounting</span>
         </a>
         <div class="collapse submenu <?= $isAccMenu ? 'show' : '' ?>" id="accountingMenu">
             <a href="packages.php" class="<?= $p==='packages.php' ? 'active' : '' ?>">All Packages</a>
@@ -189,7 +203,7 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
 
         <!-- Logs & Reports -->
         <a href="#logsMenu" data-bs-toggle="collapse" class="nav-link-main has-submenu <?= in_array($p, ['activity_logs.php', 'package_logs.php', 'session_logs.php']) ? 'active-parent' : 'collapsed' ?>" aria-expanded="<?= in_array($p, ['activity_logs.php', 'package_logs.php', 'session_logs.php']) ? 'true' : 'false' ?>">
-            <i class="fa-regular fa-file-lines menu-icon"></i> Logs & Reports
+            <i class="fa-regular fa-file-lines menu-icon"></i> <span class="menu-text">Logs & Reports</span>
         </a>
         <div class="collapse submenu <?= in_array($p, ['activity_logs.php', 'package_logs.php', 'session_logs.php']) ? 'show' : '' ?>" id="logsMenu">
             <a href="activity_logs.php" class="<?= $p==='activity_logs.php' ? 'active' : '' ?>">Activity Logs</a>
@@ -203,7 +217,7 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
         
         <!-- Requests & Support -->
         <a href="#ticketMenu" data-bs-toggle="collapse" class="nav-link-main has-submenu <?= $isTicketMenu ? 'active-parent' : 'collapsed' ?>" aria-expanded="<?= $isTicketMenu ? 'true' : 'false' ?>">
-            <i class="fa-solid fa-headset menu-icon"></i> Support & Requests
+            <i class="fa-solid fa-headset menu-icon"></i> <span class="menu-text">Support & Requests</span>
             <?php if($total_pending_requests > 0): ?>
                 <span class="badge bg-danger ms-auto rounded-pill"><?= $total_pending_requests ?></span>
             <?php endif; ?>
@@ -220,17 +234,17 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
             </a>
         </div>
         <a href="payment_gateways.php" class="nav-link-main <?= $p==='payment_gateways.php' ? 'active-parent' : '' ?>">
-            <i class="fa-brands fa-cc-stripe menu-icon"></i> Payment Gateways
+            <i class="fa-brands fa-cc-stripe menu-icon"></i> <span class="menu-text">Payment Gateways</span>
         </a>
 
         <a href="#" class="nav-link-main">
-            <i class="fa-solid fa-bell menu-icon"></i> Notices
+            <i class="fa-solid fa-bell menu-icon"></i> <span class="menu-text">Notices</span>
         </a>
 
         <hr class="text-muted opacity-25 mx-3 my-3">
 
         <a href="logout.php" class="nav-link-main text-danger rounded-3 mb-4 <?= $p==='logout.php' ? 'active-parent' : '' ?>">
-            <i class="fa-solid fa-arrow-right-from-bracket menu-icon text-danger"></i> Logout
+            <i class="fa-solid fa-arrow-right-from-bracket menu-icon text-danger"></i> <span class="menu-text">Logout</span>
         </a>
         </div>
     </div>
@@ -333,3 +347,43 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
 
     <!-- Main Content wrapper -->
     <div class="main-content">
+
+<!-- Mini Sidebar Logic -->
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+    const sidebar = document.querySelector('.sidebar');
+    const mainContent = document.querySelector('.main-content');
+    const topNav = document.querySelector('.top-nav');
+    
+    if(!sidebar) return;
+
+    sidebar.addEventListener('click', function(e) {
+        if (sidebar.classList.contains('mini-sidebar')) {
+            sidebar.classList.remove('mini-sidebar');
+            if (mainContent) mainContent.style.marginLeft = '260px';
+            if (topNav) topNav.style.marginLeft = '260px';
+            
+            e.preventDefault();
+            e.stopPropagation();
+        }
+    });
+
+    document.addEventListener('click', function(e) {
+        if (!sidebar.contains(e.target) && !sidebar.classList.contains('mini-sidebar')) {
+            sidebar.classList.add('mini-sidebar');
+            if (mainContent) mainContent.style.marginLeft = '75px';
+            if (topNav) topNav.style.marginLeft = '75px';
+            
+            let openMenus = sidebar.querySelectorAll('.submenu.show');
+            openMenus.forEach(menu => {
+                if (typeof bootstrap !== 'undefined') {
+                    let bsCollapse = bootstrap.Collapse.getInstance(menu);
+                    if (bsCollapse) bsCollapse.hide();
+                } else {
+                    menu.classList.remove('show');
+                }
+            });
+        }
+    });
+});
+</script>

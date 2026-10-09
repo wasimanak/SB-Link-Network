@@ -1,96 +1,4 @@
-<?php
-require_once 'header.php';
-$client_id = $_SESSION['operator_id'];
-
-function formatMikroTikUptime($seconds) {
-    $d = floor($seconds / 86400);
-    $h = floor(($seconds % 86400) / 3600);
-    $m = floor(($seconds % 3600) / 60);
-    
-    $out = "";
-    if ($d > 0) $out .= $d . "d";
-    if ($h > 0 || $d > 0) $out .= $h . "h";
-    $out .= $m . "m";
-    return $out;
-}
-
-
-// Get Live Sessions mapped to this operator
-$sql = "SELECT r.*, s.package_id, p.name as package_name 
-        FROM radacct r 
-        JOIN subscribers s ON r.username = s.username 
-        LEFT JOIN packages p ON s.package_id = p.id
-        INNER JOIN (
-            SELECT username, MAX(radacctid) as max_id 
-            FROM radacct 
-            WHERE acctstoptime IS NULL 
-            GROUP BY username
-        ) as latest ON r.radacctid = latest.max_id
-          WHERE s.client_id = ?" . (isset($_GET['filter']) && $_GET['filter'] === 'expired_online' ? " AND s.expiry_date < CURDATE()" : "") . "
-        ORDER BY r.acctstarttime DESC";
-$stmt = $pdo->prepare($sql);
-$stmt->execute([$client_id]);
-$sessions = $stmt->fetchAll();
-$total_live = count($sessions);
-?>
-
-<style>
-.live-indicator {
-    display: inline-block;
-    width: 12px;
-    height: 12px;
-    background-color: #10b981;
-    border-radius: 50%;
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
-    animation: pulse-green 1.5s infinite;
-}
-@keyframes pulse-green {
-    0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
-    70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
-    100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
-}
-.stat-box {
-    background: #f8fafc;
-    border-radius: 8px;
-    padding: 10px 5px;
-    text-align: center;
-    border: 1px solid #e2e8f0;
-}
-.stat-box .title { font-size: 0.65rem; color: #64748b; text-transform: uppercase; font-weight: 800; letter-spacing: 0.5px; }
-.stat-box .value { font-size: 0.9rem; color: #0f172a; font-weight: 700; font-family: monospace; }
-.live-card:hover { transform: translateY(-3px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important; }
-</style>
-
-<div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-3">
-    <div>
-        <h4 class="fw-bold mb-1"><i class="fa-solid fa-tower-broadcast text-primary me-2"></i>Live Sessions</h4>
-        <div class="text-muted" style="font-size: 0.9rem;">Monitor currently active network connections</div>
-    </div>
-    <div class="d-flex gap-3 align-items-center">
-        <div class="input-group shadow-sm" style="max-width: 250px;">
-            <span class="input-group-text bg-white border-end-0"><i class="fa-solid fa-search text-muted"></i></span>
-            <input type="text" id="searchInput" class="form-control border-start-0 ps-0" placeholder="Search user...">
-        </div>
-        <div class="bg-white shadow-sm border px-4 py-2 rounded-3 d-flex align-items-center gap-3">
-            <div class="live-indicator"></div>
-            <div>
-                <div class="text-muted fw-bold" style="font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.5px;">Active Users</div>
-                <div class="fs-4 fw-bold text-dark lh-1"><?= $total_live ?></div>
-            </div>
-        </div>
-        <button class="btn btn-primary shadow-sm h-100 px-4" onclick="location.reload()">
-            <i class="fa-solid fa-rotate-right me-1"></i> Refresh
-        </button>
-    </div>
-</div>
-
-<div class="row g-3">
-    <?php if(!$sessions): ?>
-        <div class="col-12 text-center py-5">
-            <div class="text-muted fs-5"><i class="fa-solid fa-ghost fs-1 mb-3 text-secondary opacity-50"></i><br>No active sessions found.</div>
-        </div>
-    <?php endif; ?>
-  <?php foreach($sessions as $sess): 
+<?php foreach($sessions as $sess): 
     $start_time = is_numeric($sess['acctstarttime']) ? $sess['acctstarttime'] : strtotime($sess['acctstarttime']);
     $upTime = time() - $start_time;
     $dl = round($sess['acctoutputoctets'] / 1048576, 2) . " MB";
@@ -115,7 +23,6 @@ $total_live = count($sessions);
                 <div class="col-12 col-xl-2 col-md-3">
                     <div class="text-dark fw-bold font-monospace small mb-1"><i class="fa-solid fa-server text-muted me-1"></i><?= htmlspecialchars($sess['framedipaddress'] ?? 'N/A') ?></div>
                     <div class="text-secondary font-monospace small"><i class="fa-solid fa-microchip text-muted me-1"></i><?= htmlspecialchars($sess['callingstationid'] ?? 'N/A') ?></div>
-
                 </div>
                 <div class="col-12 col-xl-4 col-md-4">
                     <div class="row g-2 text-center">
@@ -151,22 +58,3 @@ $total_live = count($sessions);
     </div>
 </div>
 <?php endforeach; ?>
-
-</div>
-
-<script>
-document.getElementById('searchInput').addEventListener('keyup', function() {
-    let filter = this.value.toLowerCase();
-    let cards = document.querySelectorAll('.session-card-container');
-    cards.forEach(card => {
-        let username = card.getAttribute('data-username').toLowerCase();
-        if (username.includes(filter)) {
-            card.style.display = '';
-        } else {
-            card.style.display = 'none';
-        }
-    });
-});
-</script>
-
-<?php require_once 'footer.php'; ?>

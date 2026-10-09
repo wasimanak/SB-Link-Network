@@ -30,6 +30,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $pdo->prepare("INSERT INTO nas (client_id, nasname, shortname, secret, api_port, api_user, api_password) VALUES (?, ?, ?, ?, 8728, ?, ?)")
                 ->execute([$client_id, $nasname, $shortname, $secret, $api_user, $api_pass]);
+            
+            // Silently restart FreeRADIUS so the new router is active immediately
+            exec("sudo systemctl restart freeradius 2>&1");
+            exec("systemctl restart freeradius 2>&1");
             echo "<script>alert('Router added successfully!'); window.location='profile.php';</script>";
         } catch(Exception $e) {
             echo "<script>alert('Error: " . addslashes($e->getMessage()) . "'); window.location='profile.php';</script>";
