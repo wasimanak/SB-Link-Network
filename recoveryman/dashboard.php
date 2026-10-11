@@ -65,6 +65,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             // Update RM Cash in Hand
             $pdo->prepare("UPDATE recovery_men SET cash_in_hand = cash_in_hand + ? WHERE id = ?")->execute([$amount, $rm_id]);
             
+            // Log Activity
+            $act_msg = "Collected Cash Rs. $amount from User" . ($note ? " - Note: $note" : "");
+            $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, 'RecoveryMan', ?, 'User', ?)")
+                ->execute([$client_id, $rm_name, $sub_username, $act_msg]);
+                
             $pdo->commit();
             echo "<script>
     alert('Payment Collected Successfully!');
@@ -96,6 +101,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         
         if ($new_package_id > 0) {
             $pdo->prepare("UPDATE subscribers SET package_id = ? WHERE id = ?")->execute([$new_package_id, $sub_id]);
+            
+            // Sync FreeRADIUS to new package
+            $npStmt = $pdo->prepare("SELECT name, rate_limit FROM packages WHERE id = ?");
+            $npStmt->execute([$new_package_id]);
+            $newPkgInfo = $npStmt->fetch();
+            if ($newPkgInfo) {
+                $pdo->prepare("DELETE FROM radusergroup WHERE username = ?")->execute([$sub_username]);
+                $pdo->prepare("INSERT INTO radusergroup (username, groupname, priority) VALUES (?, ?, 1)")->execute([$sub_username, $newPkgInfo['name']]);
+                
+                $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Rate-Limit'")->execute([$sub_username]);
+                if (!empty($newPkgInfo['rate_limit']) && $newPkgInfo['rate_limit'] !== 'Unlimited') {
+                    $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Rate-Limit', '=', ?)")->execute([$sub_username, $newPkgInfo['rate_limit']]);
+                }
+            }
         }
         
         // Fetch current expiry, package price, and balance
@@ -329,6 +348,11 @@ $cashStmt = $pdo->prepare("SELECT cash_in_hand FROM recovery_men WHERE id = ?");
 $cashStmt->execute([$rm_id]);
 $rm_cash_in_hand = $cashStmt->fetchColumn() ?: 0;
 
+// Fetch Pending (Minus Balance) Users Count
+$pendingCountStmt = $pdo->prepare("SELECT COUNT(*) FROM subscribers WHERE client_id = ? AND balance < 0");
+$pendingCountStmt->execute([$client_id]);
+$pending_count = (int)$pendingCountStmt->fetchColumn();
+
 function formatBytes($bytes) {
     if ($bytes <= 0) return "0 MB";
     $bytes = $bytes / (1024 * 1024);
@@ -355,6 +379,12 @@ function formatBytes($bytes) {
     <div class="fw-bold fs-5"><i class="fa-solid fa-motorcycle me-2 text-danger"></i> Recovery Portal</div>
     <div>
         <span class="me-3 small text-light d-none d-md-inline"><i class="fa-regular fa-user me-1"></i> <?= htmlspecialchars($rm_name) ?></span>
+        <a href="pending_payments.php" class="btn btn-sm btn-warning text-dark fw-bold me-2 shadow-sm">
+            <i class="fa-solid fa-file-invoice-dollar me-1"></i> Pending Payments
+            <?php if ($pending_count > 0): ?>
+                <span class="badge bg-danger text-white rounded-pill ms-1"><?= $pending_count ?></span>
+            <?php endif; ?>
+        </a>
         <a href="history.php" class="btn btn-sm btn-light text-dark fw-bold me-2"><i class="fa-solid fa-clock-rotate-left me-1"></i> History</a>
         <a href="logout.php" class="btn btn-sm btn-outline-light"><i class="fa-solid fa-right-from-bracket"></i></a>
     </div>

@@ -31,7 +31,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         $pdo->prepare("UPDATE subscribers SET password=?, package_id=?, expiry_date=?, status=? WHERE id=?")->execute([$password, $package_id, $expiry, $status, $id]);
         $pdo->prepare("UPDATE radcheck SET value=? WHERE username=? AND attribute='Cleartext-Password'")->execute([$password, $u]);
-        $pdo->prepare("UPDATE radreply SET value=? WHERE username=? AND attribute='Mikrotik-Rate-Limit'")->execute([$pkg['rate_limit'], $u]);
+        
+        // Sync radusergroup to new package
+        $pdo->prepare("DELETE FROM radusergroup WHERE username=?")->execute([$u]);
+        $pdo->prepare("INSERT INTO radusergroup (username, groupname, priority) VALUES (?, ?, 1)")->execute([$u, $pkg['name']]);
+        
+        // Sync radreply to new package rate limit
+        $pdo->prepare("DELETE FROM radreply WHERE username=? AND attribute='Mikrotik-Rate-Limit'")->execute([$u]);
+        if (!empty($pkg['rate_limit']) && $pkg['rate_limit'] !== 'Unlimited') {
+            $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Rate-Limit', '=', ?)")->execute([$u, $pkg['rate_limit']]);
+        }
         
         // Fix RADIUS Expiration and Auth-Type rules
         $pdo->prepare("DELETE FROM radcheck WHERE username=? AND attribute IN ('Expiration', 'Auth-Type')")->execute([$u]);

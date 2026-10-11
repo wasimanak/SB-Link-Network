@@ -44,6 +44,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $stmt = $pdo->prepare("INSERT INTO packages (client_id, name, rate_limit, validity_days, price, data_limit_gb, speed_scheduler) VALUES (?, ?, ?, ?, ?, ?, ?)");
             $stmt->execute([$client_id, $name, $rate_limit, $validity_days, $price, $data_limit_gb, $scheduler]);
+            
+            // Sync to FreeRADIUS radgroupreply
+            $pdo->prepare("DELETE FROM radgroupreply WHERE groupname = ? AND attribute = 'Mikrotik-Rate-Limit'")->execute([$name]);
+            if (!empty($rate_limit) && $rate_limit !== 'Unlimited') {
+                $pdo->prepare("INSERT INTO radgroupreply (groupname, attribute, op, value) VALUES (?, 'Mikrotik-Rate-Limit', ':=', ?)")->execute([$name, $rate_limit]);
+            }
             echo "<script>alert('Package created successfully!'); window.location='packages.php';</script>";
             exit;
         } else {
@@ -57,6 +63,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $stmt = $pdo->prepare("UPDATE packages SET name=?, rate_limit=?, validity_days=?, price=?, data_limit_gb=?, speed_scheduler=? WHERE id=? AND client_id=?");
             $stmt->execute([$name, $rate_limit, $validity_days, $price, $data_limit_gb, $scheduler, $id, $client_id]);
+            
+            // Sync to FreeRADIUS radgroupreply
+            $pdo->prepare("DELETE FROM radgroupreply WHERE groupname = ? AND attribute = 'Mikrotik-Rate-Limit'")->execute([$name]);
+            if (!empty($rate_limit) && $rate_limit !== 'Unlimited') {
+                $pdo->prepare("INSERT INTO radgroupreply (groupname, attribute, op, value) VALUES (?, 'Mikrotik-Rate-Limit', ':=', ?)")->execute([$name, $rate_limit]);
+            }
             echo "<script>alert('Package updated successfully!'); window.location='packages.php';</script>";
             exit;
         }
