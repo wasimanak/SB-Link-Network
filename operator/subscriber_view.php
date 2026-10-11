@@ -393,6 +393,35 @@ $ledgerStmt = $pdo->prepare("SELECT * FROM user_ledger WHERE client_id = ? AND u
 $ledgerStmt->execute([$client_id, $user['username']]);
 $ledger_history = $ledgerStmt->fetchAll();
 
+// PROFILE STATUS LOGIC
+$is_expired = false;
+if (!empty($user['expiry_date']) && strtotime($user['expiry_date']) < time()) {
+    $is_expired = true;
+}
+
+$profile_status = 'Offline';
+$status_color = 'secondary';
+$header_badge_class = 'offline';
+
+if (strtolower($user['status']) === 'disabled') {
+    $profile_status = 'Disabled';
+    $status_color = 'danger';
+    $header_badge_class = 'disabled';
+} elseif ($is_expired) {
+    $profile_status = 'Expired';
+    $status_color = 'warning text-dark';
+    $header_badge_class = 'expired';
+} elseif ($online) {
+    $profile_status = 'Online';
+    $status_color = 'success';
+    $header_badge_class = '';
+} else {
+    $profile_status = 'Offline';
+    $status_color = 'secondary';
+    $header_badge_class = 'offline';
+}
+
+
 ?>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -422,6 +451,7 @@ $ledger_history = $ledgerStmt->fetchAll();
     .status-badge { display: inline-block; background: rgba(16, 185, 129, 0.15); color: #10b981; padding: 2px 12px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; margin-top: 5px; border: 1px solid rgba(16, 185, 129, 0.2); }
     .status-badge.offline { background: rgba(148, 163, 184, 0.15); color: #64748b; border-color: rgba(148, 163, 184, 0.2); }
     .status-badge.disabled { background: rgba(239, 68, 68, 0.15); color: #ef4444; border-color: rgba(239, 68, 68, 0.2); }
+    .status-badge.expired { background: rgba(245, 158, 11, 0.15); color: #d97706; border-color: rgba(245, 158, 11, 0.2); }
     
     .profile-list { list-style: none; padding: 0; margin: 0; }
     .profile-list li { padding: 12px 20px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #f8fafc; color: #475569; font-size: 0.9rem; }
@@ -467,13 +497,7 @@ $ledger_history = $ledgerStmt->fetchAll();
                 <div class="profile-info">
                     <h5><?= htmlspecialchars($user['full_name'] ?: 'Unknown Name') ?></h5>
                     <p><?= htmlspecialchars($user['username']) ?></p>
-                    <?php if($user['status'] === 'disabled'): ?>
-                        <span class="status-badge disabled">Disabled</span>
-                    <?php else: ?>
-                        <span class="status-badge <?= $online ? '' : 'offline' ?>">
-                            <?= $online ? 'Active' : 'Offline' ?>
-                        </span>
-                    <?php endif; ?>
+                    <span class="status-badge <?= $header_badge_class ?>"><?= $profile_status ?></span>
                 </div>
             </div>
             <ul class="profile-list">
@@ -613,7 +637,7 @@ $ledger_history = $ledgerStmt->fetchAll();
                     <div class="accordion-body text-secondary p-3">
                         <table class="table table-sm table-borderless text-secondary mb-0" style="font-size: 0.9rem;">
                             <tbody>
-                                <tr><td class="fw-bold w-50">Profile Status</td><td><span class="badge bg-<?= $user['status'] == 'active' ? 'success' : 'danger' ?>"><?= ucfirst($user['status']) ?></span></td></tr>
+                                <tr><td class="fw-bold w-50">Profile Status</td><td><span class="badge bg-<?= $status_color ?>"><?= $profile_status ?></span></td></tr>
                                 <tr><td class="fw-bold">Connection Type</td><td>Radius <?= strtoupper($user['service_type']) ?></td></tr>
                                 <tr><td class="fw-bold">Package</td><td><?= htmlspecialchars($user['pkg_name'] ?? 'N/A') ?></td></tr>
                                 <tr><td class="fw-bold">Package Duration</td><td><?= $user['validity_days'] ? $user['validity_days'] . ' Days' : 'N/A' ?></td></tr>

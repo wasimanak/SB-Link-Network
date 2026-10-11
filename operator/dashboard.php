@@ -438,6 +438,7 @@ $subs = $pdo->query("SELECT s.*, p.name as package_name,
 <!-- Quick Actions -->
 <div class="d-flex flex-wrap gap-3 mb-4">
     <a href="profile.php" class="quick-btn"><i class="fa-solid fa-user"></i><span>My Profile</span></a>
+    <a href="packages.php" class="quick-btn"><i class="fa-solid fa-box-open text-primary"></i><span>All Packages</span></a>
     <a href="#" class="quick-btn" data-bs-toggle="modal" data-bs-target="#addBalanceModal"><i class="fa-solid fa-money-bills"></i><span>Add Payment</span></a>
     
     <a href="#" class="quick-btn" data-bs-toggle="modal" data-bs-target="#addUserModal"><i class="fa-solid fa-user-plus"></i><span>Add New User</span></a>

@@ -3,9 +3,6 @@
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/routeros_api.class.php';
 
-// Silently log execution for debugging (optional)
-// file_put_contents(__DIR__ . '/cron_log.txt', "Ran at " . date('Y-m-d H:i:s') . "\n", FILE_APPEND);
-
 try {
     $sql = "
         SELECT DISTINCT s.id, s.username, s.client_id, s.service_type, n.nasname, n.api_port, n.api_user, n.api_password, s.status
@@ -35,7 +32,7 @@ try {
             if ($API->connect($u['nasname'], $u['api_user'], $u['api_password'], $u['api_port'] ?: 8728)) {
                 
                 if ($service_type === 'pppoe') {
-                    // Fetch all PPPoE users and match in PHP (More reliable than RouterOS API filters)
+                    // Fetch all PPPoE users and match in PHP
                     $active = $API->comm('/ppp/active/print');
                     foreach ($active as $session) {
                         if (trim($session['name']) == $target_user) {
@@ -59,6 +56,10 @@ try {
         if ($u['status'] !== 'expired') {
             $pdo->prepare("UPDATE subscribers SET status = 'expired' WHERE id = ?")->execute([$u['id']]);
         }
+        
+        // HARD BLOCK IN FREERADIUS (Bypass FreeRADIUS Timezone bugs)
+        $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute = 'Auth-Type'")->execute([$target_user]);
+        $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Auth-Type', ':=', 'Reject')")->execute([$target_user]);
     }
 
 } catch (Exception $e) {

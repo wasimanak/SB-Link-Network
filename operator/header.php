@@ -196,7 +196,7 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
             <i class="fa-solid fa-dollar-sign menu-icon"></i> <span class="menu-text">Accounting</span>
         </a>
         <div class="collapse submenu <?= $isAccMenu ? 'show' : '' ?>" id="accountingMenu">
-            <a href="packages.php" class="<?= $p==='packages.php' ? 'active' : '' ?>">All Packages</a>
+            
             <a href="invoices.php" class="<?= $p==='invoices.php' ? 'active' : '' ?>">Invoices / Receipts</a>
             <a href="fund_requests.php" class="<?= $p==='fund_requests.php' ? 'active' : '' ?>">Payments / Fund Requests</a>
         </div>

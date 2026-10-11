@@ -24,6 +24,10 @@ try {
     $pdo->exec("ALTER TABLE `recovery_men` ADD COLUMN `cash_in_hand` DECIMAL(10,2) DEFAULT 0.00");
 } catch (PDOException $e) {}
 
+try {
+    $pdo->exec("ALTER TABLE `recovery_men` ADD COLUMN `can_create_user` ENUM('yes', 'no') DEFAULT 'yes'");
+} catch (PDOException $e) {}
+
 // Auto-create table if not exists to prevent insertion errors
 try {
     $pdo->exec("CREATE TABLE IF NOT EXISTS `recovery_men` (
@@ -59,8 +63,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         try {
             $status = $_POST['status'] ?? 'active';
-            $stmt = $pdo->prepare("INSERT INTO recovery_men (client_id, full_name, username, password, phone, address, city, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$client_id, $full_name, $username, $password, $phone, $address, $city, $status]);
+        $can_create_user = $_POST['can_create_user'] ?? 'yes';
+            $can_create_user = $_POST['can_create_user'] ?? 'yes';
+            $stmt = $pdo->prepare("INSERT INTO recovery_men (client_id, full_name, username, password, phone, address, city, status, can_create_user) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$client_id, $full_name, $username, $password, $phone, $address, $city, $status, $can_create_user]);
             echo "<script>alert('Recovery Man created successfully!'); window.location='$_SERVER[PHP_SELF]';</script>";
             exit;
         } catch (PDOException $e) {
@@ -78,10 +84,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $address = trim($_POST['address'] ?? '');
         $city = trim($_POST['city'] ?? '');
         $status = $_POST['status'] ?? 'active';
+        $can_create_user = $_POST['can_create_user'] ?? 'yes';
+            $can_create_user = $_POST['can_create_user'] ?? 'yes';
         
         try {
-            $stmt = $pdo->prepare("UPDATE recovery_men SET full_name=?, password=?, phone=?, address=?, city=?, status=? WHERE id=? AND client_id=?");
-            $stmt->execute([$full_name, $password, $phone, $address, $city, $status, $id, $client_id]);
+            $stmt = $pdo->prepare("UPDATE recovery_men SET full_name=?, password=?, phone=?, address=?, city=?, status=?, can_create_user=? WHERE id=? AND client_id=?");
+            $stmt->execute([$full_name, $password, $phone, $address, $city, $status, $can_create_user, $id, $client_id]);
             echo "<script>alert('Recovery Man updated successfully!'); window.location='$_SERVER[PHP_SELF]';</script>";
             exit;
         } catch (PDOException $e) {
@@ -170,7 +178,7 @@ $members = $stmt->fetchAll();
                                   data-phone="<?= htmlspecialchars($m['phone']) ?>"
                                   data-city="<?= htmlspecialchars($m['city']) ?>"
                                   data-address="<?= htmlspecialchars($m['address']) ?>"
-                                  data-status="<?= $m['status'] ?? 'active' ?>">
+                                  data-status="<?= $m['status'] ?? 'active' ?>" data-can_create="<?= $m['can_create_user'] ?? 'yes' ?>">
                                   <i class="fa-solid fa-pen"></i>
                               </button>
                               <form method="POST" onsubmit="return confirm('Are you sure you want to delete this Recovery Man?');" class="d-inline">
@@ -298,9 +306,16 @@ $(document).ready(function() {
                 </div>
                 <div class="col-md-6 mb-3">
                     <label class="form-label fw-bold small text-muted">Status</label>
-                    <select name="status" id="edit_status" class="form-select bg-light" required>
-                        <option value="active">Active (Can Login)</option>
-                        <option value="disabled">Disabled (Blocked)</option>
+                    <select name="status" class="form-select bg-light" required>
+                        <option value="active">Active</option>
+                        <option value="disabled">Disabled</option>
+                    </select>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label fw-bold small text-muted">Create User Permission</label>
+                    <select name="can_create_user" class="form-select bg-light" required>
+                        <option value="yes">Enabled</option>
+                        <option value="no">Disabled</option>
                     </select>
                 </div>
                 <div class="col-12 mb-3">
@@ -330,6 +345,7 @@ $(document).ready(function() {
         $("#edit_city").val($(this).attr("data-city"));
         $("#edit_address").val($(this).attr("data-address"));
         $("#edit_status").val($(this).attr("data-status"));
+        $("#edit_can_create_user").val($(this).attr("data-can_create"));
         
         var m = new bootstrap.Modal(document.getElementById("editMemberModal"));
         m.show();

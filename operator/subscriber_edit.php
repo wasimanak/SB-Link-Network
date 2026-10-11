@@ -22,9 +22,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($pkg && $u) {
         $pdo->beginTransaction();
-        $pdo->prepare("UPDATE subscribers SET password=?, package_id=?, expiry_date=? WHERE id=?")->execute([$password, $package_id, $expiry, $id]);
+        
+        // Auto-determine status based on expiry
+        $status = 'active';
+        if ($expiry && strtotime($expiry) < time()) {
+            $status = 'expired';
+        }
+        
+        $pdo->prepare("UPDATE subscribers SET password=?, package_id=?, expiry_date=?, status=? WHERE id=?")->execute([$password, $package_id, $expiry, $status, $id]);
         $pdo->prepare("UPDATE radcheck SET value=? WHERE username=? AND attribute='Cleartext-Password'")->execute([$password, $u]);
         $pdo->prepare("UPDATE radreply SET value=? WHERE username=? AND attribute='Mikrotik-Rate-Limit'")->execute([$pkg['rate_limit'], $u]);
+        
+        // Fix RADIUS Expiration and Auth-Type rules
+        $pdo->prepare("DELETE FROM radcheck WHERE username=? AND attribute IN ('Expiration', 'Auth-Type')")->execute([$u]);
+        if ($expiry) {
+            $formatted_expiry = date('d M Y H:i:s', strtotime($expiry));
+            $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Expiration', ':=', ?)")->execute([$u, $formatted_expiry]);
+        }
+        
+        if ($status === 'expired') {
+            $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Auth-Type', ':=', 'Reject')")->execute([$u]);
+        }
+
         $pdo->commit();
         header("Location: subscribers.php");
         exit;

@@ -10,11 +10,11 @@ $rm_name = $_SESSION['rm_name'];
 // Fetch User Collections by this RM
 $userLedgerStmt = $pdo->prepare("
     SELECT * FROM user_ledger 
-    WHERE client_id = ? AND description LIKE ? 
+    WHERE client_id = ? AND (description LIKE ? OR description LIKE ?)
     ORDER BY created_at DESC 
     LIMIT 100
 ");
-$userLedgerStmt->execute([$client_id, "Cash collected by {$rm_name} RM%"]);
+$userLedgerStmt->execute([$client_id, "Cash collected by {$rm_name}%", "Initial Payment Collected by RM: {$_SESSION['rm_username']}%"]);
 $user_collections = $userLedgerStmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Fetch Cash Submitted to Operator
@@ -26,6 +26,26 @@ $submissionStmt = $pdo->prepare("
 ");
 $submissionStmt->execute([$client_id, $rm_name]);
 $submissions = $submissionStmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Fetch All Activities (Including User Creations & Renewals)
+$activityStmt = $pdo->prepare("
+    SELECT * FROM activity_logs 
+    WHERE client_id = ? AND by_role = 'RecoveryMan' AND (by_user = ? OR by_user = ?)
+    ORDER BY created_at DESC 
+    LIMIT 150
+");
+$activityStmt->execute([$client_id, $rm_name, 'RM: ' . $_SESSION['rm_username']]);
+$activities = $activityStmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Fetch Users Created by this RM
+$createdUsersStmt = $pdo->prepare("
+    SELECT * FROM activity_logs 
+    WHERE client_id = ? AND by_role = 'RecoveryMan' AND by_user = ? AND activity LIKE 'Created New User%'
+    ORDER BY created_at DESC 
+    LIMIT 100
+");
+$createdUsersStmt->execute([$client_id, $rm_name]);
+$created_users = $createdUsersStmt->fetchAll(PDO::FETCH_ASSOC);
 
 ?>
 
@@ -40,14 +60,10 @@ $submissions = $submissionStmt->fetchAll(PDO::FETCH_ASSOC);
         body { background-color: #f8fafc; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         .top-navbar { background: linear-gradient(135deg, #1e293b, #0f172a); color: white; padding: 18px 20px; border-bottom: 4px solid #ef4444; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
         .icon-circle { width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0; }
-        
-        /* Premium Custom Tabs */
         .custom-tabs-container { background: white; padding: 6px; border-radius: 50px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
         .nav-pills .nav-link { color: #64748b; font-weight: 600; border-radius: 50px; padding: 12px 0; transition: all 0.3s ease; border: none; }
         .nav-pills .nav-link:hover { color: #0f172a; }
         .nav-pills .nav-link.active { background: #ef4444; color: white; box-shadow: 0 4px 10px rgba(239, 68, 68, 0.3); }
-        
-        /* Transaction Cards */
         .tx-card { border: none; border-radius: 16px; background: white; box-shadow: 0 4px 15px rgba(0,0,0,0.03); transition: transform 0.2s ease, box-shadow 0.2s ease; margin-bottom: 15px; }
         .tx-card:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0,0,0,0.06); }
     </style>
@@ -66,11 +82,17 @@ $submissions = $submissionStmt->fetchAll(PDO::FETCH_ASSOC);
     <!-- Tab Navigation -->
     <div class="custom-tabs-container mb-4 mx-auto" style="max-width: 500px;">
         <ul class="nav nav-pills w-100" id="statementTabs" role="tablist">
-            <li class="nav-item w-50 text-center" role="presentation">
-                <button class="nav-link active w-100" id="users-tab" data-bs-toggle="pill" data-bs-target="#users" type="button" role="tab"><i class="fa-solid fa-users me-1"></i> From Users</button>
+            <li class="nav-item text-center" style="width: 25%;" role="presentation">
+                <button class="nav-link active w-100" id="users-tab" data-bs-toggle="pill" data-bs-target="#users" type="button" role="tab" style="font-size: 0.75rem;"><i class="fa-solid fa-money-bill d-block mb-1 fs-5"></i> Received</button>
             </li>
-            <li class="nav-item w-50 text-center" role="presentation">
-                <button class="nav-link w-100" id="operator-tab" data-bs-toggle="pill" data-bs-target="#operator" type="button" role="tab"><i class="fa-solid fa-building-columns me-1"></i> To Operator</button>
+            <li class="nav-item text-center" style="width: 25%;" role="presentation">
+                <button class="nav-link w-100" id="operator-tab" data-bs-toggle="pill" data-bs-target="#operator" type="button" role="tab" style="font-size: 0.75rem;"><i class="fa-solid fa-building-columns d-block mb-1 fs-5"></i> Submitted</button>
+            </li>
+            <li class="nav-item text-center" style="width: 25%;" role="presentation">
+                <button class="nav-link w-100" id="created-tab" data-bs-toggle="pill" data-bs-target="#created" type="button" role="tab" style="font-size: 0.75rem;"><i class="fa-solid fa-user-plus d-block mb-1 fs-5"></i> Created</button>
+            </li>
+            <li class="nav-item text-center" style="width: 25%;" role="presentation">
+                <button class="nav-link w-100" id="logs-tab" data-bs-toggle="pill" data-bs-target="#logs" type="button" role="tab" style="font-size: 0.75rem;"><i class="fa-solid fa-list d-block mb-1 fs-5"></i> Logs</button>
             </li>
         </ul>
     </div>
@@ -78,12 +100,12 @@ $submissions = $submissionStmt->fetchAll(PDO::FETCH_ASSOC);
     <!-- Tab Content -->
     <div class="tab-content" id="statementTabsContent">
         
-        <!-- Tab 1: User Collections -->
+        <!-- Tab 1: User Collections (Received) -->
         <div class="tab-pane fade show active" id="users" role="tabpanel">
             <?php if(!empty($user_collections)): ?>
                 <div class="mx-auto" style="max-width: 600px;">
                 <?php foreach($user_collections as $uc): ?>
-                    <div class="card tx-card">
+                    <div class="card tx-card border-start border-4 border-success">
                         <div class="card-body p-3 d-flex align-items-center">
                             <div class="icon-circle bg-success bg-opacity-10 text-success me-3">
                                 <i class="fa-solid fa-arrow-down"></i>
@@ -104,26 +126,21 @@ $submissions = $submissionStmt->fetchAll(PDO::FETCH_ASSOC);
                 </div>
             <?php else: ?>
                 <div class="text-center text-muted py-5 mt-4">
-                    <div class="bg-light rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style="width: 80px; height: 80px;">
-                        <i class="fa-solid fa-box-open fs-1 text-secondary opacity-50"></i>
-                    </div>
-                    <h5 class="fw-bold">No Collections Yet</h5>
-                    <p class="small">You haven't collected any cash from users.</p>
+                    <i class="fa-solid fa-receipt fs-1 mb-3 opacity-25"></i>
+                    <h6>No Collections Found</h6>
                 </div>
             <?php endif; ?>
         </div>
-        
-        <!-- Tab 2: Submissions to Operator -->
+
+        <!-- Tab 2: Submitted to Operator -->
         <div class="tab-pane fade" id="operator" role="tabpanel">
             <?php if(!empty($submissions)): ?>
                 <div class="mx-auto" style="max-width: 600px;">
                 <?php foreach($submissions as $sub): 
-                    $amount_text = "0";
-                    if (preg_match('/Rs\.\s*([\d,.]+)/', $sub['activity'], $m)) {
-                        $amount_text = $m[1];
-                    }
+                    preg_match('/Rs\. (\d+)/', $sub['activity'], $matches);
+                    $amount_text = isset($matches[1]) ? number_format($matches[1]) : '0';
                 ?>
-                    <div class="card tx-card">
+                    <div class="card tx-card border-start border-4 border-danger">
                         <div class="card-body p-3 d-flex align-items-center">
                             <div class="icon-circle bg-danger bg-opacity-10 text-danger me-3">
                                 <i class="fa-solid fa-arrow-up"></i>
@@ -144,15 +161,70 @@ $submissions = $submissionStmt->fetchAll(PDO::FETCH_ASSOC);
                 </div>
             <?php else: ?>
                 <div class="text-center text-muted py-5 mt-4">
-                    <div class="bg-light rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style="width: 80px; height: 80px;">
-                        <i class="fa-solid fa-box-open fs-1 text-secondary opacity-50"></i>
-                    </div>
-                    <h5 class="fw-bold">No Submissions Yet</h5>
-                    <p class="small">You haven't submitted any cash to the operator.</p>
+                    <i class="fa-solid fa-box-open fs-1 mb-3 opacity-25"></i>
+                    <h6>No Submissions Yet</h6>
                 </div>
             <?php endif; ?>
         </div>
-        
+
+        <!-- Tab 3: Created Users -->
+        <div class="tab-pane fade" id="created" role="tabpanel">
+            <?php if(!empty($created_users)): ?>
+                <div class="mx-auto" style="max-width: 600px;">
+                <?php foreach($created_users as $cu): ?>
+                    <div class="card tx-card border-start border-4 border-primary">
+                        <div class="card-body p-3 d-flex align-items-center">
+                            <div class="icon-circle bg-primary bg-opacity-10 text-primary me-3">
+                                <i class="fa-solid fa-user-check"></i>
+                            </div>
+                            <div class="flex-grow-1 overflow-hidden">
+                                <h6 class="fw-bold text-dark mb-1 text-truncate">
+                                    <i class="fa-solid fa-user text-muted small me-1"></i> <?= htmlspecialchars($cu['against_to']) ?>
+                                </h6>
+                                <div class="text-muted small mb-1" style="white-space: normal; line-height: 1.3;"><?= htmlspecialchars($cu['activity']) ?></div>
+                                <div class="text-secondary small fw-bold" style="font-size: 0.75rem;"><i class="fa-regular fa-clock me-1"></i> <?= date('d M Y, h:i A', strtotime($cu['created_at'])) ?></div>
+                            </div>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+                </div>
+            <?php else: ?>
+                <div class="text-center text-muted py-5 mt-4">
+                    <i class="fa-solid fa-user-slash fs-1 mb-3 opacity-25"></i>
+                    <h6>No Created Users Found</h6>
+                </div>
+            <?php endif; ?>
+        </div>
+
+        <!-- Tab 4: Logs (All Activities) -->
+        <div class="tab-pane fade" id="logs" role="tabpanel">
+            <?php if(!empty($activities)): ?>
+                <div class="mx-auto" style="max-width: 600px;">
+                <?php foreach($activities as $act): ?>
+                    <div class="card tx-card border-start border-4 border-warning">
+                        <div class="card-body p-3 d-flex align-items-center">
+                            <div class="icon-circle bg-warning bg-opacity-10 text-warning me-3">
+                                <i class="fa-solid fa-bolt"></i>
+                            </div>
+                            <div class="flex-grow-1 overflow-hidden">
+                                <h6 class="fw-bold text-dark mb-1 text-truncate">
+                                    <i class="fa-solid fa-circle-info text-muted small me-1"></i> Target: <?= htmlspecialchars($act['against_to']) ?>
+                                </h6>
+                                <div class="text-muted small mb-1" style="white-space: normal; line-height: 1.3;"><?= htmlspecialchars($act['activity']) ?></div>
+                                <div class="text-secondary small fw-bold" style="font-size: 0.75rem;"><i class="fa-regular fa-clock me-1"></i> <?= date('d M Y, h:i A', strtotime($act['created_at'])) ?></div>
+                            </div>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+                </div>
+            <?php else: ?>
+                <div class="text-center text-muted py-5 mt-4">
+                    <i class="fa-solid fa-receipt fs-1 mb-3 opacity-25"></i>
+                    <h6>No Activity Logs Found</h6>
+                </div>
+            <?php endif; ?>
+        </div>
+
     </div>
 </div>
 
