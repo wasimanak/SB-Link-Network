@@ -271,6 +271,7 @@ $disabled_users = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id 
 // Online Users
 $online_users = $pdo->query("SELECT COUNT(DISTINCT username) FROM radacct WHERE acctstoptime IS NULL AND username IN (SELECT username FROM subscribers WHERE client_id = $client_id)")->fetchColumn();
 $offline_users = max(0, $total_users - $online_users);
+$expired_online_users = $pdo->query("SELECT COUNT(DISTINCT s.username) FROM subscribers s JOIN radacct r ON s.username = r.username COLLATE utf8mb4_general_ci WHERE s.client_id = $client_id AND r.acctstoptime IS NULL AND s.expiry_date < NOW() AND s.expiry_date > '2000-01-01'")->fetchColumn() ?: 0;
 
 // Mutually Exclusive Slices for the Doughnut Chart
 $chart_online = $online_users;
@@ -316,10 +317,7 @@ $subs = $pdo->query("SELECT s.*, p.name as package_name,
 
 <!-- Select2 CSS -->
 <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
-<style>
-    .cursor-pointer { cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; }
-    .cursor-pointer:hover { transform: translateY(-3px); box-shadow: 0 4px 8px rgba(0,0,0,0.15); }.select2-container .select2-selection--single { height: 31px; border: 1px solid #dee2e6; } .select2-container--default .select2-selection--single .select2-selection__rendered { line-height: 29px; color: #475569; font-size: 0.875rem; } .select2-container--default .select2-selection--single .select2-selection__arrow { height: 29px; } .select2-dropdown { border: 1px solid #dee2e6; }</style>
-
+<!-- Custom Dashboard Styles -->
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
@@ -328,219 +326,670 @@ $subs = $pdo->query("SELECT s.*, p.name as package_name,
 <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.2/css/buttons.bootstrap5.min.css">
 
 <style>
+    body { background-color: #f8fafc; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
     .cursor-pointer { cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; }
-    .cursor-pointer:hover { transform: translateY(-3px); box-shadow: 0 4px 8px rgba(0,0,0,0.15); }
-    .card-ui { background: #fff; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.02); border: 1px solid #f1f5f9; margin-bottom: 20px; }
+    .card-ui { background: #ffffff; border-radius: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.03); border: 1px solid #e2e8f0; margin-bottom: 24px; }
     
-    /* Top Quick Actions */
-    .quick-btn {
-        background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 15px 25px;
-        display: flex; flex-direction: column; align-items: center; justify-content: center;
-        text-decoration: none; color: #475569; min-width: 110px; transition: 0.2s; box-shadow: 0 2px 5px rgba(0,0,0,0.02);
+    /* Top 7 Quick Action Cards */
+    .quick-actions-grid {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 10px;
     }
-    .quick-btn i { font-size: 1.5rem; color: #3b82f6; margin-bottom: 8px; }
-    .quick-btn span { font-size: 0.8rem; font-weight: 500; }
-    .quick-btn:hover { border-color: #cbd5e1; transform: translateY(-2px); color: #1e293b; }
+    @media (max-width: 1200px) {
+        .quick-actions-grid {
+            grid-template-columns: repeat(4, 1fr);
+        }
+    }
+    @media (max-width: 768px) {
+        .quick-actions-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+    @media (max-width: 420px) {
+        .quick-actions-grid {
+            grid-template-columns: 1fr;
+        }
+    }
 
-    /* Search/Token Bars */
-    .search-card { padding: 15px 20px; display: flex; align-items: center; gap: 15px; }
-    .search-card .form-control, .search-card .form-select { background: #fff; border-color: #e2e8f0; color: #333; }
-    .btn-dark-custom { background: #1e293b; color: #fff; border: none; padding: 8px 20px; border-radius: 6px; }
+    .quick-action-card {
+        background: #ffffff;
+        border: 1px solid #eef2f6;
+        border-radius: 14px;
+        padding: 9px 12px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        text-decoration: none;
+        color: #1e293b;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+        transition: all 0.2s ease;
+        height: 100%;
+        min-height: 52px;
+    }
+    .quick-action-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 16px rgba(0,0,0,0.06);
+        color: #0f172a;
+        border-color: #cbd5e1;
+    }
+    .quick-action-icon {
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.05rem;
+        color: #ffffff;
+        flex-shrink: 0;
+        box-shadow: 0 3px 8px rgba(0,0,0,0.12);
+    }
+    .quick-action-text {
+        font-weight: 700;
+        font-size: 0.84rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+/* Reports & Statistics Header & Pills */
+    .reports-pill-btn {
+        border-radius: 50px;
+        padding: 7px 22px;
+        font-weight: 600;
+        font-size: 0.9rem;
+        border: none;
+        transition: all 0.2s ease;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        background: transparent !important;
+        color: #64748b !important;
+    }
+    .reports-pill-btn.active {
+        background: #2563eb !important;
+        color: #ffffff !important;
+        box-shadow: 0 4px 12px rgba(37,99,235,0.25);
+    }
+    .reports-pill-btn:not(.active):hover {
+        background: #f1f5f9 !important;
+        color: #1e293b !important;
+    }
 
-    /* Stats Grid */
-    .stat-tabs { display: flex; gap: 10px; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid #f1f5f9; }
-    .stat-tab { padding: 8px 20px; border-radius: 20px; font-weight: 600; font-size: 0.9rem; text-decoration: none; color: #64748b; }
-    .stat-tab.active { background: #1e293b; color: #fff; }
+    /* Donut Container */
+    .all-users-donut-card {
+        background: #ffffff;
+        border: 1px solid #eef2f6;
+        border-radius: 18px;
+        padding: 22px 20px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.02);
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+    }
+    .donut-container-pro {
+        position: relative;
+        width: 100%;
+        max-width: 230px;
+        margin: 10px auto;
+    }
+    .donut-center-pro {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        text-align: center;
+        pointer-events: none;
+    }
+    .donut-center-pro h3 {
+        margin: 0;
+        font-weight: 800;
+        font-size: 2.1rem;
+        color: #0f172a;
+        line-height: 1;
+    }
+    .donut-center-pro p {
+        margin: 3px 0 0;
+        font-size: 0.8rem;
+        color: #64748b;
+        font-weight: 600;
+    }
 
-    .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; }
-    @media(max-width: 991px) { .stats-grid { grid-template-columns: repeat(2, 1fr); } }
-    @media(max-width: 575px) { .stats-grid { grid-template-columns: 1fr; } }
-    
-    .stat-box { padding: 15px; border-radius: 8px; display: flex; flex-direction: column; }
-    .stat-box .title { font-size: 0.8rem; font-weight: 600; margin-bottom: 5px; display: flex; align-items: center; gap: 8px; }
-    .stat-box .value { font-size: 1.3rem; font-weight: 700; display: flex; align-items: baseline; gap: 10px; }
-    .stat-box .pct { font-size: 0.75rem; font-weight: 500; opacity: 0.7; }
+    /* 12 Metric Cards Grid */
+    .metrics-12-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 15px;
+    }
+    @media(max-width: 991px) {
+        .metrics-12-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media(max-width: 575px) {
+        .metrics-12-grid { grid-template-columns: 1fr; }
+    }
 
-    /* Colors matching screenshot */
-    .bg-blue { background: #e0f2fe; color: #0369a1; }
-    .bg-green { background: #dcfce7; color: #15803d; }
-    .bg-yellow { background: #fef9c3; color: #a16207; }
-    .bg-grey { background: #f1f5f9; color: #475569; }
-    .bg-red { background: #fee2e2; color: #b91c1c; }
+    .metric-card-pro {
+        border-radius: 16px;
+        padding: 16px 18px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        position: relative;
+        overflow: hidden;
+        cursor: pointer;
+        transition: transform 0.18s ease, box-shadow 0.18s ease;
+        min-height: 86px;
+    }
+    .metric-card-pro:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 16px rgba(0,0,0,0.06);
+    }
+    .metric-card-pro .metric-icon-wrap {
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.15rem;
+        color: #ffffff;
+        flex-shrink: 0;
+        margin-right: 14px;
+    }
+    .metric-card-pro .metric-title {
+        font-size: 0.82rem;
+        font-weight: 600;
+        color: #475569;
+        margin-bottom: 2px;
+    }
+    .metric-card-pro .metric-val {
+        font-size: 1.45rem;
+        font-weight: 800;
+        color: #0f172a;
+        line-height: 1.2;
+    }
+    .metric-card-pro .metric-pct {
+        font-size: 0.72rem;
+        font-weight: 700;
+    }
+    .metric-card-pro .metric-watermark {
+        position: absolute;
+        right: 14px;
+        font-size: 2.3rem;
+        pointer-events: none;
+        opacity: 0.35;
+    }
 
-    /* Donut Chart */
-    .donut-container { position: relative; width: 100%; max-width: 280px; margin: 0 auto; }
-    .donut-center { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; }
-    .donut-center h3 { margin: 0; font-weight: 700; font-size: 2rem; color: #1e293b; }
-    .donut-center p { margin: 0; font-size: 0.8rem; color: #64748b; }
+    /* Reports Tabs & DataTables */
+    .report-tabs { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; border-bottom: 1px solid #f1f5f9; padding-bottom: 15px; }
+    .report-tab { text-decoration: none; color: #64748b; font-weight: 600; font-size: 0.88rem; padding: 7px 18px; border-radius: 20px; display: flex; align-items: center; gap: 8px; transition: 0.2s; background: #f8fafc; border: 1px solid #e2e8f0; }
+    .report-tab:hover { background: #e2e8f0; color: #1e293b; }
+    .report-tab.active { background: #1e293b; color: #fff; border-color: #1e293b; }
 
-    /* Reports Tabs */
-    .report-tabs { display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 20px; border-bottom: 1px solid #f1f5f9; padding-bottom: 15px; }
-    .report-tab { text-decoration: none; color: #64748b; font-weight: 500; font-size: 0.9rem; padding: 6px 16px; border-radius: 20px; display: flex; align-items: center; gap: 8px; transition: 0.2s; }
-    .report-tab:hover { background: #f8fafc; color: #1e293b; }
-    .report-tab.active { background: #1e293b; color: #fff; }
-
-    /* Datatable customizations (from subscribers.php) */
     .table-custom-ui { border-radius: 8px; overflow: hidden; }
-    .table-custom-ui thead th { background-color: #f8f9fa; color: #64748b; border-bottom: 2px solid #e5e7eb; font-weight: 600; font-size: 0.9rem; white-space: nowrap; }
-    .table-custom-ui tbody td { vertical-align: middle; border-bottom: 1px solid #e5e7eb; color: #334155; font-size: 0.9rem; }
+    .table-custom-ui thead th { background-color: #f8f9fa; color: #64748b; border-bottom: 2px solid #e5e7eb; font-weight: 600; font-size: 0.88rem; white-space: nowrap; }
+    .table-custom-ui tbody td { vertical-align: middle; border-bottom: 1px solid #e5e7eb; color: #334155; font-size: 0.88rem; }
     .dt-buttons .btn { background-color: #475569; border: none; color: #fff; border-radius: 20px; padding: 4px 14px; font-size: 0.85rem; margin-right: 4px; }
     .dataTables_filter input { background-color: #ffffff; border: 1px solid #ced4da; border-radius: 20px; padding: 4px 15px; }
     .avatar-circle { width: 40px; height: 40px; background-color: #e2e8f0; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #94a3b8; font-size: 1.2rem; }
-    
     .badge-soft-success { background-color: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2); }
     .badge-soft-secondary { background-color: rgba(148, 163, 184, 0.15); color: #64748b; border: 1px solid rgba(148, 163, 184, 0.2); }
     .badge-soft-primary { background-color: rgba(59, 130, 246, 0.15); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.2); }
     .badge-soft-warning { background-color: rgba(245, 158, 11, 0.15); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.2); }
+    .select2-container .select2-selection--single { height: 31px; border: 1px solid #dee2e6; }
+    .select2-container--default .select2-selection--single .select2-selection__rendered { line-height: 29px; color: #475569; font-size: 0.875rem; }
+    .select2-container--default .select2-selection--single .select2-selection__arrow { height: 29px; }
+    .select2-dropdown { border: 1px solid #dee2e6; }
 </style>
 
 <!-- Dashboard Header -->
 <div class="d-flex flex-wrap justify-content-between align-items-center mb-4">
-    <h4 class="m-0 text-secondary fw-bold mb-3 mb-md-0"><i class="fa-solid fa-gauge-high text-primary me-2"></i> Operator Dashboard</h4>
+    <div>
+        <h3 class="fw-bold text-dark mb-1">Operator Dashboard</h3>
+        <p class="text-secondary small mb-0">Manage your network, users and services</p>
+    </div>
     
-    <div class="d-flex align-items-center bg-white px-4 py-2 rounded-pill shadow-sm" style="border: 1px solid #e2e8f0;">
-        <i class="fa-regular fa-clock fs-5 text-primary me-3"></i>
-        <div>
-            <div class="text-muted" style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">Live System Time (<?= date_default_timezone_get() ?>)</div>
-            <div id="live-server-clock" class="fw-bold text-dark" style="font-size: 1.1rem; font-family: monospace;">Loading...</div>
+    <div class="d-flex align-items-center gap-3">
+        <!-- Live System Time Capsule -->
+        <div class="d-flex align-items-center bg-white px-3 py-2 rounded-pill shadow-sm border">
+            <i class="fa-regular fa-clock fs-5 text-primary me-2"></i>
+            <div>
+                <div class="text-muted" style="font-size: 0.68rem; font-weight: 600; text-transform: uppercase;">Live System Time (<?= date_default_timezone_get() ?>)</div>
+                <div id="live-server-clock" class="fw-bold text-primary" style="font-size: 0.95rem; font-family: monospace;">Loading...</div>
+            </div>
+        </div>
+
+        <!-- Operator User Capsule -->
+        <div class="d-flex align-items-center bg-white px-3 py-2 rounded-pill shadow-sm border">
+            <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center me-2" style="width: 36px; height: 36px;">
+                <i class="fa-solid fa-user"></i>
+            </div>
+            <div>
+                <div class="fw-bold text-dark" style="font-size: 0.92rem; line-height: 1.1;">
+                    <?= htmlspecialchars($_SESSION['operator_username'] ?? 'Admin') ?>
+                </div>
+                <div class="text-muted" style="font-size: 0.7rem; font-weight: 600;">Operator</div>
+            </div>
         </div>
     </div>
+</div>
 
 <script>
 (function() {
     var tz = "<?= date_default_timezone_get() ?>";
-    
     function updateClock() {
         var now = new Date();
-        
-        // Format time in the exact timezone
         var timeOptions = { timeZone: tz, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true };
         var timeString = now.toLocaleTimeString('en-US', timeOptions);
-        
-        // Format date in the exact timezone
         var dateOptions = { timeZone: tz, day: 'numeric', month: 'short', year: 'numeric' };
         var dateString = now.toLocaleDateString('en-GB', dateOptions);
-        
         var clockEl = document.getElementById('live-server-clock');
         if(clockEl) {
-            clockEl.innerHTML = dateString + ' &nbsp;|&nbsp; <span class="text-primary">' + timeString + '</span>';
+            clockEl.innerHTML = '<span class="text-dark">' + dateString + '</span> &nbsp;|&nbsp; ' + timeString;
         }
     }
-    
     updateClock();
     setInterval(updateClock, 1000);
 })();
 </script>
-    
-    
-</div>
 
-<!-- Quick Actions -->
-<div class="d-flex flex-wrap gap-3 mb-4">
-    <a href="profile.php" class="quick-btn"><i class="fa-solid fa-user"></i><span>My Profile</span></a>
-    <a href="packages.php" class="quick-btn"><i class="fa-solid fa-box-open text-primary"></i><span>All Packages</span></a>
-    <a href="#" class="quick-btn" data-bs-toggle="modal" data-bs-target="#addBalanceModal"><i class="fa-solid fa-money-bills"></i><span>Add Payment</span></a>
-    
-    <a href="#" class="quick-btn" data-bs-toggle="modal" data-bs-target="#addUserModal"><i class="fa-solid fa-user-plus"></i><span>Add New User</span></a>
-    <a href="#" class="quick-btn" data-bs-toggle="modal" data-bs-target="#renewUserModal"><i class="fa-solid fa-bolt text-warning"></i><span>Activate/Renew</span></a>
-    
-    <a href="backup_users.php" class="quick-btn"><i class="fa-solid fa-download text-success"></i><span>Backup (CSV)</span></a>
-    <a href="#" class="quick-btn" data-bs-toggle="modal" data-bs-target="#restoreModal"><i class="fa-solid fa-upload text-warning"></i><span>Restore CSV</span></a>
-</div>
+<!-- Top 7 Quick Actions -->
+<div class="quick-actions-grid mb-4">
+    <!-- 1. My Profile -->
+    <a href="profile.php" class="quick-action-card">
+        <div class="quick-action-icon" style="background: linear-gradient(135deg, #3b82f6, #1d4ed8);">
+            <i class="fa-solid fa-user"></i>
+        </div>
+        <div class="quick-action-text">My Profile</div>
+    </a>
 
+    <!-- 2. All Packages -->
+    <a href="packages.php" class="quick-action-card">
+        <div class="quick-action-icon" style="background: linear-gradient(135deg, #10b981, #059669);">
+            <i class="fa-solid fa-box-open"></i>
+        </div>
+        <div class="quick-action-text">All Packages</div>
+    </a>
+
+    <!-- 3. Add Payment -->
+    <a href="#" class="quick-action-card" data-bs-toggle="modal" data-bs-target="#addBalanceModal">
+        <div class="quick-action-icon" style="background: linear-gradient(135deg, #8b5cf6, #6d28d9);">
+            <i class="fa-solid fa-credit-card"></i>
+        </div>
+        <div class="quick-action-text">Add Payment</div>
+    </a>
+
+    <!-- 4. Add New User -->
+    <a href="#" class="quick-action-card" data-bs-toggle="modal" data-bs-target="#addUserModal">
+        <div class="quick-action-icon" style="background: linear-gradient(135deg, #0ea5e9, #0284c7);">
+            <i class="fa-solid fa-user-plus"></i>
+        </div>
+        <div class="quick-action-text">Add New User</div>
+    </a>
+
+    <!-- 5. Activate/Renew -->
+    <a href="#" class="quick-action-card" data-bs-toggle="modal" data-bs-target="#renewUserModal">
+        <div class="quick-action-icon" style="background: linear-gradient(135deg, #f97316, #c2410c);">
+            <i class="fa-solid fa-bolt"></i>
+        </div>
+        <div class="quick-action-text">Activate/Renew</div>
+    </a>
+
+    <!-- 6. Backup (CSV) -->
+    <a href="backup_users.php" class="quick-action-card">
+        <div class="quick-action-icon" style="background: linear-gradient(135deg, #14b8a6, #0f766e);">
+            <i class="fa-solid fa-download"></i>
+        </div>
+        <div class="quick-action-text">Backup (CSV)</div>
+    </a>
+
+    <!-- 7. Restore CSV -->
+    <a href="#" class="quick-action-card" data-bs-toggle="modal" data-bs-target="#restoreModal">
+        <div class="quick-action-icon" style="background: linear-gradient(135deg, #6366f1, #4338ca);">
+            <i class="fa-solid fa-cloud-arrow-up"></i>
+        </div>
+        <div class="quick-action-text">Restore CSV</div>
+    </a>
+</div>
 
 <!-- Reports & Statistics Card -->
 <div class="card-ui p-4">
-    <h6 class="fw-bold text-secondary mb-4"><i class="fa-solid fa-chart-pie me-2 text-primary"></i> Reports & Statistics</h6>
-    
-    <div class="stat-tabs">
-        <a href="javascript:void(0)" onclick="switchStatTab('user', this)" class="stat-tab active"><i class="fa-solid fa-user me-1"></i> User</a>
-        <a href="javascript:void(0)" onclick="switchStatTab('accounting', this)" class="stat-tab"><i class="fa-solid fa-dollar-sign me-1"></i> Accounting</a>
-        <a href="javascript:void(0)" onclick="switchStatTab('usage', this)" class="stat-tab"><i class="fa-solid fa-chart-line me-1"></i> Usage</a>
-        <a href="#" class="stat-tab"><i class="fa-solid fa-map-location-dot me-1"></i> Map</a>
-    </div>
-
-    <!-- User Tab Content -->
-    <div id="stat-content-user" class="row">
-        <!-- Donut Chart -->
-        <div class="col-lg-3 col-md-4 mb-4 text-center">
-            <h6 class="text-start fw-bold text-secondary mb-3 border-start border-3 border-primary ps-2">All Users</h6>
-            <div class="donut-container">
-                <canvas id="usersDonut"></canvas>
-                <div class="donut-center">
-                    <h3><?= $total_users ?></h3>
-                    <p>All Users</p>
-                </div>
+    <!-- Section Header -->
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-3">
+        <div class="d-flex align-items-center">
+            <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center me-3" style="width: 42px; height: 42px; font-size: 1.15rem;">
+                <i class="fa-solid fa-chart-pie"></i>
             </div>
-            <div class="mt-3 d-flex justify-content-center gap-3 text-secondary" style="font-size: 0.8rem;">
-                <span><i class="fa-solid fa-circle text-success" style="font-size: 0.6rem;"></i> Active <?= $active_users ?></span>
-                <span><i class="fa-solid fa-circle text-danger" style="font-size: 0.6rem;"></i> Expired <?= $expired ?></span>
-                <span><i class="fa-solid fa-circle text-secondary" style="font-size: 0.6rem;"></i> Others <?= $disabled_users ?></span>
+            <div>
+                <h5 class="fw-bold text-dark mb-0">Reports & Statistics</h5>
+                <div class="text-secondary small">Quick overview of your network performance</div>
             </div>
         </div>
 
-        <!-- Stats Grid -->
-        <div class="col-lg-9 col-md-8">
-            <div class="stats-grid">
-                <div class="stat-box bg-blue cursor-pointer" onclick="window.location.href='subscribers.php'" title="View all subscribers">
-<div class="title"><i class="fa-solid fa-users"></i> Users</div>
-                    <div class="value"><?= number_format($total_users) ?> <span class="pct">100.00%</span></div>
-                </div>
-                <div class="stat-box bg-green cursor-pointer" onclick="window.location.href='subscribers.php'" title="View all subscribers">
-<div class="title"><i class="fa-solid fa-circle-check"></i> Active</div>
-                    <div class="value"><?= number_format($active_users) ?> <span class="pct"><?= $pct($active_users) ?></span></div>
-                </div>
-                <div class="stat-box bg-green cursor-pointer" style="opacity: 0.8;" onclick="window.location.href='live_sessions.php'" title="View live sessions">
-<div class="title"><i class="fa-solid fa-wifi"></i> Online</div>
-                    <div class="value"><?= number_format($online_users) ?> <span class="pct"><?= $pct($online_users) ?></span></div>
-                </div>
-                
-                <div class="stat-box bg-yellow cursor-pointer" onclick="window.location.href='live_sessions.php?filter=expired_online'" title="View users who are online but their package has expired">
-                    <div class="title"><i class="fa-solid fa-user-clock"></i> Expired Online</div>
-                    <div class="value"><?= number_format($expired_online_users) ?> <span class="pct"><?= $pct($expired_online_users) ?></span></div>
-                </div>
-                <div class="stat-box bg-grey cursor-pointer" onclick="window.location.href='subscribers.php?filter=offline'">
-                    <div class="title"><i class="fa-solid fa-user-large-slash"></i> Offline</div>
-                    <div class="value"><?= number_format($offline_users) ?> <span class="pct"><?= $pct($offline_users) ?></span></div>
-                </div>
-                <div class="stat-box bg-grey cursor-pointer" onclick="window.location.href='subscribers.php'">
-<div class="title"><i class="fa-solid fa-user-plus"></i> Registered</div>
-                    <div class="value"><?= number_format($total_users) ?> <span class="pct">100.00%</span></div>
+        <div class="dropdown mt-2 mt-md-0">
+            <button class="btn btn-sm btn-white bg-white border rounded-pill px-3 py-2 fw-semibold text-secondary d-flex align-items-center gap-2 shadow-sm" type="button">
+                <i class="fa-regular fa-calendar"></i> Last 30 Days <i class="fa-solid fa-chevron-down small"></i>
+            </button>
+        </div>
+    </div>
+    
+    <!-- Sub-navigation Pills -->
+    <div class="d-flex flex-wrap gap-2 mb-4 pb-2 border-bottom">
+        <a href="javascript:void(0)" onclick="switchStatTab('user', this)" class="reports-pill-btn active"><i class="fa-solid fa-user me-2"></i> User</a>
+        <a href="javascript:void(0)" onclick="switchStatTab('accounting', this)" class="reports-pill-btn"><i class="fa-solid fa-dollar-sign me-1"></i> Accounting</a>
+        <a href="javascript:void(0)" onclick="switchStatTab('usage', this)" class="reports-pill-btn"><i class="fa-solid fa-chart-line me-1"></i> Usage</a>
+        <a href="javascript:void(0)" onclick="switchStatTab('map', this)" class="reports-pill-btn"><i class="fa-solid fa-map-location-dot me-1"></i> Map</a>
+    </div>
+
+    <!-- User Tab Content -->
+    <div id="stat-content-user" class="row g-4">
+        <!-- Left: Donut Chart Card -->
+        <div class="col-12 col-lg-3">
+            <div class="all-users-donut-card">
+                <div>
+                    <!-- Header -->
+                    <div class="d-flex justify-content-between align-items-start mb-3">
+                        <div class="d-flex align-items-center">
+                            <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center me-2" style="width: 32px; height: 32px; font-size: 0.9rem;">
+                                <i class="fa-solid fa-user"></i>
+                            </div>
+                            <div>
+                                <h6 class="fw-bold text-dark mb-0">All Users</h6>
+                                <div class="text-muted" style="font-size: 0.72rem;">Total registered users in your system</div>
+                            </div>
+                        </div>
+                        <div class="rounded-circle bg-primary bg-opacity-10 text-primary d-flex align-items-center justify-content-center" style="width: 32px; height: 32px;">
+                            <i class="fa-solid fa-users" style="font-size: 0.85rem;"></i>
+                        </div>
+                    </div>
+
+                    <!-- Donut Chart -->
+                    <div class="donut-container-pro">
+                        <canvas id="usersDonut"></canvas>
+                        <div class="donut-center-pro">
+                            <h3><?= number_format($total_users) ?></h3>
+                            <p>All Users</p>
+                            <i class="fa-solid fa-users text-primary" style="font-size: 0.9rem;"></i>
+                        </div>
+                    </div>
                 </div>
 
-                <div class="stat-box bg-grey cursor-pointer" onclick="window.location.href='?report=disabled#reportsSection'" title="View disabled users report">
-<div class="title"><i class="fa-solid fa-user-slash"></i> Disable</div>
-                    <div class="value"><?= number_format($disabled_users) ?> <span class="pct"><?= $pct($disabled_users) ?></span></div>
+                <!-- Legend -->
+                <div class="pt-3 border-top mt-2" style="font-size: 0.85rem;">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div class="d-flex align-items-center">
+                            <span class="rounded-circle me-2 d-inline-block" style="width: 10px; height: 10px; background-color: #0ea5e9;"></span>
+                            <span class="fw-semibold text-secondary">Active</span>
+                        </div>
+                        <div>
+                            <span class="fw-bold text-dark"><?= number_format($active_users) ?></span>
+                            <span class="text-muted small ms-2"><?= $pct($active_users) ?></span>
+                        </div>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div class="d-flex align-items-center">
+                            <span class="rounded-circle me-2 d-inline-block" style="width: 10px; height: 10px; background-color: #ef4444;"></span>
+                            <span class="fw-semibold text-secondary">Expired</span>
+                        </div>
+                        <div>
+                            <span class="fw-bold text-dark"><?= number_format($expired) ?></span>
+                            <span class="text-muted small ms-2"><?= $pct($expired) ?></span>
+                        </div>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div class="d-flex align-items-center">
+                            <span class="rounded-circle me-2 d-inline-block" style="width: 10px; height: 10px; background-color: #64748b;"></span>
+                            <span class="fw-semibold text-secondary">Others</span>
+                        </div>
+                        <div>
+                            <span class="fw-bold text-dark"><?= number_format($disabled_users) ?></span>
+                            <span class="text-muted small ms-2"><?= $pct($disabled_users) ?></span>
+                        </div>
+                    </div>
                 </div>
-                <div class="stat-box bg-red cursor-pointer" onclick="window.location.href='?report=expired#reportsSection'" title="View expired users report">
-<div class="title"><i class="fa-solid fa-user-xmark"></i> Expired</div>
-                    <div class="value"><?= number_format($expired) ?> <span class="pct"><?= $pct($expired) ?></span></div>
-                </div>
-                <div class="stat-box bg-grey cursor-pointer" onclick="window.location.href='subscribers.php'">
-<div class="title"><i class="fa-solid fa-network-wired"></i> PPPoE</div>
-                    <div class="value"><?= number_format($pppoe_users) ?> <span class="pct"><?= $pct($pppoe_users) ?></span></div>
+            </div>
+        </div>
+
+        <!-- Right: 12 Metrics Grid (3 columns x 4 rows) -->
+        <div class="col-12 col-lg-9">
+            <div class="metrics-12-grid">
+                <!-- 1. Users -->
+                <div class="metric-card-pro" style="background-color: #f0f7ff; border: 1px solid #dbeafe;" onclick="window.location.href='subscribers.php'" title="View all subscribers">
+                    <div class="d-flex align-items-center">
+                        <div class="metric-icon-wrap" style="background-color: #2563eb;">
+                            <i class="fa-solid fa-users"></i>
+                        </div>
+                        <div>
+                            <div class="metric-title">Users</div>
+                            <div class="metric-val"><?= number_format($total_users) ?></div>
+                            <div class="metric-pct" style="color: #2563eb;">100.00%</div>
+                        </div>
+                    </div>
+                    <div class="metric-watermark" style="color: #60a5fa;">
+                        <i class="fa-solid fa-chart-line"></i>
+                    </div>
                 </div>
 
-                <div class="stat-box bg-grey cursor-pointer" onclick="window.location.href='subscribers.php'">
-<div class="title"><i class="fa-solid fa-wifi"></i> Hotspot</div>
-                    <div class="value"><?= number_format($hotspot_users) ?> <span class="pct"><?= $pct($hotspot_users) ?></span></div>
-                </div>
-                <div class="stat-box bg-yellow cursor-pointer" onclick="window.location.href='?report=expiring_1#reportsSection'">
-<div class="title"><i class="fa-solid fa-hourglass-end"></i> Expiring (1 Day)</div>
-                    <div class="value"><?= number_format($expiring_1d) ?> <span class="pct"><?= $pct($expiring_1d) ?></span></div>
-                </div>
-                <div class="stat-box bg-yellow cursor-pointer" onclick="window.location.href='?report=expiring_3#reportsSection'">
-<div class="title"><i class="fa-solid fa-hourglass-half"></i> Expiring (3 Days)</div>
-                    <div class="value"><?= number_format($expiring_3d) ?> <span class="pct"><?= $pct($expiring_3d) ?></span></div>
+                <!-- 2. Active -->
+                <div class="metric-card-pro" style="background-color: #f0fdf4; border: 1px solid #dcfce7;" onclick="window.location.href='subscribers.php'" title="View active subscribers">
+                    <div class="d-flex align-items-center">
+                        <div class="metric-icon-wrap" style="background-color: #16a34a;">
+                            <i class="fa-solid fa-check"></i>
+                        </div>
+                        <div>
+                            <div class="metric-title">Active</div>
+                            <div class="metric-val"><?= number_format($active_users) ?></div>
+                            <div class="metric-pct" style="color: #16a34a;"><?= $pct($active_users) ?></div>
+                        </div>
+                    </div>
+                    <div class="metric-watermark" style="color: #4ade80;">
+                        <i class="fa-solid fa-arrow-trend-up"></i>
+                    </div>
                 </div>
 
-                <div class="stat-box bg-yellow cursor-pointer" onclick="window.location.href='?report=expiring_1w#reportsSection'">
-<div class="title"><i class="fa-solid fa-calendar-week"></i> Expiring (1 Week)</div>
-                    <div class="value"><?= number_format($expiring_1w) ?> <span class="pct"><?= $pct($expiring_1w) ?></span></div>
+                <!-- 3. Online -->
+                <div class="metric-card-pro" style="background-color: #ecfdf5; border: 1px solid #d1fae5;" onclick="window.location.href='live_sessions.php'" title="View live sessions">
+                    <div class="d-flex align-items-center">
+                        <div class="metric-icon-wrap" style="background-color: #059669;">
+                            <i class="fa-solid fa-wifi"></i>
+                        </div>
+                        <div>
+                            <div class="metric-title">Online</div>
+                            <div class="metric-val"><?= number_format($online_users) ?></div>
+                            <div class="metric-pct" style="color: #059669;"><?= $pct($online_users) ?></div>
+                        </div>
+                    </div>
+                    <div class="metric-watermark" style="color: #34d399;">
+                        <i class="fa-solid fa-wifi"></i>
+                    </div>
                 </div>
-                <div class="stat-box bg-yellow cursor-pointer" onclick="window.location.href='?report=expiring_2w#reportsSection'">
-<div class="title"><i class="fa-solid fa-calendar-days"></i> Expiring (2 Weeks)</div>
-                    <div class="value"><?= number_format($expiring_2w) ?> <span class="pct"><?= $pct($expiring_2w) ?></span></div>
+
+                <!-- 4. Expired Online -->
+                <div class="metric-card-pro" style="background-color: #fffbeb; border: 1px solid #fef3c7;" onclick="window.location.href='live_sessions.php?filter=expired_online'" title="View users online with expired package">
+                    <div class="d-flex align-items-center">
+                        <div class="metric-icon-wrap" style="background-color: #d97706;">
+                            <i class="fa-solid fa-clock"></i>
+                        </div>
+                        <div>
+                            <div class="metric-title">Expired Online</div>
+                            <div class="metric-val"><?= number_format($expired_online_users) ?></div>
+                            <div class="metric-pct" style="color: #d97706;"><?= $pct($expired_online_users) ?></div>
+                        </div>
+                    </div>
+                    <div class="metric-watermark" style="color: #fbbf24;">
+                        <i class="fa-regular fa-clock"></i>
+                    </div>
+                </div>
+
+                <!-- 5. Offline -->
+                <div class="metric-card-pro" style="background-color: #f8fafc; border: 1px solid #e2e8f0;" onclick="window.location.href='subscribers.php?filter=offline'" title="View offline subscribers">
+                    <div class="d-flex align-items-center">
+                        <div class="metric-icon-wrap" style="background-color: #475569;">
+                            <i class="fa-solid fa-user-xmark"></i>
+                        </div>
+                        <div>
+                            <div class="metric-title">Offline</div>
+                            <div class="metric-val"><?= number_format($offline_users) ?></div>
+                            <div class="metric-pct" style="color: #64748b;"><?= $pct($offline_users) ?></div>
+                        </div>
+                    </div>
+                    <div class="metric-watermark" style="color: #94a3b8;">
+                        <i class="fa-solid fa-user-slash"></i>
+                    </div>
+                </div>
+
+                <!-- 6. Registered -->
+                <div class="metric-card-pro" style="background-color: #faf5ff; border: 1px solid #f3e8ff;" onclick="window.location.href='subscribers.php'" title="View registered subscribers">
+                    <div class="d-flex align-items-center">
+                        <div class="metric-icon-wrap" style="background-color: #7c3aed;">
+                            <i class="fa-solid fa-user-plus"></i>
+                        </div>
+                        <div>
+                            <div class="metric-title">Registered</div>
+                            <div class="metric-val"><?= number_format($total_users) ?></div>
+                            <div class="metric-pct" style="color: #7c3aed;">100.00%</div>
+                        </div>
+                    </div>
+                    <div class="metric-watermark" style="color: #a855f7;">
+                        <i class="fa-solid fa-users-gear"></i>
+                    </div>
+                </div>
+
+                <!-- 7. Disable -->
+                <div class="metric-card-pro" style="background-color: #f1f5f9; border: 1px solid #e2e8f0;" onclick="window.location.href='?report=disabled#reportsSection'" title="View disabled users">
+                    <div class="d-flex align-items-center">
+                        <div class="metric-icon-wrap" style="background-color: #334155;">
+                            <i class="fa-solid fa-user-lock"></i>
+                        </div>
+                        <div>
+                            <div class="metric-title">Disable</div>
+                            <div class="metric-val"><?= number_format($disabled_users) ?></div>
+                            <div class="metric-pct" style="color: #64748b;"><?= $pct($disabled_users) ?></div>
+                        </div>
+                    </div>
+                    <div class="metric-watermark" style="color: #94a3b8;">
+                        <i class="fa-solid fa-ban"></i>
+                    </div>
+                </div>
+
+                <!-- 8. Expired -->
+                <div class="metric-card-pro" style="background-color: #fff1f2; border: 1px solid #ffe4e6;" onclick="window.location.href='?report=expired#reportsSection'" title="View expired users">
+                    <div class="d-flex align-items-center">
+                        <div class="metric-icon-wrap" style="background-color: #e11d48;">
+                            <i class="fa-solid fa-circle-exclamation"></i>
+                        </div>
+                        <div>
+                            <div class="metric-title">Expired</div>
+                            <div class="metric-val"><?= number_format($expired) ?></div>
+                            <div class="metric-pct" style="color: #e11d48;"><?= $pct($expired) ?></div>
+                        </div>
+                    </div>
+                    <div class="metric-watermark" style="color: #fb7185;">
+                        <i class="fa-solid fa-triangle-exclamation"></i>
+                    </div>
+                </div>
+
+                <!-- 9. PPPoE -->
+                <div class="metric-card-pro" style="background-color: #eef2ff; border: 1px solid #e0e7ff;" onclick="window.location.href='subscribers.php'" title="View PPPoE subscribers">
+                    <div class="d-flex align-items-center">
+                        <div class="metric-icon-wrap" style="background-color: #4f46e5;">
+                            <i class="fa-solid fa-diagram-project"></i>
+                        </div>
+                        <div>
+                            <div class="metric-title">PPPoE</div>
+                            <div class="metric-val"><?= number_format($pppoe_users) ?></div>
+                            <div class="metric-pct" style="color: #4f46e5;"><?= $pct($pppoe_users) ?></div>
+                        </div>
+                    </div>
+                    <div class="metric-watermark" style="color: #818cf8;">
+                        <i class="fa-solid fa-sitemap"></i>
+                    </div>
+                </div>
+
+                <!-- 10. Hotspot -->
+                <div class="metric-card-pro" style="background-color: #fdf4ff; border: 1px solid #fae8ff;" onclick="window.location.href='subscribers.php'" title="View Hotspot subscribers">
+                    <div class="d-flex align-items-center">
+                        <div class="metric-icon-wrap" style="background-color: #c026d3;">
+                            <i class="fa-solid fa-wifi"></i>
+                        </div>
+                        <div>
+                            <div class="metric-title">Hotspot</div>
+                            <div class="metric-val"><?= number_format($hotspot_users) ?></div>
+                            <div class="metric-pct" style="color: #c026d3;"><?= $pct($hotspot_users) ?></div>
+                        </div>
+                    </div>
+                    <div class="metric-watermark" style="color: #e879f9;">
+                        <i class="fa-solid fa-tower-broadcast"></i>
+                    </div>
+                </div>
+
+                <!-- 11. Expiring (1 Day) -->
+                <div class="metric-card-pro" style="background-color: #fff1f2; border: 1px solid #ffe4e6;" onclick="window.location.href='?report=expiring_1#reportsSection'" title="Expiring within 1 day">
+                    <div class="d-flex align-items-center">
+                        <div class="metric-icon-wrap" style="background-color: #f43f5e;">
+                            <i class="fa-solid fa-hourglass-end"></i>
+                        </div>
+                        <div>
+                            <div class="metric-title">Expiring (1 Day)</div>
+                            <div class="metric-val"><?= number_format($expiring_1d) ?></div>
+                            <div class="metric-pct" style="color: #f43f5e;"><?= $pct($expiring_1d) ?></div>
+                        </div>
+                    </div>
+                    <div class="metric-watermark" style="color: #fb7185;">
+                        <i class="fa-regular fa-clock"></i>
+                    </div>
+                </div>
+
+                <!-- 12. Expiring (3 Days) -->
+                <div class="metric-card-pro" style="background-color: #faf5ff; border: 1px solid #f3e8ff;" onclick="window.location.href='?report=expiring_3#reportsSection'" title="Expiring within 3 days">
+                    <div class="d-flex align-items-center">
+                        <div class="metric-icon-wrap" style="background-color: #9333ea;">
+                            <i class="fa-solid fa-hourglass-half"></i>
+                        </div>
+                        <div>
+                            <div class="metric-title">Expiring (3 Days)</div>
+                            <div class="metric-val"><?= number_format($expiring_3d) ?></div>
+                            <div class="metric-pct" style="color: #9333ea;"><?= $pct($expiring_3d) ?></div>
+                        </div>
+                    </div>
+                    <div class="metric-watermark" style="color: #c084fc;">
+                        <i class="fa-regular fa-hourglass"></i>
+                    </div>
+                </div>
+
+                <!-- 13. Expiring (1 Week) -->
+                <div class="metric-card-pro" style="background-color: #fff7ed; border: 1px solid #ffedd5;" onclick="window.location.href='?report=expiring_1w#reportsSection'" title="Expiring within 1 week">
+                    <div class="d-flex align-items-center">
+                        <div class="metric-icon-wrap" style="background-color: #ea580c;">
+                            <i class="fa-solid fa-calendar-days"></i>
+                        </div>
+                        <div>
+                            <div class="metric-title">Expiring (1 Week)</div>
+                            <div class="metric-val"><?= number_format($expiring_1w) ?></div>
+                            <div class="metric-pct" style="color: #ea580c;"><?= $pct($expiring_1w) ?></div>
+                        </div>
+                    </div>
+                    <div class="metric-watermark" style="color: #fb923c;">
+                        <i class="fa-regular fa-calendar-check"></i>
+                    </div>
+                </div>
+
+                <!-- 14. Expiring (2 Weeks) -->
+                <div class="metric-card-pro" style="background-color: #ecfeff; border: 1px solid #cffafe;" onclick="window.location.href='?report=expiring_2w#reportsSection'" title="Expiring within 2 weeks">
+                    <div class="d-flex align-items-center">
+                        <div class="metric-icon-wrap" style="background-color: #0891b2;">
+                            <i class="fa-solid fa-calendar-week"></i>
+                        </div>
+                        <div>
+                            <div class="metric-title">Expiring (2 Weeks)</div>
+                            <div class="metric-val"><?= number_format($expiring_2w) ?></div>
+                            <div class="metric-pct" style="color: #0891b2;"><?= $pct($expiring_2w) ?></div>
+                        </div>
+                    </div>
+                    <div class="metric-watermark" style="color: #22d3ee;">
+                        <i class="fa-regular fa-calendar-days"></i>
+                    </div>
                 </div>
             </div>
         </div>
@@ -565,8 +1014,14 @@ $subs = $pdo->query("SELECT s.*, p.name as package_name,
             <div class="text-muted mt-2 small">Loading Accounting Statistics...</div>
         </div>
     </div>
-</div>
 
+    <!-- Map Tab Content -->
+    <div id="stat-content-map" class="row d-none">
+        <div class="col-12 text-center py-5">
+            <div class="text-muted mt-2"><i class="fa-solid fa-map-location-dot fa-2x mb-2 text-primary"></i><br>Network Map view is coming soon.</div>
+        </div>
+    </div>
+</div>
 <!-- User Reports Table -->
 <div class="card-ui p-4 mt-4" id="reportsSection">
     <h6 class="fw-bold text-secondary mb-4"><i class="fa-solid fa-list-ul me-2 text-primary"></i> User Reports</h6>
@@ -1132,58 +1587,68 @@ function switchStatTab(tabName, el) {
     // Save to localStorage
     localStorage.setItem('activeStatTab', tabName);
 
-    // Update active class on tabs
-    document.querySelectorAll('.stat-tabs .stat-tab').forEach(function(tab) {
+    // Update active class on all pills
+    document.querySelectorAll('.reports-pill-btn').forEach(function(tab) {
         tab.classList.remove('active');
     });
-    el.classList.add('active');
+    if (el) {
+        el.classList.add('active');
+    }
+
+    var userContent = document.getElementById('stat-content-user');
+    var usageContainer = document.getElementById('stat-content-usage');
+    var accContainer = document.getElementById('stat-content-accounting');
+    var mapContainer = document.getElementById('stat-content-map');
+
+    if (userContent) userContent.classList.add('d-none');
+    if (usageContainer) usageContainer.classList.add('d-none');
+    if (accContainer) accContainer.classList.add('d-none');
+    if (mapContainer) mapContainer.classList.add('d-none');
 
     // Toggle content visibility
     if(tabName === 'user') {
-        document.getElementById('stat-content-user').classList.remove('d-none');
-        document.getElementById('stat-content-usage').classList.add('d-none');
-        document.getElementById('stat-content-accounting').classList.add('d-none');
+        if (userContent) userContent.classList.remove('d-none');
     } else if(tabName === 'usage') {
-        document.getElementById('stat-content-user').classList.add('d-none');
-        document.getElementById('stat-content-accounting').classList.add('d-none');
-        var usageContainer = document.getElementById('stat-content-usage');
-        usageContainer.classList.remove('d-none');
-        
-        // Fetch via AJAX
-        usageContainer.innerHTML = '<div class="col-12 text-center py-5"><div class="spinner-border text-primary" role="status"></div><div class="text-muted mt-2 small">Loading Usage Statistics...</div></div>';
-        fetch('ajax_usage_stats.php')
-            .then(res => res.text())
-            .then(html => {
-                usageContainer.innerHTML = html;
-            })
-            .catch(err => {
-                usageContainer.innerHTML = '<div class="col-12 text-center py-5 text-danger">Failed to load statistics.</div>';
-            });
+        if (usageContainer) {
+            usageContainer.classList.remove('d-none');
+            // Fetch via AJAX
+            usageContainer.innerHTML = '<div class="col-12 text-center py-5"><div class="spinner-border text-primary" role="status"></div><div class="text-muted mt-2 small">Loading Usage Statistics...</div></div>';
+            fetch('ajax_usage_stats.php')
+                .then(res => res.text())
+                .then(html => {
+                    usageContainer.innerHTML = html;
+                })
+                .catch(err => {
+                    usageContainer.innerHTML = '<div class="col-12 text-center py-5 text-danger">Failed to load statistics.</div>';
+                });
+        }
     } else if(tabName === 'accounting') {
-        document.getElementById('stat-content-user').classList.add('d-none');
-        document.getElementById('stat-content-usage').classList.add('d-none');
-        var accContainer = document.getElementById('stat-content-accounting');
-        accContainer.classList.remove('d-none');
-        
-        // Fetch via AJAX
-        accContainer.innerHTML = '<div class="col-12 text-center py-5"><div class="spinner-border text-primary" role="status"></div><div class="text-muted mt-2 small">Loading Accounting Statistics...</div></div>';
-        fetch('ajax_accounting_stats.php')
-            .then(res => res.text())
-            .then(html => {
-                accContainer.innerHTML = html;
-            })
-            .catch(err => {
-                accContainer.innerHTML = '<div class="col-12 text-center py-5 text-danger">Failed to load statistics.</div>';
-            });
+        if (accContainer) {
+            accContainer.classList.remove('d-none');
+            // Fetch via AJAX
+            accContainer.innerHTML = '<div class="col-12 text-center py-5"><div class="spinner-border text-primary" role="status"></div><div class="text-muted mt-2 small">Loading Accounting Statistics...</div></div>';
+            fetch('ajax_accounting_stats.php')
+                .then(res => res.text())
+                .then(html => {
+                    accContainer.innerHTML = html;
+                })
+                .catch(err => {
+                    accContainer.innerHTML = '<div class="col-12 text-center py-5 text-danger">Failed to load statistics.</div>';
+                });
+        }
+    } else if(tabName === 'map') {
+        if (mapContainer) {
+            mapContainer.classList.remove('d-none');
+        }
     }
 }
 
 // Restore active tab on page load
 document.addEventListener('DOMContentLoaded', function() {
-    var savedTab = localStorage.getItem('activeStatTab');
-    if (savedTab === 'usage') {
-        var usageBtn = document.querySelector('.stat-tabs a[onclick*="usage"]');
-        if (usageBtn) switchStatTab('usage', usageBtn);
+    var savedTab = localStorage.getItem('activeStatTab') || 'user';
+    var targetBtn = document.querySelector('.reports-pill-btn[onclick*="' + savedTab + '"]');
+    if (targetBtn) {
+        switchStatTab(savedTab, targetBtn);
     }
 });
 </script>

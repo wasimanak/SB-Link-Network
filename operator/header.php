@@ -48,71 +48,210 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
     <style>
         body { font-family: 'Inter', sans-serif; background-color: #f4f6f9; color: #333; overflow-x: hidden; }
         
-                /* Mini Sidebar Styles */
-        .sidebar { transition: width 0.3s ease, padding 0.3s ease; z-index: 1040; overflow-x: hidden; }
-        .main-content, .top-nav { transition: margin-left 0.3s ease; }
-        
-        .sidebar.mini-sidebar { width: 75px !important; }
-        .sidebar.mini-sidebar .menu-text { display: none; }
-        .sidebar.mini-sidebar .brand-text { display: none; }
-        .sidebar.mini-sidebar .has-submenu::after { display: none; }
-        .sidebar.mini-sidebar .badge { display: none !important; }
-        .sidebar.mini-sidebar .submenu { display: none !important; }
-        .sidebar.mini-sidebar .nav-link-main { padding: 14px 10px; justify-content: center; }
-        .sidebar.mini-sidebar .nav-link-main i.menu-icon { width: auto; margin: 0; font-size: 1.3rem; }
-        
-        .main-content.mini-sidebar-active { margin-left: 75px; }
-        .top-nav.mini-sidebar-active { margin-left: 75px; }
-        /* Sidebar Styles based on requested design */
-        .sidebar {
-            width: 260px; height: 100vh; position: fixed; background-color: #ffffff; 
-            padding-top: 15px; border-right: 1px solid #e5e7eb; overflow-y: auto;
-            box-shadow: 2px 0 10px rgba(0,0,0,0.02);
+                /* --- Premium Modern Sidebar & Navigation --- */
+        :root {
+            --sidebar-width: 260px;
+            --sidebar-mini-width: 75px;
+            --sidebar-transition: 0.28s cubic-bezier(0.4, 0, 0.2, 1);
         }
-        .sidebar a.nav-link-main {
-            color: #4b5563; text-decoration: none; padding: 14px 20px; 
-            display: flex; align-items: center; font-size: 1rem; font-weight: 500;
-        }
-        .sidebar a.nav-link-main:hover { background-color: #f8fafc; color: #1e293b; }
-        .sidebar a.nav-link-main i.menu-icon { width: 30px; text-align: left; font-size: 1.1rem; color: #64748b; }
-        
-        /* Active Parent Item */
-        .sidebar a.active-parent {
-            background-color: #f1f5f9; color: #0f172a; border-left: 4px solid #3b82f6; padding-left: 16px;
-        }
-        .sidebar a.active-parent i.menu-icon { color: #3b82f6; }
 
-        /* Dropdown Icon */
-        .has-submenu::after { content: '\f107'; font-family: 'Font Awesome 6 Free'; font-weight: 900; margin-left: auto; transition: 0.2s; color: #94a3b8; }
-        .has-submenu[aria-expanded="true"]::after { transform: rotate(180deg); }
+        .sidebar {
+            width: var(--sidebar-width);
+            height: 100vh;
+            position: fixed;
+            top: 0;
+            left: 0;
+            background: #ffffff;
+            border-right: 1px solid #eef2f6;
+            overflow-y: auto;
+            overflow-x: hidden;
+            z-index: 1045;
+            transition: width var(--sidebar-transition), box-shadow var(--sidebar-transition), transform var(--sidebar-transition);
+            box-shadow: 2px 0 12px rgba(15, 23, 42, 0.03);
+            scrollbar-width: thin;
+            scrollbar-color: #e2e8f0 transparent;
+        }
+
+        .sidebar::-webkit-scrollbar { width: 5px; }
+        .sidebar::-webkit-scrollbar-track { background: transparent; }
+        .sidebar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+        .sidebar::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
+
+        .sidebar a.nav-link-main {
+            color: #475569;
+            text-decoration: none;
+            padding: 11px 16px;
+            margin: 3px 12px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            font-size: 0.92rem;
+            font-weight: 500;
+            transition: all 0.18s ease;
+            white-space: nowrap;
+        }
+
+        .sidebar a.nav-link-main:hover {
+            background-color: #f8fafc;
+            color: #0f172a;
+        }
+
+        .sidebar a.nav-link-main i.menu-icon {
+            width: 26px;
+            font-size: 1.15rem;
+            color: #64748b;
+            text-align: left;
+            flex-shrink: 0;
+            margin-right: 12px;
+            transition: color 0.18s ease, transform 0.18s ease;
+        }
+
+        .sidebar a.nav-link-main:hover i.menu-icon {
+            color: #2563eb;
+            transform: scale(1.08);
+        }
+
+        /* Active Main Item */
+        .sidebar a.active-parent {
+            background-color: #eff6ff !important;
+            color: #2563eb !important;
+            font-weight: 600;
+            box-shadow: 0 1px 3px rgba(37,99,235,0.06);
+        }
+
+        .sidebar a.active-parent i.menu-icon {
+            color: #2563eb !important;
+        }
+
+        /* Submenu Dropdown Arrow */
+        .has-submenu::after {
+            content: '\f107';
+            font-family: 'Font Awesome 6 Free';
+            font-weight: 900;
+            margin-left: auto;
+            transition: transform 0.2s ease;
+            color: #94a3b8;
+            font-size: 0.85rem;
+        }
+
+        .has-submenu[aria-expanded="true"]::after {
+            transform: rotate(180deg);
+            color: #2563eb;
+        }
 
         /* Submenu Styling */
-        .submenu { background-color: #fafbfc; position: relative; margin-top: 0; padding-top: 5px; padding-bottom: 5px; }
-        /* Vertical Line */
-        .submenu::before {
-            content: ""; position: absolute; left: 30px; top: 0; bottom: 0; width: 1px; background-color: #e2e8f0;
+        .submenu {
+            background: transparent;
+            margin: 2px 12px 6px 36px;
+            padding-left: 0;
+            border-left: 2px solid #f1f5f9;
         }
+
         .submenu a {
-            display: block; color: #64748b; text-decoration: none; padding: 10px 20px 10px 50px; 
-            position: relative; font-size: 0.95rem; font-weight: 400; transition: 0.2s;
+            display: block;
+            color: #64748b;
+            text-decoration: none;
+            padding: 8px 14px 8px 16px;
+            font-size: 0.88rem;
+            font-weight: 500;
+            border-radius: 8px;
+            margin: 2px 0;
+            transition: all 0.18s ease;
+            white-space: nowrap;
         }
-        .submenu a::before {
-            content: ""; position: absolute; left: 27px; top: 50%; transform: translateY(-50%);
-            width: 7px; height: 7px; background-color: #cbd5e1; border-radius: 50%; z-index: 1; transition: 0.2s;
+
+        .submenu a:hover {
+            color: #0f172a;
+            background-color: #f8fafc;
+            padding-left: 20px;
         }
-        .submenu a:hover { color: #1e293b; }
-        .submenu a:hover::before { background-color: #94a3b8; }
-        
-        /* Active Sub Item */
-        .submenu a.active { color: #3b82f6; font-weight: 500; }
-        .submenu a.active::before { background-color: #3b82f6; }
 
-        .main-content { margin-left: 75px; padding: 30px; min-height: 100vh; }
-        @media (max-width: 768px) { .sidebar { display: none; } .main-content { margin-left: 0; } }
+        .submenu a.active {
+            color: #2563eb;
+            font-weight: 600;
+            background-color: #eff6ff;
+        }
 
-        /* Top Nav */
-        .top-nav { background-color: #ffffff; padding: 15px 30px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e5e7eb; margin-left: 75px; box-shadow: 0 1px 5px rgba(0,0,0,0.02); }
-        @media (max-width: 768px) { .top-nav { margin-left: 0; } }
+        /* Page Layout Margins */
+        .main-content {
+            padding: 30px;
+            min-height: 100vh;
+            transition: margin-left var(--sidebar-transition);
+        }
+        .top-nav {
+            background-color: #ffffff;
+            padding: 15px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #eef2f6;
+            box-shadow: 0 1px 5px rgba(0,0,0,0.02);
+            transition: margin-left var(--sidebar-transition);
+        }
+
+        /* Pinned State (Full 260px) */
+        body.sidebar-pinned .sidebar {
+            width: var(--sidebar-width);
+        }
+        body.sidebar-pinned .main-content,
+        body.sidebar-pinned .top-nav {
+            margin-left: var(--sidebar-width);
+        }
+
+        /* Unpinned / Mini Mode (75px default, expands smoothly on hover) */
+        body:not(.sidebar-pinned) .sidebar {
+            width: var(--sidebar-mini-width);
+        }
+        body:not(.sidebar-pinned) .main-content,
+        body:not(.sidebar-pinned) .top-nav {
+            margin-left: var(--sidebar-mini-width);
+        }
+
+        /* When Mini and NOT hovered: hide labels cleanly, center icons */
+        body:not(.sidebar-pinned) .sidebar:not(:hover) {
+            overflow: hidden;
+        }
+        body:not(.sidebar-pinned) .sidebar:not(:hover) .menu-text,
+        body:not(.sidebar-pinned) .sidebar:not(:hover) .brand-text,
+        body:not(.sidebar-pinned) .sidebar:not(:hover) .has-submenu::after,
+        body:not(.sidebar-pinned) .sidebar:not(:hover) .badge,
+        body:not(.sidebar-pinned) .sidebar:not(:hover) .pin-toggle-btn,
+        body:not(.sidebar-pinned) .sidebar:not(:hover) .submenu,
+        body:not(.sidebar-pinned) .sidebar:not(:hover) .menu-section-heading {
+            display: none !important;
+        }
+        body:not(.sidebar-pinned) .sidebar:not(:hover) .nav-link-main {
+            padding: 12px 0;
+            margin: 4px 10px;
+            justify-content: center;
+        }
+        body:not(.sidebar-pinned) .sidebar:not(:hover) .nav-link-main i.menu-icon {
+            margin: 0;
+            width: auto;
+            font-size: 1.25rem;
+            text-align: center;
+        }
+
+        /* Floating Smooth Hover Expansion in Unpinned Mode */
+        body:not(.sidebar-pinned) .sidebar:hover {
+            width: var(--sidebar-width) !important;
+            box-shadow: 12px 0 35px rgba(15, 23, 42, 0.12), 0 0 1px rgba(0,0,0,0.08);
+        }
+
+        /* Mobile Responsive */
+        @media (max-width: 991px) {
+            .sidebar {
+                transform: translateX(-100%);
+                width: var(--sidebar-width) !important;
+            }
+            body.mobile-sidebar-open .sidebar {
+                transform: translateX(0);
+                box-shadow: 0 0 50px rgba(0,0,0,0.25);
+            }
+            .main-content, .top-nav {
+                margin-left: 0 !important;
+            }
+        }
     </style>
 </head>
 <body>
@@ -143,22 +282,24 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
     </script>
 
     <!-- Sidebar -->
-    <div class="sidebar mini-sidebar">
+    <div class="sidebar" id="appSidebar">
         
         <!-- Brand / Logo Area -->
-        <div class="d-flex align-items-center px-4 pt-3 pb-3">
-            <div class="bg-primary text-white rounded d-flex align-items-center justify-content-center me-3 shadow-sm" style="width: 40px; height: 40px;">
+        <div class="d-flex align-items-center px-3 pt-3 pb-3 border-bottom mb-2">
+            <div class="bg-primary text-white rounded-3 d-flex align-items-center justify-content-center me-3 shadow-sm flex-shrink-0" style="width: 42px; height: 42px; background: linear-gradient(135deg, #2563eb, #1d4ed8) !important;">
                 <i class="fa-solid fa-bolt fs-5"></i>
             </div>
-            <div>
-                <div class="brand-text" style="white-space: nowrap; overflow: hidden; transition: opacity 0.3s;"><h5 class="fw-bold mb-0 text-dark" style="letter-spacing: -0.5px;"><?= htmlspecialchars($tenant['company_name']) ?></h5><div class="text-muted" style="font-size: 0.70rem; font-weight: 500; text-transform: uppercase; letter-spacing: 1px;">Operator Panel</div></div>
+            <div class="brand-text flex-grow-1 overflow-hidden" style="min-width: 0;">
+                <h6 class="fw-bold mb-0 text-dark text-truncate" style="letter-spacing: -0.3px; font-size: 0.95rem;"><?= htmlspecialchars($tenant['company_name']) ?></h6>
+                <div class="text-muted" style="font-size: 0.68rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px;">Operator Panel</div>
             </div>
+            <button type="button" id="sidebarPinToggle" class="btn btn-sm btn-light border-0 text-secondary rounded-circle p-0 pin-toggle-btn" title="Pin / Unpin Sidebar" style="width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: transform 0.2s;">
+                <i class="fa-solid fa-thumbtack" style="font-size: 0.75rem; transform: rotate(-45deg);"></i>
+            </button>
         </div>
 
-
-
         <div class="px-3">
-            <div class="text-muted fw-bold mb-2 px-3" style="font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px;">Main Menu</div>
+            <div class="text-muted fw-bold mb-2 px-3 menu-section-heading" style="font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px;">Main Menu</div>
             <a href="dashboard.php" class="nav-link-main rounded-3 mb-1 <?= $p==='dashboard.php' ? 'active-parent' : '' ?>">
                 <i class="fa-solid fa-house menu-icon"></i> <span class="menu-text">Home</span>
             </a>
@@ -251,7 +392,10 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
 
     <!-- Top Navbar -->
     <div class="top-nav">
-        <div>
+        <div class="d-flex align-items-center gap-3">
+            <button type="button" id="topNavSidebarToggle" class="btn btn-sm btn-light border rounded-circle text-secondary d-flex align-items-center justify-content-center shadow-sm" style="width: 36px; height: 36px;" title="Toggle Sidebar">
+                <i class="fa-solid fa-bars-staggered"></i>
+            </button>
             <a href="dashboard.php" class="text-decoration-none d-flex align-items-center gap-2">
                 <div class="bg-primary text-white d-flex align-items-center justify-content-center rounded shadow-sm" style="width: 38px; height: 38px; background: linear-gradient(135deg, #3b82f6, #2563eb);">
                     <i class="fa-solid fa-wifi"></i>
@@ -348,41 +492,68 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
     <!-- Main Content wrapper -->
     <div class="main-content">
 
-<!-- Mini Sidebar Logic -->
+<!-- Modern Sidebar Logic -->
 <script>
 document.addEventListener("DOMContentLoaded", function() {
-    const sidebar = document.querySelector('.sidebar');
-    const mainContent = document.querySelector('.main-content');
-    const topNav = document.querySelector('.top-nav');
-    
-    if(!sidebar) return;
+    var isPinned = localStorage.getItem("operator_sidebar_pinned") === "true";
+    var body = document.body;
+    var pinBtn = document.getElementById("sidebarPinToggle");
+    var topToggle = document.getElementById("topNavSidebarToggle");
 
-    sidebar.addEventListener('click', function(e) {
-        if (sidebar.classList.contains('mini-sidebar')) {
-            sidebar.classList.remove('mini-sidebar');
-            if (mainContent) mainContent.style.marginLeft = '260px';
-            if (topNav) topNav.style.marginLeft = '260px';
-            
+    function updatePinState(pinned) {
+        if (pinned) {
+            body.classList.add("sidebar-pinned");
+            if (pinBtn) {
+                pinBtn.classList.add("text-primary");
+                pinBtn.classList.remove("text-secondary");
+                var pinIcon = pinBtn.querySelector("i");
+                if (pinIcon) pinIcon.style.transform = "rotate(0deg)";
+                pinBtn.title = "Unpin Sidebar (Enable Auto-hide on hover)";
+            }
+        } else {
+            body.classList.remove("sidebar-pinned");
+            if (pinBtn) {
+                pinBtn.classList.remove("text-primary");
+                pinBtn.classList.add("text-secondary");
+                var pinIcon = pinBtn.querySelector("i");
+                if (pinIcon) pinIcon.style.transform = "rotate(-45deg)";
+                pinBtn.title = "Pin Sidebar (Keep permanently open)";
+            }
+        }
+        localStorage.setItem("operator_sidebar_pinned", pinned);
+    }
+
+    // Apply saved pin state
+    updatePinState(isPinned);
+
+    if (pinBtn) {
+        pinBtn.addEventListener("click", function(e) {
             e.preventDefault();
             e.stopPropagation();
-        }
-    });
+            isPinned = !body.classList.contains("sidebar-pinned");
+            updatePinState(isPinned);
+        });
+    }
 
-    document.addEventListener('click', function(e) {
-        if (!sidebar.contains(e.target) && !sidebar.classList.contains('mini-sidebar')) {
-            sidebar.classList.add('mini-sidebar');
-            if (mainContent) mainContent.style.marginLeft = '75px';
-            if (topNav) topNav.style.marginLeft = '75px';
-            
-            let openMenus = sidebar.querySelectorAll('.submenu.show');
-            openMenus.forEach(menu => {
-                if (typeof bootstrap !== 'undefined') {
-                    let bsCollapse = bootstrap.Collapse.getInstance(menu);
-                    if (bsCollapse) bsCollapse.hide();
-                } else {
-                    menu.classList.remove('show');
-                }
-            });
+    if (topToggle) {
+        topToggle.addEventListener("click", function(e) {
+            e.preventDefault();
+            if (window.innerWidth <= 991) {
+                body.classList.toggle("mobile-sidebar-open");
+            } else {
+                isPinned = !body.classList.contains("sidebar-pinned");
+                updatePinState(isPinned);
+            }
+        });
+    }
+
+    // Close mobile drawer when clicking outside
+    document.addEventListener("click", function(e) {
+        if (window.innerWidth <= 991 && body.classList.contains("mobile-sidebar-open")) {
+            var sidebar = document.querySelector(".sidebar");
+            if (sidebar && !sidebar.contains(e.target) && topToggle && !topToggle.contains(e.target)) {
+                body.classList.remove("mobile-sidebar-open");
+            }
         }
     });
 });
