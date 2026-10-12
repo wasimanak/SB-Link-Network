@@ -1,4 +1,5 @@
-<?php require_once 'header.php'; 
+<?php 
+require_once 'header.php'; 
 
 // Fetch pending requests
 $reqStmt = $pdo->prepare("SELECT * FROM package_requests WHERE subscriber_id = ? AND status = 'pending' LIMIT 1");
@@ -28,20 +29,23 @@ if ($total_bytes >= 1073741824) {
 }
 
 // Expiry logic
-$expiry_badge = "<span class='badge bg-secondary'>N/A</span>";
+$expiry_badge = "<span class='badge bg-secondary-subtle text-secondary border border-secondary-subtle rounded-pill px-3 py-1'>N/A</span>";
 $expiry_text = "No Expiry Set";
+$is_expired = false;
+$days_left = 0;
 if ($current_user['expiry_date']) {
     $exp_time = strtotime($current_user['expiry_date']);
     $now = time();
     $diff = $exp_time - $now;
     
     if ($diff > 0) {
-        $days = floor($diff / 86400);
+        $days_left = floor($diff / 86400);
         $hours = floor(($diff % 86400) / 3600);
-        $expiry_badge = "<span class='badge bg-success'>$days Days, $hours Hrs</span>";
+        $expiry_badge = "<span class='badge bg-success-subtle text-success border border-success-subtle rounded-pill px-3 py-1 fw-bold'><i class='fa-regular fa-clock me-1'></i>{$days_left}d {$hours}h Left</span>";
         $expiry_text = date('d M Y, h:i A', $exp_time);
     } else {
-        $expiry_badge = "<span class='badge bg-danger'>Expired</span>";
+        $is_expired = true;
+        $expiry_badge = "<span class='badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-3 py-1 fw-bold'><i class='fa-solid fa-triangle-exclamation me-1'></i>Expired</span>";
         $expiry_text = "Expired on " . date('d M Y', $exp_time);
     }
 }
@@ -57,379 +61,736 @@ $opStmt->execute([$client_id]);
 $operator_info = $opStmt->fetch();
 $bank_details = (isset($operator_info['bank_details']) && $operator_info['bank_details']) ? $operator_info['bank_details'] : "Bank details not provided. Please contact operator.";
 
-// Fetch Active Payment Gateway or Bank Account
-$active_method = null;
+// Fetch Active Bank Account or Operator Bank Details
+$active_method = 'bank';
 $gateway_display_name = '';
 $gateway_account_name = '';
 $account_number_str = '';
 $iban_str = '';
 
-// Check API Gateway first
-$gwStmt = $pdo->prepare("SELECT gateway_name, account_name FROM payment_gateways WHERE client_id = ? AND status = 'active' LIMIT 1");
-$gwStmt->execute([$client_id]);
-if ($gw = $gwStmt->fetch()) {
-    $active_method = 'api';
-    $gateway_display_name = $gw['gateway_name'];
-    $opCompany = isset($operator_info['company_name']) ? $operator_info['company_name'] : 'SB-Link Network';
-    $gateway_account_name = $gw['account_name'] ?: $opCompany;
-} else {
-    // Check Manual Bank
-    // For safety if table doesn't exist yet, we check
-    try {
-        $bkStmt = $pdo->prepare("SELECT bank_name, account_title, account_number, iban FROM operator_bank_accounts WHERE client_id = ? AND status = 'active' LIMIT 1");
-        $bkStmt->execute([$client_id]);
-        if ($bk = $bkStmt->fetch()) {
-            $active_method = 'bank';
-            $gateway_display_name = $bk['bank_name'];
-            $gateway_account_name = $bk['account_title'];
-            $account_number_str = $bk['account_number'];
-            $iban_str = $bk['iban'];
-        }
-    } catch(PDOException $e) {}
+// Check operator_bank_accounts first
+try {
+    $bkStmt = $pdo->prepare("SELECT bank_name, account_title, account_number, iban FROM operator_bank_accounts WHERE client_id = ? AND status = 'active' LIMIT 1");
+    $bkStmt->execute([$client_id]);
+    $bk = $bkStmt->fetch();
+    if (!$bk) {
+        $bkStmt2 = $pdo->prepare("SELECT bank_name, account_title, account_number, iban FROM operator_bank_accounts WHERE client_id = ? ORDER BY id DESC LIMIT 1");
+        $bkStmt2->execute([$client_id]);
+        $bk = $bkStmt2->fetch();
+    }
+    if ($bk) {
+        $gateway_display_name = $bk['bank_name'];
+        $gateway_account_name = $bk['account_title'];
+        $account_number_str = $bk['account_number'];
+        $iban_str = $bk['iban'];
+    }
+} catch(PDOException $e) {}
+
+// Fallback to clients table bank_details or company name
+if (empty($account_number_str) && !empty($operator_info['bank_details'])) {
+    $gateway_display_name = 'Bank Transfer / EasyPaisa / JazzCash';
+    $gateway_account_name = $operator_info['company_name'] ?? 'ISP Provider';
+    $account_number_str = $operator_info['bank_details'];
 }
 
-if (!$active_method) {
-    $gateway_display_name = 'No Active Payment Method';
-    $gateway_account_name = isset($operator_info['company_name']) ? $operator_info['company_name'] : 'SB-Link Network';
+if (empty($gateway_display_name)) {
+    $gateway_display_name = 'Bank Transfer / Online Payment';
+    $gateway_account_name = $operator_info['company_name'] ?? 'ISP Provider';
 }
 ?>
 
+<script>
+    // Harmonize Bootstrap Theme to clean modern mode
+    document.documentElement.setAttribute('data-bs-theme', 'light');
+</script>
+
+<style>
+    :root {
+        --primary-blue: #2563eb;
+        --primary-dark: #1e40af;
+        --surface-bg: #f8fafc;
+        --card-border: #eef2f6;
+        --text-dark: #0f172a;
+        --text-muted: #64748b;
+    }
+
+    body {
+        background-color: var(--surface-bg) !important;
+        color: var(--text-dark) !important;
+        font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
+    }
+
+    /* Modern Navbar Override */
+    .navbar {
+        background: #ffffff !important;
+        border-bottom: 1px solid #e2e8f0 !important;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.03) !important;
+    }
+    .navbar-brand {
+        color: #1e3a8a !important;
+        font-weight: 800 !important;
+        letter-spacing: -0.5px;
+    }
+    .navbar .nav-link {
+        color: #475569 !important;
+        font-weight: 500;
+        border-radius: 10px;
+        padding: 8px 14px !important;
+        transition: all 0.2s ease;
+    }
+    .navbar .nav-link:hover, .navbar .nav-link.active {
+        color: #2563eb !important;
+        background: #eff6ff !important;
+    }
+
+    /* Hero Banner */
+    .hero-banner-card {
+        background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 60%, #3b82f6 100%);
+        border-radius: 24px;
+        box-shadow: 0 10px 30px rgba(37, 99, 235, 0.18);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        color: #ffffff;
+        position: relative;
+        overflow: hidden;
+    }
+    .hero-banner-decor-1 {
+        position: absolute;
+        top: -60px;
+        right: -60px;
+        width: 260px;
+        height: 260px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(255, 255, 255, 0.15) 0%, transparent 70%);
+        pointer-events: none;
+    }
+    .hero-banner-decor-2 {
+        position: absolute;
+        bottom: -40px;
+        left: 20%;
+        width: 180px;
+        height: 180px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(96, 165, 250, 0.2) 0%, transparent 70%);
+        pointer-events: none;
+    }
+    .hero-balance-box {
+        background: rgba(255, 255, 255, 0.12);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 20px;
+        padding: 20px 24px;
+        transition: transform 0.2s ease;
+    }
+    .hero-balance-box:hover {
+        transform: translateY(-2px);
+    }
+
+    /* Metric Stat Cards */
+    .stat-pill-card {
+        background: #ffffff;
+        border: 1px solid var(--card-border);
+        border-radius: 20px;
+        padding: 20px;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.02);
+        height: 100%;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .stat-pill-card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
+    }
+    .stat-pill-icon {
+        width: 52px;
+        height: 52px;
+        border-radius: 16px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.35rem;
+        flex-shrink: 0;
+    }
+    .stat-pill-val {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: #0f172a;
+        line-height: 1.2;
+        margin-bottom: 2px;
+    }
+    .stat-pill-lbl {
+        font-size: 0.72rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #64748b;
+        margin-bottom: 4px;
+    }
+
+    /* Packages Modern Card */
+    .modern-pkg-card {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 22px;
+        padding: 24px 20px;
+        transition: all 0.25s ease;
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.02);
+    }
+    .modern-pkg-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 12px 30px rgba(0,0,0,0.08);
+        border-color: #cbd5e1;
+    }
+    .modern-pkg-card.active-plan {
+        border: 2px solid #2563eb !important;
+        background: linear-gradient(180deg, #ffffff 0%, #f0f7ff 100%);
+        box-shadow: 0 8px 25px rgba(37, 99, 235, 0.12);
+    }
+    .plan-badge-top {
+        position: absolute;
+        top: -12px;
+        right: 20px;
+        background: #2563eb;
+        color: #ffffff;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        padding: 4px 14px;
+        border-radius: 20px;
+        box-shadow: 0 4px 10px rgba(37, 99, 235, 0.3);
+    }
+    .plan-feature-item {
+        padding: 8px 0;
+        font-size: 0.88rem;
+        color: #475569;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .plan-feature-item i {
+        color: #2563eb;
+        width: 18px;
+        text-align: center;
+    }
+
+    /* Modern Modals */
+    .modal-content.clean-modal {
+        background: #ffffff !important;
+        color: #0f172a !important;
+        border-radius: 24px !important;
+        border: 1px solid #e2e8f0 !important;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.15) !important;
+    }
+    .clean-modal .modal-header {
+        border-bottom: 1px solid #f1f5f9;
+        padding: 20px 24px;
+    }
+    .clean-modal .modal-footer {
+        border-top: 1px solid #f1f5f9;
+        padding: 16px 24px;
+    }
+    .bank-box-card {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 16px;
+        padding: 18px;
+    }
+    .payment-option-pill {
+        border: 1.5px solid #e2e8f0;
+        border-radius: 14px;
+        padding: 12px 16px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        background: #ffffff;
+    }
+    .payment-option-pill:hover {
+        border-color: #cbd5e1;
+        background: #f8fafc;
+    }
+    .payment-option-pill.active {
+        border-color: #2563eb;
+        background: #eff6ff;
+    }
+
+    /* Copy Button */
+    .btn-copy-chip {
+        font-size: 0.72rem;
+        padding: 2px 8px;
+        border-radius: 6px;
+        border: 1px solid #cbd5e1;
+        background: #ffffff;
+        color: #475569;
+        cursor: pointer;
+        transition: all 0.15s;
+    }
+    .btn-copy-chip:hover {
+        background: #f1f5f9;
+        color: #0f172a;
+    }
+
+    /* Footer modern look */
+    footer.bg-black {
+        background: #0f172a !important;
+        border-top: 1px solid #1e293b !important;
+    }
+</style>
+
+<!-- Pending Request Banner -->
 <?php if ($pending_request): ?>
-<div class="alert alert-info border-info bg-transparent text-info d-flex align-items-center mb-4">
-    <i class="fa-solid fa-circle-info fs-4 me-3"></i>
-    <div>
-        <strong>Request Pending!</strong> Your package renewal/upgrade request is currently pending operator approval.
+<div class="alert alert-warning border-0 rounded-4 shadow-sm d-flex align-items-center mb-4 p-3 bg-warning-subtle text-warning-emphasis">
+    <div class="rounded-circle bg-warning text-white d-flex align-items-center justify-content-center me-3" style="width: 40px; height: 40px; flex-shrink: 0;">
+        <i class="fa-solid fa-clock-rotate-left fs-5"></i>
     </div>
+    <div class="flex-grow-1">
+        <h6 class="fw-bold mb-0">Package Request Pending Approval</h6>
+        <div class="small text-muted">Your package renewal/upgrade request is currently awaiting operator approval. You will receive service as soon as it is processed.</div>
+    </div>
+    <span class="badge bg-warning text-dark px-3 py-2 rounded-pill fw-bold">Under Review</span>
 </div>
 <?php endif; ?>
 
-<!-- ISP Premium Hero Section -->
-<div class="card bg-dark text-white border-0 shadow-lg mb-4 rounded-4 position-relative overflow-hidden" style="background: linear-gradient(135deg, #1e3a8a 0%, #1e1b4b 100%) !important;">
-    <!-- Abstract Shapes / Overlay -->
-    <div class="position-absolute top-0 end-0 opacity-25" style="width: 300px; height: 300px; background: radial-gradient(circle, #3b82f6 0%, transparent 70%); transform: translate(30%, -30%);"></div>
-    <div class="position-absolute bottom-0 start-0 opacity-25" style="width: 200px; height: 200px; background: radial-gradient(circle, #8b5cf6 0%, transparent 70%); transform: translate(-30%, 30%);"></div>
+<!-- Hero Section -->
+<div class="hero-banner-card p-4 p-md-5 mb-4">
+    <div class="hero-banner-decor-1"></div>
+    <div class="hero-banner-decor-2"></div>
     
-    <div class="card-body p-4 p-md-5 position-relative z-1">
-        <div class="row align-items-center">
-            <div class="col-md-8">
-                <span class="badge bg-white text-dark mb-3 px-3 py-2 rounded-pill fw-bold" style="font-size: 0.75rem;"><i class="fa-solid fa-bolt text-warning me-1"></i> <?= htmlspecialchars($operator_info['company_name'] ?? 'SB-Link') ?> Subscriber</span>
-                <h2 class="fw-bold mb-2">Welcome back, <?= htmlspecialchars($current_user['full_name'] ?: $current_user['username']) ?>!</h2>
-                <p class="text-white-50 mb-4 mb-md-0" style="font-size: 1.1rem;">Manage your internet package, view data usage, and recharge your account seamlessly.</p>
+    <div class="row align-items-center position-relative z-1 g-4">
+        <div class="col-lg-8">
+            <div class="d-inline-flex align-items-center gap-2 bg-white px-3 py-1 rounded-pill mb-3 shadow-sm" style="font-size: 0.78rem;">
+                <i class="fa-solid fa-bolt text-warning"></i>
+                <span class="fw-bold text-dark" style="color: #000000 !important;"><?= htmlspecialchars($operator_info['company_name'] ?? 'SB-Link Network') ?> Subscriber</span>
             </div>
-            <div class="col-md-4 text-md-end">
-                <div class="d-inline-block p-4 rounded-4 bg-white bg-opacity-10 border border-light border-opacity-25 text-start shadow-sm" style="backdrop-filter: blur(10px); min-width: 200px;">
-                    <p class="text-white-50 small mb-1 fw-bold text-uppercase tracking-wider">Current Wallet Balance</p>
-                    <h3 class="fw-bold text-white mb-2">Rs <?= number_format($current_user['balance'], 2) ?></h3>
-                    <a href="#" data-bs-toggle="modal" data-bs-target="#addFundsModal" class="btn btn-sm btn-light rounded-pill px-4 fw-bold shadow-sm"><i class="fa-solid fa-plus me-1"></i> Add Funds</a>
+            <h1 class="fw-bold mb-2 text-white" style="font-size: clamp(1.6rem, 3vw, 2.3rem); letter-spacing: -0.5px;">
+                Welcome back, <?= htmlspecialchars($current_user['full_name'] ?: $current_user['username']) ?>!
+            </h1>
+            <p class="text-white-50 mb-4 mb-lg-0" style="font-size: 1.05rem; max-width: 600px;">
+                Monitor your internet connection speed, track monthly data consumption, and recharge your account with just one click.
+            </p>
+        </div>
+        
+        <div class="col-lg-4 text-lg-end">
+            <div class="hero-balance-box d-inline-block text-start shadow-sm" style="min-width: 240px;">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <span class="text-white-50 small fw-bold text-uppercase" style="letter-spacing: 0.5px;">Wallet Balance</span>
+                    <i class="fa-solid fa-wallet text-white-50"></i>
+                </div>
+                <div class="fw-bold text-white mb-3" style="font-size: 1.9rem; line-height: 1;">
+                    Rs <?= number_format($current_user['balance'], 2) ?>
+                </div>
+                <div class="d-flex gap-2">
+                    <button type="button" data-bs-toggle="modal" data-bs-target="#addFundsModal" class="btn btn-light btn-sm rounded-pill px-3 fw-bold shadow-sm flex-grow-1 text-primary">
+                        <i class="fa-solid fa-plus me-1"></i> Add Funds
+                    </button>
+                    <a href="#available-packages" class="btn btn-outline-light btn-sm rounded-pill px-3 fw-semibold">
+                        <i class="fa-solid fa-box-open me-1"></i> Plans
+                    </a>
                 </div>
             </div>
         </div>
     </div>
 </div>
 
-<style>
-    .stat-card-premium { border-radius: 16px; transition: 0.3s; background: #1e1e2d; border: 1px solid rgba(255,255,255,0.05); }
-    .stat-card-premium:hover { transform: translateY(-5px); border-color: rgba(59, 130, 246, 0.3); box-shadow: 0 10px 25px rgba(0,0,0,0.4); }
-    .stat-icon-wrapper { width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.25rem; }
-</style>
-
-<!-- Metrics Row -->
-<div class="row mb-5">
+<!-- 4 Key Stat Cards Row -->
+<div class="row g-3 mb-5">
     
-    <!-- Account Status -->
-    <div class="col-xl-3 col-md-6 mb-4">
-        <div class="stat-card-premium p-4 h-100 d-flex flex-column">
-            <div class="d-flex justify-content-between align-items-start mb-3">
-                <div class="stat-icon-wrapper bg-primary bg-opacity-10 text-primary">
-                    <i class="fa-solid fa-satellite-dish"></i>
-                </div>
-                <div>
+    <!-- 1. Current Package -->
+    <div class="col-xl-3 col-md-6">
+        <div class="stat-pill-card">
+            <div class="stat-pill-icon" style="background: #eff6ff; color: #2563eb;">
+                <i class="fa-solid fa-satellite-dish"></i>
+            </div>
+            <div class="flex-grow-1 overflow-hidden">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div class="stat-pill-lbl">Current Plan</div>
                     <?php if($current_user['status'] == 'active'): ?>
-                        <span class="badge bg-success bg-opacity-10 text-success rounded-pill px-3 py-2 border border-success">Active</span>
+                        <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2 py-1" style="font-size: 0.68rem;">Active</span>
                     <?php elseif($current_user['status'] == 'expired'): ?>
-                        <span class="badge bg-danger bg-opacity-10 text-danger rounded-pill px-3 py-2 border border-danger">Expired</span>
+                        <span class="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-2 py-1" style="font-size: 0.68rem;">Expired</span>
                     <?php else: ?>
-                        <span class="badge bg-secondary bg-opacity-10 text-secondary rounded-pill px-3 py-2 border border-secondary">Disabled</span>
+                        <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle rounded-pill px-2 py-1" style="font-size: 0.68rem;">Disabled</span>
                     <?php endif; ?>
                 </div>
-            </div>
-            <h6 class="text-secondary small fw-bold text-uppercase mb-1">Current Package</h6>
-            <h4 class="fw-bold text-light mb-1"><?= htmlspecialchars($current_user['package_name'] ?? 'No Package') ?></h4>
-            <div class="text-muted small mt-auto pt-2">
-                <i class="fa-solid fa-gauge-high me-1 text-accent"></i> <?= htmlspecialchars($current_user['rate_limit'] ?? 'Unlimited Speed') ?>
-            </div>
-        </div>
-    </div>
-
-    <!-- Data Usage -->
-    <div class="col-xl-3 col-md-6 mb-4">
-        <div class="stat-card-premium p-4 h-100 d-flex flex-column">
-            <div class="d-flex justify-content-between align-items-start mb-3">
-                <div class="stat-icon-wrapper bg-info bg-opacity-10 text-info">
-                    <i class="fa-solid fa-chart-pie"></i>
+                <div class="stat-pill-val text-truncate" title="<?= htmlspecialchars($current_user['package_name'] ?? 'No Package') ?>">
+                    <?= htmlspecialchars($current_user['package_name'] ?? 'No Package') ?>
                 </div>
-            </div>
-            <h6 class="text-secondary small fw-bold text-uppercase mb-1">Total Data Used</h6>
-            <h4 class="fw-bold text-light mb-1"><?= $used_volume_str ?></h4>
-            <div class="mt-auto pt-2">
-                <div class="progress" style="height: 6px; background-color: rgba(255,255,255,0.05); border-radius: 10px;">
-                    <div class="progress-bar bg-info" style="width: 100%; border-radius: 10px;"></div>
-                </div>
-                <div class="text-muted small mt-2 d-flex justify-content-between">
-                    <span><i class="fa-solid fa-arrow-up text-secondary me-1"></i> <?= round((($usage['up'] ?? 0)/1048576),1) ?> MB</span>
-                    <span><i class="fa-solid fa-arrow-down text-accent me-1"></i> <?= round((($usage['down'] ?? 0)/1048576),1) ?> MB</span>
+                <div class="text-muted small mt-1 d-flex align-items-center gap-1" style="font-size: 0.78rem;">
+                    <i class="fa-solid fa-gauge-high text-primary"></i>
+                    <span><?= htmlspecialchars($current_user['rate_limit'] ?? 'Unlimited Speed') ?></span>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Expiry Details -->
-    <div class="col-xl-3 col-md-6 mb-4">
-        <div class="stat-card-premium p-4 h-100 d-flex flex-column">
-            <div class="d-flex justify-content-between align-items-start mb-3">
-                <div class="stat-icon-wrapper bg-warning bg-opacity-10 text-warning">
-                    <i class="fa-regular fa-clock"></i>
-                </div>
-                <?= $expiry_badge ?>
+    <!-- 2. Data Usage -->
+    <div class="col-xl-3 col-md-6">
+        <div class="stat-pill-card">
+            <div class="stat-pill-icon" style="background: #f0fdf4; color: #16a34a;">
+                <i class="fa-solid fa-chart-pie"></i>
             </div>
-            <h6 class="text-secondary small fw-bold text-uppercase mb-1">Expiration Date</h6>
-            <h5 class="fw-bold text-light mb-1" style="font-size: 1.1rem;"><?= $expiry_text ?></h5>
-            <div class="text-muted small mt-auto pt-2">
-                <i class="fa-solid fa-rotate text-secondary me-1"></i> Auto-renew: <strong>Off</strong>
+            <div class="flex-grow-1 overflow-hidden">
+                <div class="stat-pill-lbl">Data Consumed</div>
+                <div class="stat-pill-val">
+                    <?= $used_volume_str ?>
+                </div>
+                <div class="mt-2">
+                    <div class="progress" style="height: 5px; background-color: #f1f5f9; border-radius: 10px;">
+                        <div class="progress-bar bg-success" style="width: 100%; border-radius: 10px;"></div>
+                    </div>
+                    <div class="text-muted mt-1 d-flex justify-content-between" style="font-size: 0.72rem;">
+                        <span><i class="fa-solid fa-arrow-up text-primary me-1"></i><?= round((($usage['up'] ?? 0)/1048576),1) ?> MB</span>
+                        <span><i class="fa-solid fa-arrow-down text-success me-1"></i><?= round((($usage['down'] ?? 0)/1048576),1) ?> MB</span>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
 
-    <!-- Live Session -->
-    <div class="col-xl-3 col-md-6 mb-4">
-        <div class="stat-card-premium p-4 h-100 d-flex flex-column">
-            <div class="d-flex justify-content-between align-items-start mb-3">
-                <div class="stat-icon-wrapper <?= $live_session ? 'bg-success bg-opacity-10 text-success' : 'bg-secondary bg-opacity-10 text-secondary' ?>">
-                    <i class="fa-solid fa-network-wired"></i>
+    <!-- 3. Expiry Details -->
+    <div class="col-xl-3 col-md-6">
+        <div class="stat-pill-card">
+            <div class="stat-pill-icon" style="background: #fff1f2; color: #e11d48;">
+                <i class="fa-regular fa-clock"></i>
+            </div>
+            <div class="flex-grow-1 overflow-hidden">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div class="stat-pill-lbl">Expiry Date</div>
                 </div>
-                <div>
+                <div class="stat-pill-val text-truncate" style="font-size: 1.05rem;" title="<?= $expiry_text ?>">
+                    <?= $expiry_text ?>
+                </div>
+                <div class="mt-1">
+                    <?= $expiry_badge ?>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 4. Live Connection Session -->
+    <div class="col-xl-3 col-md-6">
+        <div class="stat-pill-card">
+            <div class="stat-pill-icon" style="background: <?= $live_session ? '#eff6ff' : '#f8fafc' ?>; color: <?= $live_session ? '#2563eb' : '#94a3b8' ?>;">
+                <i class="fa-solid fa-network-wired"></i>
+            </div>
+            <div class="flex-grow-1 overflow-hidden">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div class="stat-pill-lbl">Connection</div>
                     <?php if($live_session): ?>
-                        <span class="badge bg-success rounded-pill px-3 py-2"><span class="spinner-grow spinner-grow-sm me-1" style="width:0.5rem; height:0.5rem;"></span>Online</span>
+                        <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2 py-1" style="font-size: 0.68rem;">
+                            <span class="spinner-grow spinner-grow-sm me-1" style="width:0.4rem; height:0.4rem;"></span>Online
+                        </span>
                     <?php else: ?>
-                        <span class="badge bg-secondary bg-opacity-10 text-secondary rounded-pill px-3 py-2 border border-secondary">Offline</span>
+                        <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle rounded-pill px-2 py-1" style="font-size: 0.68rem;">Offline</span>
                     <?php endif; ?>
                 </div>
+                
+                <?php if($live_session): ?>
+                    <div class="stat-pill-val text-truncate" style="font-size: 1.05rem; font-family: monospace;">
+                        <?= htmlspecialchars($live_session['framedipaddress']) ?>
+                    </div>
+                    <div class="text-muted small mt-1 text-truncate" style="font-size: 0.74rem;">
+                        <i class="fa-solid fa-laptop text-secondary me-1"></i> MAC: <?= htmlspecialchars($live_session['callingstationid']) ?>
+                    </div>
+                <?php else: ?>
+                    <div class="stat-pill-val text-muted" style="font-size: 1.05rem;">
+                        Disconnected
+                    </div>
+                    <div class="text-muted small mt-1" style="font-size: 0.74rem;">
+                        Check router power/cables
+                    </div>
+                <?php endif; ?>
             </div>
-            <h6 class="text-secondary small fw-bold text-uppercase mb-1">Connection Status</h6>
-            
-            <?php if($live_session): ?>
-                <h5 class="fw-bold text-light mb-1"><?= htmlspecialchars($live_session['framedipaddress']) ?></h5>
-                <div class="text-muted small mt-auto pt-2">
-                    <i class="fa-solid fa-laptop text-secondary me-1"></i> MAC: <?= htmlspecialchars($live_session['callingstationid']) ?>
-                </div>
-            <?php else: ?>
-                <h5 class="fw-bold text-muted mb-1">Not Connected</h5>
-                <div class="text-muted small mt-auto pt-2">
-                    Check your router power.
-                </div>
-            <?php endif; ?>
         </div>
     </div>
 
 </div>
 
 <!-- ================= PACKAGES SECTION ================= -->
-<div id="available-packages" class="d-flex justify-content-between align-items-center mt-4 mb-3 pt-2">
-    <h4 class="fw-bold"><i class="fa-solid fa-box-open text-accent me-2"></i> Purchase / Renew Packages</h4>
-</div>
-
-<div class="row">
-    <?php foreach($packages as $p): 
-        $isActive = ($current_user['package_id'] == $p['id']);
-    ?>
-    <div class="col-lg-3 col-md-6 mb-4">
-        <div class="card-ui package-card p-3 text-center h-100 d-flex flex-column <?= $isActive ? 'active-plan' : '' ?>">
-            <?php if($isActive): ?>
-                <div class="current-badge" style="font-size:0.7rem; padding:3px 10px;">Current Plan</div>
-            <?php endif; ?>
-            
-            <h5 class="fw-bold mt-2 text-light"><?= htmlspecialchars($p['name']) ?></h5>
-            <h4 class="text-accent my-2 fw-bold">Rs <?= number_format($p['price'], 2) ?></h4>
-            
-            <ul class="list-unstyled text-secondary my-3" style="font-size: 0.9rem;">
-                <li class="mb-2"><i class="fa-solid fa-gauge me-2 text-light"></i> <?= htmlspecialchars($p['rate_limit'] ?: 'Unlimited Speed') ?></li>
-                <li class="mb-2"><i class="fa-regular fa-calendar me-2 text-light"></i> <?= htmlspecialchars($p['validity_days']) ?> Days Validity</li>
-                <li><i class="fa-solid fa-infinity me-2 text-light"></i> <?= $p['data_limit_gb'] > 0 ? $p['data_limit_gb'] . ' GB Data' : 'Unlimited Data' ?></li>
-            </ul>
-            
-            <div class="mt-auto pt-3 border-top border-secondary">
-                <?php if ($has_pending): ?>
-                    <button class="btn btn-secondary btn-sm w-100 rounded-pill" disabled>Request Pending</button>
-                <?php else: ?>
-                    <button type="button" class="btn btn-accent btn-sm w-100 rounded-pill py-2" onclick="openBuyModal(<?= $p['id'] ?>, '<?= htmlspecialchars($p['name']) ?>', <?= $p['price'] ?>)">
-                        <i class="fa-solid fa-cart-shopping me-1"></i> Buy Now
-                    </button>
-                <?php endif; ?>
+<div id="available-packages" class="mb-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <div class="d-inline-flex align-items-center gap-2 text-primary fw-bold text-uppercase" style="font-size: 0.78rem; letter-spacing: 0.5px;">
+                <i class="fa-solid fa-bolt"></i> High-Speed Connectivity
             </div>
+            <h3 class="fw-bold mb-0 text-dark">Available Internet Packages</h3>
+        </div>
+        <div class="d-none d-md-block text-muted small">
+            Choose a package to upgrade or renew your subscription instantly
         </div>
     </div>
-    <?php endforeach; ?>
+
+    <div class="row g-4">
+        <?php foreach($packages as $p): 
+            $isActive = ($current_user['package_id'] == $p['id']);
+        ?>
+        <div class="col-lg-3 col-md-6">
+            <div class="modern-pkg-card <?= $isActive ? 'active-plan' : '' ?>">
+                <?php if($isActive): ?>
+                    <div class="plan-badge-top">
+                        <i class="fa-solid fa-check me-1"></i> Current Plan
+                    </div>
+                <?php endif; ?>
+                
+                <div class="mb-3">
+                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle rounded-pill px-3 py-1 fw-bold" style="font-size: 0.75rem;">
+                        <?= htmlspecialchars($p['validity_days']) ?> Days Plan
+                    </span>
+                </div>
+
+                <h4 class="fw-bold text-dark mb-1"><?= htmlspecialchars($p['name']) ?></h4>
+                <div class="d-flex align-items-baseline gap-1 my-3">
+                    <span class="text-muted fw-bold" style="font-size: 1rem;">Rs</span>
+                    <span class="fw-bold text-primary" style="font-size: 2rem; line-height: 1;"><?= number_format($p['price'], 0) ?></span>
+                    <span class="text-muted small">/ billing</span>
+                </div>
+                
+                <div class="border-top border-bottom border-slate-100 py-3 my-2">
+                    <div class="plan-feature-item">
+                        <i class="fa-solid fa-gauge-high"></i>
+                        <span>Speed: <strong><?= htmlspecialchars($p['rate_limit'] ?: 'Unlimited Speed') ?></strong></span>
+                    </div>
+                    <div class="plan-feature-item">
+                        <i class="fa-regular fa-calendar-check"></i>
+                        <span>Validity: <strong><?= htmlspecialchars($p['validity_days']) ?> Days</strong></span>
+                    </div>
+                    <div class="plan-feature-item">
+                        <i class="fa-solid fa-infinity"></i>
+                        <span>Data: <strong><?= $p['data_limit_gb'] > 0 ? $p['data_limit_gb'] . ' GB Limit' : 'Unlimited Bandwidth' ?></strong></span>
+                    </div>
+                </div>
+                
+                <div class="mt-auto pt-3">
+                    <?php if ($has_pending): ?>
+                        <button class="btn btn-secondary w-100 rounded-pill py-2 fw-semibold" disabled>
+                            <i class="fa-solid fa-clock me-1"></i> Request Pending
+                        </button>
+                    <?php else: ?>
+                        <button type="button" class="btn <?= $isActive ? 'btn-primary' : 'btn-outline-primary' ?> w-100 rounded-pill py-2 fw-bold" onclick="openBuyModal(<?= $p['id'] ?>, '<?= htmlspecialchars($p['name']) ?>', <?= $p['price'] ?>)">
+                            <i class="fa-solid fa-cart-shopping me-1"></i> <?= $isActive ? 'Renew Plan' : 'Choose Plan' ?>
+                        </button>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+        <?php endforeach; ?>
+    </div>
 </div>
 
-<!-- Buy Now Modal -->
-<div class="modal fade" id="buyModal" tabindex="-1">
+<!-- ================= BUY NOW MODAL ================= -->
+<div class="modal fade" id="buyModal" tabindex="-1" aria-labelledby="buyModalLabel" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content bg-dark border border-secondary shadow-lg text-light" style="border-radius: 16px;">
-      <div class="modal-header border-bottom border-secondary p-4">
-        <h5 class="modal-title fw-bold"><i class="fa-solid fa-cart-shopping me-2 text-primary"></i> Confirm Purchase</h5>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+    <div class="modal-content clean-modal">
+      <div class="modal-header">
+        <div class="d-flex align-items-center gap-2">
+            <div class="rounded-circle bg-primary-subtle text-primary d-flex align-items-center justify-content-center" style="width: 36px; height: 36px;">
+                <i class="fa-solid fa-cart-shopping"></i>
+            </div>
+            <h5 class="modal-title fw-bold text-dark" id="buyModalLabel">Confirm Package Purchase</h5>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
-      <div class="modal-body p-4">
-        <form action="request_action.php" method="POST">
+
+      <form action="request_action.php" method="POST">
+        <div class="modal-body p-4">
             <input type="hidden" name="action" value="buy_package">
             <input type="hidden" name="package_id" id="modal_pkg_id">
             
-            <div class="text-center mb-4">
-                <h4 id="modal_pkg_name" class="fw-bold mb-0 text-light">Package Name</h4>
-                <h1 class="text-accent fw-bold mt-1 mb-0">Rs <span id="modal_pkg_price">0</span></h1>
+            <!-- Summary Header Box -->
+            <div class="text-center p-3 rounded-4 mb-4" style="background: linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%); border: 1px solid #dbeafe;">
+                <div class="text-muted small fw-bold text-uppercase mb-1">Selected Package</div>
+                <h4 id="modal_pkg_name" class="fw-bold mb-1 text-dark">Package Name</h4>
+                <div class="text-primary fw-bold" style="font-size: 2rem; line-height: 1;">
+                    Rs <span id="modal_pkg_price">0</span>
+                </div>
             </div>
 
             <!-- Online Payment Details Box -->
             <div id="onlinePaymentBox" class="text-center mb-3">
-                <?php if($active_method === 'bank'): ?>
-                    <div class="bg-dark border border-secondary rounded p-3 text-start mx-auto shadow mb-2" style="max-width: 320px;">
-                        <div class="text-center mb-2 pb-2 border-bottom border-secondary border-opacity-50">
-                            <i class="fa-solid fa-building-columns fa-2x text-primary mb-1"></i>
-                            <h5 class="text-light fw-bold mb-0"><?= htmlspecialchars($gateway_display_name) ?></h5>
+                <div class="bank-box-card text-start mx-auto shadow-sm mb-3" style="max-width: 400px; background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 18px; padding: 18px;">
+                    <div class="d-flex align-items-center justify-content-between mb-3 pb-2 border-bottom border-slate-200">
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="fa-solid fa-building-columns text-primary fs-5"></i>
+                            <span class="fw-bold text-dark fs-6"><?= htmlspecialchars($gateway_display_name ?: 'Bank Account') ?></span>
                         </div>
-                        <div class="mb-2">
-                            <div class="text-secondary small text-uppercase" style="font-size: 0.7rem;">Account Title</div>
-                            <div class="fw-bold text-light fs-6"><?= htmlspecialchars($gateway_account_name) ?></div>
-                        </div>
-                        <div class="mb-2">
-                            <div class="text-secondary small text-uppercase" style="font-size: 0.7rem;">Account Number</div>
-                            <div class="fw-bold text-primary fs-5" style="letter-spacing: 1px;"><?= htmlspecialchars($account_number_str) ?></div>
-                        </div>
-                        <?php if(!empty($iban_str)): ?>
-                        <div class="mb-0">
-                            <div class="text-secondary small text-uppercase" style="font-size: 0.7rem;">IBAN</div>
-                            <div class="fw-bold text-info" style="font-family: monospace; font-size: 0.95rem;"><?= htmlspecialchars($iban_str) ?></div>
-                        </div>
-                        <?php endif; ?>
+                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle rounded-pill px-3 py-1">Official Account</span>
                     </div>
-                <?php else: ?>
-                    <h6 class="text-light fw-bold mb-0"><?= htmlspecialchars($gateway_account_name) ?></h6>
-                    <div class="text-secondary small mb-2">Provider: <span class="text-light fw-bold"><?= htmlspecialchars($gateway_display_name) ?></span></div>
-                    <div class="d-inline-block bg-white p-2 rounded shadow mb-2" style="border: 2px solid #3b82f6;">
-                        <img id="qr_code_img" src="" alt="Dynamic QR" class="img-fluid rounded" style="width: 140px; height: 140px;">
-                    </div>
-                <?php endif; ?>
 
-                <div class="text-secondary" style="font-size: 0.75rem;">
-                    Scan the QR Code to pay. After paying, click <b>Submit Request</b>.
+                    <div class="mb-2">
+                        <div class="text-muted small text-uppercase" style="font-size: 0.68rem; font-weight: 700;">Account Title</div>
+                        <div class="fw-bold text-dark fs-6"><?= htmlspecialchars($gateway_account_name ?: ($operator_info['company_name'] ?? 'ISP Provider')) ?></div>
+                    </div>
+
+                    <?php if(!empty($account_number_str)): ?>
+                    <div class="mb-2">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <div class="text-muted small text-uppercase" style="font-size: 0.68rem; font-weight: 700;">Account Number</div>
+                            <button type="button" class="btn-copy-chip" onclick="copyText('<?= htmlspecialchars($account_number_str) ?>', this)" title="Copy Account Number">
+                                <i class="fa-regular fa-clipboard me-1"></i>Copy
+                            </button>
+                        </div>
+                        <div class="fw-bold text-primary fs-5 font-monospace" style="letter-spacing: 0.5px;"><?= htmlspecialchars($account_number_str) ?></div>
+                    </div>
+                    <?php endif; ?>
+
+                    <?php if(!empty($iban_str)): ?>
+                    <div class="mb-2">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <div class="text-muted small text-uppercase" style="font-size: 0.68rem; font-weight: 700;">IBAN</div>
+                            <button type="button" class="btn-copy-chip" onclick="copyText('<?= htmlspecialchars($iban_str) ?>', this)" title="Copy IBAN">
+                                <i class="fa-regular fa-clipboard me-1"></i>Copy
+                            </button>
+                        </div>
+                        <div class="fw-bold text-dark font-monospace" style="font-size: 0.88rem;"><?= htmlspecialchars($iban_str) ?></div>
+                    </div>
+                    <?php endif; ?>
                 </div>
-                <input type="hidden" name="payment_reference" id="payment_reference" value="AUTO_<?= time() ?>_<?= $current_user['id'] ?>">
+
+                <div class="mb-3 text-start">
+                    <label class="form-label text-dark fw-bold small mb-1">Transaction Reference / TID <span class="text-danger">*</span></label>
+                    <input type="text" name="payment_reference" id="payment_reference" class="form-control" placeholder="e.g. TRX192837465" required>
+                    <div class="form-text text-muted" style="font-size: 0.72rem;">Enter the Transaction ID received in your bank receipt or SMS after transfer.</div>
+                </div>
+
+                <div class="text-muted small bg-light p-2 rounded-3 border">
+                    <i class="fa-solid fa-circle-info text-primary me-1"></i> Send payment to the bank account above via Mobile App, ATM or Online Banking, then click <strong>Submit Request</strong> below.
+                </div>
             </div>
 
             <!-- Balance Payment Info -->
-            <div id="balancePaymentBox" class="d-none text-center mb-3 py-4">
-                <i class="fa-solid fa-wallet fa-3x text-success mb-2"></i>
-                <h5 class="text-light">Pay via Balance</h5>
-                <div class="text-secondary small">Your request will be submitted and amount will be deducted upon approval.</div>
+            <div id="balancePaymentBox" class="d-none text-center mb-3 py-4 bg-light rounded-4 border">
+                <div class="rounded-circle bg-success-subtle text-success d-inline-flex align-items-center justify-content-center mb-2" style="width: 60px; height: 60px;">
+                    <i class="fa-solid fa-wallet fs-3"></i>
+                </div>
+                <h5 class="text-dark fw-bold mb-1">Pay via Account Balance</h5>
+                <p class="text-muted small mb-0 px-3">Your request will be submitted instantly and deducted from your available balance upon approval.</p>
             </div>
 
-            <hr class="border-secondary opacity-25 my-3">
+            <div class="text-dark small fw-bold mb-2">Select Payment Method:</div>
             
-            <div class="text-secondary small fw-bold mb-2">Payment Method:</div>
-            
-            <!-- Payment Options -->
+            <!-- Payment Options Selector -->
             <div class="d-flex flex-column gap-2">
                 <!-- Online Transfer -->
-                <label class="form-check-label w-100 m-0" style="cursor: pointer;">
-                    <div class="d-flex align-items-center p-2 rounded border border-primary bg-primary bg-opacity-10 payment-option" id="opt_online_box" style="transition: 0.2s;">
-                        <input class="form-check-input mt-0 me-2" type="radio" name="payment_method" id="pay_online" value="bank_transfer" checked onchange="togglePaymentUI()">
+                <label class="payment-option-pill active w-100 m-0" id="opt_online_box">
+                    <div class="d-flex align-items-center">
+                        <input class="form-check-input mt-0 me-3" type="radio" name="payment_method" id="pay_online" value="bank_transfer" checked onchange="togglePaymentUI()">
                         <div>
-                            <div class="fw-bold text-light" style="font-size: 0.9rem;"><i class="fa-solid fa-qrcode text-accent me-1"></i> Scan & Pay</div>
+                            <div class="fw-bold text-dark" style="font-size: 0.92rem;"><i class="fa-solid fa-building-columns text-primary me-1"></i> Bank Transfer / Direct Payment</div>
+                            <div class="text-muted small">Pay via mobile bank, JazzCash, EasyPaisa or ATM</div>
                         </div>
                     </div>
                 </label>
 
                 <!-- Account Balance -->
-                <label class="form-check-label w-100 m-0" style="cursor: pointer;">
-                    <div class="d-flex align-items-center p-2 rounded border border-secondary payment-option" id="opt_balance_box" style="background: rgba(255,255,255,0.02); transition: 0.2s;">
-                        <input class="form-check-input mt-0 me-2" type="radio" name="payment_method" id="pay_balance" value="balance" onchange="togglePaymentUI()">
+                <label class="payment-option-pill w-100 m-0" id="opt_balance_box">
+                    <div class="d-flex align-items-center">
+                        <input class="form-check-input mt-0 me-3" type="radio" name="payment_method" id="pay_balance" value="balance" onchange="togglePaymentUI()">
                         <div>
-                            <div class="fw-bold text-light" style="font-size: 0.9rem;"><i class="fa-solid fa-wallet text-success me-1"></i> Account Balance</div>
-                            <div class="text-secondary" style="font-size: 0.75rem;">Available: <strong class="text-success">Rs <?= number_format($current_user['balance'], 2) ?></strong></div>
+                            <div class="fw-bold text-dark" style="font-size: 0.92rem;"><i class="fa-solid fa-wallet text-success me-1"></i> Available Wallet Balance</div>
+                            <div class="text-muted small">Available Funds: <strong class="text-success">Rs <?= number_format($current_user['balance'], 2) ?></strong></div>
                         </div>
                     </div>
                 </label>
             </div>
             
-      </div>
-      <div class="modal-footer border-top border-secondary p-3">
-        <button type="button" class="btn btn-outline-secondary px-4 rounded-pill" data-bs-dismiss="modal">Cancel</button>
-        <button type="submit" id="submitBtn" class="btn btn-primary px-4 rounded-pill fw-bold"><i class="fa-solid fa-paper-plane me-1"></i> Submit Request</button>
-      </div>
+        </div>
+        <div class="modal-footer d-flex justify-content-between">
+            <button type="button" class="btn btn-light px-4 rounded-pill fw-semibold" data-bs-dismiss="modal">Cancel</button>
+            <button type="submit" id="submitBtn" class="btn btn-primary px-4 rounded-pill fw-bold">
+                <i class="fa-solid fa-paper-plane me-1"></i> Submit Request
+            </button>
+        </div>
       </form>
     </div>
   </div>
 </div>
 
-<div class="modal fade" id="addFundsModal" tabindex="-1">
+<!-- ================= ADD FUNDS MODAL ================= -->
+<div class="modal fade" id="addFundsModal" tabindex="-1" aria-labelledby="addFundsModalLabel" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content bg-dark border border-secondary shadow-lg text-light" style="border-radius: 16px;">
-      <div class="modal-header border-bottom border-secondary p-4">
-        <h5 class="modal-title fw-bold text-success"><i class="fa-solid fa-wallet me-2"></i> Recharge Wallet</h5>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+    <div class="modal-content clean-modal">
+      <div class="modal-header">
+        <div class="d-flex align-items-center gap-2">
+            <div class="rounded-circle bg-success-subtle text-success d-flex align-items-center justify-content-center" style="width: 36px; height: 36px;">
+                <i class="fa-solid fa-wallet"></i>
+            </div>
+            <h5 class="modal-title fw-bold text-dark" id="addFundsModalLabel">Recharge Your Wallet</h5>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
+
       <form action="fund_action.php" method="POST">
-        <div class="modal-body p-3">
+        <div class="modal-body p-4">
             
             <div class="text-center mb-3">
-                <?php if($active_method === 'bank'): ?>
-                    <div class="bg-dark border border-secondary rounded p-3 text-start mx-auto shadow mb-2" style="max-width: 320px;">
-                        <div class="text-center mb-2 pb-2 border-bottom border-secondary border-opacity-50">
-                            <i class="fa-solid fa-building-columns fa-2x text-success mb-1"></i>
-                            <h5 class="text-light fw-bold mb-0"><?= htmlspecialchars($gateway_display_name) ?></h5>
+                <div class="bank-box-card text-start mx-auto shadow-sm mb-3" style="max-width: 400px; background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 18px; padding: 18px;">
+                    <div class="d-flex align-items-center justify-content-between mb-3 pb-2 border-bottom border-slate-200">
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="fa-solid fa-building-columns text-success fs-5"></i>
+                            <span class="fw-bold text-dark fs-6"><?= htmlspecialchars($gateway_display_name ?: 'Bank Account') ?></span>
                         </div>
-                        <div class="mb-2">
-                            <div class="text-secondary small text-uppercase" style="font-size: 0.7rem;">Account Title</div>
-                            <div class="fw-bold text-light fs-6"><?= htmlspecialchars($gateway_account_name) ?></div>
-                        </div>
-                        <div class="mb-2">
-                            <div class="text-secondary small text-uppercase" style="font-size: 0.7rem;">Account Number</div>
-                            <div class="fw-bold text-success fs-5" style="letter-spacing: 1px;"><?= htmlspecialchars($account_number_str) ?></div>
-                        </div>
-                        <?php if(!empty($iban_str)): ?>
-                        <div class="mb-0">
-                            <div class="text-secondary small text-uppercase" style="font-size: 0.7rem;">IBAN</div>
-                            <div class="fw-bold text-info" style="font-family: monospace; font-size: 0.95rem;"><?= htmlspecialchars($iban_str) ?></div>
-                        </div>
-                        <?php endif; ?>
+                        <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill">Bank Account</span>
                     </div>
-                <?php else: ?>
-                    <h6 class="text-light fw-bold mb-0"><?= htmlspecialchars($gateway_account_name) ?></h6>
-                    <div class="text-secondary small mb-2">Provider: <span class="text-light fw-bold"><?= htmlspecialchars($gateway_display_name) ?></span></div>
-                    <div class="d-inline-block bg-white p-2 rounded shadow mb-2" style="border: 2px solid #10b981;">
-                        <img id="fund_qr_code" src="https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=SB-LINK-FUNDS" alt="QR Code" class="img-fluid rounded" style="width: 140px; height: 140px;">
+
+                    <div class="mb-2">
+                        <div class="text-muted small text-uppercase" style="font-size: 0.68rem; font-weight: 700;">Account Title</div>
+                        <div class="fw-bold text-dark fs-6"><?= htmlspecialchars($gateway_account_name ?: ($operator_info['company_name'] ?? 'ISP Provider')) ?></div>
                     </div>
-                <?php endif; ?>
+
+                    <?php if(!empty($account_number_str)): ?>
+                    <div class="mb-2">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <div class="text-muted small text-uppercase" style="font-size: 0.68rem; font-weight: 700;">Account Number</div>
+                            <button type="button" class="btn-copy-chip" onclick="copyText('<?= htmlspecialchars($account_number_str) ?>', this)" title="Copy Account Number">
+                                <i class="fa-regular fa-clipboard me-1"></i>Copy
+                            </button>
+                        </div>
+                        <div class="fw-bold text-success fs-5 font-monospace" style="letter-spacing: 0.5px;"><?= htmlspecialchars($account_number_str) ?></div>
+                    </div>
+                    <?php endif; ?>
+
+                    <?php if(!empty($iban_str)): ?>
+                    <div class="mb-0">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <div class="text-muted small text-uppercase" style="font-size: 0.68rem; font-weight: 700;">IBAN</div>
+                            <button type="button" class="btn-copy-chip" onclick="copyText('<?= htmlspecialchars($iban_str) ?>', this)" title="Copy IBAN">
+                                <i class="fa-regular fa-clipboard me-1"></i>Copy
+                            </button>
+                        </div>
+                        <div class="fw-bold text-dark font-monospace" style="font-size: 0.88rem;"><?= htmlspecialchars($iban_str) ?></div>
+                    </div>
+                    <?php endif; ?>
+                </div>
             </div>
 
-            <div class="mb-2">
-                <label class="form-label text-secondary fw-bold small mb-1">Enter Recharge Amount (Rs)</label>
-                <input type="number" name="amount" id="fund_amount" class="form-control form-control-sm bg-dark border-secondary text-light fs-6" placeholder="e.g. 500" required onkeyup="updateFundQR()">
+            <div class="mb-3">
+                <label class="form-label text-dark fw-bold small mb-1">Enter Recharge Amount (Rs)</label>
+                <div class="input-group">
+                    <span class="input-group-text bg-light text-muted fw-bold">Rs</span>
+                    <input type="number" name="amount" id="fund_amount" class="form-control" placeholder="e.g. 1500" required onkeyup="updateFundQR()">
+                </div>
             </div>
             
-            <div class="mb-2">
-                <label class="form-label text-secondary fw-bold small mb-1">Transaction Reference ID</label>
-                <input type="text" name="payment_reference" class="form-control form-control-sm bg-dark border-secondary text-light" placeholder="e.g. TID987654321" required>
+            <div class="mb-3">
+                <label class="form-label text-dark fw-bold small mb-1">Transaction Reference / TID</label>
+                <input type="text" name="payment_reference" class="form-control" placeholder="e.g. TRX982736451" required>
+                <div class="form-text text-muted" style="font-size: 0.74rem;">Enter the Transaction ID provided by your banking app after transfer.</div>
             </div>
 
-            <div class="text-secondary" style="font-size: 0.75rem;">
-                Scan the QR Code to pay. After paying, submit the request.
+            <div class="alert alert-light border small text-muted mb-0">
+                <i class="fa-solid fa-circle-check text-success me-1"></i> Once submitted, your operator will verify and credit funds directly to your wallet balance.
             </div>
 
         </div>
-        <div class="modal-footer border-top border-secondary p-2 d-flex justify-content-between">
-          <button type="button" class="btn btn-sm btn-outline-secondary px-3 rounded-pill" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-sm btn-success px-4 rounded-pill fw-bold"><i class="fa-solid fa-paper-plane me-1"></i> Submit Recharge</button>
+        <div class="modal-footer d-flex justify-content-between">
+          <button type="button" class="btn btn-light px-4 rounded-pill fw-semibold" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-success px-4 rounded-pill fw-bold">
+            <i class="fa-solid fa-paper-plane me-1"></i> Submit Recharge
+          </button>
         </div>
       </form>
     </div>
@@ -442,8 +803,6 @@ function openBuyModal(id, name, price) {
     document.getElementById('modal_pkg_name').innerText = name;
     document.getElementById('modal_pkg_price').innerText = price.toFixed(2);
     
-    // Generate unique QR code URL (using goqr.me or qrserver API)
-    // Data inside: user_id | amount | timestamp
     var qrData = encodeURIComponent("PAY_<?= $current_user['id'] ?>_AMT_" + price.toFixed(2) + "_TS_" + Date.now());
     var qrUrl = "https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=" + qrData;
     var qrElement = document.getElementById('qr_code_img');
@@ -458,48 +817,55 @@ function openBuyModal(id, name, price) {
 function togglePaymentUI() {
     var isOnline = document.getElementById('pay_online').checked;
     
-    // UI Styling for the blocks
     var optOnline = document.getElementById('opt_online_box');
     var optBalance = document.getElementById('opt_balance_box');
     
     if (isOnline) {
-        // Show Online UI
         document.getElementById('onlinePaymentBox').classList.remove('d-none');
+        document.getElementById('balancePaymentBox').classList.add('d-none');
         document.getElementById('payment_reference').setAttribute('required', 'required');
         document.getElementById('submitBtn').innerHTML = '<i class="fa-solid fa-paper-plane me-1"></i> Submit Request';
         
-        // Highlight Online Option
-        optOnline.classList.add('border-primary', 'bg-primary', 'bg-opacity-10');
-        optOnline.classList.remove('border-secondary');
-        optOnline.style.background = '';
-        
-        // Unhighlight Balance Option
-        optBalance.classList.remove('border-primary', 'bg-primary', 'bg-opacity-10');
-        optBalance.classList.add('border-secondary');
-        optBalance.style.background = 'rgba(255,255,255,0.02)';
-        
+        optOnline.classList.add('active');
+        optBalance.classList.remove('active');
     } else {
-        // Hide Online UI
         document.getElementById('onlinePaymentBox').classList.add('d-none');
+        document.getElementById('balancePaymentBox').classList.remove('d-none');
         document.getElementById('payment_reference').removeAttribute('required');
         document.getElementById('submitBtn').innerHTML = '<i class="fa-solid fa-bolt me-1"></i> Confirm & Activate';
         
-        // Highlight Balance Option
-        optBalance.classList.add('border-primary', 'bg-primary', 'bg-opacity-10');
-        optBalance.classList.remove('border-secondary');
-        optBalance.style.background = '';
-        
-        // Unhighlight Online Option
-        optOnline.classList.remove('border-primary', 'bg-primary', 'bg-opacity-10');
-        optOnline.classList.add('border-secondary');
-        optOnline.style.background = 'rgba(255,255,255,0.02)';
+        optBalance.classList.add('active');
+        optOnline.classList.remove('active');
     }
 }
+
 function updateFundQR() {
     var amount = document.getElementById('fund_amount').value || "0";
     var qrData = encodeURIComponent("FUNDS_<?= $current_user['id'] ?>_AMT_" + amount + "_TS_" + Date.now());
     var qrUrl = "https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=" + qrData;
-    document.getElementById('fund_qr_code').src = qrUrl;
+    var qrImg = document.getElementById('fund_qr_code');
+    if (qrImg) {
+        qrImg.src = qrUrl;
+    }
+}
+
+function copyText(text, btnElement) {
+    if (!navigator.clipboard) {
+        var textArea = document.createElement("textarea");
+        textArea.value = text;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+    } else {
+        navigator.clipboard.writeText(text);
+    }
+    
+    var originalHTML = btnElement.innerHTML;
+    btnElement.innerHTML = '<i class="fa-solid fa-check text-success me-1"></i>Copied!';
+    setTimeout(function() {
+        btnElement.innerHTML = originalHTML;
+    }, 2000);
 }
 </script>
 

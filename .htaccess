@@ -1,0 +1,8 @@
+<IfModule mod_rewrite.c>
+RewriteEngine On
+
+# Automatically route customer.sblink.tech to /customer/ folder
+RewriteCond %{HTTP_HOST} ^customer\. [NC]
+RewriteCond %{REQUEST_URI} !^/customer/ [NC]
+RewriteRule ^(.*)$ customer/$1 [L,QSA]
+</IfModule>

@@ -332,197 +332,336 @@ function formatUptime($seconds) {
     $s = $seconds % 60;
     return sprintf("%dd %02dh %02dm %02ds", $d, $h, $m, $s);
 }
-?>
 
+// Stats for quick filter capsules
+$count_all = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id")->fetchColumn() ?: 0;
+$count_online = $pdo->query("SELECT COUNT(DISTINCT username) FROM radacct WHERE acctstoptime IS NULL AND username IN (SELECT username FROM subscribers WHERE client_id = $client_id)")->fetchColumn() ?: 0;
+$count_expired = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND expiry_date < NOW() AND expiry_date > '2000-01-01'")->fetchColumn() ?: 0;
+$count_offline = max(0, $count_all - $count_online);
+?>
 <!-- DataTables & Buttons CSS -->
 <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
 <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.2/css/buttons.bootstrap5.min.css">
 
 <style>
-    /* Premium Table-Card Layout */
-    #usersTable { border-collapse: separate !important; border-spacing: 0 10px !important; margin-top: -10px !important; }
-    #usersTable thead th { 
-        border: none !important; 
-        background: transparent !important; 
-        color: #64748b; 
-        font-size: 0.75rem; 
-        text-transform: uppercase; 
-        letter-spacing: 1px; 
-        padding-bottom: 0px !important; 
-    }
-    #usersTable tbody tr { 
-        background: #ffffff !important; 
-        box-shadow: 0 2px 8px rgba(0,0,0,0.03) !important; 
-        border-radius: 12px !important; 
-        transition: transform 0.2s, box-shadow 0.2s !important; 
-    }
-    #usersTable tbody tr:hover { 
-        transform: translateY(-2px) !important; 
-        box-shadow: 0 5px 15px rgba(0,0,0,0.08) !important; 
-        z-index: 10;
-        position: relative;
-    }
-    #usersTable tbody td { 
-        border-top: 1px solid #f8fafc !important; 
-        border-bottom: 1px solid #f8fafc !important; 
-        border-right: none !important;
-        border-left: none !important;
-        vertical-align: middle !important; 
-        padding: 12px 15px !important; 
-        background: transparent !important;
-    }
-    #usersTable tbody td:first-child { 
-        border-left: 1px solid #f8fafc !important; 
-        border-top-left-radius: 12px !important; 
-        border-bottom-left-radius: 12px !important; 
-    }
-    #usersTable tbody td:last-child { 
-        border-right: 1px solid #f8fafc !important; 
-        border-top-right-radius: 12px !important; 
-        border-bottom-right-radius: 12px !important; 
-    }
-    .table-custom-ui { background: transparent !important; box-shadow: none !important; padding: 0 !important; }
+    body { background-color: #f8fafc; font-family: 'Inter', system-ui, -apple-system, sans-serif; }
     
-    /* Make Avatar look Premium */
-    .avatar-circle { 
-        width: 45px !important; 
-        height: 45px !important; 
-        border-radius: 10px !important; 
-        background: #e0f2fe !important; 
-        color: #0284c7 !important; 
-        display: flex !important; 
-        align-items: center !important; 
-        justify-content: center !important; 
-        font-size: 1.2rem !important; 
+    .card-ui { 
+        background: #ffffff; 
+        border-radius: 20px; 
+        box-shadow: 0 4px 20px rgba(0,0,0,0.03); 
+        border: 1px solid #eef2f6; 
     }
-    
-    /* Badges */
-    .badge-soft-success { background: #dcfce7 !important; color: #166534 !important; }
-    .badge-soft-warning { background: #fef3c7 !important; color: #92400e !important; }
-    .badge-soft-primary { background: #dbeafe !important; color: #1e40af !important; }
-    .badge-soft-secondary { background: #f1f5f9 !important; color: #475569 !important; }
-    .badge-soft-danger { background: #fee2e2 !important; color: #991b1b !important; }
-    /* Light Theme Button UI */
-    .action-bar-top .btn {
-        background-color: #334155;
-        border: none;
-        color: #fff;
-        margin-right: 5px;
-        margin-bottom: 10px;
-        border-radius: 6px;
-        padding: 8px 16px;
-        font-weight: 500;
+
+    /* Filter Pills */
+    .filter-pill-btn {
+        border-radius: 50px;
+        padding: 7px 18px;
+        font-weight: 600;
+        font-size: 0.86rem;
+        border: 1px solid #e2e8f0;
+        transition: all 0.2s ease;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: #ffffff;
+        color: #64748b;
     }
-    .action-bar-top .btn:hover { background-color: #1e293b; color: #fff; }
-    
-    .dt-buttons .btn {
-        background-color: #475569;
-        border: none;
-        color: #fff;
+    .filter-pill-btn:hover {
+        background: #f1f5f9;
+        color: #1e293b;
+        border-color: #cbd5e1;
+    }
+    .filter-pill-btn.active {
+        background: #2563eb !important;
+        color: #ffffff !important;
+        border-color: #2563eb !important;
+        box-shadow: 0 4px 12px rgba(37,99,235,0.22);
+    }
+    .filter-pill-btn .pill-count {
+        background: rgba(0,0,0,0.06);
+        padding: 2px 7px;
         border-radius: 20px;
-        padding: 4px 14px;
-        font-size: 0.85rem;
-        margin-right: 4px;
+        font-size: 0.75rem;
     }
-    .dt-buttons .btn:hover { background-color: #334155; }
+    .filter-pill-btn.active .pill-count {
+        background: rgba(255,255,255,0.25);
+        color: #ffffff;
+    }
+
+    /* Action Buttons */
+    .btn-action-pro {
+        border-radius: 12px;
+        padding: 9px 16px;
+        font-weight: 600;
+        font-size: 0.88rem;
+        border: 1px solid transparent;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        transition: all 0.2s ease;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.03);
+    }
+    .btn-action-pro:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 5px 14px rgba(0,0,0,0.08);
+    }
+    .btn-action-primary {
+        background: linear-gradient(135deg, #2563eb, #1d4ed8);
+        color: #ffffff;
+    }
+    .btn-action-primary:hover { color: #ffffff; background: linear-gradient(135deg, #1d4ed8, #1e40af); }
+    .btn-action-success {
+        background: linear-gradient(135deg, #10b981, #059669);
+        color: #ffffff;
+    }
+    .btn-action-success:hover { color: #ffffff; }
+    .btn-action-purple {
+        background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+        color: #ffffff;
+    }
+    .btn-action-purple:hover { color: #ffffff; }
+    .btn-action-secondary {
+        background: #ffffff;
+        color: #334155;
+        border-color: #e2e8f0;
+    }
+    .btn-action-secondary:hover { background: #f8fafc; color: #0f172a; border-color: #cbd5e1; }
+    .btn-action-danger {
+        background: #fee2e2;
+        color: #dc2626;
+        border-color: #fecaca;
+    }
+    .btn-action-danger:hover { background: #fca5a5; color: #b91c1c; }
+
+    /* Premium DataTables Styling */
+    #usersTable {
+        border-collapse: separate !important;
+        border-spacing: 0 8px !important;
+    }
+    #usersTable thead th {
+        background: #f8fafc !important;
+        color: #64748b !important;
+        font-size: 0.75rem !important;
+        font-weight: 700 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.8px !important;
+        padding: 12px 14px !important;
+        border: none !important;
+        white-space: nowrap !important;
+    }
+    #usersTable thead th:first-child { border-top-left-radius: 12px; border-bottom-left-radius: 12px; }
+    #usersTable thead th:last-child { border-top-right-radius: 12px; border-bottom-right-radius: 12px; }
     
-    .table-custom-ui {
-        background-color: #ffffff;
-        border-radius: 8px;
+    #usersTable tbody tr {
+        background: #ffffff !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.02) !important;
+        border-radius: 14px !important;
+        transition: transform 0.18s ease, box-shadow 0.18s ease !important;
+    }
+    #usersTable tbody tr:hover {
+        transform: translateY(-2px) !important;
+        box-shadow: 0 6px 18px rgba(0,0,0,0.06) !important;
+    }
+    #usersTable tbody td {
+        border-top: 1px solid #f1f5f9 !important;
+        border-bottom: 1px solid #f1f5f9 !important;
+        border-left: none !important;
+        border-right: none !important;
+        vertical-align: middle !important;
+        padding: 12px 14px !important;
+        background: transparent !important;
+        font-size: 0.9rem !important;
+    }
+    #usersTable tbody td:first-child {
+        border-left: 1px solid #f1f5f9 !important;
+        border-top-left-radius: 14px !important;
+        border-bottom-left-radius: 14px !important;
+    }
+    #usersTable tbody td:last-child {
+        border-right: 1px solid #f1f5f9 !important;
+        border-top-right-radius: 14px !important;
+        border-bottom-right-radius: 14px !important;
+    }
+
+    /* Avatars */
+    .avatar-pro {
+        width: 38px;
+        height: 38px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.05rem;
+        background: linear-gradient(135deg, #eff6ff, #dbeafe);
+        color: #2563eb;
+        box-shadow: 0 2px 6px rgba(37,99,235,0.08);
+    }
+
+    /* Badges */
+    .badge-soft-success { background-color: #ecfdf5 !important; color: #059669 !important; border: 1px solid #a7f3d0 !important; font-weight: 600; }
+    .badge-soft-secondary { background-color: #f1f5f9 !important; color: #475569 !important; border: 1px solid #e2e8f0 !important; font-weight: 600; }
+    .badge-soft-primary { background-color: #eff6ff !important; color: #2563eb !important; border: 1px solid #bfdbfe !important; font-weight: 600; }
+    .badge-soft-warning { background-color: #fffbeb !important; color: #d97706 !important; border: 1px solid #fde68a !important; font-weight: 600; }
+    .badge-soft-danger { background-color: #fef2f2 !important; color: #dc2626 !important; border: 1px solid #fecaca !important; font-weight: 600; }
+
+    /* DataTables Buttons & Filter */
+    .dt-buttons .btn {
+        background: #ffffff !important;
+        border: 1px solid #e2e8f0 !important;
+        color: #475569 !important;
+        border-radius: 50px !important;
+        padding: 5px 14px !important;
+        font-size: 0.82rem !important;
+        font-weight: 600 !important;
+        margin-right: 5px !important;
+        transition: all 0.2s ease !important;
+    }
+    .dt-buttons .btn:hover {
+        background: #f1f5f9 !important;
+        color: #0f172a !important;
+        border-color: #cbd5e1 !important;
+    }
+    .dataTables_filter input {
+        border-radius: 50px !important;
+        border: 1px solid #e2e8f0 !important;
+        padding: 6px 16px !important;
+        font-size: 0.88rem !important;
+        background: #ffffff !important;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.02) !important;
+        outline: none !important;
+    }
+    .dataTables_filter input:focus {
+        border-color: #2563eb !important;
+        box-shadow: 0 0 0 3px rgba(37,99,235,0.12) !important;
+    }
+    .dataTables_length select {
+        border-radius: 10px !important;
+        border: 1px solid #e2e8f0 !important;
+        padding: 5px 10px !important;
+        font-size: 0.86rem !important;
+    }
+
+    /* Modal Styling */
+    .light-modal {
+        border-radius: 20px !important;
+        border: 1px solid #eef2f6 !important;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.1) !important;
         overflow: hidden;
     }
-    .table-custom-ui thead th {
-        background-color: #f8f9fa;
-        color: #64748b;
-        border-bottom: 2px solid #e5e7eb;
-        font-weight: 600;
-        font-size: 0.9rem;
-        white-space: nowrap;
-    }
-    .table-custom-ui tbody td {
-        vertical-align: middle;
-        border-bottom: 1px solid #e5e7eb;
-        color: #334155;
-        font-size: 0.9rem;
-    }
-    .avatar-circle {
-        width: 40px; height: 40px;
-        background-color: #334155;
-        border-radius: 50%;
-        display: flex; align-items: center; justify-content: center;
-        color: #cbd5e1; font-size: 1.2rem;
-    }
-    .badge-soft-success { background-color: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2); }
-    .badge-soft-secondary { background-color: rgba(148, 163, 184, 0.15); color: #64748b; border: 1px solid rgba(148, 163, 184, 0.2); }
-    .badge-soft-primary { background-color: rgba(59, 130, 246, 0.15); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.2); }
-    .badge-soft-warning { background-color: rgba(245, 158, 11, 0.15); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.2); }
-    
-    .dataTables_wrapper .row { margin-bottom: 15px; }
-    .dataTables_filter input { background-color: #ffffff; border: 1px solid #ced4da; color: #333; border-radius: 20px; padding: 4px 15px; }
-    .dataTables_length select { background-color: #ffffff; border: 1px solid #ced4da; color: #333; border-radius: 6px; }
-
-    .modal-content.light-modal {
-        background-color: #fff;
-        color: #333;
-        border-radius: 8px;
-    }
     .light-modal .modal-header {
-        border-bottom: 1px solid #eaeaea;
-        background-color: #fcfcfc;
-        border-radius: 8px 8px 0 0;
+        background: #f8fafc !important;
+        border-bottom: 1px solid #eef2f6 !important;
+        padding: 18px 24px !important;
     }
-    .light-modal .modal-title { color: #64748b; font-size: 1.1rem; font-weight: 600; }
-    .light-modal .accordion-button {
-        background-color: #f1f5f9;
-        color: #334155;
-        font-weight: 600;
-        border: 1px solid #e2e8f0;
+    .light-modal .modal-title { color: #0f172a; font-size: 1.15rem; font-weight: 700; }
+    .light-modal .modal-body { padding: 24px !important; }
+    .light-modal .modal-footer {
+        background: #f8fafc !important;
+        border-top: 1px solid #eef2f6 !important;
+        padding: 16px 24px !important;
     }
-    .light-modal .accordion-button:not(.collapsed) {
-        background-color: #f1f5f9;
-        color: #334155;
-        box-shadow: none;
-    }
-    .light-modal .accordion-item { border: none; margin-bottom: 15px; }
     .light-modal .col-form-label {
-        color: #64748b;
-        font-weight: 700;
-        font-size: 0.9rem;
+        color: #475569;
+        font-weight: 600;
+        font-size: 0.86rem;
     }
     .light-modal .form-control, .light-modal .form-select {
         border: 1px solid #cbd5e1;
-        border-radius: 4px;
-        color: #333;
-        background-color: #fff;
-        padding: 0.4rem 0.75rem;
+        border-radius: 10px;
+        color: #1e293b;
+        padding: 0.5rem 0.85rem;
     }
     .light-modal .form-control:focus, .light-modal .form-select:focus {
-        border-color: #94a3b8;
-        box-shadow: none;
+        border-color: #2563eb;
+        box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
     }
-    .light-modal .btn-submit { background-color: #1e293b; color: #fff; border: none; padding: 6px 20px; }
-    .light-modal .btn-submit:hover { background-color: #0f172a; color: #fff; }
+    .light-modal .btn-submit {
+        background: linear-gradient(135deg, #2563eb, #1d4ed8);
+        color: #fff;
+        border: none;
+        padding: 8px 24px;
+        border-radius: 50px;
+        font-weight: 600;
+    }
+    .light-modal .btn-submit:hover {
+        background: linear-gradient(135deg, #1d4ed8, #1e40af);
+        color: #fff;
+    }
 </style>
 
-<div class="d-flex align-items-center mb-3">
-    <h4 class="mb-0 me-3"><i class="fa-solid fa-users text-primary"></i> Users</h4>
+<!-- Top Header Section -->
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-3">
+    <div class="d-flex align-items-center">
+        <div class="rounded-circle text-white d-flex align-items-center justify-content-center me-3 shadow-sm" style="width: 48px; height: 48px; font-size: 1.25rem; background: linear-gradient(135deg, #2563eb, #1d4ed8);">
+            <i class="fa-solid fa-users"></i>
+        </div>
+        <div>
+            <h4 class="fw-bold text-dark mb-0">Subscribers & Users</h4>
+            <div class="text-secondary small">Manage subscribers, packages, renewals and payments</div>
+        </div>
+    </div>
+    
+    <!-- Top Action Buttons -->
+    <div class="d-flex flex-wrap gap-2">
+        <button type="button" class="btn btn-action-pro btn-action-primary shadow-sm" data-bs-toggle="modal" data-bs-target="#addUserModal">
+            <i class="fa-solid fa-user-plus"></i> Add New User
+        </button>
+        <button type="button" class="btn btn-action-pro btn-action-success shadow-sm" onclick="openMassRenewModal()">
+            <i class="fa-solid fa-user-check"></i> Mass Renew
+        </button>
+        <button type="button" class="btn btn-action-pro btn-action-purple shadow-sm" onclick="openMassPaymentModal()">
+            <i class="fa-brands fa-paypal"></i> Mass Payment
+        </button>
+        <button type="button" class="btn btn-action-pro btn-action-secondary shadow-sm" data-bs-toggle="modal" data-bs-target="#restoreModal">
+            <i class="fa-solid fa-file-import"></i> Import CSV
+        </button>
+        <button type="button" class="btn btn-action-pro btn-action-danger shadow-sm" onclick="submitMassAction('delete')">
+            <i class="fa-solid fa-trash"></i> Mass Delete
+        </button>
+    </div>
 </div>
 
-<!-- Top Action Bar -->
-<div class="action-bar-top">
-    <button class="btn shadow-sm" onclick="submitMassAction('delete')"><i class="fa-solid fa-trash me-1"></i> Mass Delete</button>
-    <button class="btn shadow-sm" onclick="openMassPaymentModal()"><i class="fa-brands fa-paypal me-1"></i> Mass Payment</button>
-    <button class="btn shadow-sm" onclick="openMassRenewModal()"><i class="fa-solid fa-user-check me-1"></i> Mass Activation/Renew</button>
-    <button class="btn shadow-sm" data-bs-toggle="modal" data-bs-target="#addUserModal"><i class="fa-solid fa-user-plus me-1"></i> Add New User</button>
-    <button class="btn shadow-sm" data-bs-toggle="modal" data-bs-target="#restoreModal"><i class="fa-solid fa-file-import me-1"></i> Import Users</button>
+<!-- Filter Pills Row -->
+<div class="d-flex flex-wrap gap-2 mb-4">
+    <a href="subscribers.php" class="filter-pill-btn <?= empty($filter) ? 'active' : '' ?>">
+        <i class="fa-solid fa-users"></i> All Users <span class="pill-count"><?= number_format($count_all) ?></span>
+    </a>
+    <a href="subscribers.php?filter=online" class="filter-pill-btn <?= $filter==='online' ? 'active' : '' ?>">
+        <i class="fa-solid fa-wifi"></i> Online <span class="pill-count"><?= number_format($count_online) ?></span>
+    </a>
+    <a href="subscribers.php?filter=offline" class="filter-pill-btn <?= $filter==='offline' ? 'active' : '' ?>">
+        <i class="fa-solid fa-user-slash"></i> Offline <span class="pill-count"><?= number_format($count_offline) ?></span>
+    </a>
+    <a href="subscribers.php?filter=expired" class="filter-pill-btn <?= $filter==='expired' ? 'active' : '' ?>">
+        <i class="fa-solid fa-circle-exclamation"></i> Expired <span class="pill-count"><?= number_format($count_expired) ?></span>
+    </a>
+    <a href="subscribers.php?filter=expiring_1w" class="filter-pill-btn <?= $filter==='expiring_1w' ? 'active' : '' ?>">
+        <i class="fa-solid fa-calendar-week"></i> Expiring (1 Week)
+    </a>
+    <a href="subscribers.php?filter=expiring_2w" class="filter-pill-btn <?= $filter==='expiring_2w' ? 'active' : '' ?>">
+        <i class="fa-solid fa-calendar-days"></i> Expiring (2 Weeks)
+    </a>
 </div>
 
-<div class="card table-custom-ui p-3 mt-3 shadow-sm border-0">
-    <div class="table-responsive">
-        <table id="usersTable" class="table table-hover table-borderless w-100">
+<!-- Main Table Card Container -->
+<div class="card-ui p-4 mb-4 position-relative">
+    <!-- Loading State Dialog -->
+    <div id="usersLoadingBox" class="text-center py-5">
+        <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <h5 class="fw-bold text-dark mt-3 mb-1">Loading Subscribers...</h5>
+        <div class="text-secondary small">Please wait while user records are being initialized.</div>
+    </div>
+
+    <!-- Table Container (Initially Hidden) -->
+    <div id="usersTableContainer" class="table-responsive" style="display: none;">
+        <table id="usersTable" class="table table-hover w-100">
             <thead>
                 <tr>
-                    <th><input type="checkbox" id="selectAll"></th>
+                    <th style="width: 40px;"><input type="checkbox" id="selectAll" class="form-check-input"></th>
                     <th>#ID</th>
                     <th>Photo</th>
                     <th>Username</th>
@@ -534,13 +673,13 @@ function formatUptime($seconds) {
                     <th>Package</th>
                     <th>Balance</th>
                     <th>Service</th>
-                    <th>On/Off</th>
+                    <th>Status</th>
                     <th>On/Off Time</th>
-                    <th>Usage Data/Time</th>
-                    <th>Expiry</th>
-                    <th>NAS</th>
+                    <th>Usage / Time</th>
+                    <th>Expiry Date</th>
+                    <th>NAS IP</th>
                     <th>Created</th>
-                    <th>Action</th>
+                    <th style="min-width: 140px;">Actions</th>
                 </tr>
             </thead>
             <tbody>
@@ -551,83 +690,106 @@ function formatUptime($seconds) {
                     $off_time = $s['last_off_time'] ? date('Y-m-d H:i:s', strtotime($s['last_off_time'])) : 'N/A';
                 ?>
                 <tr>
-                    <td><input type="checkbox" class="row-checkbox" value="<?= $s['id'] ?>"></td>
-                    <td><?= $s['id'] ?></td>
+                    <td><input type="checkbox" class="row-checkbox form-check-input" value="<?= $s['id'] ?>"></td>
+                    <td class="fw-semibold text-secondary">#<?= $s['id'] ?></td>
                     <td>
-                        <div class="avatar-circle">
+                        <div class="avatar-pro">
                             <i class="fa-solid fa-user"></i>
                         </div>
                     </td>
                     <td>
-                        <a href="subscriber_view.php?id=<?= $s['id'] ?>">
-                            <span class="badge rounded-pill badge-soft-success px-3 py-2"><?= htmlspecialchars($s['username']) ?></span>
+                        <a href="subscriber_view.php?id=<?= $s['id'] ?>" class="text-decoration-none">
+                            <span class="badge rounded-pill badge-soft-primary px-3 py-2 fw-bold" style="font-size: 0.88rem;">
+                                <i class="fa-solid fa-user me-1"></i> <?= htmlspecialchars($s['username']) ?>
+                            </span>
                         </a>
                     </td>
-                    <td><?= htmlspecialchars($s['password']) ?></td>
-                    <td><?= htmlspecialchars($s['full_name']) ?></td>
+                    <td class="font-monospace small"><?= htmlspecialchars($s['password']) ?></td>
+                    <td class="fw-medium text-dark"><?= htmlspecialchars($s['full_name']) ?></td>
                     <td><?= htmlspecialchars($s['national_id']) ?></td>
                     <td><?= htmlspecialchars($s['mobile'] ?: ($s['phone'] ?: 'N/A')) ?></td>
                     <td><?= htmlspecialchars($s['address']) ?></td>
                     <td>
-                        <?= htmlspecialchars($s['package_name'] ?? 'N/A') ?>
-                        <br><small class="text-muted">(Local)</small>
+                        <span class="fw-bold text-dark"><?= htmlspecialchars($s['package_name'] ?? 'N/A') ?></span>
+                        <br><span class="badge bg-light text-secondary border px-2 py-1" style="font-size: 0.7rem;">Local</span>
                     </td>
                     <td>
-                        <span class="badge rounded-pill badge-soft-warning px-3 py-2"><?= number_format($s['balance'], 2) ?></span>
+                        <span class="badge rounded-pill badge-soft-warning px-3 py-2 fw-bold">Rs. <?= number_format($s['balance'], 2) ?></span>
                     </td>
-                    <td><span class="badge rounded-pill badge-soft-primary px-3 py-2 fw-bold"><?= strtoupper(htmlspecialchars($s['service_type'])) ?></span></td>
+                    <td>
+                        <span class="badge rounded-pill badge-soft-secondary px-3 py-2 text-uppercase fw-bold" style="font-size: 0.78rem;">
+                            <?= htmlspecialchars($s['service_type']) ?>
+                        </span>
+                    </td>
                     <td>
                         <?php if($s['is_online'] > 0): ?>
-                            <div class="d-flex flex-column align-items-center gap-1">
-                                <span class="badge rounded-pill badge-soft-success px-3 py-1">Online</span>
+                            <div class="d-flex flex-column gap-1">
+                                <span class="badge rounded-pill badge-soft-success px-3 py-1">
+                                    <i class="fa-solid fa-circle text-success me-1" style="font-size: 0.55rem;"></i> Online
+                                </span>
                                 <small class="text-muted font-monospace" style="font-size: 0.75rem;"><?= htmlspecialchars($s['live_ip']) ?></small>
                             </div>
                         <?php else: ?>
-                            <span class="badge rounded-pill badge-soft-secondary px-3 py-2">Offline</span>
+                            <span class="badge rounded-pill badge-soft-secondary px-3 py-1">
+                                <i class="fa-regular fa-circle text-muted me-1" style="font-size: 0.55rem;"></i> Offline
+                            </span>
                         <?php endif; ?>
                     </td>
-                    <td><?= $on_time ?><br><?= $off_time ?></td>
-                    <td><?= $usage_gb ?> GB<br><?= $uptime_fmt ?></td>
+                    <td>
+                        <small class="text-muted d-block font-monospace" style="font-size: 0.75rem;"><?= $on_time ?></small>
+                        <small class="text-muted d-block font-monospace" style="font-size: 0.75rem;"><?= $off_time ?></small>
+                    </td>
+                    <td>
+                        <div class="fw-bold text-dark"><?= $usage_gb ?> GB</div>
+                        <small class="text-muted font-monospace" style="font-size: 0.75rem;"><?= $uptime_fmt ?></small>
+                    </td>
                     <td>
                         <?php if($s['expiry_date']): ?>
                             <?php if(strtotime($s['expiry_date']) < time()): ?>
-                                <div class="d-flex flex-column align-items-center gap-1">
-                                    <span class="badge rounded-pill bg-danger text-white fw-bold px-3 py-1 text-uppercase" style="letter-spacing: 0.5px;">Expired</span>
+                                <div class="d-flex flex-column gap-1">
+                                    <span class="badge rounded-pill badge-soft-danger px-3 py-1 fw-bold text-uppercase" style="letter-spacing: 0.5px;">
+                                        <i class="fa-solid fa-triangle-exclamation me-1"></i> Expired
+                                    </span>
                                     <small class="text-muted font-monospace" style="font-size: 0.70rem;"><?= date('d M Y h:i A', strtotime($s['expiry_date'])) ?></small>
                                 </div>
                             <?php else: ?>
-                                <span class="badge rounded-pill badge-soft-success px-3 py-2">
-                                    <?= date('d M Y h:i A', strtotime($s['expiry_date'])) ?>
-                                </span>
+                                <div class="d-flex flex-column gap-1">
+                                    <span class="badge rounded-pill badge-soft-success px-3 py-1">
+                                        <i class="fa-regular fa-clock me-1"></i> <?= date('d M Y', strtotime($s['expiry_date'])) ?>
+                                    </span>
+                                    <small class="text-muted font-monospace" style="font-size: 0.70rem;"><?= date('h:i A', strtotime($s['expiry_date'])) ?></small>
+                                </div>
                             <?php endif; ?>
                         <?php else: ?>
-                            <span class="badge rounded-pill badge-soft-secondary px-3 py-2">N/A</span>
+                            <span class="badge rounded-pill badge-soft-secondary px-3 py-1">N/A</span>
                         <?php endif; ?>
                     </td>
-                    <td><?= htmlspecialchars($s['nas_ip'] ?: 'N/A') ?></td>
-                    <td><?= $s['created_at'] ? date('Y-m-d H:i:s', strtotime($s['created_at'])) : 'N/A' ?></td>
+                    <td><small class="font-monospace text-muted"><?= htmlspecialchars($s['nas_ip'] ?: 'N/A') ?></small></td>
+                    <td><small class="font-monospace text-muted"><?= $s['created_at'] ? date('Y-m-d', strtotime($s['created_at'])) : 'N/A' ?></small></td>
                     <td>
                         <div class="d-flex flex-column gap-1">
-                            <button type="button" class="badge rounded-pill badge-soft-primary border-0 px-3 py-2 w-100 btn-payment" data-id="<?= $s['id'] ?>" data-username="<?= htmlspecialchars($s['username']) ?>" data-balance="<?= number_format($s['balance'], 2) ?>"><i class="fa-brands fa-paypal"></i> Payment</button>
+                            <button type="button" class="btn btn-sm btn-outline-primary rounded-pill px-2 py-1 w-100 btn-payment fw-bold" style="font-size: 0.78rem;" data-id="<?= $s['id'] ?>" data-username="<?= htmlspecialchars($s['username']) ?>" data-balance="<?= number_format($s['balance'], 2) ?>">
+                                <i class="fa-brands fa-paypal me-1"></i> Payment
+                            </button>
                             <div class="d-flex gap-1">
                                 <!-- Trigger Renew Modal -->
-                                <button type="button" class="badge rounded-pill badge-soft-success border-0 px-2 py-2 w-100 btn-renew" 
+                                <button type="button" class="btn btn-sm btn-outline-success rounded-pill px-2 py-1 flex-grow-1 btn-renew fw-bold" style="font-size: 0.78rem;"
                                     data-id="<?= $s['id'] ?>" 
                                     data-username="<?= htmlspecialchars($s['username']) ?>" 
                                     data-pkg="<?= $s['package_id'] ?>" 
                                     data-expiry="<?= $s['expiry_date'] ? date('Y-m-d\TH:i', strtotime($s['expiry_date'])) : '' ?>">
-                                    <i class="fa-solid fa-rotate"></i> Renew
+                                    <i class="fa-solid fa-rotate me-1"></i> Renew
                                 </button>
                                 
                                 <form action="subscriber_action.php" method="POST" class="d-inline" onsubmit="return confirm('Disconnect this user now?');">
                                     <input type="hidden" name="action" value="kick">
                                     <input type="hidden" name="username" value="<?= htmlspecialchars($s['username']) ?>">
-                                    <button type="submit" class="badge rounded-pill badge-soft-success border-0 px-2 py-2" title="Live Kick"><i class="fa-solid fa-check"></i></button>
+                                    <button type="submit" class="btn btn-sm btn-light border text-success rounded-circle p-0" style="width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;" title="Live Kick"><i class="fa-solid fa-bolt" style="font-size: 0.75rem;"></i></button>
                                 </form>
                                 <form method="POST" class="d-inline" onsubmit="return confirm('Delete this user permanently?');">
                                     <input type="hidden" name="action" value="delete_id">
                                     <input type="hidden" name="id" value="<?= $s['id'] ?>">
-                                    <button type="submit" class="badge rounded-pill badge-soft-secondary border-0 px-2 py-2" title="Delete"><i class="fa-solid fa-trash"></i></button>
+                                    <button type="submit" class="btn btn-sm btn-light border text-danger rounded-circle p-0" style="width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;" title="Delete"><i class="fa-solid fa-trash" style="font-size: 0.75rem;"></i></button>
                                 </form>
                             </div>
                         </div>
@@ -640,6 +802,7 @@ function formatUptime($seconds) {
 </div>
 
 <!-- Add User Modal -->
+
 <div class="modal fade" id="addUserModal" tabindex="-1">
   <div class="modal-dialog modal-lg">
     <div class="modal-content light-modal">
@@ -823,7 +986,7 @@ $(document).ready(function() {
     var exportColumns = [1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]; // Everything except Checkbox, Photo, Action
 
     $('#usersTable').DataTable({
-        dom: '<"row align-items-center"<"col-md-2"l><"col-md-6 dt-buttons"B><"col-md-4"f>>rtip',
+        dom: '<"row align-items-center mb-3"<"col-md-2"l><"col-md-6 dt-buttons"B><"col-md-4"f>>rtip',
         buttons: [
             { extend: 'print', exportOptions: { columns: exportColumns }, text: '<i class="fa-solid fa-print"></i> Print' },
             { extend: 'copy', exportOptions: { columns: exportColumns }, text: '<i class="fa-solid fa-copy"></i> Copy' },
@@ -840,7 +1003,16 @@ $(document).ready(function() {
         scrollX: true,
         language: {
             search: "Search:",
-            searchPlaceholder: "Type & Submit"
+            searchPlaceholder: "Type & Submit",
+            emptyTable: '<div class="text-center py-4"><i class="fa-solid fa-users-slash fa-2x text-muted mb-2"></i><div class="text-muted fw-semibold">No subscribers found.</div></div>',
+            zeroRecords: '<div class="text-center py-4"><i class="fa-solid fa-magnifying-glass fa-2x text-muted mb-2"></i><div class="text-muted fw-semibold">No matching subscribers found.</div></div>'
+        },
+        initComplete: function() {
+            $('#usersLoadingBox').fadeOut(120, function() {
+                $('#usersTableContainer').fadeIn(180, function() {
+                    $('#usersTable').DataTable().columns.adjust().draw();
+                });
+            });
         }
     });
 

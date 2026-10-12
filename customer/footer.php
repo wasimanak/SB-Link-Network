@@ -48,9 +48,9 @@ if (!isset($operator_info) && isset($client_id)) {
             <div class="col-lg-4 col-md-6 mb-4">
                 <h6 class="text-white fw-bold mb-3">Contact Support</h6>
                 <ul class="list-unstyled small">
-                    <li class="mb-2"><i class="fa-solid fa-phone me-2 text-accent"></i> <?= htmlspecialchars($operator_info['phone'] ?? '111-222-3333') ?></li>
-                    <li class="mb-2"><i class="fa-solid fa-envelope me-2 text-accent"></i> <?= htmlspecialchars($operator_info['email'] ?? 'support@sblink.net') ?></li>
-                    <li class="mb-2 d-flex"><i class="fa-solid fa-location-dot me-2 text-accent mt-1"></i> <span><?= htmlspecialchars($operator_info['address'] ?? 'Main Head Office, City') ?></span></li>
+                    <li class="mb-2"><i class="fa-solid fa-phone me-2 text-accent"></i> <?= htmlspecialchars($operator_info['phone'] ?? '0303-6542000') ?></li>
+                    <li class="mb-2"><i class="fa-solid fa-envelope me-2 text-accent"></i> <?= htmlspecialchars($operator_info['email'] ?? 'sblinkpiplan@gmail.com') ?></li>
+                    <li class="mb-2 d-flex"><i class="fa-solid fa-location-dot me-2 text-accent mt-1"></i> <span><?= htmlspecialchars($operator_info['address'] ?? 'Al Muneer Mobile Shop Near MCB Bank') ?></span></li>
                 </ul>
             </div>
         </div>

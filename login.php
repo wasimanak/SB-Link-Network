@@ -1,5 +1,16 @@
 <?php
 session_start();
+
+$host = $_SERVER['HTTP_HOST'] ?? '';
+if (stripos($host, 'customer.') === 0 || stripos($host, 'customer') !== false) {
+    if (isset($_SESSION['customer_logged_in']) && $_SESSION['customer_logged_in'] === true) {
+        header("Location: customer/dashboard.php");
+    } else {
+        header("Location: customer/login.php");
+    }
+    exit;
+}
+
 require_once 'config/db.php';
 
 $error = '';
