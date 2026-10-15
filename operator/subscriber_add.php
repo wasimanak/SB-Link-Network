@@ -24,7 +24,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = "Subscriber Quota Exceeded!";
     } else {
         // Fetch package details
-        $p = $pdo->prepare("SELECT rate_limit FROM packages WHERE id = ? AND client_id = ?");
+        $p = $pdo->prepare("SELECT p.name, p.rate_limit, p.wan_provider, p.pool_id, pl.pool_name 
+                            FROM packages p 
+                            LEFT JOIN ip_pools pl ON p.pool_id = pl.id 
+                            WHERE p.id = ? AND p.client_id = ?");
         $p->execute([$package_id, $client_id]);
         $pkg = $p->fetch();
 
@@ -46,6 +49,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Rate-Limit'")->execute([$username]);
                     $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Rate-Limit', '=', ?)")
                         ->execute([$username, $pkg['rate_limit']]);
+                }
+
+                // NEVER inject Mikrotik-Address-List (prevents 700 dynamic entries and WAN hijacking)
+                $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute IN ('Mikrotik-Address-List', 'Framed-Pool')")->execute([$username]);
+
+                // Determine profile name (e.g. 4Mbps)
+                $target_profile = !empty($pkg['pool_name']) ? $pkg['pool_name'] : '';
+                if (empty($target_profile) || $target_profile === 'PPPoE Pool') {
+                    if (preg_match('/(\d+)\s*(?:M|MB|Mbps)/i', $pkg['name'], $m_prof)) {
+                        $target_profile = $m_prof[1] . 'Mbps';
+                    }
+                }
+                
+                if (!empty($target_profile)) {
+                    $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Group'")->execute([$username]);
+                    $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Group', '=', ?)")->execute([$username, $target_profile]);
                 }
                 
                 $pdo->commit();

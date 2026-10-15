@@ -30,7 +30,7 @@ $opStmt->execute([$client_id]);
 $operator_info = $opStmt->fetch();
 
 $gateway_display_name = $active_gateway ? $active_gateway['gateway_name'] : 'Meezan Bank';
-$gateway_account_name = ($active_gateway && !empty($active_gateway['account_name'])) ? $active_gateway['account_name'] : ($operator_info['company_name'] ?: 'SB-Link Network');
+$gateway_account_name = ($active_gateway && !empty($active_gateway['account_name'])) ? $active_gateway['account_name'] : ($operator_info['company_name'] ?: BRAND_NAME);
 
 $current_page = basename($_SERVER['PHP_SELF']);
 ?>
@@ -40,7 +40,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dealer Dashboard - SB Link</title>
+    <title>Dealer Dashboard - <?= BRAND_NAME ?></title>
     <!-- Same UI logic as Operator -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -160,7 +160,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
 
 <nav id="sidebar">
     <div class="sidebar-brand">
-        <i class="fa-solid fa-network-wired text-primary"></i> SB Link
+        <i class="fa-solid fa-network-wired text-primary"></i> <?= BRAND_SHORT_NAME ?>
     </div>
     
     <div class="px-4 py-3 mb-2 border-bottom border-secondary border-opacity-25">

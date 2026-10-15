@@ -15,7 +15,7 @@ if (!$ticket) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['message'])) {
     $msg = trim($_POST['message']);
     if ($msg !== '' && $ticket['status'] === 'open') {
-        $pdo->prepare("INSERT INTO ticket_messages (ticket_id, sender_type, message) VALUES (?, 'operator', ?)")->execute([$ticket_id, $msg]);
+        $pdo->prepare("INSERT INTO ticket_messages (ticket_id, sender_type, sender_id, message) VALUES (?, 'operator', ?, ?)")->execute([$ticket_id, $client_id, $msg]);
     }
     echo "<script>window.location='view_ticket.php?id=$ticket_id';</script>";
     exit;

@@ -38,7 +38,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Super Admin Login - SB Link Network</title>
+    <title>Super Admin Login - <?= BRAND_NAME ?></title>
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <!-- Google Fonts: Inter -->
@@ -203,7 +203,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="login-card">
             
             <div class="text-center mb-4 pb-2">
-                <div class="brand-logo">SB</div>
+                <div class="brand-logo"><?= BRAND_LOGO_ABBR ?></div>
                 <h3 class="fw-bold mb-1" style="letter-spacing: -0.5px;">Welcome Back</h3>
                 <p class="text-secondary small fw-semibold" style="letter-spacing: 1px; color: #64748b !important;">SUPER ADMIN PORTAL</p>
             </div>
@@ -235,7 +235,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </form>
             
             <div class="text-center mt-4 pt-2">
-                <p class="text-secondary small mb-0" style="color: #64748b !important;">&copy; <?= date('Y') ?> SB Link Network.<br>All rights reserved.</p>
+                <p class="text-secondary small mb-0" style="color: #64748b !important;">&copy; <?= date('Y') ?> <?= BRAND_NAME ?>.<br>All rights reserved.</p>
             </div>
         </div>
     </div>

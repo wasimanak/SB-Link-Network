@@ -364,7 +364,7 @@ if (empty($gateway_display_name)) {
         <div class="col-lg-8">
             <div class="d-inline-flex align-items-center gap-2 bg-white px-3 py-1 rounded-pill mb-3 shadow-sm" style="font-size: 0.78rem;">
                 <i class="fa-solid fa-bolt text-warning"></i>
-                <span class="fw-bold text-dark" style="color: #000000 !important;"><?= htmlspecialchars($operator_info['company_name'] ?? 'SB-Link Network') ?> Subscriber</span>
+                <span class="fw-bold text-dark" style="color: #000000 !important;"><?= htmlspecialchars($operator_info['company_name'] ?? BRAND_NAME) ?> Subscriber</span>
             </div>
             <h1 class="fw-bold mb-2 text-white" style="font-size: clamp(1.6rem, 3vw, 2.3rem); letter-spacing: -0.5px;">
                 Welcome back, <?= htmlspecialchars($current_user['full_name'] ?: $current_user['username']) ?>!

@@ -363,7 +363,7 @@ function formatBytes($bytes) {
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Recovery Man Dashboard</title>
+    <title><?= BRAND_NAME ?> - Recovery Man Dashboard</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -376,7 +376,7 @@ function formatBytes($bytes) {
 <body>
 
 <div class="top-navbar">
-    <div class="fw-bold fs-5"><i class="fa-solid fa-motorcycle me-2 text-danger"></i> Recovery Portal</div>
+    <div class="fw-bold fs-5"><i class="fa-solid fa-motorcycle me-2 text-danger"></i> <?= BRAND_SHORT_NAME ?> Recovery Portal</div>
     <div>
         <span class="me-3 small text-light d-none d-md-inline"><i class="fa-regular fa-user me-1"></i> <?= htmlspecialchars($rm_name) ?></span>
         <a href="pending_payments.php" class="btn btn-sm btn-warning text-dark fw-bold me-2 shadow-sm">

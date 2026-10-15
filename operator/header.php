@@ -42,7 +42,7 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
 <head>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <meta charset="UTF-8">
-    <title>Operator Portal</title>
+    <title><?= BRAND_NAME ?> - Operator Portal</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
@@ -353,7 +353,10 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
         </div>
         
         <!-- MikroTik Menu -->
-        <!-- Mikrotik Menu Removed -->
+        <!-- Network & Multi-WAN Pools -->
+        <a href="ip_pools.php" class="nav-link-main rounded-3 mb-1 <?= $p==='ip_pools.php' ? 'active-parent' : '' ?>">
+            <i class="fa-solid fa-network-wired menu-icon"></i> <span class="menu-text">IP Pools (Multi-WAN)</span>
+        </a>
         <!-- Payment Gateways -->
         
         <!-- Requests & Support -->
@@ -400,7 +403,7 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
                 <div class="bg-primary text-white d-flex align-items-center justify-content-center rounded shadow-sm" style="width: 38px; height: 38px; background: linear-gradient(135deg, #3b82f6, #2563eb);">
                     <i class="fa-solid fa-wifi"></i>
                 </div>
-                <span class="fs-4 fw-bold text-dark" style="letter-spacing: -0.5px;">SB-Link <span class="text-primary"><?= htmlspecialchars($tenant['company_name']) ?></span></span>
+                <span class="fs-4 fw-bold text-dark" style="letter-spacing: -0.5px;"><?= BRAND_SHORT_NAME ?> <span class="text-primary"><?= htmlspecialchars($tenant['company_name']) ?></span></span>
             </a>
         </div>
         <div class="position-relative d-none d-md-block" style="width: 350px;">

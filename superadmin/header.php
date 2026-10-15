@@ -8,7 +8,7 @@ require_once '../config/db.php';
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Super Admin - SB Link Network</title>
+    <title>Super Admin - <?= BRAND_NAME ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
     <style>
@@ -65,7 +65,7 @@ require_once '../config/db.php';
                 <i class="fa-solid fa-crown fs-5 text-white"></i>
             </div>
             <div>
-                <h5 class="fw-bold mb-0 text-dark" style="letter-spacing: -0.5px;">SB-Link</h5>
+                <h5 class="fw-bold mb-0 text-dark" style="letter-spacing: -0.5px;"><?= BRAND_SHORT_NAME ?></h5>
                 <div class="text-muted" style="font-size: 0.70rem; font-weight: 500; text-transform: uppercase; letter-spacing: 1px;">Super Admin</div>
             </div>
         </div>

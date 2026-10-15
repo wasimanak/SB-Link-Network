@@ -243,7 +243,7 @@ $adv_amount = $sub['balance'] > 0 ? $sub['balance'] : 0;
     
     <div class="text-center border-top pt-2 mt-2">
         <p>Thank you for your business!</p>
-        <p style="font-size: 10px; margin-top: 5px;">Powered by SB Link Network</p>
+        <p style="font-size: 10px; margin-top: 5px;">Powered by <?= BRAND_POWERED_BY ?></p>
     </div>
 
     </div>

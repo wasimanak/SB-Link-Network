@@ -120,6 +120,133 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
+// Handle Import Users for This Dealer (CSV) - Zero Balance Deduction
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'import_dealer_users') {
+    if (isset($_FILES['csv_file']) && $_FILES['csv_file']['error'] === UPLOAD_ERR_OK) {
+        $tmpName = $_FILES['csv_file']['tmp_name'];
+        if (($file = fopen($tmpName, 'r')) !== FALSE) {
+            $headers = fgetcsv($file);
+            $colMap = [];
+            if ($headers) {
+                foreach ($headers as $index => $name) {
+                    $colMap[strtolower(trim($name))] = $index;
+                }
+            }
+
+            $imported_count = 0;
+            $updated_count = 0;
+
+            $pdo->beginTransaction();
+            try {
+                while (($data = fgetcsv($file)) !== FALSE) {
+                    if (empty($data[0]) && empty($data[1])) continue;
+
+                    $username = trim($data[$colMap['username'] ?? ($colMap['user'] ?? 0)] ?? '');
+                    $password = trim($data[$colMap['password'] ?? ($colMap['pass'] ?? 1)] ?? '');
+                    if (empty($username)) continue;
+
+                    $full_name = trim($data[$colMap['full name'] ?? ($colMap['name'] ?? 2)] ?? '');
+                    $package_name = trim($data[$colMap['package name'] ?? ($colMap['package'] ?? 3)] ?? '');
+                    $expiry = trim($data[$colMap['expiry date'] ?? ($colMap['expiry'] ?? 4)] ?? '');
+                    $mobile = trim($data[$colMap['mobile'] ?? ($colMap['phone'] ?? 5)] ?? '');
+                    $service_type = trim($data[$colMap['service type'] ?? ($colMap['service'] ?? -1)] ?? 'pppoe');
+                    $address = trim($data[$colMap['address'] ?? -1] ?? '');
+                    $national_id = trim($data[$colMap['national id'] ?? ($colMap['cnic'] ?? -1)] ?? '');
+
+                    // Resolve package
+                    $package_id = null;
+                    $pkg_rate = '';
+                    $pkg_pool = '';
+                    if (!empty($package_name)) {
+                        $p_chk = $pdo->prepare("SELECT p.id, p.rate_limit, p.pool_id, pl.pool_name FROM packages p LEFT JOIN ip_pools pl ON p.pool_id = pl.id WHERE p.name = ? AND (p.client_id = ? OR p.client_id = 0) LIMIT 1");
+                        $p_chk->execute([$package_name, $client_id]);
+                        $p_row = $p_chk->fetch();
+                        if ($p_row) {
+                            $package_id = (int)$p_row['id'];
+                            $pkg_rate = $p_row['rate_limit'];
+                            $pkg_pool = $p_row['pool_name'];
+                        } else {
+                            $p_ins = $pdo->prepare("INSERT INTO packages (client_id, name, rate_limit, price) VALUES (?, ?, '1M/1M', 0)");
+                            $p_ins->execute([$client_id, $package_name]);
+                            $package_id = (int)$pdo->lastInsertId();
+                            $pkg_rate = '1M/1M';
+                        }
+                    }
+
+                    // Check existing
+                    $chk = $pdo->prepare("SELECT id FROM subscribers WHERE username = ? AND client_id = ?");
+                    $chk->execute([$username, $client_id]);
+                    $ex_id = $chk->fetchColumn();
+
+                    $parsed_expiry = null;
+                    $formatted_expiry = null;
+                    if (!empty($expiry) && $expiry !== 'N/A') {
+                        $ts = strtotime($expiry);
+                        if ($ts !== false) {
+                            $parsed_expiry = date('Y-m-d H:i:s', $ts);
+                            $formatted_expiry = date('d M Y H:i:s', $ts);
+                        }
+                    }
+
+                    if ($ex_id) {
+                        $upd_sql = "UPDATE subscribers SET password=?, full_name=?, package_id=?, dealer_id=?, mobile=?, service_type=?, address=?, national_id=?";
+                        $upd_params = [$password, $full_name, $package_id, $dealer_id, $mobile, $service_type, $address, $national_id];
+                        if ($parsed_expiry) {
+                            $upd_sql .= ", expiry_date=?, status='active'";
+                            $upd_params[] = $parsed_expiry;
+                        }
+                        $upd_sql .= " WHERE id=?";
+                        $upd_params[] = $ex_id;
+                        $pdo->prepare($upd_sql)->execute($upd_params);
+                        $updated_count++;
+                    } else {
+                        $ins = $pdo->prepare("INSERT INTO subscribers (client_id, dealer_id, package_id, username, password, full_name, mobile, service_type, address, national_id, expiry_date, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')");
+                        $ins->execute([$client_id, $dealer_id, $package_id, $username, $password, $full_name, $mobile, $service_type, $address, $national_id, $parsed_expiry]);
+                        $imported_count++;
+                    }
+
+                    // RADIUS Sync
+                    $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Cleartext-Password', ':=', ?) ON DUPLICATE KEY UPDATE value = ?")->execute([$username, $password, $password]);
+                    if ($formatted_expiry) {
+                        $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute IN ('Expiration', 'Auth-Type')")->execute([$username]);
+                        $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Expiration', ':=', ?)")->execute([$username, $formatted_expiry]);
+                    }
+                    if ($package_name) {
+                        $pdo->prepare("DELETE FROM radusergroup WHERE username = ?")->execute([$username]);
+                        $pdo->prepare("INSERT INTO radusergroup (username, groupname, priority) VALUES (?, ?, 1)")->execute([$username, $package_name]);
+                    }
+
+                    $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute IN ('Mikrotik-Address-List', 'Framed-Pool')")->execute([$username]);
+                    if (!empty($pkg_rate) && $pkg_rate !== 'Unlimited' && $pkg_rate !== 'No Limit') {
+                        $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Rate-Limit'")->execute([$username]);
+                        $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Rate-Limit', '=', ?)")->execute([$username, $pkg_rate]);
+                    }
+                    $tgt_prof = !empty($pkg_pool) ? $pkg_pool : '';
+                    if (empty($tgt_prof) || $tgt_prof === 'PPPoE Pool') {
+                        if (preg_match('/(\d+)\s*(?:M|MB|Mbps)/i', $package_name, $m_p)) {
+                            $tgt_prof = $m_p[1] . 'Mbps';
+                        }
+                    }
+                    if (!empty($tgt_prof)) {
+                        $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Group'")->execute([$username]);
+                        $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Group', '=', ?)")->execute([$username, $tgt_prof]);
+                    }
+                }
+
+                $pdo->commit();
+                fclose($file);
+                echo "<script>alert('Successfully imported $imported_count new users and updated $updated_count existing users for this dealer! (Dealer balance remained unchanged)'); window.location.href='dealer_view.php?id=$dealer_id';</script>";
+                exit;
+            } catch (Exception $e) {
+                $pdo->rollBack();
+                fclose($file);
+                echo "<script>alert('Error importing users: " . addslashes($e->getMessage()) . "'); window.history.back();</script>";
+                exit;
+            }
+        }
+    }
+}
+
 // Handle Toggle Status
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'toggle_status') {
     $currStmt = $pdo->prepare("SELECT status FROM dealers WHERE id = ?");
@@ -628,6 +755,7 @@ body { background-color: #f1f5f9; }
                 <div class="card-header border-bottom-0 collapsed" data-bs-toggle="collapse" data-bs-target="#collapseAllUsers" style="background-color: #1e293b;">
                     <h6 style="color: #fff;"><i class="fa-solid fa-users me-2" style="color: #fff;"></i> All Users</h6>
                     <div class="header-controls">
+                        <button class="btn btn-warning-custom me-2" onclick="event.stopPropagation();" data-bs-toggle="modal" data-bs-target="#importDealerUsersModal"><i class="fa-solid fa-file-import me-1"></i> Import Users (CSV)</button>
                         <i class="fa-solid fa-chevron-down text-white chevron-icon"></i>
                     </div>
                 </div>
@@ -1111,3 +1239,38 @@ $(document).ready(function() {
     });
 });
 </script>
+
+<!-- Import Users for this Dealer Modal -->
+<div class="modal fade" id="importDealerUsersModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-header bg-white border-bottom">
+        <h5 class="modal-title fw-bold" style="color: #1e293b;"><i class="fa-solid fa-file-import text-primary me-2"></i> Import Users for <?= htmlspecialchars($dealer['full_name']) ?></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" enctype="multipart/form-data">
+        <input type="hidden" name="action" value="import_dealer_users">
+        <div class="modal-body p-4 bg-white">
+            <div class="alert alert-info border-0 rounded-3 mb-3 small">
+                <strong><i class="fa-solid fa-circle-info me-1"></i> How First-Time Import Works:</strong>
+                <ul class="mb-0 ps-3 mt-1">
+                    <li>Tamam users automatic is dealer (<b><?= htmlspecialchars($dealer['username']) ?></b>) ke account me add ho jayenge.</li>
+                    <li><b>Zero Balance Deduction:</b> Import ke waqt dealer ka balance bilkul nahi katega.</li>
+                    <li>User ki expiry date ke baad jab dealer unko aglay maheenay renew karega, tab dealer price deduct hogi.</li>
+                    <li>Users ko unke package ke mutabiq MikroTik Profile aur Speed Limit automatic mil jayegi.</li>
+                </ul>
+            </div>
+            <div class="mb-3">
+                <label class="form-label fw-bold">Select CSV File (.csv)</label>
+                <input type="file" name="csv_file" class="form-control" accept=".csv" required>
+                <div class="form-text">CSV Headers: <code>Username, Password, Full Name, Package Name, Expiry Date, Mobile</code></div>
+            </div>
+        </div>
+        <div class="modal-footer bg-white border-top">
+          <button type="button" class="btn btn-secondary px-3" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary px-4 fw-bold">Import Now</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>

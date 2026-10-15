@@ -7,43 +7,36 @@ if (isset($_SESSION['customer_logged_in']) && $_SESSION['customer_logged_in'] ==
     exit;
 }
 
-// Fetch all active/suspended operators for the dropdown
-$opStmt = $pdo->query("SELECT id, company_name, subarea FROM clients WHERE status != 'expired' ORDER BY company_name ASC");
-$operators = $opStmt->fetchAll();
-
 $error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $client_id = (int)($_POST['client_id'] ?? 0);
-    $username = trim($_POST['username']);
-    $password = trim($_POST['password']);
+    $username = trim($_POST['username'] ?? '');
+    $password = trim($_POST['password'] ?? '');
 
     if (empty($username) || empty($password)) {
         $error = "Please enter your username and password.";
     } else {
+        // Query subscribers by username (unique)
+        $stmt = $pdo->prepare("SELECT id, client_id, password, status FROM subscribers WHERE username = ?");
+        $stmt->execute([$username]);
+        $users = $stmt->fetchAll();
+
         $user = null;
-
-        if ($client_id > 0) {
-            // Specified provider
-            $stmt = $pdo->prepare("SELECT id, client_id, password, status FROM subscribers WHERE username = ? AND client_id = ?");
-            $stmt->execute([$username, $client_id]);
-            $user = $stmt->fetch();
-        } else {
-            // Auto-detect provider if username exists under single operator
-            $stmt = $pdo->prepare("SELECT id, client_id, password, status FROM subscribers WHERE username = ?");
-            $stmt->execute([$username]);
-            $users = $stmt->fetchAll();
-
-            if (count($users) === 1) {
+        if (count($users) === 1) {
+            $user = $users[0];
+        } elseif (count($users) > 1) {
+            // If duplicate username exists across operators, match by password
+            foreach ($users as $u) {
+                if ($u['password'] === $password) {
+                    $user = $u;
+                    break;
+                }
+            }
+            if (!$user) {
                 $user = $users[0];
-                $client_id = (int)$user['client_id'];
-            } elseif (count($users) > 1) {
-                $error = "Multiple providers found. Please select your specific provider/city.";
-            } else {
-                $error = "Invalid username or password.";
             }
         }
 
-        if ($user && empty($error)) {
+        if ($user) {
             if ($user['password'] === $password) {
                 if ($user['status'] === 'disabled') {
                     $error = "Your account is disabled. Please contact your internet provider.";
@@ -67,8 +60,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 $error = "Invalid username or password.";
             }
-        } elseif (empty($error)) {
-            $error = "Invalid username, password, or provider selected.";
+        } else {
+            $error = "Invalid username or password.";
         }
     }
 }
@@ -83,7 +76,7 @@ if (isset($_GET['error'])) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Customer Login - SB Link Network</title>
+    <title>Customer Login - <?= BRAND_NAME ?></title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -182,7 +175,7 @@ if (isset($_GET['error'])) {
             <div class="brand-icon-box">
                 <i class="fa-solid fa-wifi"></i>
             </div>
-            <h4 class="fw-bold text-dark mb-1" style="letter-spacing: -0.5px;">SB Link Network</h4>
+            <h4 class="fw-bold text-dark mb-1" style="letter-spacing: -0.5px;"><?= BRAND_NAME ?></h4>
             <div class="text-muted small">Customer Self-Service Portal</div>
         </div>
         
@@ -197,22 +190,6 @@ if (isset($_GET['error'])) {
         <!-- Login Form -->
         <form method="POST">
             
-            <!-- Provider Selector -->
-            <div class="mb-3">
-                <label class="form-label text-dark small fw-bold mb-1">
-                    <i class="fa-solid fa-building text-primary me-1"></i> Provider / City <span class="text-muted fw-normal">(Optional)</span>
-                </label>
-                <select name="client_id" class="form-select">
-                    <option value="0">-- Auto-Detect or Select Provider --</option>
-                    <?php foreach($operators as $op): ?>
-                        <option value="<?= $op['id'] ?>">
-                            <?= htmlspecialchars($op['company_name']) ?> <?= !empty($op['subarea']) ? ' - ' . htmlspecialchars($op['subarea']) : '' ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
-                <div class="form-text text-muted" style="font-size: 0.72rem;">If unsure, leave as Auto-Detect.</div>
-            </div>
-
             <!-- Username -->
             <div class="mb-3">
                 <label class="form-label text-dark small fw-bold mb-1">

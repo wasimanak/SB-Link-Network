@@ -1,6 +1,39 @@
 <?php
 require_once 'header.php';
 
+// Auto-upgrade / create support ticket tables if not present or missing columns
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS `support_tickets` (
+        `id` int(11) NOT NULL AUTO_INCREMENT,
+        `client_id` int(11) NOT NULL,
+        `dealer_id` int(11) DEFAULT NULL,
+        `subscriber_id` int(11) DEFAULT NULL,
+        `subject` varchar(255) NOT NULL,
+        `status` varchar(50) DEFAULT 'open',
+        `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+        `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (`id`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS `ticket_messages` (
+        `id` int(11) NOT NULL AUTO_INCREMENT,
+        `ticket_id` int(11) NOT NULL,
+        `sender_type` varchar(50) NOT NULL,
+        `sender_id` int(11) DEFAULT 0,
+        `message` text NOT NULL,
+        `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (`id`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    // Make sender_id default 0 and loosen enums to avoid strict mode errors
+    $pdo->exec("ALTER TABLE `ticket_messages` MODIFY COLUMN `sender_id` int(11) DEFAULT 0");
+    $pdo->exec("ALTER TABLE `ticket_messages` MODIFY COLUMN `sender_type` varchar(50) NOT NULL");
+    $pdo->exec("ALTER TABLE `support_tickets` MODIFY COLUMN `status` varchar(50) DEFAULT 'open'");
+} catch (Exception $e) {}
+
+$effective_client_id = !empty($client_id) ? (int)$client_id : (int)($current_user['client_id'] ?? 1);
+$dealer_id = !empty($current_user['dealer_id']) ? (int)$current_user['dealer_id'] : null;
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['subject'], $_POST['message'])) {
     $subject = trim($_POST['subject']);
     $message = trim($_POST['message']);
@@ -9,20 +42,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['subject'], $_POST['me
         $pdo->beginTransaction();
         try {
             // Create ticket
-            $stmt = $pdo->prepare("INSERT INTO support_tickets (client_id, subscriber_id, subject) VALUES (?, ?, ?)");
-            $stmt->execute([$client_id, $current_user['id'], $subject]);
+            $stmt = $pdo->prepare("INSERT INTO support_tickets (client_id, dealer_id, subscriber_id, subject, status) VALUES (?, ?, ?, ?, 'open')");
+            $stmt->execute([$effective_client_id, $dealer_id, $current_user['id'], $subject]);
             $ticket_id = $pdo->lastInsertId();
             
             // Insert initial message
-            $stmt = $pdo->prepare("INSERT INTO ticket_messages (ticket_id, sender_type, message) VALUES (?, 'customer', ?)");
-            $stmt->execute([$ticket_id, $message]);
+            $stmt = $pdo->prepare("INSERT INTO ticket_messages (ticket_id, sender_type, sender_id, message) VALUES (?, 'customer', ?, ?)");
+            $stmt->execute([$ticket_id, $current_user['id'], $message]);
             
             $pdo->commit();
             echo "<script>window.location='view_ticket.php?id=$ticket_id';</script>";
             exit;
         } catch(Exception $e) {
-            $pdo->rollBack();
-            echo "<script>alert('Error creating ticket.'); window.history.back();</script>";
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            $err_msg = addslashes($e->getMessage());
+            echo "<script>alert('Error creating ticket: $err_msg'); window.history.back();</script>";
             exit;
         }
     }

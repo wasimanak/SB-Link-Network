@@ -44,19 +44,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                         $status = trim($data[$colMap['Status']] ?? 'active');
                         $expiry = trim($data[$colMap['Expiry Date']] ?? '');
                         
-                        // Resolve Package ID
+                        // Resolve Package ID & Profile
                         $package_id = null;
+                        $pkg_rate_limit = '';
+                        $pkg_pool_name = '';
                         if (!empty($package_name)) {
-                            $pkgStmt = $pdo->prepare("SELECT id FROM packages WHERE name = ? AND (client_id = ? OR client_id = 0) LIMIT 1");
+                            $pkgStmt = $pdo->prepare("SELECT p.id, p.rate_limit, p.pool_id, pl.pool_name 
+                                                      FROM packages p 
+                                                      LEFT JOIN ip_pools pl ON p.pool_id = pl.id 
+                                                      WHERE p.name = ? AND (p.client_id = ? OR p.client_id = 0) LIMIT 1");
                             $pkgStmt->execute([$package_name, $client_id]);
-                            $pid = $pkgStmt->fetchColumn();
-                            if ($pid) {
-                                $package_id = (int)$pid;
+                            $pkgRow = $pkgStmt->fetch();
+                            if ($pkgRow) {
+                                $package_id = (int)$pkgRow['id'];
+                                $pkg_rate_limit = $pkgRow['rate_limit'];
+                                $pkg_pool_name = $pkgRow['pool_name'];
                             } else {
                                 // AUTO-CREATE missing package to prevent foreign key errors
                                 $insPkg = $pdo->prepare("INSERT INTO packages (client_id, name, rate_limit, price) VALUES (?, ?, '1M/1M', 0)");
                                 $insPkg->execute([$client_id, $package_name]);
                                 $package_id = (int)$pdo->lastInsertId();
+                                $pkg_rate_limit = '1M/1M';
                             }
                         }
                         
@@ -105,7 +113,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                             if ($package_name) {
                                 $pdo->prepare("INSERT IGNORE INTO radusergroup (username, groupname, priority) VALUES (?, ?, 1)")->execute([$username, $package_name]);
                             }
-                            // NAS Restriction trigger will handle NAS-IP-Address
+                        }
+
+                        // Sync RADIUS Attributes (Rate-Limit & Mikrotik-Group)
+                        $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute IN ('Mikrotik-Address-List', 'Framed-Pool')")->execute([$username]);
+                        if (!empty($pkg_rate_limit) && $pkg_rate_limit !== 'Unlimited' && $pkg_rate_limit !== 'No Limit') {
+                            $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Rate-Limit'")->execute([$username]);
+                            $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Rate-Limit', '=', ?)")->execute([$username, $pkg_rate_limit]);
+                        }
+                        $target_profile = !empty($pkg_pool_name) ? $pkg_pool_name : '';
+                        if (empty($target_profile) || $target_profile === 'PPPoE Pool') {
+                            if (preg_match('/(\d+)\s*(?:M|MB|Mbps)/i', $package_name, $m_prof)) {
+                                $target_profile = $m_prof[1] . 'Mbps';
+                            }
+                        }
+                        if (!empty($target_profile)) {
+                            $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Group'")->execute([$username]);
+                            $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Group', '=', ?)")->execute([$username, $target_profile]);
                         }
                         
                         // Process Expiry
@@ -182,7 +206,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     if ($curStmt->fetchColumn() >= $max_sub) {
         echo "<script>alert('Subscriber Quota Exceeded!');</script>";
     } else {
-        $p = $pdo->prepare("SELECT rate_limit FROM packages WHERE id = ? AND client_id = ?");
+        $p = $pdo->prepare("SELECT p.id, p.name, p.rate_limit, p.wan_provider, p.pool_id, pl.pool_name FROM packages p LEFT JOIN ip_pools pl ON p.pool_id = pl.id WHERE p.id = ? AND p.client_id = ?");
         $p->execute([$package_id, $client_id]);
         $pkg = $p->fetch();
 
@@ -195,11 +219,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 $pdo->prepare("INSERT IGNORE INTO radcheck (username, attribute, op, value) VALUES (?, 'Cleartext-Password', ':=', ?)")
                     ->execute([$username, $password]);
                 
-                if (!empty($pkg['rate_limit']) && $pkg['rate_limit'] !== 'No Limit') {
+                if (!empty($pkg['rate_limit']) && $pkg['rate_limit'] !== 'No Limit' && $pkg['rate_limit'] !== 'Unlimited') {
                     $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Rate-Limit', '=', ?)")
                         ->execute([$username, $pkg['rate_limit']]);
                 }
                 
+                // NEVER inject Mikrotik-Address-List (prevents 700 dynamic entries and WAN hijacking)
+                $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute IN ('Mikrotik-Address-List', 'Framed-Pool')")->execute([$username]);
+
+                // Determine profile name (e.g. 4Mbps)
+                $target_profile = !empty($pkg['pool_name']) ? $pkg['pool_name'] : '';
+                if (empty($target_profile) || $target_profile === 'PPPoE Pool') {
+                    if (preg_match('/(\d+)\s*(?:M|MB|Mbps)/i', $pkg['name'], $m_prof)) {
+                        $target_profile = $m_prof[1] . 'Mbps';
+                    }
+                }
+                
+                if (!empty($target_profile)) {
+                    $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Group'")->execute([$username]);
+                    $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Group', '=', ?)")->execute([$username, $target_profile]);
+                } else {
+                    $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Group'")->execute([$username]);
+                }
                 $pdo->commit();
                 echo "<script>alert('User created successfully!'); window.location='dashboard.php';</script>";
                 exit;
@@ -330,13 +371,13 @@ $subs = $pdo->query("SELECT s.*, p.name as package_name,
     .cursor-pointer { cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; }
     .card-ui { background: #ffffff; border-radius: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.03); border: 1px solid #e2e8f0; margin-bottom: 24px; }
     
-    /* Top 7 Quick Action Cards */
+    /* Top 8 Quick Action Cards */
     .quick-actions-grid {
         display: grid;
-        grid-template-columns: repeat(7, 1fr);
+        grid-template-columns: repeat(8, 1fr);
         gap: 10px;
     }
-    @media (max-width: 1200px) {
+    @media (max-width: 1300px) {
         .quick-actions-grid {
             grid-template-columns: repeat(4, 1fr);
         }
@@ -650,6 +691,14 @@ $subs = $pdo->query("SELECT s.*, p.name as package_name,
             <i class="fa-solid fa-cloud-arrow-up"></i>
         </div>
         <div class="quick-action-text">Restore CSV</div>
+    </a>
+
+    <!-- 8. IP Pool -->
+    <a href="ip_pools.php" class="quick-action-card">
+        <div class="quick-action-icon" style="background: linear-gradient(135deg, #06b6d4, #0891b2);">
+            <i class="fa-solid fa-network-wired"></i>
+        </div>
+        <div class="quick-action-text">IP Pool</div>
     </a>
 </div>
 

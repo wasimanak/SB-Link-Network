@@ -5,7 +5,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Customer Portal - SB Link Network</title>
+    <title><?= BRAND_NAME ?> - Customer Portal</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" rel="stylesheet">
@@ -105,7 +105,7 @@
 <nav class="navbar navbar-expand-lg navbar-dark mb-5 sticky-top">
     <div class="container">
         <a class="navbar-brand text-accent fw-bold" href="dashboard.php">
-            <i class="fa-solid fa-wifi me-2"></i>SB Link
+            <i class="fa-solid fa-wifi me-2"></i><?= BRAND_SHORT_NAME ?>
         </a>
         <button class="navbar-toggler border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
             <span class="navbar-toggler-icon"></span>

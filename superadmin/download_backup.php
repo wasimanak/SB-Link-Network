@@ -7,7 +7,7 @@ require_once '../config/db.php';
 @ini_set('memory_limit', '512M');
 
 $database_name = $db ?? 'radius';
-$filename = 'sblink_backup_' . $database_name . '_' . date('Y-m-d_H-i-s') . '.sql';
+$filename = strtolower(BRAND_SHORT_NAME) . '_backup_' . $database_name . '_' . date('Y-m-d_H-i-s') . '.sql';
 
 // Set download headers
 header('Content-Type: application/sql; charset=utf-8');
@@ -18,7 +18,7 @@ header('Pragma: public');
 
 // Output SQL Dump Header
 echo "-- ========================================================\n";
-echo "-- SB Link Network - Complete Database Backup\n";
+echo "-- " . BRAND_NAME . " - Complete Database Backup\n";
 echo "-- Database: `" . $database_name . "`\n";
 echo "-- Generated At: " . date('Y-m-d H:i:s') . "\n";
 echo "-- Server OS: " . php_uname('s') . "\n";

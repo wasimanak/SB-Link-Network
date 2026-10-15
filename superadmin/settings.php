@@ -54,7 +54,7 @@ $setStmt = $pdo->query("SELECT setting_key, setting_value FROM global_settings")
 $settings_raw = $setStmt->fetchAll(PDO::FETCH_KEY_PAIR);
 
 // Fallbacks
-$appName = $settings_raw['app_name'] ?? 'SB Link Network';
+$appName = $settings_raw['app_name'] ?? BRAND_NAME;
 $timezone = $settings_raw['timezone'] ?? ($settings_raw['system_timezone'] ?? 'Asia/Karachi');
 $currency = $settings_raw['currency'] ?? 'PKR';
 

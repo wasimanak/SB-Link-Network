@@ -16,91 +16,91 @@ require_once 'config/db.php';
 $error = '';
 $success = '';
 
-// Fetch all active/suspended operators for the dropdown
-$opStmt = $pdo->query("SELECT id, company_name, subarea FROM clients WHERE status != 'expired' ORDER BY company_name ASC");
-$operators = $opStmt->fetchAll();
-
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $role = $_POST['role'] ?? '';
     $identifier = trim($_POST['identifier'] ?? '');
     $password = trim($_POST['password'] ?? '');
-    $client_id = (int)($_POST['client_id'] ?? 0);
 
     if (empty($role) || empty($identifier) || empty($password)) {
         $error = 'Please fill in all fields.';
     } else {
-        if ($role === 'operator') {
-            // Operator uses email, no client_id needed
-            $stmt = $pdo->prepare("SELECT * FROM clients WHERE email = :email LIMIT 1");
-            $stmt->execute(['email' => $identifier]);
-            $client = $stmt->fetch();
+        try {
+            if ($role === 'operator') {
+                // Operator uses email or company name
+                $stmt = $pdo->prepare("SELECT * FROM clients WHERE email = ? OR company_name = ? LIMIT 1");
+                $stmt->execute([$identifier, $identifier]);
+                $client = $stmt->fetch();
 
-            if ($client && password_verify($password, $client['password'])) {
-                if ($client['status'] === 'expired' || $client['status'] === 'suspended') {
-                    $error = "Your account is {$client['status']}. Please contact Super Admin.";
+                if ($client && (password_verify($password, $client['password']) || $client['password'] === $password)) {
+                    if ($client['status'] === 'expired' || $client['status'] === 'suspended') {
+                        $error = "Your account is {$client['status']}. Please contact Super Admin.";
+                    } else {
+                        $_SESSION['operator_logged_in'] = true;
+                        $_SESSION['operator_id'] = $client['id'];
+                        $_SESSION['operator_email'] = $client['email'];
+                        $_SESSION['operator_name'] = $client['company_name'];
+                        $_SESSION['operator_company'] = $client['company_name'];
+                        $_SESSION['client_id'] = $client['id'];
+
+                        header("Location: operator/dashboard.php");
+                        exit;
+                    }
                 } else {
-                    $_SESSION['operator_logged_in'] = true;
-                    $_SESSION['operator_id'] = $client['id'];
-                    $_SESSION['operator_email'] = $client['email'];
-                    $_SESSION['operator_name'] = $client['company_name'];
-                    $_SESSION['operator_company'] = $client['company_name'];
-                    $_SESSION['client_id'] = $client['id'];
+                    $error = 'Invalid Operator Email/Username or Password.';
+                }
 
-                    header("Location: operator/dashboard.php");
+            } elseif ($role === 'dealer') {
+                // Dealer login by unique username
+                $stmt = $pdo->prepare("SELECT d.*, c.status as op_status FROM dealers d JOIN clients c ON d.client_id = c.id WHERE d.username = ? AND d.status = 'active' AND c.status = 'active'");
+                $stmt->execute([$identifier]);
+                $user = $stmt->fetch();
+
+                if ($user && ($user['password'] === $password || password_verify($password, $user['password']))) {
+                    $_SESSION['dealer_id'] = $user['id'];
+                    $_SESSION['client_id'] = $user['client_id'];
+                    $_SESSION['dealer_name'] = $user['name'] ?? $user['username'];
+                    header("Location: dealer/dashboard.php");
                     exit;
+                } else {
+                    $error = 'Invalid Dealer credentials, or Operator is inactive/suspended.';
+                }
+
+            } elseif ($role === 'lineman') {
+                // Lineman login by unique username
+                $stmt = $pdo->prepare("SELECT l.*, c.status as op_status FROM linemen l JOIN clients c ON l.client_id = c.id WHERE l.username = ? AND l.status = 'active' AND c.status = 'active'");
+                $stmt->execute([$identifier]);
+                $user = $stmt->fetch();
+
+                if ($user && ($user['password'] === $password || password_verify($password, $user['password']))) {
+                    $_SESSION['lineman_id'] = $user['id'];
+                    $_SESSION['client_id'] = $user['client_id'];
+                    $_SESSION['lineman_name'] = $user['full_name'];
+                    header("Location: lineman/dashboard.php");
+                    exit;
+                } else {
+                    $error = 'Invalid Line Man credentials, or Operator is inactive/suspended.';
+                }
+
+            } elseif ($role === 'recoveryman') {
+                // Recoveryman login by unique username
+                $stmt = $pdo->prepare("SELECT r.*, c.status as op_status FROM recovery_men r JOIN clients c ON r.client_id = c.id WHERE r.username = ? AND r.status = 'active' AND c.status = 'active'");
+                $stmt->execute([$identifier]);
+                $user = $stmt->fetch();
+
+                if ($user && ($user['password'] === $password || password_verify($password, $user['password']))) {
+                    $_SESSION['rm_id'] = $user['id'];
+                    $_SESSION['client_id'] = $user['client_id'];
+                    $_SESSION['rm_name'] = $user['full_name'];
+                    header("Location: recoveryman/dashboard.php");
+                    exit;
+                } else {
+                    $error = 'Invalid Recovery Man credentials, or Operator is inactive/suspended.';
                 }
             } else {
-                $error = 'Invalid Operator Email or Password.';
+                $error = 'Invalid role selected.';
             }
-
-        } else {
-            // Dealer, Lineman, Recoveryman REQUIRE an operator selection
-            if ($client_id === 0) {
-                $error = "Please select your Operator/Provider first.";
-            } else {
-                if ($role === 'dealer') {
-                    // Dealer logins do not require client_id to be selected
-                    $stmt = $pdo->prepare("SELECT d.*, c.status as op_status FROM dealers d JOIN clients c ON d.client_id = c.id WHERE d.username = ? AND d.status = 'active' AND c.status = 'active'");
-                    $stmt->execute([$identifier]);
-                    $user = $stmt->fetch();
-                    if ($user && $user['password'] === $password) {
-                        $_SESSION['dealer_id'] = $user['id'];
-                        $_SESSION['client_id'] = $user['client_id'];
-                        header("Location: dealer/dashboard.php");
-                        exit;
-                    } else {
-                        $error = 'Invalid Dealer credentials, or Operator is suspended.';
-                    }
-
-                } elseif ($role === 'lineman') {
-                    $stmt = $pdo->prepare("SELECT l.*, c.status as op_status FROM linemen l JOIN clients c ON l.client_id = c.id WHERE l.username = ? AND l.client_id = ? AND l.status = 'active' AND c.status = 'active'");
-                    $stmt->execute([$identifier, $client_id]);
-                    $user = $stmt->fetch();
-                    if ($user && $user['password'] === $password) {
-                        $_SESSION['lineman_id'] = $user['id'];
-                        $_SESSION['client_id'] = $user['client_id'];
-                        $_SESSION['lineman_name'] = $user['full_name'];
-                        header("Location: lineman/dashboard.php");
-                        exit;
-                    } else {
-                        $error = 'Invalid Line Man credentials, or Operator is suspended.';
-                    }
-
-                } elseif ($role === 'recoveryman') {
-                    $stmt = $pdo->prepare("SELECT r.*, c.status as op_status FROM recovery_men r JOIN clients c ON r.client_id = c.id WHERE r.username = ? AND r.client_id = ? AND r.status = 'active' AND c.status = 'active'");
-                    $stmt->execute([$identifier, $client_id]);
-                    $user = $stmt->fetch();
-                    if ($user && $user['password'] === $password) {
-                        $_SESSION['rm_id'] = $user['id'];
-                        $_SESSION['client_id'] = $user['client_id'];
-                        $_SESSION['rm_name'] = $user['full_name'];
-                        header("Location: recoveryman/dashboard.php");
-                        exit;
-                    } else {
-                        $error = 'Invalid Recovery Man credentials, or Operator is suspended.';
-                    }
-                }
-            }
+        } catch (PDOException $e) {
+            $error = 'Database Error: ' . $e->getMessage();
         }
     }
 }
@@ -110,7 +110,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - SB Link Network</title>
+    <title>Login - <?= BRAND_NAME ?></title>
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <!-- Google Fonts: Inter -->
@@ -120,8 +120,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <!-- Bootstrap & FontAwesome -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
-    <!-- Select2 -->
-    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
     
     <style>
         :root {
@@ -267,45 +265,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             padding-left: 1.2rem;
         }
         
-        /* Select2 Custom Styling for Glassmorphism */
-        .select2-container--default .select2-selection {
-            background-color: rgba(15, 23, 42, 0.6) !important;
-            border: 1px solid rgba(255, 255, 255, 0.1) !important;
-            border-radius: 14px !important;
-            height: 62px !important;
-            color: white !important;
-            display: flex;
-            align-items: center;
-        }
-        .select2-container--default.select2-container--focus .select2-selection {
-            border-color: var(--primary) !important;
-            box-shadow: 0 0 0 4px rgba(14, 165, 233, 0.15) !important;
-        }
-        .select2-container--default .select2-selection__rendered {
-            color: white !important;
-            padding-left: 1rem !important;
-            line-height: 60px !important;
-        }
-        .select2-container--default .select2-selection__arrow {
-            height: 60px !important;
-            right: 15px !important;
-        }
-        .select2-dropdown {
-            background-color: #1e293b !important;
-            border: 1px solid rgba(255, 255, 255, 0.1) !important;
-            border-radius: 12px !important;
-            color: white !important;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.5) !important;
-        }
-        .select2-results__option { color: #cbd5e1; padding: 10px 15px !important; }
-        .select2-results__option--highlighted { background-color: var(--primary) !important; color: white !important; }
-        .select2-search__field {
-            background-color: #0f172a !important;
-            border: 1px solid rgba(255, 255, 255, 0.1) !important;
-            color: white !important;
-            border-radius: 8px !important;
-            padding: 8px !important;
-        }
+
 
         /* Custom Input Group for Password */
         .password-wrapper { position: relative; }
@@ -394,8 +354,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="login-card">
             
             <div class="text-center mb-4">
-                <div class="brand-logo">SB</div>
-                <h3 class="fw-bold mb-1" style="letter-spacing: -0.5px;">SB Link Network</h3>
+                <div class="brand-logo"><?= BRAND_LOGO_ABBR ?></div>
+                <h3 class="fw-bold mb-1" style="letter-spacing: -0.5px;"><?= BRAND_NAME ?></h3>
                 <p class="text-secondary small fw-semibold" id="dynamicSubtitle" style="letter-spacing: 1px; color: #64748b !important;">SELECT YOUR ROLE</p>
             </div>
             
@@ -432,17 +392,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <!-- Credentials Block -->
                 <div class="credentials-block" id="credentials_block">
                     
-                    <div class="mb-3" id="op_dropdown_container">
-                        <select name="client_id" id="client_id_select" style="width: 100%;">
-                            <option value="">Select Operator / Provider</option>
-                            <?php foreach($operators as $op): ?>
-                                <option value="<?= $op['id'] ?>" <?= (isset($_POST['client_id']) && $_POST['client_id']==$op['id'])?'selected':'' ?>>
-                                    <?= htmlspecialchars($op['company_name']) ?> <?= !empty($op['subarea']) ? ' - ' . htmlspecialchars($op['subarea']) : '' ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-
                     <div class="form-floating mb-3 shadow-sm">
                         <input type="text" name="identifier" id="input_identifier" class="form-control" value="<?= htmlspecialchars($_POST['identifier'] ?? '') ?>" required autocomplete="off" placeholder="Identifier">
                         <label for="input_identifier" id="lbl_identifier"><i class="fa-regular fa-user me-2" id="icon_identifier"></i>Identifier</label>
@@ -467,7 +416,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </form>
             
             <div class="text-center mt-4 pt-2">
-                <p class="text-secondary small mb-0" style="color: #64748b !important;">&copy; <?= date('Y') ?> SB Link Network.<br>All rights reserved.</p>
+                <p class="text-secondary small mb-0" style="color: #64748b !important;">&copy; <?= date('Y') ?> <?= BRAND_NAME ?>.<br>All rights reserved.</p>
             </div>
         </div>
     </div>
@@ -475,14 +424,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <!-- Scripts -->
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
     <script>
-        $(document).ready(function() {
-            $('#client_id_select').select2({
-                placeholder: "Select Operator / Provider"
-            });
-        });
-
         function togglePassword() {
             const passwordInput = document.getElementById('password');
             const toggleIcon = document.getElementById('toggleIcon');
@@ -508,24 +450,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             let btnSubmit = document.getElementById('btn_submit');
             btnSubmit.className = 'btn btn-login w-100'; // reset
             
-            let opContainer = document.getElementById('op_dropdown_container');
-            let opSelect = document.getElementById('client_id_select');
-
-            // Dynamic Subtitle
+            // Dynamic Subtitle & Button styling
             let subtitle = "LOGIN";
             
             if(role === 'operator') {
                 btnSubmit.classList.add('btn-operator');
-                opContainer.style.display = 'none';
-                opSelect.removeAttribute('required');
                 subtitle = "OPERATOR LOGIN";
-            } else {
-                opContainer.style.display = 'block';
-                opSelect.setAttribute('required', 'required');
-                
-                if(role === 'dealer') { btnSubmit.classList.add('btn-dealer'); subtitle = "DEALER LOGIN"; }
-                if(role === 'recoveryman') { btnSubmit.classList.add('btn-recoveryman'); subtitle = "RECOVERY LOGIN"; }
-                if(role === 'lineman') { btnSubmit.classList.add('btn-lineman'); subtitle = "LINE MAN LOGIN"; }
+            } else if(role === 'dealer') {
+                btnSubmit.classList.add('btn-dealer');
+                subtitle = "DEALER LOGIN";
+            } else if(role === 'recoveryman') {
+                btnSubmit.classList.add('btn-recoveryman');
+                subtitle = "RECOVERY LOGIN";
+            } else if(role === 'lineman') {
+                btnSubmit.classList.add('btn-lineman');
+                subtitle = "LINE MAN LOGIN";
             }
             
             document.getElementById('dynamicSubtitle').innerText = subtitle;

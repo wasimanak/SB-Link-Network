@@ -8,7 +8,7 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS global_settings (
 )");
 
 $pdo->exec("INSERT IGNORE INTO global_settings (setting_key, setting_value) VALUES 
-    ('app_name', 'SB Link Network'), 
+    ('app_name', 'NetBee'), 
     ('timezone', 'Asia/Karachi'), 
     ('currency', 'PKR')
 ");

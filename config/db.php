@@ -1,9 +1,11 @@
 <?php
+require_once __DIR__ . '/branding.php';
+
 $host = 'localhost';
 $charset = 'utf8mb4';
 
 // Automatically detect if we are on Local PC (XAMPP) or Live VPS
-$is_localhost = ($_SERVER['REMOTE_ADDR'] === '127.0.0.1' || $_SERVER['REMOTE_ADDR'] === '::1' || $_SERVER['SERVER_NAME'] === 'localhost');
+$is_localhost = (DIRECTORY_SEPARATOR === '\\' || (isset($_SERVER['REMOTE_ADDR']) && in_array($_SERVER['REMOTE_ADDR'], ['127.0.0.1', '::1'])) || (isset($_SERVER['SERVER_NAME']) && $_SERVER['SERVER_NAME'] === 'localhost'));
 
 if ($is_localhost) {
     // XAMPP (Local) Credentials
@@ -44,6 +46,11 @@ try {
         // Apply to MySQL (Try named timezone, fallback to offset if mysql timezones are not loaded)
         $offset = date('P'); // Gets offset like '+05:00'
         $pdo->exec("SET time_zone = '$offset'");
+        
+        // Auto-update app_name in global_settings if it's still SB Link
+        try {
+            $pdo->exec("UPDATE global_settings SET setting_value = 'NetBee' WHERE setting_key = 'app_name' AND setting_value LIKE '%SB%Link%'");
+        } catch (Exception $e) {}
         
     } catch (Exception $e) {
         // Fallback silently if table doesn't exist yet

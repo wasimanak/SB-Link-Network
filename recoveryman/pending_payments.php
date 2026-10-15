@@ -338,7 +338,7 @@ $pending_subscribers = $subStmt->fetchAll(PDO::FETCH_ASSOC);
                                     <i class="fa-solid fa-phone-flip" style="font-size: 0.75rem;"></i>
                                 </a>
                                 <?php if (!empty($wa_mobile)): ?>
-                                <a href="https://wa.me/<?= $wa_mobile ?>?text=<?= urlencode("Dear " . ($sub['full_name'] ?: $sub['username']) . ", your internet dues of Rs. " . number_format($pending_due) . " are pending. Please pay at your earliest. - SB Link Network") ?>" 
+                                <a href="https://wa.me/<?= $wa_mobile ?>?text=<?= urlencode("Dear " . ($sub['full_name'] ?: $sub['username']) . ", your internet dues of Rs. " . number_format($pending_due) . " are pending. Please pay at your earliest. - " . BRAND_NAME) ?>" 
                                    target="_blank" class="btn btn-xs btn-outline-success py-0 px-2" title="WhatsApp Reminder">
                                     <i class="fa-brands fa-whatsapp" style="font-size: 0.75rem;"></i>
                                 </a>

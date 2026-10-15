@@ -31,10 +31,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->prepare("INSERT INTO nas (client_id, nasname, shortname, secret, api_port, api_user, api_password) VALUES (?, ?, ?, ?, 8728, ?, ?)")
                 ->execute([$client_id, $nasname, $shortname, $secret, $api_user, $api_pass]);
             
+            // Auto-provision network defaults & sync pools from router
+            require_once '../config/mikrotik_sync_helper.php';
+            init_operator_network_defaults($pdo, $client_id);
+            if (!empty($api_user)) {
+                sync_operator_mikrotik_pools($pdo, $client_id);
+            }
+
             // Silently restart FreeRADIUS so the new router is active immediately
             exec("sudo systemctl restart freeradius 2>&1");
             exec("systemctl restart freeradius 2>&1");
-            echo "<script>alert('Router added successfully!'); window.location='profile.php';</script>";
+            echo "<script>alert('Router added successfully! Pools and WANs auto-synchronized.'); window.location='profile.php';</script>";
         } catch(Exception $e) {
             echo "<script>alert('Error: " . addslashes($e->getMessage()) . "'); window.location='profile.php';</script>";
         }
@@ -55,7 +62,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 $pdo->prepare("UPDATE nas SET nasname=?, shortname=?, secret=?, api_user=?, api_password=? WHERE id=? AND client_id=?")->execute([$nasname, $shortname, $secret, $api_user, $api_pass, $nas_id, $client_id]);
             }
-            echo "<script>alert('Router updated successfully!'); window.location='profile.php';</script>";
+
+            // Auto-provision network defaults & sync pools from router
+            require_once '../config/mikrotik_sync_helper.php';
+            init_operator_network_defaults($pdo, $client_id);
+            if (!empty($api_user)) {
+                sync_operator_mikrotik_pools($pdo, $client_id);
+            }
+
+            echo "<script>alert('Router updated successfully! Pools and WANs auto-synchronized.'); window.location='profile.php';</script>";
         } catch(Exception $e) {
             echo "<script>alert('Error: " . addslashes($e->getMessage()) . "'); window.location='profile.php';</script>";
         }

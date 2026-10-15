@@ -31,7 +31,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'apiu' => $api_user,
                 'apipass' => $api_password
             ]);
-            $success = "Router successfully mapped to Operator!";
+
+            // Auto-provision network defaults & sync pools from router
+            require_once '../config/mikrotik_sync_helper.php';
+            init_operator_network_defaults($pdo, $client_id);
+            if (!empty($api_user)) {
+                sync_operator_mikrotik_pools($pdo, $client_id);
+            }
+
+            $success = "Router successfully mapped to Operator! Pools and WANs auto-synchronized.";
         } catch (PDOException $e) {
             $error = "Database Error: " . $e->getMessage();
         }
