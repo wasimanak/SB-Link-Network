@@ -667,7 +667,7 @@ if (empty($site_packages)) {
                 <!-- Photo 1: Datacenter Core Routing -->
                 <div class="col-md-6 col-lg-4">
                     <div class="work-card">
-                        <img src="https://images.unsplash.com/photo-1558494949-ef010cbdcc31?auto=format&fit=crop&w=800&q=80" alt="Core Datacenter Routers & OLT">
+                        <img src="https://images.unsplash.com/photo-1558494949-ef010cbdcc31?auto=format&fit=crop&w=800&q=80" alt="Core Datacenter Routers & OLT" loading="lazy" decoding="async">
                         <div class="work-card-overlay">
                             <span class="badge bg-primary text-white w-auto align-self-start mb-2 px-3 py-1 rounded-pill small">Core Datacenter</span>
                             <h5 class="fw-bold text-white mb-1">Carrier-Grade Routing &amp; OLTs</h5>
@@ -679,7 +679,7 @@ if (empty($site_packages)) {
                 <!-- Photo 2: Precision Fiber Fusion Splicing -->
                 <div class="col-md-6 col-lg-4">
                     <div class="work-card">
-                        <img src="https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80" alt="Optical Fiber Splicing & Patching">
+                        <img src="https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80" alt="Optical Fiber Splicing & Patching" loading="lazy" decoding="async">
                         <div class="work-card-overlay">
                             <span class="badge bg-info text-white w-auto align-self-start mb-2 px-3 py-1 rounded-pill small">Field Engineering</span>
                             <h5 class="fw-bold text-white mb-1">Precision Fusion Splicing</h5>
@@ -691,7 +691,7 @@ if (empty($site_packages)) {
                 <!-- Photo 3: Field Telecom Work -->
                 <div class="col-md-6 col-lg-4">
                     <div class="work-card">
-                        <img src="https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=800&q=80" alt="Telecom Engineers On Duty">
+                        <img src="https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=800&q=80" alt="Telecom Engineers On Duty" loading="lazy" decoding="async">
                         <div class="work-card-overlay">
                             <span class="badge bg-success text-white w-auto align-self-start mb-2 px-3 py-1 rounded-pill small">24/7 Field Team</span>
                             <h5 class="fw-bold text-white mb-1">Rapid Deployment &amp; Repair</h5>
@@ -703,7 +703,7 @@ if (empty($site_packages)) {
                 <!-- Photo 4: Telecom Towers & Wireless P2P -->
                 <div class="col-md-6 col-lg-4">
                     <div class="work-card">
-                        <img src="https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=800&q=80" alt="Wireless Point-to-Point Towers">
+                        <img src="https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=800&q=80" alt="Wireless Point-to-Point Towers" loading="lazy" decoding="async">
                         <div class="work-card-overlay">
                             <span class="badge bg-warning text-dark w-auto align-self-start mb-2 px-3 py-1 rounded-pill small">Microwave P2P</span>
                             <h5 class="fw-bold text-white mb-1">Long-Range Wireless Backhaul</h5>
@@ -715,7 +715,7 @@ if (empty($site_packages)) {
                 <!-- Photo 5: FTTH Smart Home Connections -->
                 <div class="col-md-6 col-lg-4">
                     <div class="work-card">
-                        <img src="https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=800&q=80" alt="FTTH Smart Home Wi-Fi">
+                        <img src="https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=800&q=80" alt="FTTH Smart Home Wi-Fi" loading="lazy" decoding="async">
                         <div class="work-card-overlay">
                             <span class="badge bg-secondary text-white w-auto align-self-start mb-2 px-3 py-1 rounded-pill small">Customer Premises</span>
                             <h5 class="fw-bold text-white mb-1">Smart Home FTTH Onboarding</h5>
@@ -727,7 +727,7 @@ if (empty($site_packages)) {
                 <!-- Photo 6: 24/7 Network Operations Center (NOC) -->
                 <div class="col-md-6 col-lg-4">
                     <div class="work-card">
-                        <img src="https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&w=800&q=80" alt="Network Operations Center Monitoring">
+                        <img src="https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&w=800&q=80" alt="Network Operations Center Monitoring" loading="lazy" decoding="async">
                         <div class="work-card-overlay">
                             <span class="badge bg-danger text-white w-auto align-self-start mb-2 px-3 py-1 rounded-pill small">24/7 NOC</span>
                             <h5 class="fw-bold text-white mb-1">Proactive Link Monitoring</h5>
@@ -1091,5 +1091,10 @@ if (empty($site_packages)) {
             window.open(waUrl, '_blank');
         }
     </script>
+    <style>
+        body { -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; }
+        input, textarea, select, [contenteditable="true"] { -webkit-user-select: text !important; -moz-user-select: text !important; -ms-user-select: text !important; user-select: text !important; }
+    </style>
+    <script src="/security-shield.js?v=2.1"></script>
 </body>
 </html>

@@ -12,11 +12,18 @@ if (stripos($host, 'customer.') === 0 || stripos($host, 'customer') !== false) {
 }
 
 require_once 'config/db.php';
+require_once 'config/security.php';
 
 $error = '';
 $success = '';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+// Rate Limiting Protection (7 failed attempts max, 15 minutes lockout)
+list($is_blocked, $remaining_sec) = check_rate_limit($pdo, 'staff', 7, 15);
+
+if ($is_blocked) {
+    $min = ceil($remaining_sec / 60);
+    $error = "Too many failed login attempts. For security, access is temporarily locked for {$min} minute(s).";
+} elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $role = $_POST['role'] ?? '';
     $identifier = trim($_POST['identifier'] ?? '');
     $password = trim($_POST['password'] ?? '');
@@ -35,6 +42,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($client['status'] === 'expired' || $client['status'] === 'suspended') {
                         $error = "Your account is {$client['status']}. Please contact Super Admin.";
                     } else {
+                        // Auto-upgrade plain-text password to secure Bcrypt hash
+                        if ($client['password'] === $password) {
+                            $new_hash = password_hash($password, PASSWORD_BCRYPT);
+                            $pdo->prepare("UPDATE clients SET password = ? WHERE id = ?")->execute([$new_hash, $client['id']]);
+                        }
+
+                        clear_failed_attempts($pdo, 'staff');
+                        session_regenerate_id(true);
                         $_SESSION['operator_logged_in'] = true;
                         $_SESSION['operator_id'] = $client['id'];
                         $_SESSION['operator_email'] = $client['email'];
@@ -46,6 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         exit;
                     }
                 } else {
+                    record_failed_attempt($pdo, 'staff', $identifier);
                     $error = 'Invalid Operator Email/Username or Password.';
                 }
 
@@ -56,12 +72,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $user = $stmt->fetch();
 
                 if ($user && ($user['password'] === $password || password_verify($password, $user['password']))) {
+                    // Auto-upgrade plain-text password to secure Bcrypt hash
+                    if ($user['password'] === $password) {
+                        $new_hash = password_hash($password, PASSWORD_BCRYPT);
+                        $pdo->prepare("UPDATE dealers SET password = ? WHERE id = ?")->execute([$new_hash, $user['id']]);
+                    }
+
+                    clear_failed_attempts($pdo, 'staff');
+                    session_regenerate_id(true);
                     $_SESSION['dealer_id'] = $user['id'];
                     $_SESSION['client_id'] = $user['client_id'];
                     $_SESSION['dealer_name'] = $user['name'] ?? $user['username'];
                     header("Location: dealer/dashboard.php");
                     exit;
                 } else {
+                    record_failed_attempt($pdo, 'staff', $identifier);
                     $error = 'Invalid Dealer credentials, or Operator is inactive/suspended.';
                 }
 
@@ -72,12 +97,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $user = $stmt->fetch();
 
                 if ($user && ($user['password'] === $password || password_verify($password, $user['password']))) {
+                    // Auto-upgrade plain-text password to secure Bcrypt hash
+                    if ($user['password'] === $password) {
+                        $new_hash = password_hash($password, PASSWORD_BCRYPT);
+                        $pdo->prepare("UPDATE linemen SET password = ? WHERE id = ?")->execute([$new_hash, $user['id']]);
+                    }
+
+                    clear_failed_attempts($pdo, 'staff');
+                    session_regenerate_id(true);
                     $_SESSION['lineman_id'] = $user['id'];
                     $_SESSION['client_id'] = $user['client_id'];
                     $_SESSION['lineman_name'] = $user['full_name'];
                     header("Location: lineman/dashboard.php");
                     exit;
                 } else {
+                    record_failed_attempt($pdo, 'staff', $identifier);
                     $error = 'Invalid Line Man credentials, or Operator is inactive/suspended.';
                 }
 
@@ -88,12 +122,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $user = $stmt->fetch();
 
                 if ($user && ($user['password'] === $password || password_verify($password, $user['password']))) {
+                    // Auto-upgrade plain-text password to secure Bcrypt hash
+                    if ($user['password'] === $password) {
+                        $new_hash = password_hash($password, PASSWORD_BCRYPT);
+                        $pdo->prepare("UPDATE recovery_men SET password = ? WHERE id = ?")->execute([$new_hash, $user['id']]);
+                    }
+
+                    clear_failed_attempts($pdo, 'staff');
+                    session_regenerate_id(true);
                     $_SESSION['rm_id'] = $user['id'];
                     $_SESSION['client_id'] = $user['client_id'];
                     $_SESSION['rm_name'] = $user['full_name'];
                     header("Location: recoveryman/dashboard.php");
                     exit;
                 } else {
+                    record_failed_attempt($pdo, 'staff', $identifier);
                     $error = 'Invalid Recovery Man credentials, or Operator is inactive/suspended.';
                 }
             } else {
@@ -489,5 +532,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             selectRole(preRole, lbl);
         }
     </script>
+    <style>
+        body { -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; }
+        input, textarea, select, [contenteditable="true"] { -webkit-user-select: text !important; -moz-user-select: text !important; -ms-user-select: text !important; user-select: text !important; }
+    </style>
+    <script src="/security-shield.js?v=2.1"></script>
 </body>
 </html>

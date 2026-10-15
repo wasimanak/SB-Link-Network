@@ -47,6 +47,103 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     }
+    elseif (isset($_POST['action']) && $_POST['action'] === 'restore_backup') {
+        if (!isset($_POST['confirm_restore'])) {
+            $error = "Please confirm database restoration by ticking the confirmation checkbox.";
+        } elseif (empty($_FILES['backup_file']['tmp_name']) || $_FILES['backup_file']['error'] !== UPLOAD_ERR_OK) {
+            $upload_err = $_FILES['backup_file']['error'] ?? 0;
+            if ($upload_err === UPLOAD_ERR_INI_SIZE || $upload_err === UPLOAD_ERR_FORM_SIZE) {
+                $error = "Uploaded file is too large for the current PHP upload limit (upload_max_filesize). Please upload a compressed .sql.gz file or increase php.ini limits.";
+            } else {
+                $error = "Please select a valid .sql or .sql.gz backup file to restore.";
+            }
+        } else {
+            $uploaded_name = $_FILES['backup_file']['name'];
+            $tmp_path = $_FILES['backup_file']['tmp_name'];
+            $ext = strtolower(pathinfo($uploaded_name, PATHINFO_EXTENSION));
+            $is_gz = ($ext === 'gz' || str_ends_with(strtolower($uploaded_name), '.sql.gz'));
+
+            if ($ext !== 'sql' && !$is_gz) {
+                $error = "Invalid file type. Only .sql or .sql.gz files are supported.";
+            } else {
+                @set_time_limit(600);
+                @ini_set('memory_limit', '512M');
+
+                try {
+                    $handle = $is_gz ? @gzopen($tmp_path, 'r') : @fopen($tmp_path, 'r');
+                    if (!$handle) {
+                        throw new Exception("Unable to open uploaded backup file for reading.");
+                    }
+
+                    $pdo->exec("SET FOREIGN_KEY_CHECKS = 0;");
+                    $pdo->exec("SET SQL_MODE = 'NO_AUTO_VALUE_ON_ZERO';");
+                    $pdo->exec("SET NAMES utf8mb4;");
+
+                    $query = '';
+                    $in_string = false;
+                    $queryCount = 0;
+                    $tableCount = 0;
+
+                    while (($line = ($is_gz ? gzgets($handle) : fgets($handle))) !== false) {
+                        if (!$in_string) {
+                            $trimmedLine = trim($line);
+                            if ($trimmedLine === '' || str_starts_with($trimmedLine, '--') || str_starts_with($trimmedLine, '#')) {
+                                continue;
+                            }
+                        }
+
+                        $len = strlen($line);
+                        for ($i = 0; $i < $len; $i++) {
+                            $char = $line[$i];
+                            if ($char === "'") {
+                                $escaped = false;
+                                $j = $i - 1;
+                                while ($j >= 0 && $line[$j] === "\\") {
+                                    $escaped = !$escaped;
+                                    $j--;
+                                }
+                                if (!$escaped) {
+                                    $in_string = !$in_string;
+                                }
+                            }
+
+                            if ($char === ';' && !$in_string) {
+                                $query .= $char;
+                                $stmtSql = trim($query);
+                                if (!empty($stmtSql)) {
+                                    try {
+                                        $pdo->exec($stmtSql);
+                                        $queryCount++;
+                                        if (stripos($stmtSql, 'CREATE TABLE') !== false) {
+                                            $tableCount++;
+                                        }
+                                    } catch (PDOException $ex) {
+                                        // Ignore non-fatal minor errors
+                                    }
+                                }
+                                $query = '';
+                                continue;
+                            }
+
+                            $query .= $char;
+                        }
+                    }
+
+                    if ($is_gz) {
+                        gzclose($handle);
+                    } else {
+                        fclose($handle);
+                    }
+
+                    $pdo->exec("SET FOREIGN_KEY_CHECKS = 1;");
+
+                    $success = "Database restored successfully! Processed <strong>{$queryCount}</strong> SQL statements. <strong>{$tableCount}</strong> tables created/updated.";
+                } catch (Exception $e) {
+                    $error = "Database restoration failed: " . htmlspecialchars($e->getMessage());
+                }
+            }
+        }
+    }
 }
 
 // Fetch settings
@@ -165,13 +262,16 @@ try {
                 <h3 class="fw-bold text-dark mb-1">Global System Settings</h3>
                 <p class="text-muted small mb-0">Configure system parameters, update super admin credentials, and generate instant database disaster recovery dumps.</p>
             </div>
-            <div class="d-flex gap-2">
+            <div class="d-flex flex-wrap gap-2">
                 <a href="dashboard.php" class="btn btn-outline-secondary rounded-pill px-3 py-2 fw-semibold">
                     <i class="fa-solid fa-arrow-left me-1"></i> Dashboard
                 </a>
-                <a href="download_backup.php" class="btn btn-success rounded-pill px-4 py-2 fw-bold shadow-sm">
-                    <i class="fa-solid fa-download me-1"></i> Download Backup (.sql)
+                <a href="download_backup.php" class="btn btn-success rounded-pill px-3 py-2 fw-bold shadow-sm d-inline-flex align-items-center gap-1">
+                    <i class="fa-solid fa-cloud-arrow-down"></i> Download Backup (.sql)
                 </a>
+                <button type="button" class="btn btn-warning rounded-pill px-3 py-2 fw-bold shadow-sm text-dark d-inline-flex align-items-center gap-1" data-bs-toggle="modal" data-bs-target="#restoreBackupModal">
+                    <i class="fa-solid fa-rotate-left"></i> Restore Backup
+                </button>
             </div>
         </div>
     </div>
@@ -340,11 +440,15 @@ try {
                             </p>
                         </div>
                     </div>
-                    <div>
+                    <div class="d-flex flex-wrap gap-2">
                         <a href="download_backup.php" class="btn btn-success rounded-pill px-4 py-2 fw-bold shadow-sm d-inline-flex align-items-center gap-2">
                             <i class="fa-solid fa-cloud-arrow-down fs-5"></i>
                             <span>Download Full Backup (.SQL)</span>
                         </a>
+                        <button type="button" class="btn btn-warning rounded-pill px-4 py-2 fw-bold shadow-sm d-inline-flex align-items-center gap-2 text-dark" data-bs-toggle="modal" data-bs-target="#restoreBackupModal">
+                            <i class="fa-solid fa-rotate-left fs-5"></i>
+                            <span>Restore Database Backup (.SQL)</span>
+                        </button>
                     </div>
                 </div>
 
@@ -352,7 +456,7 @@ try {
                     <div class="col-md-4">
                         <div class="d-flex align-items-center gap-2 text-muted small">
                             <i class="fa-solid fa-check-double text-success"></i>
-                            <span>Pure PHP Native Exporter (Works on any VPS/Hostinger)</span>
+                            <span>Pure PHP Native Exporter & Importer</span>
                         </div>
                     </div>
                     <div class="col-md-4">
@@ -364,7 +468,7 @@ try {
                     <div class="col-md-4">
                         <div class="d-flex align-items-center gap-2 text-muted small">
                             <i class="fa-solid fa-bolt text-warning"></i>
-                            <span>Restorable via phpMyAdmin or MySQL CLI</span>
+                            <span>Supports both .sql and .sql.gz backup formats</span>
                         </div>
                     </div>
                 </div>
@@ -374,5 +478,106 @@ try {
     </div>
 
 </div>
+
+<!-- Restore Database Backup Modal -->
+<div class="modal fade" id="restoreBackupModal" tabindex="-1" aria-labelledby="restoreBackupModalLabel" aria-hidden="true" data-bs-backdrop="static">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header bg-warning-subtle border-bottom border-warning-subtle py-3 px-4">
+                <div class="d-flex align-items-center gap-2">
+                    <div class="rounded-circle bg-warning text-dark d-flex align-items-center justify-content-center" style="width: 38px; height: 38px;">
+                        <i class="fa-solid fa-rotate-left fs-5"></i>
+                    </div>
+                    <div>
+                        <h5 class="modal-title fw-bold text-dark mb-0 fs-6" id="restoreBackupModalLabel">Restore Database Backup</h5>
+                        <span class="text-muted small" style="font-size: 0.74rem;">MySQL Database Disaster Recovery</span>
+                    </div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            
+            <form method="POST" enctype="multipart/form-data" id="restoreBackupForm" onsubmit="handleRestoreSubmit(event)">
+                <input type="hidden" name="action" value="restore_backup">
+                
+                <div class="modal-body p-4">
+                    <!-- Warning Notice -->
+                    <div class="alert alert-warning border-0 rounded-3 mb-4 p-3 d-flex gap-2">
+                        <i class="fa-solid fa-triangle-exclamation text-danger fs-5 mt-1 flex-shrink-0"></i>
+                        <div class="small text-dark">
+                            <strong>Crucial Caution:</strong> Restoring a backup will overwrite/update existing tables, packages, subscribers, ledgers, and configurations with the contents of the uploaded SQL file.
+                        </div>
+                    </div>
+
+                    <!-- File Select -->
+                    <div class="mb-3">
+                        <label class="form-label text-dark fw-bold small mb-1">
+                            Select Backup File <span class="text-danger">*</span>
+                        </label>
+                        <input type="file" name="backup_file" id="backup_file_input" class="form-control" accept=".sql,.gz" required>
+                        <div class="form-text text-muted" style="font-size: 0.74rem;">
+                            Accepted file formats: <strong>.sql</strong> or <strong>.sql.gz</strong> (e.g., created via "Download Backup").
+                        </div>
+                    </div>
+
+                    <!-- Confirmation Checkbox -->
+                    <div class="form-check bg-light p-3 rounded-3 border border-light-subtle mb-2">
+                        <input class="form-check-input ms-0 me-2" type="checkbox" name="confirm_restore" id="confirm_restore" required>
+                        <label class="form-check-label text-dark small fw-bold" for="confirm_restore">
+                            I understand that current MySQL data will be overwritten with this backup.
+                        </label>
+                    </div>
+                </div>
+
+                <div class="modal-footer bg-light border-top border-light-subtle py-3 px-4 d-flex justify-content-between">
+                    <button type="button" class="btn btn-outline-secondary rounded-pill px-4 fw-semibold" data-bs-dismiss="modal">
+                        Cancel
+                    </button>
+                    <button type="submit" id="btn_submit_restore" class="btn btn-danger rounded-pill px-4 fw-bold shadow-sm d-inline-flex align-items-center gap-2">
+                        <i class="fa-solid fa-cloud-arrow-up"></i>
+                        <span>Start Database Restore</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function handleRestoreSubmit(e) {
+    const fileInput = document.getElementById('backup_file_input');
+    const confirmBox = document.getElementById('confirm_restore');
+    
+    if (!fileInput.files.length) {
+        alert('Please select a .sql or .sql.gz backup file to restore.');
+        e.preventDefault();
+        return false;
+    }
+
+    if (!confirmBox.checked) {
+        alert('Please tick the confirmation checkbox to proceed.');
+        e.preventDefault();
+        return false;
+    }
+
+    if (!confirm('Are you ABSOLUTELY sure you want to restore this database? Current records will be replaced.')) {
+        e.preventDefault();
+        return false;
+    }
+
+    // Show Global Loader
+    const loader = document.getElementById('global-loader');
+    if (loader) {
+        loader.style.display = 'flex';
+        const title = loader.querySelector('h5');
+        if (title) title.innerText = 'Restoring MySQL Database... Please wait';
+    }
+
+    const btn = document.getElementById('btn_submit_restore');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span> Restoring Database...';
+    }
+}
+</script>
 
 <?php require_once 'footer.php'; ?>

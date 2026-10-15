@@ -1,10 +1,17 @@
 <?php
 session_start();
 require_once '../config/db.php';
+require_once '../config/security.php';
 
 $error = '';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+// Rate Limiting Protection (5 failed attempts max, 15 minutes lockout)
+list($is_blocked, $remaining_sec) = check_rate_limit($pdo, 'superadmin', 5, 15);
+
+if ($is_blocked) {
+    $min = ceil($remaining_sec / 60);
+    $error = "Too many failed login attempts. For security, access is temporarily locked for {$min} minute(s).";
+} elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = trim($_POST['username'] ?? '');
     $password = trim($_POST['password'] ?? '');
 
@@ -12,11 +19,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Please enter both username and password.';
     } else {
         try {
-            $stmt = $pdo->prepare("SELECT * FROM super_admins WHERE username = :username OR email = :email LIMIT 1");
-            $stmt->execute(['username' => $username, 'email' => $username]);
+            $stmt = $pdo->prepare("SELECT * FROM super_admins WHERE username = ? OR email = ? LIMIT 1");
+            $stmt->execute([$username, $username]);
             $admin = $stmt->fetch();
 
-            if ($admin && password_verify($password, $admin['password'])) {
+            if ($admin && (password_verify($password, $admin['password']) || $admin['password'] === $password)) {
+                // Auto-upgrade plain-text password to secure Bcrypt hash
+                if ($admin['password'] === $password) {
+                    $new_hash = password_hash($password, PASSWORD_BCRYPT);
+                    $pdo->prepare("UPDATE super_admins SET password = ? WHERE id = ?")->execute([$new_hash, $admin['id']]);
+                }
+
+                clear_failed_attempts($pdo, 'superadmin');
                 session_regenerate_id(true); // Prevent session fixation
                 $_SESSION['superadmin_logged_in'] = true;
                 $_SESSION['superadmin_id'] = $admin['id'];
@@ -25,6 +39,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 header("Location: dashboard.php");
                 exit;
             } else {
+                record_failed_attempt($pdo, 'superadmin', $username);
                 $error = 'Invalid credentials.';
             }
         } catch (PDOException $e) {
@@ -256,5 +271,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     </script>
+    <style>
+        body { -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; }
+        input, textarea, select, [contenteditable="true"] { -webkit-user-select: text !important; -moz-user-select: text !important; -ms-user-select: text !important; user-select: text !important; }
+    </style>
+    <script src="/security-shield.js?v=2.1"></script>
 </body>
 </html>

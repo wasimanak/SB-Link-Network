@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once '../config/db.php';
+require_once '../config/security.php';
 
 if (isset($_SESSION['customer_logged_in']) && $_SESSION['customer_logged_in'] === true) {
     header("Location: dashboard.php");
@@ -8,7 +9,14 @@ if (isset($_SESSION['customer_logged_in']) && $_SESSION['customer_logged_in'] ==
 }
 
 $error = '';
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+
+// Rate Limiting Protection (10 failed attempts max, 15 minutes lockout)
+list($is_blocked, $remaining_sec) = check_rate_limit($pdo, 'customer', 10, 15);
+
+if ($is_blocked) {
+    $min = ceil($remaining_sec / 60);
+    $error = "Too many failed login attempts. For security, access is temporarily locked for {$min} minute(s).";
+} elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = trim($_POST['username'] ?? '');
     $password = trim($_POST['password'] ?? '');
 
@@ -49,6 +57,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($op_status === 'suspended' || $op_status === 'expired') {
                         $error = "Service temporarily unavailable (Provider account suspended).";
                     } else {
+                        clear_failed_attempts($pdo, 'customer');
+                        session_regenerate_id(true);
                         $_SESSION['customer_logged_in'] = true;
                         $_SESSION['customer_id'] = $user['id'];
                         $_SESSION['customer_client_id'] = $user['client_id'];
@@ -58,9 +68,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
             } else {
+                record_failed_attempt($pdo, 'customer', $username);
                 $error = "Invalid username or password.";
             }
         } else {
+            record_failed_attempt($pdo, 'customer', $username);
             $error = "Invalid username or password.";
         }
     }
@@ -223,5 +235,10 @@ if (isset($_GET['error'])) {
 
     </div>
 
+    <style>
+        body { -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; }
+        input, textarea, select, [contenteditable="true"] { -webkit-user-select: text !important; -moz-user-select: text !important; -ms-user-select: text !important; user-select: text !important; }
+    </style>
+    <script src="/security-shield.js?v=2.1"></script>
 </body>
 </html>

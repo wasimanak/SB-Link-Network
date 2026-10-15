@@ -6,6 +6,8 @@ if (php_sapi_name() === 'cli' && empty($_SERVER['REMOTE_ADDR'])) {
     }
 }
 require 'config/db.php';
+require_once 'config/security.php';
+guard_maintenance_script('RADIUS Load-Balance Sync Tool');
 
 echo "<h2>Syncing RADIUS to Match MikroTik Multi-WAN Load Balancing</h2>";
 

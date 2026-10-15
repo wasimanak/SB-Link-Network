@@ -10,6 +10,8 @@
  */
 
 require_once __DIR__ . '/config/db.php';
+require_once __DIR__ . '/config/security.php';
+guard_maintenance_script('Multi-WAN & RADIUS Permanent Repair Tool');
 require_once __DIR__ . '/config/routeros_api.class.php';
 
 $is_cli = (php_sapi_name() === 'cli');

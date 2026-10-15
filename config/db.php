@@ -56,5 +56,10 @@ try {
         // Fallback silently if table doesn't exist yet
     }
 } catch (\PDOException $e) {
-    die("Database connection failed. Please check your database configuration. Error: " . $e->getMessage());
+    if ($is_localhost) {
+        die("Database connection failed. Please check your database configuration. Error: " . $e->getMessage());
+    } else {
+        error_log("Database connection error: " . $e->getMessage());
+        die("Database connection error. Please contact system administrator.");
+    }
 }

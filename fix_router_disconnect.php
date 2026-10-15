@@ -1,5 +1,7 @@
 <?php
 require_once 'config/db.php';
+require_once 'config/security.php';
+guard_maintenance_script('FreeRADIUS Connection Repair Tool');
 
 echo "<h2>FreeRADIUS Connection & IP Assignment Instant Repair Tool</h2>";
 

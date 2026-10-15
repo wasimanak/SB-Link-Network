@@ -1,5 +1,18 @@
 <?php
 // Path: /config/cron_expiry.php
+require_once __DIR__ . '/security.php';
+
+// Allow execution only via CLI, SuperAdmin, or protected cron token
+if (php_sapi_name() !== 'cli') {
+    if (session_status() === PHP_SESSION_NONE) @session_start();
+    $is_sa = !empty($_SESSION['superadmin_logged_in']) && $_SESSION['superadmin_logged_in'] === true;
+    $cron_key = $_GET['key'] ?? '';
+    if (!$is_sa && $cron_key !== 'sb_cron_secret_786') {
+        http_response_code(403);
+        die('403 Forbidden: Cron jobs can only be run via CLI or with authorized key.');
+    }
+}
+
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/routeros_api.class.php';
 

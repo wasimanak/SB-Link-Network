@@ -1,5 +1,7 @@
 <?php
 require 'config/db.php';
+require_once 'config/security.php';
+guard_maintenance_script('Multi-Operator RADIUS Isolation & Repair Tool');
 
 echo "<h2>Multi-Operator RADIUS Isolation & Repair Tool</h2>";
 

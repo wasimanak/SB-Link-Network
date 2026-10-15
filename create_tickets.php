@@ -1,5 +1,7 @@
 <?php
 require_once 'config/db.php';
+require_once 'config/security.php';
+guard_maintenance_script('Ticket Tables Creator');
 
 try {
     $pdo->exec("

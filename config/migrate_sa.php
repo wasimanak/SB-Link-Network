@@ -1,4 +1,6 @@
 <?php
+require_once __DIR__ . '/security.php';
+guard_maintenance_script('Migration Tool');
 require_once __DIR__ . '/db.php';
 
 $pdo->exec("CREATE TABLE IF NOT EXISTS global_settings (

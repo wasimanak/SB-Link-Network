@@ -1,8 +1,47 @@
 <IfModule mod_rewrite.c>
 RewriteEngine On
 
-# Automatically route customer.sblink.tech to /customer/ folder
+# Force HTTPS on live domain (prevents mobile network carriers from hanging on HTTP)
+RewriteCond %{HTTPS} off
+RewriteCond %{HTTP_HOST} (^|\.)sblink\.tech$ [NC]
+RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+# 1. Automatically route customer.sblink.tech to /customer/ folder
 RewriteCond %{HTTP_HOST} ^customer\. [NC]
 RewriteCond %{REQUEST_URI} !^/customer/ [NC]
 RewriteRule ^(.*)$ customer/$1 [L,QSA]
 </IfModule>
+
+# ==========================================
+# SECURITY HARDENING DIRECTIVES
+# ==========================================
+
+# 2. Disable Directory Indexing (stops hackers from seeing list of all files)
+Options -Indexes
+
+# 3. Block access to sensitive database dumps, logs, configs, and hidden files
+<FilesMatch "\.(sql|log|ini|env|bak|sh|git.*|md)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order deny,allow
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# 4. Security Headers to prevent clickjacking & MIME-sniffing attacks
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+    Header set X-Frame-Options "SAMEORIGIN"
+    Header set X-XSS-Protection "1; mode=block"
+    Header set Referrer-Policy "strict-origin-when-cross-origin"
+    Header set Permissions-Policy "camera=(), microphone=(), geolocation=()"
+</IfModule>
+
+# 5. Block Automated Vulnerability Scanners & Exploit Tools (SQLMap, Nikto, DirBuster, etc.)
+<IfModule mod_rewrite.c>
+RewriteCond %{HTTP_USER_AGENT} (sqlmap|nikto|wpscan|masscan|zgrab|acunetix|nessus|nmap|havij|dirbuster|python-requests) [NC]
+RewriteRule .* - [F,L]
+</IfModule>
+
