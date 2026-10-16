@@ -99,10 +99,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $mobile = trim($_POST['mobile']);
             $phone = trim($_POST['phone']);
             $email = trim($_POST['email']);
-            $subarea = trim($_POST['subarea']);
-            $city = trim($_POST['city']);
-            $gps_lat = trim($_POST['gps_lat']);
-            $gps_lng = trim($_POST['gps_lng']);
+            $address = trim($_POST['address'] ?? '');
+            $subarea = trim($_POST['subarea'] ?? '');
+            $city = trim($_POST['city'] ?? '');
+            $latitude = !empty($_POST['latitude']) ? trim($_POST['latitude']) : (!empty($_POST['gps_lat']) ? trim($_POST['gps_lat']) : null);
+            $longitude = !empty($_POST['longitude']) ? trim($_POST['longitude']) : (!empty($_POST['gps_lng']) ? trim($_POST['gps_lng']) : null);
             
             // Check if username is being changed and if it already exists
             if ($new_username !== $u) {
@@ -120,10 +121,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->prepare("UPDATE subscribers SET 
                 full_name=?, national_id=?, username=?, password=?, service_type=?, 
                 package_id=?, dealer_id=?, expiry_date=?, mobile=?, phone=?, email=?, 
-                subarea=?, city=?, gps_lat=?, gps_lng=? WHERE id=?")
+                address=?, subarea=?, city=?, latitude=?, longitude=?, gps_lat=?, gps_lng=? WHERE id=?")
                 ->execute([$full_name, $national_id, $new_username, $password, $service_type, 
                            $package_id, $dealer_id, $expiry, $mobile, $phone, $email, 
-                           $subarea, $city, $gps_lat, $gps_lng, $id]);
+                           $address, $subarea, $city, $latitude, $longitude, $latitude, $longitude, $id]);
             
             // Update RADIUS Cleartext-Password & Username
             if ($new_username !== $u) {
@@ -447,6 +448,8 @@ if (strtolower($user['status'] ?? '') === 'disabled') {
 ?>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<!-- Leaflet Map CSS -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <!-- DataTables & Buttons CSS -->
 <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
 <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.2/css/buttons.bootstrap5.min.css">
@@ -959,6 +962,87 @@ if (strtolower($user['status'] ?? '') === 'disabled') {
                             <label class="col-form-label">Street Address</label>
                             <input type="text" name="address" class="form-control" value="<?= htmlspecialchars($user['address']) ?>">
                         </div>
+
+                        <div class="col-md-12 mb-3">
+                            <label class="col-form-label text-secondary small fw-bold d-flex justify-content-between align-items-center">
+                                <span><i class="fa-solid fa-map-location-dot text-primary me-1"></i> Customer Location (Map Pin & GPS)</span>
+                                <button type="button" class="btn btn-link btn-sm text-decoration-none p-0 text-muted" onclick="toggleEditManualCoords()" style="font-size: 0.75rem;">
+                                    <i class="fa-solid fa-keyboard me-1"></i> Manual Enter
+                                </button>
+                            </label>
+                            
+                            <!-- Action controls: GPS Button + Map Search Box + Satellite/Map toggle -->
+                            <div class="row g-2 mb-2">
+                                <div class="col-md-5">
+                                    <button type="button" class="btn btn-outline-primary btn-sm fw-bold w-100 py-2 shadow-sm" id="btn_edit_capture_location" onclick="captureEditUserLocation()">
+                                        <i class="fa-solid fa-crosshairs me-1 text-danger"></i> Get Current GPS (10m)
+                                    </button>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="input-group input-group-sm">
+                                        <input type="text" class="form-control" id="edit_map_search_input" placeholder="Search area, colony..." onkeydown="if(event.key==='Enter'){event.preventDefault();searchEditLocationOnMap();}">
+                                        <button class="btn btn-primary" type="button" id="btn_edit_map_search" onclick="searchEditLocationOnMap()" title="Search Area on Map">
+                                            <i class="fa-solid fa-magnifying-glass"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="btn-group btn-group-sm w-100 shadow-sm" role="group">
+                                        <button type="button" class="btn btn-primary btn-sm fw-bold" id="btnEditMapHybrid" onclick="switchEditMapLayer('hybrid')" title="Satellite View with Streets"><i class="fa-solid fa-satellite me-1"></i>Sat</button>
+                                        <button type="button" class="btn btn-outline-secondary btn-sm fw-bold" id="btnEditMapStreets" onclick="switchEditMapLayer('streets')" title="Streets Map View"><i class="fa-solid fa-road me-1"></i>Map</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Interactive Leaflet Map Container -->
+                            <div class="position-relative rounded border overflow-hidden shadow-sm" style="height: 280px;">
+                                <div id="edit_user_map_picker" style="height: 100%; width: 100%; z-index: 1;"></div>
+                                <div class="position-absolute bottom-0 start-0 m-2 px-2 py-1 rounded bg-dark bg-opacity-75 text-white small" style="z-index: 1000; font-size: 0.75rem; pointer-events: none;">
+                                    <i class="fa-solid fa-hand-pointer text-warning me-1"></i> Map par click karein ya pin ko drag kar ke customer ki location par set karein
+                                </div>
+                            </div>
+
+                            <!-- Actual inputs sent to DB -->
+                            <?php 
+                                $user_lat = !empty($user['latitude']) ? $user['latitude'] : (!empty($user['gps_lat']) ? $user['gps_lat'] : '');
+                                $user_lng = !empty($user['longitude']) ? $user['longitude'] : (!empty($user['gps_lng']) ? $user['gps_lng'] : '');
+                            ?>
+                            <input type="hidden" name="latitude" id="edit_user_latitude" value="<?= htmlspecialchars($user_lat) ?>">
+                            <input type="hidden" name="longitude" id="edit_user_longitude" value="<?= htmlspecialchars($user_lng) ?>">
+                            <input type="hidden" name="gps_lat" id="edit_user_gps_lat" value="<?= htmlspecialchars($user_lat) ?>">
+                            <input type="hidden" name="gps_lng" id="edit_user_gps_lng" value="<?= htmlspecialchars($user_lng) ?>">
+
+                            <!-- Live Pinned / Captured Status Card -->
+                            <div id="edit_location_status_box" class="mt-2">
+                                <div class="d-flex align-items-center justify-content-between p-2 rounded bg-light border small">
+                                    <div>
+                                        <span class="text-secondary fw-semibold"><i class="fa-solid fa-location-dot text-danger me-1"></i> Pinned Coordinates:</span>
+                                        <span class="font-monospace text-dark fw-bold ms-1" id="edit_pinned_coords_text">
+                                            <?= ($user_lat && $user_lng) ? htmlspecialchars($user_lat . ', ' . $user_lng) : 'Not set (Click map or drag pin)' ?>
+                                        </span>
+                                    </div>
+                                    <div id="edit_location_accuracy_badge">
+                                        <?php if ($user_lat && $user_lng): ?>
+                                            <span class="badge bg-success-subtle text-success border border-success-subtle"><i class="fa-solid fa-map-pin me-1"></i> Pinned on Map</span>
+                                        <?php else: ?>
+                                            <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">Draggable Pin</span>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Collapsible Manual Inputs -->
+                            <div id="edit_manual_coords_container" class="row mt-2 d-none">
+                                <div class="col-6">
+                                    <label class="small text-muted fw-bold">Latitude</label>
+                                    <input type="text" class="form-control form-control-sm font-monospace" id="edit_manual_lat" value="<?= htmlspecialchars($user_lat) ?>" placeholder="e.g. 31.520371" oninput="syncEditManualCoords()">
+                                </div>
+                                <div class="col-6">
+                                    <label class="small text-muted fw-bold">Longitude</label>
+                                    <input type="text" class="form-control form-control-sm font-monospace" id="edit_manual_lng" value="<?= htmlspecialchars($user_lng) ?>" placeholder="e.g. 74.358747" oninput="syncEditManualCoords()">
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1022,6 +1106,8 @@ if (strtolower($user['status'] ?? '') === 'disabled') {
 
 <!-- jQuery & DataTables JS -->
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<!-- Leaflet Map JS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
 <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
 <!-- DataTables Buttons JS -->
@@ -1197,6 +1283,320 @@ function fetchLiveBandwidth() {
 setInterval(fetchLiveBandwidth, 3000);
 fetchLiveBandwidth(); // initial call
 
+// --- Edit Profile GPS & Interactive Leaflet Map Logic ---
+let editGeoWatchId = null;
+let editBestPosition = null;
+let editUserMap = null;
+let editUserMarker = null;
+let editHybridLayer = null;
+let editStreetsLayer = null;
+const defaultMapLat = 31.5204;
+const defaultMapLng = 74.3587; // Central Pakistan default
+
+function initEditUserMapPicker() {
+    if (editUserMap !== null) {
+        setTimeout(function() {
+            if (editUserMap) editUserMap.invalidateSize();
+        }, 150);
+        return;
+    }
+    
+    var container = document.getElementById('edit_user_map_picker');
+    if (!container) return;
+    
+    var curLat = parseFloat(document.getElementById('edit_user_latitude').value);
+    var curLng = parseFloat(document.getElementById('edit_user_longitude').value);
+    var hasExisting = !isNaN(curLat) && curLat !== 0 && !isNaN(curLng) && curLng !== 0;
+    var startLat = hasExisting ? curLat : defaultMapLat;
+    var startLng = hasExisting ? curLng : defaultMapLng;
+
+    editHybridLayer = L.tileLayer('https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+        maxZoom: 22,
+        subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+        attribution: '&copy; Google Maps'
+    });
+
+    editStreetsLayer = L.tileLayer('https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+        maxZoom: 22,
+        subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+        attribution: '&copy; Google Maps'
+    });
+
+    var editEsri = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 19,
+        attribution: 'Tiles &copy; Esri'
+    });
+
+    var editOsm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap'
+    });
+
+    var editBaseMaps = {
+        "🛰️ Google Satellite (Hybrid)": editHybridLayer,
+        "🗺️ Google Streets": editStreetsLayer,
+        "🌍 Esri Satellite": editEsri,
+        "📍 OpenStreetMap": editOsm
+    };
+
+    editUserMap = L.map('edit_user_map_picker', {
+        center: [startLat, startLng],
+        zoom: hasExisting ? 18 : 14,
+        maxZoom: 22,
+        zoomControl: true,
+        layers: [editHybridLayer]
+    });
+
+    L.control.layers(editBaseMaps, null, { position: 'topright' }).addTo(editUserMap);
+
+    var pinIcon = L.icon({
+        iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+        iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+        shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+        iconSize: [25, 41],
+        iconAnchor: [12, 41],
+        popupAnchor: [1, -34],
+        shadowSize: [41, 41]
+    });
+
+    editUserMarker = L.marker([startLat, startLng], {
+        draggable: true,
+        icon: pinIcon
+    }).addTo(editUserMap);
+
+    editUserMarker.bindTooltip("Drag me or click map", { permanent: false, direction: 'top' });
+
+    if (hasExisting) {
+        updateEditCoordsFromMap(startLat, startLng, false);
+    }
+
+    editUserMarker.on('dragend', function () {
+        var pos = editUserMarker.getLatLng();
+        updateEditCoordsFromMap(pos.lat, pos.lng);
+    });
+
+    editUserMap.on('click', function (e) {
+        editUserMarker.setLatLng(e.latlng);
+        updateEditCoordsFromMap(e.latlng.lat, e.latlng.lng);
+    });
+
+    setTimeout(function() {
+        if (editUserMap) editUserMap.invalidateSize();
+    }, 200);
+}
+
+function switchEditMapLayer(type) {
+    if (!editUserMap || !editHybridLayer || !editStreetsLayer) return;
+    var btnHybrid = document.getElementById('btnEditMapHybrid');
+    var btnStreets = document.getElementById('btnEditMapStreets');
+    if (type === 'hybrid') {
+        editUserMap.removeLayer(editStreetsLayer);
+        editUserMap.addLayer(editHybridLayer);
+        if (btnHybrid) { btnHybrid.className = 'btn btn-primary btn-sm fw-bold'; }
+        if (btnStreets) { btnStreets.className = 'btn btn-outline-secondary btn-sm fw-bold'; }
+    } else if (type === 'streets') {
+        editUserMap.removeLayer(editHybridLayer);
+        editUserMap.addLayer(editStreetsLayer);
+        if (btnStreets) { btnStreets.className = 'btn btn-primary btn-sm fw-bold'; }
+        if (btnHybrid) { btnHybrid.className = 'btn btn-outline-secondary btn-sm fw-bold'; }
+    }
+}
+
+function updateEditCoordsFromMap(lat, lng, panTo) {
+    var fixedLat = parseFloat(lat).toFixed(7);
+    var fixedLng = parseFloat(lng).toFixed(7);
+    
+    document.getElementById('edit_user_latitude').value = fixedLat;
+    document.getElementById('edit_user_longitude').value = fixedLng;
+    var latGps = document.getElementById('edit_user_gps_lat');
+    var lngGps = document.getElementById('edit_user_gps_lng');
+    if (latGps) latGps.value = fixedLat;
+    if (lngGps) lngGps.value = fixedLng;
+    
+    var manLat = document.getElementById('edit_manual_lat');
+    var manLng = document.getElementById('edit_manual_lng');
+    if (manLat) manLat.value = fixedLat;
+    if (manLng) manLng.value = fixedLng;
+    
+    var textEl = document.getElementById('edit_pinned_coords_text');
+    if (textEl) {
+        textEl.innerHTML = `<span class="text-primary">${fixedLat}</span>, <span class="text-primary">${fixedLng}</span>`;
+    }
+    
+    var badgeEl = document.getElementById('edit_location_accuracy_badge');
+    if (badgeEl) {
+        badgeEl.innerHTML = '<span class="badge bg-primary-subtle text-primary border border-primary-subtle"><i class="fa-solid fa-map-pin me-1"></i> Pinned on Map</span>';
+    }
+    
+    if (panTo && editUserMap) {
+        editUserMap.panTo([fixedLat, fixedLng]);
+    }
+}
+
+function searchEditLocationOnMap() {
+    var query = document.getElementById('edit_map_search_input').value.trim();
+    if (!query) return;
+    var btn = document.getElementById('btn_edit_map_search');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+    
+    fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`)
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-magnifying-glass"></i>';
+            if (data && data.length > 0) {
+                var lat = parseFloat(data[0].lat);
+                var lon = parseFloat(data[0].lon);
+                if (editUserMap && editUserMarker) {
+                    editUserMap.setView([lat, lon], 17);
+                    editUserMarker.setLatLng([lat, lon]);
+                }
+                updateEditCoordsFromMap(lat, lon);
+            } else {
+                alert('Area/location not found. Please try another search term or drag the map manually.');
+            }
+        })
+        .catch(function() {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-magnifying-glass"></i>';
+        });
+}
+
+function toggleEditManualCoords() {
+    var cont = document.getElementById('edit_manual_coords_container');
+    if (!cont) return;
+    if (cont.classList.contains('d-none')) {
+        cont.classList.remove('d-none');
+        document.getElementById('edit_manual_lat').value = document.getElementById('edit_user_latitude').value;
+        document.getElementById('edit_manual_lng').value = document.getElementById('edit_user_longitude').value;
+    } else {
+        cont.classList.add('d-none');
+    }
+}
+
+function syncEditManualCoords() {
+    var lat = parseFloat(document.getElementById('edit_manual_lat').value.trim());
+    var lng = parseFloat(document.getElementById('edit_manual_lng').value.trim());
+    
+    if (!isNaN(lat) && !isNaN(lng)) {
+        if (editUserMap && editUserMarker) {
+            editUserMarker.setLatLng([lat, lng]);
+            editUserMap.setView([lat, lng], 18);
+        }
+        updateEditCoordsFromMap(lat, lng);
+    }
+}
+
+function captureEditUserLocation() {
+    if (!navigator.geolocation) {
+        alert("Geolocation is not supported by your browser/device.");
+        return;
+    }
+    
+    const btn = document.getElementById('btn_edit_capture_location');
+    const statusEl = document.getElementById('edit_location_accuracy_badge');
+    
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin me-1"></i> Locking GPS (&le;10m)...';
+    if (statusEl) {
+        statusEl.innerHTML = '<span class="badge bg-info-subtle text-info border border-info-subtle"><i class="fa-solid fa-satellite-dish fa-spin me-1"></i> Locking GPS...</span>';
+    }
+    
+    if (editGeoWatchId !== null) {
+        navigator.geolocation.clearWatch(editGeoWatchId);
+        editGeoWatchId = null;
+    }
+    editBestPosition = null;
+
+    const finishCapture = (pos) => {
+        if (editGeoWatchId !== null) {
+            navigator.geolocation.clearWatch(editGeoWatchId);
+            editGeoWatchId = null;
+        }
+        btn.disabled = false;
+        btn.className = 'btn btn-outline-success btn-sm fw-bold w-100 py-2 shadow-sm';
+        btn.innerHTML = '<i class="fa-solid fa-arrows-rotate me-1"></i> Re-capture GPS';
+        
+        const lat = pos.coords.latitude.toFixed(7);
+        const lng = pos.coords.longitude.toFixed(7);
+        const acc = Math.round(pos.coords.accuracy);
+        
+        if (editUserMap && editUserMarker) {
+            editUserMap.setView([lat, lng], 18);
+            editUserMarker.setLatLng([lat, lng]);
+        }
+        
+        updateEditCoordsFromMap(lat, lng);
+        
+        let accBadge = acc <= 10 
+            ? `<span class="badge bg-success text-white px-2 py-1"><i class="fa-solid fa-bullseye me-1"></i> High GPS: ±${acc}m (&le;10m)</span>`
+            : `<span class="badge bg-warning text-dark px-2 py-1"><i class="fa-solid fa-satellite me-1"></i> GPS: ±${acc}m</span>`;
+            
+        if (statusEl) statusEl.innerHTML = accBadge;
+    };
+
+    const timeoutTimer = setTimeout(() => {
+        if (editBestPosition) {
+            finishCapture(editBestPosition);
+        } else {
+            if (editGeoWatchId !== null) {
+                navigator.geolocation.clearWatch(editGeoWatchId);
+                editGeoWatchId = null;
+            }
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-crosshairs me-1 text-danger"></i> Get Current GPS (10m)';
+            if (statusEl) statusEl.innerHTML = '<span class="badge bg-warning text-dark">GPS Timeout</span>';
+            alert("GPS request timed out. Make sure Location/GPS is turned ON, or use the interactive map to pin the location!");
+        }
+    }, 12000);
+
+    try {
+        editGeoWatchId = navigator.geolocation.watchPosition(
+            (pos) => {
+                const acc = pos.coords.accuracy;
+                if (!editBestPosition || acc < editBestPosition.coords.accuracy) {
+                    editBestPosition = pos;
+                }
+                
+                if (statusEl) {
+                    statusEl.innerHTML = `<span class="badge bg-info-subtle text-info">GPS reading: ±${Math.round(acc)}m</span>`;
+                }
+                
+                if (acc <= 10) {
+                    clearTimeout(timeoutTimer);
+                    finishCapture(pos);
+                }
+            },
+            (err) => {
+                clearTimeout(timeoutTimer);
+                if (editGeoWatchId !== null) {
+                    navigator.geolocation.clearWatch(editGeoWatchId);
+                    editGeoWatchId = null;
+                }
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-crosshairs me-1 text-danger"></i> Get Current GPS (10m)';
+                if (statusEl) statusEl.innerHTML = '<span class="badge bg-danger-subtle text-danger">Location Denied</span>';
+                alert("Location access denied or unavailable. You can click on the map directly or enter coordinates manually.");
+            },
+            {
+                enableHighAccuracy: true,
+                timeout: 10000,
+                maximumAge: 0
+            }
+        );
+    } catch(e) {
+        clearTimeout(timeoutTimer);
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-crosshairs me-1 text-danger"></i> Get Current GPS (10m)';
+        alert("Geolocation error: " + e.message);
+    }
+}
+
+// Initialize map whenever editProfileModal is opened
+$('#editProfileModal').on('shown.bs.modal', function () {
+    initEditUserMapPicker();
+});
 </script>
 
 
