@@ -371,6 +371,19 @@ $subs = $pdo->query("SELECT s.*, p.name as package_name,
     LEFT JOIN packages p ON s.package_id = p.id 
     WHERE $where ORDER BY s.id DESC")->fetchAll();
 
+// Fetch subscribers with coordinates for Network Map view
+$map_subscribers = $pdo->query("
+    SELECT s.id, s.username, s.full_name, s.mobile, s.status, s.expiry_date, s.latitude, s.longitude, s.address, s.subarea,
+           p.name as package_name,
+           (SELECT COUNT(*) FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL) as is_online,
+           (SELECT framedipaddress FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL ORDER BY radacctid DESC LIMIT 1) as live_ip
+    FROM subscribers s 
+    LEFT JOIN packages p ON s.package_id = p.id 
+    WHERE s.client_id = $client_id 
+      AND s.latitude IS NOT NULL AND s.latitude != ''
+      AND s.longitude IS NOT NULL AND s.longitude != ''
+")->fetchAll(PDO::FETCH_ASSOC);
+
 ?>
 
 <!-- Select2 CSS -->
@@ -599,8 +612,12 @@ $subs = $pdo->query("SELECT s.*, p.name as package_name,
     .badge-soft-warning { background-color: rgba(245, 158, 11, 0.15); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.2); }
     .select2-container .select2-selection--single { height: 31px; border: 1px solid #dee2e6; }
     .select2-container--default .select2-selection--single .select2-selection__rendered { line-height: 29px; color: #475569; font-size: 0.875rem; }
-    .select2-container--default .select2-selection--single .select2-selection__arrow { height: 29px; }
     .select2-dropdown { border: 1px solid #dee2e6; }
+    
+    /* Network Map Styles */
+    .custom-network-marker { background: transparent !important; border: none !important; }
+    .leaflet-popup-content-wrapper { border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.18); }
+    .leaflet-popup-content { margin: 14px 16px; line-height: 1.4; }
 </style>
 
 <!-- Dashboard Header -->
@@ -1085,8 +1102,50 @@ $subs = $pdo->query("SELECT s.*, p.name as package_name,
 
     <!-- Map Tab Content -->
     <div id="stat-content-map" class="row d-none">
-        <div class="col-12 text-center py-5">
-            <div class="text-muted mt-2"><i class="fa-solid fa-map-location-dot fa-2x mb-2 text-primary"></i><br>Network Map view is coming soon.</div>
+        <div class="col-12">
+            <!-- Map Header & Controls Card -->
+            <div class="d-flex flex-wrap align-items-center justify-content-between p-3 bg-white rounded-3 border mb-3 shadow-sm gap-2">
+                <div class="d-flex align-items-center gap-3">
+                    <div>
+                        <h6 class="fw-bold text-dark mb-0"><i class="fa-solid fa-map-location-dot text-primary me-2"></i> Subscriber Network Map</h6>
+                        <small class="text-muted">Total <strong><?= count($map_subscribers) ?></strong> subscribers pinned with GPS coordinates</small>
+                    </div>
+                    <div class="d-none d-md-flex align-items-center gap-2 border-start ps-3">
+                        <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1"><i class="fa-solid fa-circle text-success me-1" style="font-size: 0.5rem;"></i> Online</span>
+                        <span class="badge bg-warning-subtle text-warning border border-warning-subtle px-2 py-1"><i class="fa-solid fa-circle text-warning me-1" style="font-size: 0.5rem;"></i> Expired Online</span>
+                        <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-2 py-1"><i class="fa-solid fa-circle text-danger me-1" style="font-size: 0.5rem;"></i> Expired (Offline)</span>
+                        <span class="badge bg-info-subtle text-info border border-info-subtle px-2 py-1"><i class="fa-solid fa-circle text-info me-1" style="font-size: 0.5rem;"></i> Active (Offline)</span>
+                    </div>
+                </div>
+                
+                <div class="d-flex align-items-center gap-2">
+                    <div class="input-group input-group-sm" style="max-width: 260px;">
+                        <input type="text" id="network_map_search_user" class="form-control" placeholder="Search user on map..." oninput="filterNetworkMapUser(this.value)">
+                        <button class="btn btn-outline-secondary" type="button" onclick="filterNetworkMapUser(document.getElementById('network_map_search_user').value)">
+                            <i class="fa-solid fa-search"></i>
+                        </button>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-primary fw-semibold" onclick="fitNetworkMapAll()" title="Fit all markers in view">
+                        <i class="fa-solid fa-expand me-1"></i> Fit All
+                    </button>
+                </div>
+            </div>
+
+            <!-- Full Leaflet Map View -->
+            <div class="position-relative rounded-3 border overflow-hidden shadow-sm bg-white" style="height: 560px;">
+                <div id="network_subscriber_map" style="height: 100%; width: 100%; z-index: 1;"></div>
+                
+                <?php if (empty($map_subscribers)): ?>
+                <div class="position-absolute top-50 start-50 translate-middle text-center p-4 rounded bg-white bg-opacity-95 shadow border" style="z-index: 1000; max-width: 420px;">
+                    <i class="fa-solid fa-location-dot fa-3x text-warning mb-2"></i>
+                    <h6 class="fw-bold text-dark">No Pinned Subscribers Yet</h6>
+                    <p class="text-muted small mb-3">Subscribers ke paas abhi GPS coordinates save nahi hain. <strong>Add User</strong> dialog me ya user profile me map pin set karein to wo is live map par mark ho jayenge.</p>
+                    <button type="button" class="btn btn-sm btn-primary rounded-pill px-3" data-bs-toggle="modal" data-bs-target="#addUserModal">
+                        <i class="fa-solid fa-user-plus me-1"></i> Add New User with Location
+                    </button>
+                </div>
+                <?php endif; ?>
+            </div>
         </div>
     </div>
 </div>
@@ -2146,6 +2205,196 @@ function switchStatTab(tabName, el) {
     } else if(tabName === 'map') {
         if (mapContainer) {
             mapContainer.classList.remove('d-none');
+            initNetworkSubscriberMap();
+        }
+    }
+}
+
+// --- Subscriber Network Map Logic ---
+let networkMapInstance = null;
+let networkMarkersGroup = null;
+let networkUserMarkers = {};
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return String(str).replace(/[&<>"']/g, function(m) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m];
+    });
+}
+
+function getNetworkMarkerIcon(u) {
+    var isExpired = false;
+    if (u.expiry_date && u.expiry_date !== '' && u.expiry_date !== '0000-00-00 00:00:00') {
+        var expD = new Date(u.expiry_date);
+        if (expD < new Date()) isExpired = true;
+    }
+    var isOnline = parseInt(u.is_online) > 0;
+    
+    var color = '#0ea5e9'; // Blue (Active Offline)
+    var iconClass = 'fa-user';
+    
+    if (isOnline) {
+        if (isExpired) {
+            color = '#f59e0b'; // Amber (Expired Online)
+            iconClass = 'fa-triangle-exclamation';
+        } else {
+            color = '#10b981'; // Green (Online)
+            iconClass = 'fa-wifi';
+        }
+    } else {
+        if (isExpired) {
+            color = '#ef4444'; // Red (Expired Offline)
+            iconClass = 'fa-circle-xmark';
+        } else if (u.status && u.status.toLowerCase() === 'disabled') {
+            color = '#64748b'; // Slate Gray
+            iconClass = 'fa-ban';
+        }
+    }
+    
+    return L.divIcon({
+        className: 'custom-network-marker',
+        html: `
+            <div style="background-color: ${color}; width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(0,0,0,0.35); border: 2.5px solid white;">
+                <i class="fa-solid ${iconClass}" style="color: white; font-size: 13px;"></i>
+            </div>
+            <div style="width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 8px solid ${color}; margin: -2px auto 0 auto;"></div>
+        `,
+        iconSize: [34, 42],
+        iconAnchor: [17, 42],
+        popupAnchor: [0, -40]
+    });
+}
+
+function createSubscriberPopup(u) {
+    var isExpired = false;
+    if (u.expiry_date && u.expiry_date !== '' && u.expiry_date !== '0000-00-00 00:00:00') {
+        var expD = new Date(u.expiry_date);
+        if (expD < new Date()) isExpired = true;
+    }
+    
+    var isOnline = parseInt(u.is_online) > 0;
+    var statusBadge = '';
+    
+    if (isOnline) {
+        if (isExpired) {
+            statusBadge = '<span class="badge bg-warning text-dark"><i class="fa-solid fa-circle text-warning me-1"></i> Expired (Online)</span>';
+        } else {
+            statusBadge = '<span class="badge bg-success text-white"><i class="fa-solid fa-circle text-light me-1"></i> Online</span>';
+        }
+    } else {
+        if (isExpired) {
+            statusBadge = '<span class="badge bg-danger text-white">Expired (Offline)</span>';
+        } else if (u.status && u.status.toLowerCase() === 'disabled') {
+            statusBadge = '<span class="badge bg-secondary text-white">Disabled</span>';
+        } else {
+            statusBadge = '<span class="badge bg-info text-white">Active (Offline)</span>';
+        }
+    }
+    
+    var profileUrl = `subscriber_view.php?id=${u.id}`;
+    
+    return `
+        <div style="min-width: 230px; font-family: inherit;">
+            <div class="d-flex align-items-center justify-content-between border-bottom pb-2 mb-2">
+                <div>
+                    <a href="${profileUrl}" class="fw-bold fs-6 text-primary text-decoration-none" title="Click to view profile">
+                        <i class="fa-solid fa-user me-1"></i> ${escapeHtml(u.username)}
+                    </a>
+                    <div class="text-secondary small">${escapeHtml(u.full_name || 'N/A')}</div>
+                </div>
+                <div>${statusBadge}</div>
+            </div>
+            
+            <div class="small text-muted mb-2">
+                <div><strong>Package:</strong> <span class="text-dark">${escapeHtml(u.package_name || 'N/A')}</span></div>
+                ${u.mobile ? `<div><strong>Mobile:</strong> <a href="tel:${escapeHtml(u.mobile)}" class="text-decoration-none text-dark">${escapeHtml(u.mobile)}</a></div>` : ''}
+                ${u.live_ip ? `<div><strong>IP:</strong> <code class="text-primary">${escapeHtml(u.live_ip)}</code></div>` : ''}
+                ${u.subarea || u.address ? `<div><strong>Address:</strong> <span class="text-dark">${escapeHtml((u.subarea ? u.subarea + ', ' : '') + (u.address || ''))}</span></div>` : ''}
+            </div>
+            
+            <div class="pt-1 border-top">
+                <a href="${profileUrl}" class="btn btn-sm btn-primary w-100 fw-bold">
+                    <i class="fa-solid fa-arrow-up-right-from-square me-1"></i> Open Profile
+                </a>
+            </div>
+        </div>
+    `;
+}
+
+function initNetworkSubscriberMap() {
+    if (networkMapInstance !== null) {
+        setTimeout(function() {
+            if (networkMapInstance) networkMapInstance.invalidateSize();
+        }, 150);
+        return;
+    }
+
+    var mapEl = document.getElementById('network_subscriber_map');
+    if (!mapEl) return;
+
+    networkMapInstance = L.map('network_subscriber_map', {
+        center: [31.5204, 74.3587],
+        zoom: 12,
+        zoomControl: true
+    });
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap'
+    }).addTo(networkMapInstance);
+
+    networkMarkersGroup = L.featureGroup().addTo(networkMapInstance);
+
+    const subscribers = <?= json_encode($map_subscribers) ?>;
+    let validCount = 0;
+
+    subscribers.forEach(function (u) {
+        var lat = parseFloat(u.latitude);
+        var lng = parseFloat(u.longitude);
+        if (isNaN(lat) || isNaN(lng) || lat === 0 || lng === 0) return;
+
+        var marker = L.marker([lat, lng], {
+            icon: getNetworkMarkerIcon(u),
+            title: u.username
+        });
+
+        marker.bindPopup(createSubscriberPopup(u));
+        marker.bindTooltip(u.username, { permanent: false, direction: 'top' });
+
+        networkMarkersGroup.addLayer(marker);
+        networkUserMarkers[u.username.toLowerCase()] = marker;
+        validCount++;
+    });
+
+    if (validCount > 0) {
+        try {
+            networkMapInstance.fitBounds(networkMarkersGroup.getBounds().pad(0.1));
+        } catch(e) {}
+    }
+
+    setTimeout(function() {
+        if (networkMapInstance) networkMapInstance.invalidateSize();
+    }, 200);
+}
+
+function fitNetworkMapAll() {
+    if (networkMapInstance && networkMarkersGroup && networkMarkersGroup.getLayers().length > 0) {
+        networkMapInstance.fitBounds(networkMarkersGroup.getBounds().pad(0.1));
+    }
+}
+
+function filterNetworkMapUser(val) {
+    val = (val || '').trim().toLowerCase();
+    if (!val) return;
+    
+    for (var uname in networkUserMarkers) {
+        if (uname.includes(val)) {
+            var marker = networkUserMarkers[uname];
+            if (networkMapInstance) {
+                networkMapInstance.setView(marker.getLatLng(), 17);
+                marker.openPopup();
+            }
+            break;
         }
     }
 }
