@@ -2,6 +2,13 @@
 require_once 'header.php';
 $client_id = $_SESSION['operator_id'];
 
+// Auto-Sync & Block Expired Users (runs once every 60 seconds max to maintain blazing performance)
+if (!isset($_SESSION['last_expiry_sync']) || (time() - $_SESSION['last_expiry_sync']) > 60) {
+    require_once __DIR__ . '/../config/radius_kick_helper.php';
+    sync_expired_subscribers($pdo, $client_id, true);
+    $_SESSION['last_expiry_sync'] = time();
+}
+
 // --- Handle CSV Restore ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'restore_backup') {
     if (isset($_FILES['backup_file']) && $_FILES['backup_file']['error'] === UPLOAD_ERR_OK) {

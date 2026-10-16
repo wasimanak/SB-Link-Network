@@ -436,6 +436,7 @@ if (empty($site_packages)) {
                     <li class="nav-item"><a class="nav-link" href="#work">Our Network &amp; Work</a></li>
                     <li class="nav-item"><a class="nav-link" href="#coverage">Coverage</a></li>
                     <li class="nav-item"><a class="nav-link" href="#contact">Contact</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/policies.php"><i class="fa-solid fa-shield-halved text-info me-1"></i> Policies</a></li>
                 </ul>
 
                 <div class="d-flex align-items-center">
@@ -1002,7 +1003,7 @@ if (empty($site_packages)) {
     <footer class="py-5 border-top border-secondary border-opacity-25" style="background: #050914;">
         <div class="container">
             <div class="row g-4 justify-content-between mb-5">
-                <div class="col-lg-4">
+                <div class="col-lg-3 col-md-6">
                     <div class="d-flex align-items-center gap-2 mb-3">
                         <div style="width:36px; height:36px; border-radius:10px; background:linear-gradient(135deg, #06b6d4, #2563eb); display:flex; align-items:center; justify-content:center; color:#fff; font-size:1rem;">
                             <i class="fa-solid fa-bolt-lightning"></i>
@@ -1013,19 +1014,21 @@ if (empty($site_packages)) {
                         <?= BRAND_POWERED_BY ?>. Providing blazing-fast optical fiber broadband, enterprise leased lines, and carrier-grade connectivity solutions.
                     </p>
                     <div class="text-muted small">
-                        <div><i class="fa-solid fa-phone text-info me-2"></i> <?= htmlspecialchars($site_phone) ?></div>
-                        <div><i class="fa-solid fa-envelope text-info me-2"></i> <?= htmlspecialchars($site_email) ?></div>
+                        <div class="mb-1"><i class="fa-solid fa-phone text-info me-2"></i> <?= htmlspecialchars($site_phone) ?></div>
+                        <div class="mb-1"><i class="fa-solid fa-envelope text-info me-2"></i> <?= htmlspecialchars($site_email) ?></div>
+                        <div class="mb-1"><i class="fa-solid fa-clock text-info me-2"></i> Mon–Sun 09:00 AM – 11:00 PM</div>
+                        <div class="mt-2"><i class="fa-solid fa-location-dot text-danger me-2"></i> <?= htmlspecialchars($site_address) ?></div>
                     </div>
                 </div>
 
                 <div class="col-sm-6 col-lg-2">
                     <h6 class="fw-bold text-white mb-3">Quick Navigation</h6>
                     <ul class="list-unstyled small text-muted">
-                        <li class="mb-2"><a href="#home" class="text-decoration-none text-secondary">Home</a></li>
-                        <li class="mb-2"><a href="#packages" class="text-decoration-none text-secondary">Fiber Packages</a></li>
-                        <li class="mb-2"><a href="#features" class="text-decoration-none text-secondary">Why Pure Fiber</a></li>
-                        <li class="mb-2"><a href="#work" class="text-decoration-none text-secondary">Network Infrastructure</a></li>
-                        <li class="mb-2"><a href="#coverage" class="text-decoration-none text-secondary">Coverage Zones</a></li>
+                        <li class="mb-2"><a href="#home" class="text-decoration-none text-secondary hover-white">Home</a></li>
+                        <li class="mb-2"><a href="#packages" class="text-decoration-none text-secondary hover-white">Fiber Packages</a></li>
+                        <li class="mb-2"><a href="#features" class="text-decoration-none text-secondary hover-white">Why Pure Fiber</a></li>
+                        <li class="mb-2"><a href="#work" class="text-decoration-none text-secondary hover-white">Infrastructure</a></li>
+                        <li class="mb-2"><a href="#coverage" class="text-decoration-none text-secondary hover-white">Coverage Zones</a></li>
                     </ul>
                 </div>
 
@@ -1037,23 +1040,38 @@ if (empty($site_packages)) {
                                 <i class="fa-solid fa-arrow-right-to-bracket me-1"></i> Customer Sign In
                             </a>
                         </li>
-                        <li class="mb-2"><a href="<?= htmlspecialchars($customer_portal_url) ?>" class="text-decoration-none text-secondary">Self-Care Portal</a></li>
-                        <li class="mb-2"><a href="<?= htmlspecialchars($customer_portal_url) ?>" class="text-decoration-none text-secondary">Check Bills &amp; Expiry</a></li>
-                        <li class="mb-2"><a href="#contact" class="text-decoration-none text-secondary">Report an Issue</a></li>
+                        <li class="mb-2"><a href="<?= htmlspecialchars($customer_portal_url) ?>" class="text-decoration-none text-secondary hover-white">Self-Care Portal</a></li>
+                        <li class="mb-2"><a href="<?= htmlspecialchars($customer_portal_url) ?>" class="text-decoration-none text-secondary hover-white">Check Bills &amp; Expiry</a></li>
+                        <li class="mb-2"><a href="/policies.php?tab=faqs" class="text-decoration-none text-secondary hover-white">Frequently Asked FAQs</a></li>
+                        <li class="mb-2"><a href="#contact" class="text-decoration-none text-secondary hover-white">Report an Issue</a></li>
                     </ul>
                 </div>
 
-                <div class="col-lg-3">
-                    <h6 class="fw-bold text-white mb-3">Need Instant Support?</h6>
-                    <p class="text-muted small mb-3">Our 24/7 technical team is ready to assist with any internet inquiry or connection assistance.</p>
-                    <a href="https://wa.me/<?= $site_whatsapp ?>" target="_blank" class="btn btn-outline-success rounded-pill w-100 py-2 btn-sm fw-bold">
+                <div class="col-sm-6 col-lg-2">
+                    <h6 class="fw-bold text-white mb-3"><i class="fa-solid fa-shield-halved text-info me-1"></i> Legal &amp; Policies</h6>
+                    <ul class="list-unstyled small text-muted">
+                        <li class="mb-2"><a href="/policies.php?tab=privacy" class="text-decoration-none text-secondary hover-white">Privacy Policy</a></li>
+                        <li class="mb-2"><a href="/policies.php?tab=refund" class="text-decoration-none text-secondary hover-white">Return &amp; Refund Policy</a></li>
+                        <li class="mb-2"><a href="/policies.php?tab=terms" class="text-decoration-none text-secondary hover-white">Terms &amp; Conditions</a></li>
+                        <li class="mb-2"><a href="/policies.php?tab=shipping" class="text-decoration-none text-secondary hover-white">Shipping &amp; Delivery</a></li>
+                        <li class="mb-2"><a href="/policies.php?tab=contact" class="text-decoration-none text-secondary hover-white">Contact &amp; Support Hours</a></li>
+                    </ul>
+                </div>
+
+                <div class="col-lg-3 col-md-6">
+                    <h6 class="fw-bold text-white mb-3">Consumer Fair Trade</h6>
+                    <p class="text-muted small mb-3">All tariff plans are officially quoted in Pakistani Rupees (PKR) with 100% price transparency.</p>
+                    <a href="https://wa.me/<?= $site_whatsapp ?>" target="_blank" class="btn btn-outline-success rounded-pill w-100 py-2 btn-sm fw-bold mb-2">
                         <i class="fa-brands fa-whatsapp me-2"></i> WhatsApp Helpline
+                    </a>
+                    <a href="/policies.php" class="btn btn-outline-info rounded-pill w-100 py-2 btn-sm fw-bold">
+                        <i class="fa-solid fa-scale-balanced me-2"></i> Full Policies Portal
                     </a>
                 </div>
             </div>
 
             <div class="pt-4 border-top border-secondary border-opacity-25 d-flex flex-wrap justify-content-between align-items-center gap-2 small text-muted">
-                <div>&copy; <?= date('Y') ?> <?= BRAND_NAME ?>. All Rights Reserved.</div>
+                <div>&copy; <?= date('Y') ?> <?= BRAND_NAME ?>. All Rights Reserved. Fully compliant with Payment Gateway &amp; Consumer Fair Trade Standards.</div>
                 <div>Powered by <strong class="text-info"><?= BRAND_POWERED_BY ?></strong></div>
             </div>
         </div>

@@ -56,7 +56,7 @@ $pkgStmt->execute([$client_id]);
 $packages = $pkgStmt->fetchAll();
 
 // Fetch Operator Details
-$opStmt = $pdo->prepare("SELECT company_name, bank_details, qr_code FROM clients WHERE id = ?");
+$opStmt = $pdo->prepare("SELECT company_name, phone, email, address, bank_details, qr_code FROM clients WHERE id = ?");
 $opStmt->execute([$client_id]);
 $operator_info = $opStmt->fetch();
 $bank_details = (isset($operator_info['bank_details']) && $operator_info['bank_details']) ? $operator_info['bank_details'] : "Bank details not provided. Please contact operator.";
@@ -578,6 +578,144 @@ if (empty($gateway_display_name)) {
             </div>
         </div>
         <?php endforeach; ?>
+    </div>
+</div>
+
+<!-- ================= CONSUMER PROTECTION & COMPLIANCE POLICIES ================= -->
+<div class="mb-5 mt-4">
+    <div class="card border-0 shadow-sm" style="border-radius: 20px; background: #ffffff; border: 1px solid #e2e8f0 !important; overflow: hidden;">
+        <div class="p-4 p-lg-5" style="background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%); border-bottom: 1px solid #e2e8f0;">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+                <div>
+                    <div class="d-inline-flex align-items-center gap-2 text-primary fw-bold text-uppercase mb-2" style="font-size: 0.78rem; letter-spacing: 0.5px;">
+                        <i class="fa-solid fa-shield-halved"></i> Consumer Protection &amp; Regulatory Standards
+                    </div>
+                    <h3 class="fw-bold mb-1 text-dark">Legal, Privacy &amp; Compliance Policies</h3>
+                    <p class="text-muted small mb-0">Transparent billing, strict data privacy, hardware delivery, and refund guarantees for every subscriber.</p>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-3 py-2 fw-semibold">
+                        <i class="fa-solid fa-circle-check me-1"></i> PTA &amp; Payment Gateway Compliant
+                    </span>
+                    <a href="/policies.php" class="btn btn-outline-primary rounded-pill px-4 py-2 btn-sm fw-bold">
+                        <i class="fa-solid fa-arrow-up-right-from-square me-1"></i> Full Legal Portal
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <div class="p-4 p-lg-5">
+            <!-- 4 Policy Highlights Grid -->
+            <div class="row g-4 mb-4">
+                <div class="col-md-6 col-lg-3">
+                    <div class="h-100 p-4 rounded-4" style="background: #f8fafc; border: 1.5px solid #e2e8f0; transition: transform 0.2s, box-shadow 0.2s;">
+                        <div class="rounded-circle bg-warning-subtle text-warning d-flex align-items-center justify-content-center mb-3" style="width: 44px; height: 44px; font-size: 1.2rem;">
+                            <i class="fa-solid fa-rotate-left"></i>
+                        </div>
+                        <h6 class="fw-bold text-dark mb-2">Return &amp; Refund Policy</h6>
+                        <p class="text-muted small mb-3">100% advance refund for pre-activation cancellations. 7-day service assurance and 5–7 business days refund turnaround in PKR.</p>
+                        <a href="/policies.php?tab=refund" class="fw-bold text-primary small text-decoration-none">
+                            Read Refund Policy <i class="fa-solid fa-arrow-right ms-1"></i>
+                        </a>
+                    </div>
+                </div>
+
+                <div class="col-md-6 col-lg-3">
+                    <div class="h-100 p-4 rounded-4" style="background: #f8fafc; border: 1.5px solid #e2e8f0; transition: transform 0.2s, box-shadow 0.2s;">
+                        <div class="rounded-circle bg-info-subtle text-info d-flex align-items-center justify-content-center mb-3" style="width: 44px; height: 44px; font-size: 1.2rem;">
+                            <i class="fa-solid fa-user-shield"></i>
+                        </div>
+                        <h6 class="fw-bold text-dark mb-2">Privacy &amp; Data Policy</h6>
+                        <p class="text-muted small mb-3">256-bit SSL encryption. Zero unauthorized disclosure or third-party sharing of your CNIC, phone, or billing details.</p>
+                        <a href="/policies.php?tab=privacy" class="fw-bold text-primary small text-decoration-none">
+                            Read Privacy Terms <i class="fa-solid fa-arrow-right ms-1"></i>
+                        </a>
+                    </div>
+                </div>
+
+                <div class="col-md-6 col-lg-3">
+                    <div class="h-100 p-4 rounded-4" style="background: #f8fafc; border: 1.5px solid #e2e8f0; transition: transform 0.2s, box-shadow 0.2s;">
+                        <div class="rounded-circle bg-primary-subtle text-primary d-flex align-items-center justify-content-center mb-3" style="width: 44px; height: 44px; font-size: 1.2rem;">
+                            <i class="fa-solid fa-file-contract"></i>
+                        </div>
+                        <h6 class="fw-bold text-dark mb-2">Terms &amp; Conditions (SLA)</h6>
+                        <p class="text-muted small mb-3">Transparent 30-day billing, 99.5% uptime SLA, PTA/PECA compliance, and fair usage guidelines for residential &amp; enterprise lines.</p>
+                        <a href="/policies.php?tab=terms" class="fw-bold text-primary small text-decoration-none">
+                            Read Terms of Service <i class="fa-solid fa-arrow-right ms-1"></i>
+                        </a>
+                    </div>
+                </div>
+
+                <div class="col-md-6 col-lg-3">
+                    <div class="h-100 p-4 rounded-4" style="background: #f8fafc; border: 1.5px solid #e2e8f0; transition: transform 0.2s, box-shadow 0.2s;">
+                        <div class="rounded-circle bg-success-subtle text-success d-flex align-items-center justify-content-center mb-3" style="width: 44px; height: 44px; font-size: 1.2rem;">
+                            <i class="fa-solid fa-truck-fast"></i>
+                        </div>
+                        <h6 class="fw-bold text-dark mb-2">Hardware Delivery Policy</h6>
+                        <p class="text-muted small mb-3">FTTH optical drop cabling, fusion splicing, and ONU router physical delivery &amp; live signal test within 24–48 hours.</p>
+                        <a href="/policies.php?tab=shipping" class="fw-bold text-primary small text-decoration-none">
+                            Read Delivery Policy <i class="fa-solid fa-arrow-right ms-1"></i>
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Business Information Strip -->
+            <div class="p-4 rounded-4" style="background: #ffffff; border: 1.5px dashed #cbd5e1;">
+                <div class="row g-4 align-items-center">
+                    <div class="col-lg-3 col-md-6">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="rounded-circle bg-primary-subtle text-primary d-flex align-items-center justify-content-center flex-shrink-0" style="width: 40px; height: 40px;">
+                                <i class="fa-solid fa-headset"></i>
+                            </div>
+                            <div>
+                                <div class="text-muted small text-uppercase fw-bold" style="font-size: 0.7rem;">Helpline &amp; Inquiries</div>
+                                <div class="fw-bold text-dark"><?= htmlspecialchars(!empty($operator_info['phone']) ? $operator_info['phone'] : BRAND_SUPPORT_PHONE) ?></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-lg-3 col-md-6">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="rounded-circle bg-success-subtle text-success d-flex align-items-center justify-content-center flex-shrink-0" style="width: 40px; height: 40px;">
+                                <i class="fa-solid fa-clock"></i>
+                            </div>
+                            <div>
+                                <div class="text-muted small text-uppercase fw-bold" style="font-size: 0.7rem;">Operational Hours</div>
+                                <div class="fw-bold text-dark">Mon–Sun 9 AM – 11 PM <span class="text-muted fw-normal" style="font-size: 0.75rem;">(NOC 24/7)</span></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-lg-2 col-md-6">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="rounded-circle bg-warning-subtle text-warning d-flex align-items-center justify-content-center flex-shrink-0" style="width: 40px; height: 40px;">
+                                <i class="fa-solid fa-money-bill-wave"></i>
+                            </div>
+                            <div>
+                                <div class="text-muted small text-uppercase fw-bold" style="font-size: 0.7rem;">Billing Currency</div>
+                                <div class="fw-bold text-dark">PKR (₨) Only</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-lg-4 col-md-6">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="rounded-circle bg-danger-subtle text-danger d-flex align-items-center justify-content-center flex-shrink-0" style="width: 40px; height: 40px;">
+                                <i class="fa-solid fa-location-dot"></i>
+                            </div>
+                            <div class="small">
+                                <div class="text-muted small text-uppercase fw-bold" style="font-size: 0.7rem;">Permanent Business Address</div>
+                                <div class="fw-semibold text-dark text-truncate" title="<?= htmlspecialchars(!empty($operator_info['address']) ? $operator_info['address'] : BRAND_SUPPORT_ADDRESS) ?>">
+                                    <?= htmlspecialchars(!empty($operator_info['address']) ? $operator_info['address'] : BRAND_SUPPORT_ADDRESS) ?>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
     </div>
 </div>
 

@@ -248,6 +248,18 @@ function sync_mikrotik_package_wan($pdo, $client_id, $target_wan, $pool_name, $s
     }
 }
 
+// --- Pre-fetch IP Pools and WANs so they are available for POST actions & validation ---
+$pools_stmt = $pdo->prepare("SELECT id, pool_name, subnet_cidr, ip_range, wan_provider_name, total_ips, used_ips FROM ip_pools WHERE client_id = ? ORDER BY id ASC");
+$pools_stmt->execute([$client_id]);
+$all_pools = $pools_stmt->fetchAll();
+
+$wans_stmt = $pdo->prepare("SELECT wan_name FROM router_wans WHERE client_id = ? AND status = 'active' ORDER BY id ASC");
+$wans_stmt->execute([$client_id]);
+$available_wans = $wans_stmt->fetchAll(PDO::FETCH_COLUMN);
+if (empty($available_wans)) {
+    $available_wans = ['PTCL'];
+}
+
 // --- 3. Handle Form Actions (Create, Edit, Quick Shift, Delete) ---
 $flash_msg = '';
 $flash_type = 'success';
@@ -273,92 +285,110 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $rate_limit = $rate_up . '/' . $rate_down;
         }
 
-        // Night / Speed Scheduler
-        $scheduler = null;
-        if (!empty($_POST['sched_start']) && !empty($_POST['sched_end']) && (!empty($_POST['sched_up']) || !empty($_POST['sched_down']))) {
-            $scheduler = json_encode([
-                'start_time' => $_POST['sched_start'],
-                'end_time'   => $_POST['sched_end'],
-                'speed'      => trim($_POST['sched_up'] ?? '') . '/' . trim($_POST['sched_down'] ?? '')
-            ]);
-        }
-
-        // Fetch selected pool details
-        $pool = null;
-        if (!empty($pool_id)) {
-            $p_stmt = $pdo->prepare("SELECT * FROM ip_pools WHERE id = ? AND client_id = ?");
-            $p_stmt->execute([$pool_id, $client_id]);
-            $pool = $p_stmt->fetch();
-        }
-
-        // Check if operator has pools in ip_pools
-        $has_pools = count($all_pools) > 0;
-
-        if ($has_pools && !empty($pool_id) && !$pool) {
-            $flash_msg = "Please select a valid MikroTik IP Pool for this package.";
+        if (empty($name)) {
+            $flash_msg = "Please enter a valid package name.";
             $flash_type = 'danger';
         } else {
-            $pool_name = $pool ? $pool['pool_name'] : null;
-            $subnet_cidr = $pool ? $pool['subnet_cidr'] : null;
-            $pool_id_val = $pool ? (int)$pool['id'] : null;
-
-            if (empty($wan_provider)) {
-                $wan_provider = $pool ? ($pool['wan_provider_name'] ?: 'PTCL') : 'PTCL';
+            // Night / Speed Scheduler
+            $scheduler = null;
+            if (!empty($_POST['sched_start']) && !empty($_POST['sched_end']) && (!empty($_POST['sched_up']) || !empty($_POST['sched_down']))) {
+                $scheduler = json_encode([
+                    'start_time' => $_POST['sched_start'],
+                    'end_time'   => $_POST['sched_end'],
+                    'speed'      => trim($_POST['sched_up'] ?? '') . '/' . trim($_POST['sched_down'] ?? '')
+                ]);
             }
-            $routing_mark = 'to-' . $wan_provider;
 
-            if ($action === 'create') {
-                $chkStmt = $pdo->prepare("SELECT COUNT(*) FROM packages WHERE name = ? AND client_id = ?");
-                $chkStmt->execute([$name, $client_id]);
-                if ($chkStmt->fetchColumn() > 0) {
-                    $flash_msg = "Error: A package with the name '<strong>" . htmlspecialchars($name) . "</strong>' already exists!";
-                    $flash_type = 'danger';
-                } else {
-                    $stmt = $pdo->prepare("INSERT INTO packages (client_id, name, rate_limit, validity_days, price, data_limit_gb, speed_scheduler, pool_id, wan_provider, wan_interface, routing_mark) 
-                                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                    $stmt->execute([$client_id, $name, $rate_limit, $validity_days, $price, $data_limit_gb, $scheduler, $pool_id_val, $wan_provider, $wan_provider, $routing_mark]);
+            // Fetch selected pool details
+            $pool = null;
+            if (!empty($pool_id)) {
+                $p_stmt = $pdo->prepare("SELECT * FROM ip_pools WHERE id = ? AND client_id = ?");
+                $p_stmt->execute([$pool_id, $client_id]);
+                $pool = $p_stmt->fetch();
+            }
 
-                    $new_pkg_id = $pdo->lastInsertId();
-                    sync_freeradius_package_and_users($pdo, $new_pkg_id, $name, $rate_limit, $pool_name, $wan_provider, $client_id);
+            $has_pools = !empty($all_pools);
 
-                    // Live sync MikroTik Router Address List if pool has a subnet
-                    $router_fb = '';
-                    if (!empty($pool_name) && !empty($subnet_cidr)) {
-                        $router_fb = sync_mikrotik_package_wan($pdo, $client_id, $wan_provider, $pool_name, $subnet_cidr);
-                    }
+            if ($has_pools && !empty($pool_id) && !$pool) {
+                $flash_msg = "Please select a valid MikroTik IP Pool for this package.";
+                $flash_type = 'danger';
+            } else {
+                $pool_name = $pool ? $pool['pool_name'] : null;
+                $subnet_cidr = $pool ? $pool['subnet_cidr'] : null;
+                $pool_id_val = $pool ? (int)$pool['id'] : null;
 
-                    $pool_display = $pool_name ? "Assigned to pool '<strong>" . htmlspecialchars($pool_name) . "</strong>' on WAN '<strong>" . htmlspecialchars($wan_provider) . "</strong>'" : "Configured with standard router pool";
-                    $flash_msg = "Package '<strong>" . htmlspecialchars($name) . "</strong>' created successfully! {$pool_display}{$router_fb}";
-                    $flash_type = 'success';
+                if (empty($wan_provider)) {
+                    $wan_provider = $pool ? ($pool['wan_provider_name'] ?: 'PTCL') : 'PTCL';
                 }
-            } else { // edit
-                $chkStmt = $pdo->prepare("SELECT COUNT(*) FROM packages WHERE name = ? AND client_id = ? AND id != ?");
-                $chkStmt->execute([$name, $client_id, $id]);
-                if ($chkStmt->fetchColumn() > 0) {
-                    $flash_msg = "Error: Another package with the name '<strong>" . htmlspecialchars($name) . "</strong>' already exists!";
+                $routing_mark = 'to-' . $wan_provider;
+
+                try {
+                    if ($action === 'create') {
+                        $chkStmt = $pdo->prepare("SELECT COUNT(*) FROM packages WHERE name = ? AND client_id = ?");
+                        $chkStmt->execute([$name, $client_id]);
+                        if ($chkStmt->fetchColumn() > 0) {
+                            $flash_msg = "Error: A package with the name '<strong>" . htmlspecialchars($name) . "</strong>' already exists!";
+                            $flash_type = 'danger';
+                        } else {
+                            $stmt = $pdo->prepare("INSERT INTO packages (client_id, name, rate_limit, validity_days, price, data_limit_gb, speed_scheduler, pool_id, wan_provider, wan_interface, routing_mark) 
+                                                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                            $stmt->execute([$client_id, $name, $rate_limit, $validity_days, $price, $data_limit_gb, $scheduler, $pool_id_val, $wan_provider, $wan_provider, $routing_mark]);
+
+                            $new_pkg_id = $pdo->lastInsertId();
+
+                            try {
+                                sync_freeradius_package_and_users($pdo, $new_pkg_id, $name, $rate_limit, $pool_name, $wan_provider, $client_id);
+                            } catch (Exception $e) {}
+
+                            // Live sync MikroTik Router Address List if pool has a subnet
+                            $router_fb = '';
+                            if (!empty($pool_name) && !empty($subnet_cidr)) {
+                                try {
+                                    $router_fb = sync_mikrotik_package_wan($pdo, $client_id, $wan_provider, $pool_name, $subnet_cidr);
+                                } catch (Exception $e) {}
+                            }
+
+                            $pool_display = $pool_name ? "Assigned to pool '<strong>" . htmlspecialchars($pool_name) . "</strong>' on WAN '<strong>" . htmlspecialchars($wan_provider) . "</strong>'" : "Configured with standard router pool";
+                            $flash_msg = "Package '<strong>" . htmlspecialchars($name) . "</strong>' created successfully! {$pool_display}{$router_fb}";
+                            $flash_type = 'success';
+                        }
+                    } else { // edit
+                        $chkStmt = $pdo->prepare("SELECT COUNT(*) FROM packages WHERE name = ? AND client_id = ? AND id != ?");
+                        $chkStmt->execute([$name, $client_id, $id]);
+                        if ($chkStmt->fetchColumn() > 0) {
+                            $flash_msg = "Error: Another package with the name '<strong>" . htmlspecialchars($name) . "</strong>' already exists!";
+                            $flash_type = 'danger';
+                        } else {
+                            $stmt = $pdo->prepare("UPDATE packages SET name=?, rate_limit=?, validity_days=?, price=?, data_limit_gb=?, speed_scheduler=?, pool_id=?, wan_provider=?, wan_interface=?, routing_mark=? WHERE id=? AND client_id=?");
+                            $stmt->execute([$name, $rate_limit, $validity_days, $price, $data_limit_gb, $scheduler, $pool_id_val, $wan_provider, $wan_provider, $routing_mark, $id, $client_id]);
+
+                            // Keep ip_pools table WAN status synchronized
+                            if ($pool_id_val) {
+                                try {
+                                    $pdo->prepare("UPDATE ip_pools SET wan_provider_name = ?, wan_interface = ?, routing_mark = ? WHERE id = ? AND client_id = ?")
+                                        ->execute([$wan_provider, $wan_provider, $routing_mark, $pool_id_val, $client_id]);
+                                } catch (Exception $e) {}
+                            }
+
+                            try {
+                                sync_freeradius_package_and_users($pdo, $id, $name, $rate_limit, $pool_name, $wan_provider, $client_id);
+                            } catch (Exception $e) {}
+
+                            $router_fb = '';
+                            if (!empty($pool_name) && !empty($subnet_cidr)) {
+                                try {
+                                    $router_fb = sync_mikrotik_package_wan($pdo, $client_id, $wan_provider, $pool_name, $subnet_cidr);
+                                } catch (Exception $e) {}
+                            }
+
+                            $pool_display = $pool_name ? "Pool: <strong>" . htmlspecialchars($pool_name) . "</strong> | Outbound WAN: <strong>" . htmlspecialchars($wan_provider) . "</strong>" : "Standard Router Pool";
+                            $flash_msg = "Package '<strong>" . htmlspecialchars($name) . "</strong>' updated successfully! {$pool_display}{$router_fb}";
+                            $flash_type = 'success';
+                        }
+                    }
+                } catch (PDOException $e) {
+                    $flash_msg = "Database Error: " . htmlspecialchars($e->getMessage());
                     $flash_type = 'danger';
-                } else {
-                    $stmt = $pdo->prepare("UPDATE packages SET name=?, rate_limit=?, validity_days=?, price=?, data_limit_gb=?, speed_scheduler=?, pool_id=?, wan_provider=?, wan_interface=?, routing_mark=? WHERE id=? AND client_id=?");
-                    $stmt->execute([$name, $rate_limit, $validity_days, $price, $data_limit_gb, $scheduler, $pool_id_val, $wan_provider, $wan_provider, $routing_mark, $id, $client_id]);
-
-                    // Keep ip_pools table WAN status synchronized
-                    if ($pool_id_val) {
-                        $pdo->prepare("UPDATE ip_pools SET wan_provider_name = ?, wan_interface = ?, routing_mark = ? WHERE id = ? AND client_id = ?")
-                            ->execute([$wan_provider, $wan_provider, $routing_mark, $pool_id_val, $client_id]);
-                    }
-
-                    // Sync package subscribers using $id (NOT lastInsertId!)
-                    sync_freeradius_package_and_users($pdo, $id, $name, $rate_limit, $pool_name, $wan_provider, $client_id);
-
-                    // Shift MikroTik Address List live! All users on this package immediately switch to the selected WAN port
-                    $router_fb = '';
-                    if (!empty($pool_name) && !empty($subnet_cidr)) {
-                        $router_fb = sync_mikrotik_package_wan($pdo, $client_id, $wan_provider, $pool_name, $subnet_cidr);
-                    }
-
-                    $pool_display = $pool_name ? "Pool: <strong>" . htmlspecialchars($pool_name) . "</strong> | Outbound WAN: <strong>" . htmlspecialchars($wan_provider) . "</strong>" : "Standard Router Pool";
-                    $flash_msg = "Package '<strong>" . htmlspecialchars($name) . "</strong>' updated successfully! {$pool_display}{$router_fb}";
-                    $flash_type = 'success';
                 }
             }
         }
@@ -882,10 +912,10 @@ function get_wan_badge($wan) {
                 <div class="row g-3">
                     <div class="col-md-6">
                         <label class="form-label small fw-bold text-dark mb-1">
-                            Assign MikroTik IP Pool <?= !empty($all_pools) ? '<span class="text-danger">*</span>' : '' ?>
+                            Assign MikroTik IP Pool <span class="text-muted fw-normal">(Optional)</span>
                         </label>
-                        <select name="pool_id" id="pkg_pool_id" class="form-select fw-semibold" <?= !empty($all_pools) ? 'required' : '' ?> onchange="onPoolChange(this)">
-                            <option value="">-- <?= !empty($all_pools) ? 'Select MikroTik IP Pool' : 'Standard Router Pool (No Custom Pool)' ?> --</option>
+                        <select name="pool_id" id="pkg_pool_id" class="form-select fw-semibold" onchange="onPoolChange(this)">
+                            <option value="">-- Standard Router Pool (Default) --</option>
                             <?php foreach ($all_pools as $pl): ?>
                                 <option value="<?= $pl['id'] ?>" data-wan="<?= htmlspecialchars($pl['wan_provider_name'] ?: 'PTCL') ?>" data-subnet="<?= htmlspecialchars($pl['subnet_cidr'] ?: $pl['ip_range']) ?>">
                                     <?= htmlspecialchars($pl['pool_name']) ?> (<?= htmlspecialchars($pl['subnet_cidr'] ?: $pl['ip_range']) ?>) [<?= htmlspecialchars($pl['wan_provider_name'] ?: 'PTCL') ?>]

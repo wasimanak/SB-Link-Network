@@ -49,8 +49,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $sub_id = (int)$id;
                 $uStmt = $pdo->prepare("SELECT username FROM subscribers WHERE id = ? AND client_id = ?");
                 $uStmt->execute([$sub_id, $client_id]);
-                if ($uStmt->fetchColumn()) {
-                    $pdo->prepare("UPDATE subscribers SET expiry_date = ? WHERE id = ?")->execute([$expiry_date, $sub_id]);
+                $u = $uStmt->fetchColumn();
+                if ($u) {
+                    $pdo->prepare("UPDATE subscribers SET expiry_date = ?, status = 'active' WHERE id = ?")->execute([$expiry_date, $sub_id]);
+                    $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute = 'Auth-Type'")->execute([$u]);
                 }
             }
             echo "<script>alert('Mass Expiry updated successfully!'); window.location='subscribers.php';</script>";

@@ -21,27 +21,27 @@
 
 $BRAND_CONFIG = [
     // 1. Main System & Brand Name
-    'app_name'          => 'NetBee',                         // Main brand name (e.g. NetBee)
-    'app_title'         => 'NetBee Network',                 // Full company/network title
-    'app_short'         => 'NetBee',                         // Short display name
-    'logo_abbr'         => 'NB',                             // 2-character abbreviation for round avatar logos
+    'app_name'          => 'LASANI NETWORK (Pvt) Ltd',                         // Main brand name (e.g. NetBee)
+    'app_title'         => 'LASANI NETWORK (Pvt) Ltd',                 // Full company/network title
+    'app_short'         => 'LASANI NETWORK (Pvt) Ltd',                         // Short display name
+    'logo_abbr'         => 'LN',                             // 2-character abbreviation for round avatar logos
     
     // 2. Tagline & Slogans
     'tagline'           => 'Next-Gen High-Speed Internet & RADIUS Management System',
     'customer_slogan'   => 'Providing ultra-fast, reliable, and unlimited internet connectivity for your home and business.',
     
     // 3. Powered By & Copyright
-    'powered_by'        => 'NetBee Network',
-    'copyright_holder'  => 'NetBee Network',
+    'powered_by'        => 'LASANI NETWORK (Pvt) Ltd',
+    'copyright_holder'  => 'LASANI NETWORK (Pvt) Ltd',
     
     // 4. Portal Titles (Browser Tab Titles & Topbars)
-    'title_customer'    => 'Customer Portal - NetBee',
-    'title_operator'    => 'Operator Portal - NetBee',
-    'title_dealer'      => 'Dealer Dashboard - NetBee',
-    'title_lineman'     => 'Line Man Portal - NetBee',
-    'title_recoveryman' => 'Recovery Portal - NetBee',
-    'title_superadmin'  => 'Super Admin - NetBee',
-    'title_login'       => 'Login - NetBee Network',
+    'title_customer'    => 'Customer Portal - Lasani',
+    'title_operator'    => 'Operator Portal - Lasani',
+    'title_dealer'      => 'Dealer Dashboard - Lasani',
+    'title_lineman'     => 'Line Man Portal - Lasani',
+    'title_recoveryman' => 'Recovery Portal - Lasani',
+    'title_superadmin'  => 'Super Admin - Lasani',
+    'title_login'       => 'Login - LASANI NETWORK (Pvt) Ltd',
 
     // 5. Contact, Support & WhatsApp Details (Website Landing Page & All Portals)
     'support_phone'        => '0301-6542060',                   // Official Helpline / Mobile Phone Number
@@ -52,7 +52,7 @@ $BRAND_CONFIG = [
     'customer_portal_url'  => 'https://sblink.tech/customer/login.php', // Customer Self-Care Login URL
 
     // 6. WhatsApp Reminders Default Signature
-    'whatsapp_sender'      => 'NetBee Network',
+    'whatsapp_sender'      => 'LASANI NETWORK (Pvt) Ltd',
 ];
 
 // -----------------------------------------------------------------------------------------

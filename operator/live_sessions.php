@@ -2,6 +2,13 @@
 require_once 'header.php';
 $client_id = $_SESSION['operator_id'];
 
+// Auto-Sync & Block Expired Users (runs once every 30 seconds)
+if (!isset($_SESSION['last_expiry_sync']) || (time() - $_SESSION['last_expiry_sync']) > 30) {
+    require_once __DIR__ . '/../config/radius_kick_helper.php';
+    sync_expired_subscribers($pdo, $client_id, true);
+    $_SESSION['last_expiry_sync'] = time();
+}
+
 function formatMikroTikUptime($seconds) {
     $d = floor($seconds / 86400);
     $h = floor(($seconds % 86400) / 3600);
@@ -16,7 +23,7 @@ function formatMikroTikUptime($seconds) {
 
 
 // Get Live Sessions mapped to this operator
-$sql = "SELECT r.*, s.package_id, p.name as package_name 
+$sql = "SELECT r.*, s.package_id, p.name as package_name, s.expiry_date, s.status as sub_status 
         FROM radacct r 
         JOIN subscribers s ON r.username = s.username 
         LEFT JOIN packages p ON s.package_id = p.id
@@ -26,7 +33,7 @@ $sql = "SELECT r.*, s.package_id, p.name as package_name
             WHERE acctstoptime IS NULL 
             GROUP BY username
         ) as latest ON r.radacctid = latest.max_id
-          WHERE s.client_id = ?" . (isset($_GET['filter']) && $_GET['filter'] === 'expired_online' ? " AND s.expiry_date < CURDATE()" : "") . "
+          WHERE s.client_id = ?" . (isset($_GET['filter']) && $_GET['filter'] === 'expired_online' ? " AND (s.expiry_date <= NOW() OR s.status = 'expired')" : "") . "
         ORDER BY r.acctstarttime DESC";
 $stmt = $pdo->prepare($sql);
 $stmt->execute([$client_id]);
@@ -78,6 +85,12 @@ $total_live = count($sessions);
                 <div class="fs-4 fw-bold text-dark lh-1"><?= $total_live ?></div>
             </div>
         </div>
+        <form action="subscriber_action.php" method="POST" onsubmit="return confirm('Disconnect and kick all expired active sessions from MikroTik and block in FreeRADIUS?');" class="m-0">
+            <input type="hidden" name="action" value="kick_all_expired">
+            <button type="submit" class="btn btn-outline-danger shadow-sm h-100 px-3 fw-bold" title="Kick all expired users and block them">
+                <i class="fa-solid fa-power-off me-1"></i> Kick Expired
+            </button>
+        </form>
         <button class="btn btn-primary shadow-sm h-100 px-4" onclick="location.reload()">
             <i class="fa-solid fa-rotate-right me-1"></i> Refresh
         </button>

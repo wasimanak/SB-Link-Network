@@ -1,81 +1,46 @@
 <?php
 // Path: /config/cron_expiry.php
+// Centralized Expiry Kicker & FreeRADIUS Blocker Cron Job
 require_once __DIR__ . '/security.php';
 
-// Allow execution only via CLI, SuperAdmin, or protected cron token
-if (php_sapi_name() !== 'cli') {
+// Allow execution via CLI, localhost/127.0.0.1, SuperAdmin/Operator session, or authorized cron secret key
+$is_cli = (php_sapi_name() === 'cli');
+$cron_key = $_GET['key'] ?? '';
+$client_ip = $_SERVER['REMOTE_ADDR'] ?? '';
+$is_local_call = in_array($client_ip, ['127.0.0.1', '::1', 'localhost']);
+
+if (!$is_cli && !$is_local_call) {
     if (session_status() === PHP_SESSION_NONE) @session_start();
-    $is_sa = !empty($_SESSION['superadmin_logged_in']) && $_SESSION['superadmin_logged_in'] === true;
-    $cron_key = $_GET['key'] ?? '';
-    if (!$is_sa && $cron_key !== 'sb_cron_secret_786') {
+    $is_auth = (!empty($_SESSION['superadmin_logged_in']) && $_SESSION['superadmin_logged_in'] === true)
+            || (!empty($_SESSION['operator_logged_in']) && $_SESSION['operator_logged_in'] === true);
+    
+    if (!$is_auth && $cron_key !== 'sb_cron_secret_786') {
         http_response_code(403);
-        die('403 Forbidden: Cron jobs can only be run via CLI or with authorized key.');
+        die('403 Forbidden: Cron jobs can only be run via CLI or with authorized key (?key=sb_cron_secret_786).');
     }
 }
 
 require_once __DIR__ . '/db.php';
-require_once __DIR__ . '/routeros_api.class.php';
+require_once __DIR__ . '/radius_kick_helper.php';
 
-try {
-    $sql = "
-        SELECT DISTINCT s.id, s.username, s.client_id, s.service_type, n.nasname, n.api_port, n.api_user, n.api_password, s.status
-        FROM subscribers s
-        JOIN nas n ON s.client_id = n.client_id
-        WHERE s.expiry_date <= NOW() 
-        AND (
-            s.status = 'active' 
-            OR s.username IN (SELECT username FROM radacct WHERE acctstoptime IS NULL)
-        )
-    ";
-    $stmt = $pdo->query($sql);
-    $expired_users = $stmt->fetchAll(PDO::FETCH_ASSOC);
+$start = microtime(true);
+$res = sync_expired_subscribers($pdo, null, true);
+$duration = round(microtime(true) - $start, 3);
 
-    if (empty($expired_users)) {
-        exit; // Nothing to do
-    }
+$timestamp = date('Y-m-d H:i:s');
+$msg = "[{$timestamp}] Auto-Expiry Sync Done in {$duration}s: {$res['blocked']} newly blocked in RADIUS, {$res['kicked']} active sessions kicked from MikroTik, {$res['restored']} renewed restored.\n";
 
-    foreach ($expired_users as $u) {
-        $target_user = trim($u['username']);
-        $service_type = strtolower(trim($u['service_type']));
-
-        if (!empty($u['api_user']) && !empty($u['api_password'])) {
-            $API = new RouterosAPI();
-            $API->timeout = 5; 
-            
-            if ($API->connect($u['nasname'], $u['api_user'], $u['api_password'], $u['api_port'] ?: 8728)) {
-                
-                if ($service_type === 'pppoe') {
-                    // Fetch all PPPoE users and match in PHP
-                    $active = $API->comm('/ppp/active/print');
-                    foreach ($active as $session) {
-                        if (trim($session['name']) == $target_user) {
-                            $API->comm('/ppp/active/remove', ['.id' => $session['.id']]);
-                        }
-                    }
-                } else {
-                    // Fetch all Hotspot users and match in PHP
-                    $active = $API->comm('/ip/hotspot/active/print');
-                    foreach ($active as $session) {
-                        if (trim($session['user']) == $target_user) {
-                            $API->comm('/ip/hotspot/active/remove', ['.id' => $session['.id']]);
-                        }
-                    }
-                }
-                $API->disconnect();
-            }
-        }
-
-        // Always ensure the database marks them as expired
-        if ($u['status'] !== 'expired') {
-            $pdo->prepare("UPDATE subscribers SET status = 'expired' WHERE id = ?")->execute([$u['id']]);
-        }
-        
-        // HARD BLOCK IN FREERADIUS (Bypass FreeRADIUS Timezone bugs)
-        $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute = 'Auth-Type'")->execute([$target_user]);
-        $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Auth-Type', ':=', 'Reject')")->execute([$target_user]);
-    }
-
-} catch (Exception $e) {
-    // Silent fail for cron
+if ($is_cli) {
+    echo $msg;
+} else {
+    header('Content-Type: application/json; charset=UTF-8');
+    echo json_encode([
+        'status' => 'success',
+        'timestamp' => $timestamp,
+        'blocked_in_radius' => $res['blocked'],
+        'kicked_from_mikrotik' => $res['kicked'],
+        'active_restored' => $res['restored'],
+        'execution_seconds' => $duration
+    ], JSON_PRETTY_PRINT);
 }
 ?>
