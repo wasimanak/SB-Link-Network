@@ -259,11 +259,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
-// --- ADD BALANCE LOGIC ---
+// --- ADD / DEDUCT BALANCE LOGIC ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_balance_multi') {
     $sub_id = (int)$_POST['sub_id'];
     $amount = (float)$_POST['amount'];
-    if ($amount != 0) {
+    $trans_type = $_POST['trans_type'] ?? 'add'; // 'add' or 'deduct'
+    $custom_desc = trim($_POST['description'] ?? '');
+
+    if ($amount > 0) {
+        $final_amount = ($trans_type === 'deduct') ? (-abs($amount)) : abs($amount);
+
         $uStmt = $pdo->prepare("SELECT username FROM subscribers WHERE id = ? AND client_id = ?");
         $uStmt->execute([$sub_id, $client_id]);
         $sub_user = $uStmt->fetchColumn();
@@ -271,31 +276,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         if ($sub_user) {
             try {
                 $pdo->beginTransaction();
-                $pdo->prepare("UPDATE subscribers SET balance = balance + ? WHERE id = ?")->execute([$amount, $sub_id]);
+                $pdo->prepare("UPDATE subscribers SET balance = balance + ? WHERE id = ?")->execute([$final_amount, $sub_id]);
                 
                 // Get new balance
                 $newBal = $pdo->prepare("SELECT balance FROM subscribers WHERE id=?");
                 $newBal->execute([$sub_id]);
-                $finalBal = $newBal->fetchColumn();
+                $finalBal = (float)$newBal->fetchColumn();
 
-                $type = $amount > 0 ? 'credit' : 'debit';
-                $absAmount = abs($amount);
-                $desc = $amount > 0 ? 'Manual Balance Added' : 'Manual Balance Deducted';
+                $type = $final_amount > 0 ? 'credit' : 'debit';
+                $absAmount = abs($final_amount);
+                $desc = !empty($custom_desc) ? $custom_desc : ($final_amount > 0 ? 'Manual Balance Added' : 'Manual Balance Deducted');
 
                 $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, description, balance_after) VALUES (?, ?, ?, ?, ?, ?)")
                     ->execute([$client_id, $sub_user, $type, $absAmount, $desc, $finalBal]);
                 
-                $actStr = $amount > 0 ? "Added Balance: Rs. $absAmount" : "Deducted Balance: Rs. $absAmount";
+                $actStr = $final_amount > 0 ? "Added Balance: Rs. " . number_format($absAmount, 2) . " ($desc)" : "Deducted Balance: Rs. " . number_format($absAmount, 2) . " ($desc)";
                 $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, 'Admin', ?, 'User', ?)")
                     ->execute([$client_id, $sub_user, $actStr]);
                 
                 $pdo->commit();
-                echo "<script>alert('Balance updated successfully!'); window.location='dashboard.php';</script>";
+                echo "<script>alert('Balance successfully updated for user " . addslashes($sub_user) . "!'); window.location='dashboard.php';</script>";
                 exit;
             } catch (Exception $e) {
                 $pdo->rollBack();
-                echo "<script>alert('Error updating balance.');</script>";
+                echo "<script>alert('Error updating balance: " . addslashes($e->getMessage()) . "');</script>";
             }
+        } else {
+            echo "<script>alert('User not found.');</script>";
         }
     }
 }
@@ -305,6 +312,9 @@ $packages = $pdo->query("SELECT id, name, rate_limit FROM packages WHERE client_
 
 // Fetch total balance of all users
 $total_balance_all = $pdo->query("SELECT SUM(balance) FROM subscribers WHERE client_id = $client_id")->fetchColumn() ?: 0;
+
+// Fetch all subscribers for payment and modals (Searchable)
+$allPaymentUsers = $pdo->query("SELECT id, username, full_name, status, balance, expiry_date, package_id FROM subscribers WHERE client_id = $client_id ORDER BY username ASC")->fetchAll();
 
 // --- Data Fetching for Metrics ---
 $total_users = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id")->fetchColumn();
@@ -1194,92 +1204,198 @@ $subs = $pdo->query("SELECT s.*, p.name as package_name,
   </div>
 </div>
 
-<!-- Add Balance Modal -->
-<div class="modal fade" id="addBalanceModal" tabindex="-1">
-  <div class="modal-dialog modal-xl">
-    <div class="modal-content light-modal">
-      <div class="modal-header bg-white border-bottom-0">
-        <h5 class="modal-title fw-bold"><i class="fa-solid fa-coins text-warning me-2"></i> Manage User Balances</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body p-4 pt-0">
-          <div class="alert alert-info d-flex align-items-center mb-4 border-0 shadow-sm">
-              <i class="fa-solid fa-wallet fs-3 me-3 text-info"></i>
-              <div>
-                  <h6 class="mb-0 fw-bold">Total Advance / Balance</h6>
-                  <span class="fs-4 fw-bold">Rs. <?= number_format($total_balance_all) ?></span>
-              </div>
+<!-- Manage User Balances Modal (Search User & Add / Deduct Payment) -->
+<div class="modal fade" id="addBalanceModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content border-0 rounded-4 shadow-lg overflow-hidden" style="background-color: #ffffff;">
+      
+      <!-- Modal Header -->
+      <div class="modal-header bg-white border-bottom px-4 py-3">
+        <div class="d-flex align-items-center gap-3">
+          <div class="rounded-circle bg-warning-subtle text-warning d-flex align-items-center justify-content-center shadow-sm" style="width: 44px; height: 44px; font-size: 1.25rem;">
+            <i class="fa-solid fa-credit-card"></i>
           </div>
+          <div>
+            <h5 class="modal-title fw-bold text-dark mb-0">Manage User Payment & Balance</h5>
+            <small class="text-secondary">Search any customer to add (credit) or deduct (debit) balance</small>
+          </div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+
+      <!-- Navigation Tabs (Search & Pay VS All Balances Table) -->
+      <div class="bg-light px-4 pt-3 border-bottom">
+        <ul class="nav nav-pills" id="paymentModalTabs" role="tablist">
+          <li class="nav-item">
+            <button class="nav-link active fw-bold px-4 py-2" id="tab-search-pay-btn" data-bs-toggle="pill" data-bs-target="#tab-search-pay" type="button">
+              <i class="fa-solid fa-user-check me-1"></i> Search & Pay (Add / Deduct)
+            </button>
+          </li>
+          <li class="nav-item">
+            <button class="nav-link fw-semibold px-4 py-2" id="tab-all-balances-btn" data-bs-toggle="pill" data-bs-target="#tab-all-balances" type="button">
+              <i class="fa-solid fa-list-check me-1"></i> All Users Balances (<?= count($allPaymentUsers) ?>)
+            </button>
+          </li>
+        </ul>
+      </div>
+
+      <div class="modal-body p-4">
+        <div class="tab-content" id="paymentModalTabContent">
           
-          <div class="table-responsive">
-              <table class="table table-hover table-bordered w-100" id="balanceTable" style="font-size: 0.9rem;">
-                  <thead class="table-light">
-                      <tr>
-                          <th>Username</th>
-                          <th>Full Name</th>
-                          <th>Current Balance</th>
-                          <th style="width: 250px;">Add Balance</th>
-                      </tr>
-                  </thead>
-                  <tbody>
-                      <?php foreach($subs as $s): ?>
-                      <tr>
-                          <td class="align-middle fw-bold text-primary"><?= htmlspecialchars($s['username']) ?></td>
-                          <td class="align-middle"><?= htmlspecialchars($s['full_name']) ?></td>
-                          <td class="align-middle fw-bold <?= $s['balance'] < 0 ? 'text-danger' : 'text-success' ?>">
-                              Rs. <?= number_format($s['balance']) ?>
-                          </td>
-                          <td class="align-middle">
-                              <form method="POST" class="d-flex gap-2 m-0" onsubmit="return confirm('Add balance to this user?');">
-                                  <input type="hidden" name="action" value="add_balance_multi">
-                                  <input type="hidden" name="sub_id" value="<?= $s['id'] ?>">
-                                  <input type="number" step="0.01" name="amount" class="form-control form-control-sm" placeholder="Amount" required>
-                                  <button type="submit" class="btn btn-sm btn-dark text-nowrap"><i class="fa-solid fa-plus"></i> Add</button>
-                              </form>
-                          </td>
-                      </tr>
-                      <?php endforeach; ?>
-                  </tbody>
-              </table>
-          </div>
-      </div>
-    </div>
-  </div>
+          <!-- TAB 1: Search & Pay (Primary Form) -->
+          <div class="tab-pane fade show active" id="tab-search-pay">
+            <form method="POST" id="searchPaymentForm" onsubmit="return validatePaymentForm();">
+              <input type="hidden" name="action" value="add_balance_multi">
 
-<!-- Single Payment Modal -->
-<div class="modal fade" id="singlePaymentModal" tabindex="-1">
-  <div class="modal-dialog">
-    <div class="modal-content light-modal">
-      <div class="modal-header bg-white border-bottom-0">
-        <h5 class="modal-title fw-bold" id="singlePaymentModalTitle"><i class="fa-brands fa-paypal text-primary me-2"></i> Add Payment</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <form method="POST">
-        <div class="modal-body p-4 pt-2">
-            <input type="hidden" name="action" value="add_balance_multi">
-            <input type="hidden" name="sub_id" id="single_payment_sub_id">
-            
-            <div class="alert alert-info border-0 shadow-sm mb-4">
-                <i class="fa-solid fa-circle-info me-2"></i> This amount will be added to the user's current balance.
-            </div>
-
-            <div class="mb-3">
-                <label class="form-label fw-bold text-secondary">Amount to Add <span class="text-danger">*</span></label>
-                <div class="input-group">
-                    <span class="input-group-text bg-light fw-bold text-dark">Rs.</span>
-                    <input type="number" step="0.01" name="amount" id="single_payment_amount" class="form-control" placeholder="Enter amount..." required>
+              <!-- Step 1: Search User -->
+              <div class="mb-3">
+                <label class="form-label fw-bold text-dark mb-1">
+                  <i class="fa-solid fa-magnifying-glass text-primary me-1"></i> Search & Select User <span class="text-danger">*</span>
+                </label>
+                <select name="sub_id" id="payment_user_select" class="form-select form-select-lg" required onchange="onPaymentUserSelected()">
+                  <option value="">-- Type username or customer name to search --</option>
+                  <?php foreach($allPaymentUsers as $pu): ?>
+                    <option value="<?= $pu['id'] ?>"
+                            data-username="<?= htmlspecialchars($pu['username']) ?>"
+                            data-fullname="<?= htmlspecialchars($pu['full_name'] ?: 'N/A') ?>"
+                            data-balance="<?= (float)$pu['balance'] ?>"
+                            data-status="<?= htmlspecialchars($pu['status']) ?>">
+                      <?= htmlspecialchars($pu['username']) ?> - <?= htmlspecialchars($pu['full_name'] ?: 'No Name') ?> (Bal: Rs. <?= number_format($pu['balance'], 2) ?>) [<?= $pu['status'] ?>]
+                    </option>
+                  <?php endforeach; ?>
+                </select>
+                <div class="form-text small text-muted">
+                  <i class="fa-solid fa-keyboard me-1"></i> Search any user by username or full name across all active, expired, or disabled accounts.
                 </div>
+              </div>
+
+              <!-- Selected User Live Info Card -->
+              <div id="selected_user_card" class="card border rounded-3 p-3 mb-4 bg-light shadow-sm d-none">
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                  <div>
+                    <div class="fw-bold fs-6 text-dark" id="disp_user_fullname">---</div>
+                    <div class="text-muted small font-monospace">Username: <span id="disp_user_username" class="text-primary fw-bold">---</span></div>
+                    <div class="mt-1" id="disp_user_status_badge"></div>
+                  </div>
+                  <div class="text-end">
+                    <div class="text-secondary small fw-bold text-uppercase">Current Balance</div>
+                    <div class="fs-4 fw-bold" id="disp_user_balance">Rs. 0.00</div>
+                    <div class="small fw-semibold mt-1" id="disp_new_projected_balance"></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Step 2: Transaction Type Toggle (Add VS Deduct) -->
+              <div class="mb-3">
+                <label class="form-label fw-bold text-dark mb-1">Transaction Action <span class="text-danger">*</span></label>
+                <div class="d-flex gap-2">
+                  <input type="radio" class="btn-check" name="trans_type" id="trans_add" value="add" checked onchange="updatePaymentMode()">
+                  <label class="btn btn-outline-success flex-fill py-2 fw-bold d-flex align-items-center justify-content-center gap-2" for="trans_add">
+                    <i class="fa-solid fa-plus-circle fs-5"></i>
+                    <span>Add Payment (Credit / جمع)</span>
+                  </label>
+
+                  <input type="radio" class="btn-check" name="trans_type" id="trans_deduct" value="deduct" onchange="updatePaymentMode()">
+                  <label class="btn btn-outline-danger flex-fill py-2 fw-bold d-flex align-items-center justify-content-center gap-2" for="trans_deduct">
+                    <i class="fa-solid fa-minus-circle fs-5"></i>
+                    <span>Deduct Payment (Debit / بنام)</span>
+                  </label>
+                </div>
+              </div>
+
+              <!-- Step 3: Amount -->
+              <div class="mb-3">
+                <label class="form-label fw-bold text-dark mb-1">
+                  Amount in PKR <span class="text-danger">*</span>
+                </label>
+                <div class="input-group input-group-lg">
+                  <span class="input-group-text bg-light fw-bold text-dark" id="amount_currency_tag">Rs.</span>
+                  <input type="number" step="0.01" min="1" name="amount" id="payment_amount_input" class="form-control fw-bold" placeholder="0.00" required oninput="calculateProjectedBalance()">
+                </div>
+                
+                <!-- Quick Amount Chips -->
+                <div class="d-flex flex-wrap gap-2 mt-2">
+                  <span class="text-muted small align-self-center me-1">Quick:</span>
+                  <button type="button" class="btn btn-sm btn-light border rounded-pill px-2 py-0 fw-semibold" onclick="setQuickAmount(500)">Rs. 500</button>
+                  <button type="button" class="btn btn-sm btn-light border rounded-pill px-2 py-0 fw-semibold" onclick="setQuickAmount(1000)">Rs. 1,000</button>
+                  <button type="button" class="btn btn-sm btn-light border rounded-pill px-2 py-0 fw-semibold" onclick="setQuickAmount(1500)">Rs. 1,500</button>
+                  <button type="button" class="btn btn-sm btn-light border rounded-pill px-2 py-0 fw-semibold" onclick="setQuickAmount(2000)">Rs. 2,000</button>
+                  <button type="button" class="btn btn-sm btn-light border rounded-pill px-2 py-0 fw-semibold" onclick="setQuickAmount(3000)">Rs. 3,000</button>
+                  <button type="button" class="btn btn-sm btn-light border rounded-pill px-2 py-0 text-muted" onclick="setQuickAmount('')">Clear</button>
+                </div>
+              </div>
+
+              <!-- Step 4: Description / Reason -->
+              <div class="mb-4">
+                <label class="form-label fw-bold text-secondary small mb-1">Description / Remarks (Optional)</label>
+                <input type="text" name="description" id="payment_desc_input" class="form-control" placeholder="e.g. Cash received from customer, Bill correction, JazzCash, etc.">
+              </div>
+
+              <!-- Submit Button -->
+              <div class="d-flex justify-content-end gap-2">
+                <button type="button" class="btn btn-light px-4" data-bs-dismiss="modal">Close</button>
+                <button type="submit" id="payment_submit_btn" class="btn btn-success px-4 py-2 fw-bold shadow-sm">
+                  <i class="fa-solid fa-plus-circle me-1"></i> Add Balance
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <!-- TAB 2: All Users Balances Table -->
+          <div class="tab-pane fade" id="tab-all-balances">
+            <div class="alert alert-info d-flex align-items-center mb-3 py-2 border-0 shadow-sm">
+              <i class="fa-solid fa-wallet fs-4 me-3 text-info"></i>
+              <div>
+                <span class="small text-muted d-block">Total Operator Balance</span>
+                <strong class="fs-5 text-dark">Rs. <?= number_format($total_balance_all, 2) ?></strong>
+              </div>
             </div>
+
+            <div class="table-responsive">
+              <table class="table table-hover table-bordered w-100 align-middle" id="balanceTable" style="font-size: 0.88rem;">
+                <thead class="table-light">
+                  <tr>
+                    <th>Username</th>
+                    <th>Full Name</th>
+                    <th>Status</th>
+                    <th>Balance</th>
+                    <th style="width: 130px;">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <?php foreach($allPaymentUsers as $s): ?>
+                  <tr>
+                    <td class="fw-bold text-primary"><?= htmlspecialchars($s['username']) ?></td>
+                    <td><?= htmlspecialchars($s['full_name'] ?: 'N/A') ?></td>
+                    <td>
+                      <?php if($s['status'] === 'active'): ?>
+                        <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2">Active</span>
+                      <?php elseif($s['status'] === 'expired'): ?>
+                        <span class="badge bg-warning-subtle text-warning border border-warning-subtle rounded-pill px-2">Expired</span>
+                      <?php else: ?>
+                        <span class="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-2"><?= htmlspecialchars($s['status']) ?></span>
+                      <?php endif; ?>
+                    </td>
+                    <td class="fw-bold <?= $s['balance'] < 0 ? 'text-danger' : 'text-success' ?>">
+                      Rs. <?= number_format($s['balance'], 2) ?>
+                    </td>
+                    <td>
+                      <button type="button" class="btn btn-sm btn-outline-primary w-100 fw-semibold" onclick="selectUserForPayment(<?= $s['id'] ?>)">
+                        <i class="fa-solid fa-pen-to-square me-1"></i> Select
+                      </button>
+                    </td>
+                  </tr>
+                  <?php endforeach; ?>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
         </div>
-        <div class="modal-footer bg-white border-top-0">
-          <button type="button" class="btn btn-light px-4" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-primary px-4 fw-bold shadow-sm">Submit Payment</button>
-        </div>
-      </form>
+      </div>
+
     </div>
   </div>
-</div>
-
 </div>
 
 <!-- Add User Modal -->
@@ -1711,21 +1827,133 @@ document.addEventListener('DOMContentLoaded', function() {
 
 <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 <script>
+let currentSelectedBalance = 0;
+
 $(document).ready(function() {
     $('#renew_user_id').select2({
         dropdownParent: $('#renewUserModal'),
         width: '100%',
         placeholder: '-- Choose User --'
     });
-});
-</script>
 
-<script>
+    $('#payment_user_select').select2({
+        dropdownParent: $('#addBalanceModal'),
+        width: '100%',
+        placeholder: '-- Type username or name to search --'
+    });
+
+    $('#addBalanceModal').on('shown.bs.modal', function () {
+        $('#payment_user_select').select2({
+            dropdownParent: $('#addBalanceModal'),
+            width: '100%',
+            placeholder: '-- Type username or name to search --'
+        });
+    });
+});
+
+function onPaymentUserSelected() {
+    var select = document.getElementById('payment_user_select');
+    var opt = select.options[select.selectedIndex];
+    var card = document.getElementById('selected_user_card');
+    
+    if (!opt || !opt.value) {
+        card.classList.add('d-none');
+        currentSelectedBalance = 0;
+        return;
+    }
+    
+    card.classList.remove('d-none');
+    var fullname = opt.getAttribute('data-fullname') || 'N/A';
+    var username = opt.getAttribute('data-username') || 'N/A';
+    var bal = parseFloat(opt.getAttribute('data-balance')) || 0;
+    var status = (opt.getAttribute('data-status') || 'active').toLowerCase();
+    currentSelectedBalance = bal;
+
+    document.getElementById('disp_user_fullname').innerText = fullname;
+    document.getElementById('disp_user_username').innerText = username;
+    
+    var balEl = document.getElementById('disp_user_balance');
+    balEl.innerText = 'Rs. ' + bal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    balEl.className = 'fs-4 fw-bold ' + (bal < 0 ? 'text-danger' : 'text-success');
+
+    var badgeHtml = '';
+    if (status === 'active') {
+        badgeHtml = '<span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2 py-1"><i class="fa-solid fa-circle text-success me-1" style="font-size: 0.5rem;"></i>Active</span>';
+    } else if (status === 'expired') {
+        badgeHtml = '<span class="badge bg-warning-subtle text-warning border border-warning-subtle rounded-pill px-2 py-1"><i class="fa-solid fa-triangle-exclamation me-1"></i>Expired</span>';
+    } else {
+        badgeHtml = '<span class="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-2 py-1">' + status.toUpperCase() + '</span>';
+    }
+    document.getElementById('disp_user_status_badge').innerHTML = badgeHtml;
+
+    calculateProjectedBalance();
+}
+
+function updatePaymentMode() {
+    var isDeduct = document.getElementById('trans_deduct').checked;
+    var btn = document.getElementById('payment_submit_btn');
+    if (isDeduct) {
+        btn.className = 'btn btn-danger px-4 py-2 fw-bold shadow-sm';
+        btn.innerHTML = '<i class="fa-solid fa-minus-circle me-1"></i> Deduct Balance';
+    } else {
+        btn.className = 'btn btn-success px-4 py-2 fw-bold shadow-sm';
+        btn.innerHTML = '<i class="fa-solid fa-plus-circle me-1"></i> Add Balance';
+    }
+    calculateProjectedBalance();
+}
+
+function calculateProjectedBalance() {
+    var amtInput = document.getElementById('payment_amount_input');
+    var amt = parseFloat(amtInput.value) || 0;
+    var isDeduct = document.getElementById('trans_deduct').checked;
+    var projEl = document.getElementById('disp_new_projected_balance');
+    
+    if (amt <= 0 || !document.getElementById('payment_user_select').value) {
+        projEl.innerText = '';
+        return;
+    }
+    
+    var newBal = isDeduct ? (currentSelectedBalance - amt) : (currentSelectedBalance + amt);
+    var colorClass = newBal < 0 ? 'text-danger' : 'text-success';
+    projEl.innerHTML = 'Projected After: <strong class="' + colorClass + '">Rs. ' + newBal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + '</strong>';
+}
+
+function setQuickAmount(val) {
+    var inp = document.getElementById('payment_amount_input');
+    inp.value = val;
+    calculateProjectedBalance();
+}
+
+function selectUserForPayment(subId) {
+    $('#payment_user_select').val(subId).trigger('change');
+    // Switch to tab 1
+    var triggerEl = document.querySelector('#paymentModalTabs #tab-search-pay-btn');
+    if (triggerEl) {
+        var tab = bootstrap.Tab.getOrCreateInstance(triggerEl);
+        tab.show();
+    }
+}
+
+function validatePaymentForm() {
+    var userSelect = document.getElementById('payment_user_select');
+    if (!userSelect.value) {
+        alert('Please search and select a user first.');
+        return false;
+    }
+    var amt = parseFloat(document.getElementById('payment_amount_input').value) || 0;
+    if (amt <= 0) {
+        alert('Please enter a valid amount.');
+        return false;
+    }
+    var isDeduct = document.getElementById('trans_deduct').checked;
+    var username = userSelect.options[userSelect.selectedIndex].getAttribute('data-username') || 'user';
+    var actionWord = isDeduct ? 'DEDUCT' : 'ADD';
+    return confirm('Are you sure you want to ' + actionWord + ' Rs. ' + amt.toLocaleString() + ' for ' + username + '?');
+}
+
 function openPaymentModal(userId, username) {
-    $('#single_payment_sub_id').val(userId);
-    $('#singlePaymentModalTitle').html('<i class="fa-brands fa-paypal text-primary me-2"></i> Add Payment for ' + username);
-    $('#single_payment_amount').val('');
-    var m = bootstrap.Modal.getOrCreateInstance(document.getElementById('singlePaymentModal'));
+    selectUserForPayment(userId);
+    var m = bootstrap.Modal.getOrCreateInstance(document.getElementById('addBalanceModal'));
     m.show();
 }
 

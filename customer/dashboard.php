@@ -49,6 +49,9 @@ if ($current_user['expiry_date']) {
         $expiry_text = "Expired on " . date('d M Y', $exp_time);
     }
 }
+if (($current_user['status'] ?? '') === 'expired') {
+    $is_expired = true;
+}
 
 // Fetch available packages for this operator and global superadmin packages
 $pkgStmt = $pdo->prepare("SELECT * FROM packages WHERE client_id = ? OR client_id = 0");
@@ -352,6 +355,33 @@ if (empty($gateway_display_name)) {
         <div class="small text-muted">Your package renewal/upgrade request is currently awaiting operator approval. You will receive service as soon as it is processed.</div>
     </div>
     <span class="badge bg-warning text-dark px-3 py-2 rounded-pill fw-bold">Under Review</span>
+</div>
+<?php endif; ?>
+
+<!-- Expired Account Alert Banner -->
+<?php if ($is_expired || (isset($_GET['msg']) && $_GET['msg'] === 'expired') || isset($_GET['expired'])): ?>
+<div class="alert alert-danger border-0 rounded-4 shadow-sm mb-4 p-3 p-md-4 bg-danger-subtle text-danger-emphasis">
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-3">
+        <div class="d-flex align-items-center gap-3">
+            <div class="rounded-circle bg-danger text-white d-flex align-items-center justify-content-center shadow-sm" style="width: 48px; height: 48px; flex-shrink: 0;">
+                <i class="fa-solid fa-triangle-exclamation fs-4"></i>
+            </div>
+            <div>
+                <h5 class="fw-bold mb-1 text-danger" style="letter-spacing: -0.3px;">Aap Ka Internet Package Expire Ho Chuka Hai!</h5>
+                <div class="small text-secondary">
+                    Barah-e-Karam apna bill ada karein ya wallet balance recharge karein taake aap ka internet foran bahaal (activate) ho sakay.
+                </div>
+            </div>
+        </div>
+        <div class="d-flex gap-2 align-items-center">
+            <button type="button" data-bs-toggle="modal" data-bs-target="#addFundsModal" class="btn btn-danger rounded-pill px-4 py-2 fw-bold shadow-sm">
+                <i class="fa-solid fa-wallet me-1"></i> Pay Bill / Add Funds
+            </button>
+            <a href="#available-packages" class="btn btn-outline-danger rounded-pill px-3 py-2 fw-semibold">
+                <i class="fa-solid fa-bolt me-1"></i> Renew Package
+            </a>
+        </div>
+    </div>
 </div>
 <?php endif; ?>
 

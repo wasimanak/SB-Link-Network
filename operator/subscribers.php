@@ -370,9 +370,15 @@ $count_offline = max(0, $count_all - $count_online);
 <!-- DataTables & Buttons CSS -->
 <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
 <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.2/css/buttons.bootstrap5.min.css">
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
 
 <style>
     body { background-color: #f8fafc; font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+    
+    .select2-container .select2-selection--single { height: 31px; border: 1px solid #dee2e6; }
+    .select2-container--default .select2-selection--single .select2-selection__rendered { line-height: 29px; color: #475569; font-size: 0.875rem; }
+    .select2-container--default .select2-selection--single .select2-selection__arrow { height: 29px; }
+    .select2-dropdown { border: 1px solid #dee2e6; z-index: 9999 !important; }
     
     .card-ui { 
         background: #ffffff; 
@@ -956,44 +962,210 @@ $count_offline = max(0, $count_all - $count_online);
 </div>
 
 
-<!-- Renew Modal (Simplified for display) -->
-<div class="modal fade" id="renewModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog">
-    <div class="modal-content light-modal">
-      <div class="modal-header">
-        <h5 class="modal-title"><i class="fa-solid fa-rotate text-success"></i> Renew User / Set Expiry</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+<?php
+// Fetch users and packages for the renew modal
+$renewUsers = $pdo->query("SELECT id, username, full_name, status, expiry_date, package_id FROM subscribers WHERE client_id = $client_id ORDER BY username ASC")->fetchAll();
+$renewPackages = $pdo->query("SELECT id, name, price, validity_days FROM packages WHERE client_id = $client_id OR client_id = 0 ORDER BY name ASC")->fetchAll();
+?>
+<!-- Activate/Renew User Modal -->
+<div class="modal fade" id="renewUserModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content light-modal" style="background-color: #f8fafc;">
+      <div class="modal-header bg-white border-bottom-0">
+        <h5 class="modal-title fw-bold"><i class="fa-solid fa-bolt text-warning me-2"></i> Activate / Renew User</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
-      <form method="POST">
-        <input type="hidden" name="action" value="renew_user">
-        <input type="hidden" name="id" id="renew_user_id">
-        <div class="modal-body p-4">
-            <p><strong>Username:</strong> <span id="renew_username_display" class="badge bg-success text-white px-2 py-1 ms-2"></span></p>
-            
-            <div class="mb-3">
-                <label class="form-label fw-bold text-secondary">Change Package</label>
-                <select name="package_id" id="renew_package_id" class="form-select" required>
-                    <option value="">Select Package</option>
-                    <?php foreach($packages as $p): ?>
-                        <option value="<?= $p['id'] ?>"><?= htmlspecialchars($p['name']) ?> (<?= htmlspecialchars($p['rate_limit']) ?>)</option>
-                    <?php endforeach; ?>
-                </select>
+      <form action="renew_user_action.php" method="POST">
+        <input type="hidden" name="redirect_to" value="subscribers.php">
+        <div class="modal-body p-4 pt-2">
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label class="col-form-label text-secondary small fw-bold">Select User <span class="text-danger">*</span></label>
+                    <select name="user_id" id="renew_user_id" class="form-select form-select-sm" required onchange="updateRenewDetails()">
+                        <option value="">-- Choose User --</option>
+                        <?php foreach($renewUsers as $ru): ?>
+                            <option value="<?= $ru['id'] ?>" 
+                                data-username="<?= htmlspecialchars($ru['username']) ?>"
+                                data-fullname="<?= htmlspecialchars($ru['full_name']) ?>"
+                                data-status="<?= $ru['status'] ?>"
+                                data-expiry="<?= $ru['expiry_date'] ?>"
+                                data-pkg="<?= $ru['package_id'] ?>">
+                                <?= htmlspecialchars($ru['username']) ?> (<?= htmlspecialchars($ru['full_name']) ?>)
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="col-form-label text-secondary small fw-bold">Package <span class="text-danger">*</span></label>
+                    <select name="package_id" id="renew_package_id" class="form-select form-select-sm" required onchange="updateRenewDetails()">
+                        <option value="">-- Select Package --</option>
+                        <?php foreach($renewPackages as $rp): ?>
+                            <option value="<?= $rp['id'] ?>" 
+                                data-name="<?= htmlspecialchars($rp['name']) ?>"
+                                data-duration="<?= $rp['validity_days'] ?>"
+                                data-price="<?= $rp['price'] ?>">
+                                <?= htmlspecialchars($rp['name']) ?> (Rs <?= number_format($rp['price']) ?>)
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                
+                <div class="col-md-6 mb-3">
+                    <label class="col-form-label text-secondary small fw-bold">Expiry Type <span class="text-danger">*</span></label>
+                    <select name="expiry_type" id="renew_expiry_type" class="form-select form-select-sm" onchange="toggleCustomExpiry()">
+                        <option value="default">Default (Package Duration)</option>
+                        <option value="custom">Custom Date & Time</option>
+                    </select>
+                </div>
+                
+                <div class="col-md-6 mb-3 d-none" id="custom_expiry_container">
+                    <label class="col-form-label text-secondary small fw-bold">Custom Expiry Date/Time <span class="text-danger">*</span></label>
+                    <input type="datetime-local" name="custom_expiry" id="renew_custom_expiry" class="form-control form-control-sm" onchange="updateRenewDetails()">
+                </div>
             </div>
 
-            <div class="mb-3">
-                <label class="form-label fw-bold text-secondary">Set Expiry Date & Time <span class="text-danger">*</span></label>
-                <input type="datetime-local" name="expiry_date" id="renew_expiry_date" class="form-control" required>
-                <small class="text-muted">This will automatically enforce disconnection via FreeRADIUS when time reaches.</small>
+            <!-- Expanding Details Section -->
+            <div id="renew_details_section" class="d-none mt-3">
+                <h6 class="fw-bold text-primary border-bottom pb-2 mb-3"><i class="fa-solid fa-list me-1"></i> Renewal Summary</h6>
+                <div class="table-responsive bg-white border rounded shadow-sm">
+                    <table class="table table-sm table-hover mb-0 align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="text-secondary ps-3" style="width: 40%;">Attribute</th>
+                                <th class="text-secondary">Description</th>
+                            </tr>
+                        </thead>
+                        <tbody id="renew_details_tbody">
+                            <!-- Filled via JS -->
+                        </tbody>
+                    </table>
+                </div>
             </div>
+
         </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
-          <button type="submit" class="btn btn-submit">Update & Renew</button>
+        <div class="modal-footer bg-white border-top-0 pt-0">
+          <button type="button" class="btn btn-light border" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-warning fw-bold px-4"><i class="fa-solid fa-bolt me-2"></i> Confirm Renewal</button>
         </div>
       </form>
     </div>
   </div>
 </div>
+
+<script>
+function toggleCustomExpiry() {
+    var type = document.getElementById('renew_expiry_type').value;
+    var container = document.getElementById('custom_expiry_container');
+    var input = document.getElementById('renew_custom_expiry');
+    if (type === 'custom') {
+        container.classList.remove('d-none');
+        input.setAttribute('required', 'required');
+    } else {
+        container.classList.add('d-none');
+        input.removeAttribute('required');
+    }
+    updateRenewDetails();
+}
+
+function updateRenewDetails() {
+    var userSelect = document.getElementById('renew_user_id');
+    var pkgSelect = document.getElementById('renew_package_id');
+    var section = document.getElementById('renew_details_section');
+    var tbody = document.getElementById('renew_details_tbody');
+    
+    if (!userSelect || userSelect.value === "") {
+        if (section) section.classList.add('d-none');
+        return;
+    }
+    
+    section.classList.remove('d-none');
+    
+    var uOpt = userSelect.options[userSelect.selectedIndex];
+    if (!uOpt) return;
+
+    var username = uOpt.getAttribute('data-username');
+    var uid = userSelect.value;
+    var status = uOpt.getAttribute('data-status');
+    var curExp = uOpt.getAttribute('data-expiry');
+    var uPkgId = uOpt.getAttribute('data-pkg');
+    
+    // Auto-select package if user has one and package select is currently empty
+    if(pkgSelect.value === "" && uPkgId && uPkgId != "0" && uPkgId != "") {
+        for(let i=0; i<pkgSelect.options.length; i++){
+            if(pkgSelect.options[i].value == uPkgId) {
+                pkgSelect.selectedIndex = i;
+                break;
+            }
+        }
+    }
+    
+    var pOpt = pkgSelect.options[pkgSelect.selectedIndex];
+    var pName = (pOpt && pOpt.value) ? pOpt.getAttribute('data-name') : 'N/A';
+    var pDur = (pOpt && pOpt.value) ? parseInt(pOpt.getAttribute('data-duration')) : 0;
+    var pPrice = (pOpt && pOpt.value) ? parseFloat(pOpt.getAttribute('data-price')).toFixed(0) : '0';
+    
+    // Formatting Current Expiry
+    var curExpFormatted = "No Expiry";
+    if (curExp && curExp !== "" && curExp !== "null" && curExp !== "0000-00-00 00:00:00") {
+        let d = new Date(curExp);
+        if(!isNaN(d)) curExpFormatted = d.toLocaleString('en-GB', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit'}).replace(',', '');
+    }
+
+    // Calculating New Expiry
+    var newExpFormatted = "Select Package/Date";
+    var expType = document.getElementById('renew_expiry_type').value;
+    
+    if (expType === 'custom') {
+        var customVal = document.getElementById('renew_custom_expiry').value;
+        if(customVal) {
+            let nd = new Date(customVal);
+            if(!isNaN(nd)) newExpFormatted = nd.toLocaleString('en-GB', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit'}).replace(',', '');
+        }
+    } else {
+        if (pDur > 0) {
+            let baseDate = new Date();
+            // Append to current expiry if it's in the future
+            if(curExp && curExp !== "" && curExp !== "null" && curExp !== "0000-00-00 00:00:00") {
+                let cd = new Date(curExp);
+                if(cd > baseDate) baseDate = cd;
+            }
+            
+            baseDate.setDate(baseDate.getDate() + pDur);
+            // Set to rat 12 bajy (23:59:59)
+            baseDate.setHours(23, 59, 59, 0);
+            newExpFormatted = baseDate.toLocaleString('en-GB', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit'}).replace(',', '');
+        }
+    }
+
+    var statusHtml = status === 'active' ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-danger">Disabled</span>';
+
+    tbody.innerHTML = `
+        <tr><td class="fw-bold ps-3">Username & ID</td><td>${username} (#${uid})</td></tr>
+        <tr><td class="fw-bold ps-3">User Status</td><td>${statusHtml}</td></tr>
+        <tr><td class="fw-bold ps-3">Current Expiration</td><td class="text-danger fw-bold">${curExpFormatted}</td></tr>
+        <tr><td class="fw-bold ps-3">New Expiration</td><td class="text-success fw-bold">${newExpFormatted}</td></tr>
+        <tr><td class="fw-bold ps-3">Package</td><td><span class="badge bg-primary bg-opacity-10 text-primary">${pName}</span></td></tr>
+        <tr><td class="fw-bold ps-3">Package Duration</td><td>${pDur} Days</td></tr>
+        <tr><td class="fw-bold ps-3">Package Price</td><td class="text-success fw-bold">Rs ${pPrice}</td></tr>
+    `;
+}
+
+function openRenewModal(userId) {
+    $('#renew_user_id').val(userId).trigger('change');
+    $('#renew_expiry_type').val('default');
+    toggleCustomExpiry();
+    
+    // Auto-select package for this user
+    var uOpt = $('#renew_user_id option:selected');
+    var uPkgId = uOpt.attr('data-pkg');
+    if (uPkgId && uPkgId !== '0') {
+        $('#renew_package_id').val(uPkgId);
+    }
+    updateRenewDetails();
+    var m = bootstrap.Modal.getOrCreateInstance(document.getElementById('renewUserModal'));
+    m.show();
+}
+</script>
 
 <!-- jQuery & DataTables JS -->
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
@@ -1008,9 +1180,37 @@ $count_offline = max(0, $count_all - $count_online);
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.53/vfs_fonts.js"></script>
 <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.html5.min.js"></script>
 <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.print.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 
 <script>
 $(document).ready(function() {
+    $('#renew_user_id').select2({
+        dropdownParent: $('#renewUserModal'),
+        width: '100%',
+        placeholder: '-- Choose User --'
+    });
+
+    $('#renewUserModal').on('shown.bs.modal', function () {
+        $('#renew_user_id').select2({
+            dropdownParent: $('#renewUserModal'),
+            width: '100%',
+            placeholder: '-- Choose User --'
+        });
+    });
+
+    $('#renew_user_id').on('change', function() {
+        var uOpt = $(this).find('option:selected');
+        var uPkgId = uOpt.attr('data-pkg');
+        if (uPkgId && uPkgId !== '0') {
+            $('#renew_package_id').val(uPkgId);
+        }
+        updateRenewDetails();
+    });
+
+    $('#renew_package_id').on('change', function() {
+        updateRenewDetails();
+    });
+
     var exportColumns = [1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]; // Everything except Checkbox, Photo, Action
 
     $('#usersTable').DataTable({
@@ -1052,13 +1252,8 @@ $(document).ready(function() {
     // Robust DataTables Modal Triggers
     $('#usersTable tbody').on('click', '.btn-renew', function(e) {
         e.preventDefault();
-        $('#renew_user_id').val($(this).attr('data-id'));
-        $('#renew_username_display').text($(this).attr('data-username'));
-        $('#renew_package_id').val($(this).attr('data-pkg'));
-        var exp = $(this).attr('data-expiry');
-        $('#renew_expiry_date').val(exp ? exp : '');
-        var m = new bootstrap.Modal(document.getElementById('renewModal'));
-        m.show();
+        var uid = $(this).attr('data-id');
+        openRenewModal(uid);
     });
 
     $('#usersTable tbody').on('click', '.btn-payment', function(e) {

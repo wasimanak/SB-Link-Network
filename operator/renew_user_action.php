@@ -1,7 +1,7 @@
 <?php
 session_start();
 require_once '../config/db.php';
-require_once 'auth_check.php';
+require_once '../config/radius_kick_helper.php';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $client_id = $_SESSION['operator_id'];
@@ -9,9 +9,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $package_id = (int)$_POST['package_id'];
     $expiry_type = $_POST['expiry_type']; // 'default' or 'custom'
     $custom_expiry = $_POST['custom_expiry'] ?? '';
+    $redirect_url = (!empty($_POST['redirect_to']) && strpos($_POST['redirect_to'], 'subscribers') !== false) ? 'subscribers.php' : 'dashboard.php';
     
     try {
-        $userStmt = $pdo->prepare("SELECT username, expiry_date, balance FROM subscribers WHERE id = ? AND client_id = ?");
+        $userStmt = $pdo->prepare("SELECT username, expiry_date, balance, dealer_id, package_id FROM subscribers WHERE id = ? AND client_id = ?");
         $userStmt->execute([$user_id, $client_id]);
         $uData = $userStmt->fetch();
         
@@ -52,6 +53,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $new_bal = $current_bal - $pkg_price;
         
         $pdo->beginTransaction();
+
+        // Dealer Balance Handling (if user belongs to a dealer)
+        $sub_dealer_id = (int)($uData['dealer_id'] ?? 0);
+        if ($sub_dealer_id > 0) {
+            $old_remaining_value = 0;
+            if (!empty($uData['expiry_date']) && strtotime($uData['expiry_date']) > time()) {
+                $old_dpStmt = $pdo->prepare("SELECT dealer_price FROM dealer_packages WHERE dealer_id = ? AND package_id = ?");
+                $old_dpStmt->execute([$sub_dealer_id, $uData['package_id']]);
+                $old_dp_price = $old_dpStmt->fetchColumn();
+                if ($old_dp_price === false) {
+                    $opq = $pdo->prepare("SELECT price FROM packages WHERE id = ?");
+                    $opq->execute([$uData['package_id']]);
+                    $old_dp_price = $opq->fetchColumn() ?: 0;
+                }
+                $old_seconds = strtotime($uData['expiry_date']) - time();
+                $old_days = $old_seconds / 86400;
+                $old_price_per_day = $old_dp_price / 30;
+                $old_remaining_value = $old_days * $old_price_per_day;
+            }
+
+            $new_dpStmt = $pdo->prepare("SELECT dealer_price FROM dealer_packages WHERE dealer_id = ? AND package_id = ?");
+            $new_dpStmt->execute([$sub_dealer_id, $package_id]);
+            $new_dp_price = $new_dpStmt->fetchColumn();
+            if ($new_dp_price === false) {
+                $new_dp_price = $pkg['price'] ?? 0;
+            }
+
+            $new_total_value = 0;
+            $new_seconds = strtotime($expiry_date) - time();
+            if ($new_seconds > 0) {
+                $new_days = $new_seconds / 86400;
+                $new_price_per_day = $new_dp_price / 30;
+                $new_total_value = $new_days * $new_price_per_day;
+            }
+
+            $net_deduction = round($new_total_value - $old_remaining_value, 2);
+            if ($net_deduction > 0) {
+                $pdo->prepare("UPDATE dealers SET balance = balance - ? WHERE id = ?")->execute([$net_deduction, $sub_dealer_id]);
+                $note = "Package Upgrade/Renew for user $u. Total Cost: Rs." . round($new_total_value, 2) . ", Old Credit: Rs." . round($old_remaining_value, 2) . ". Net Deducted: Rs. $net_deduction";
+                $pdo->prepare("INSERT INTO dealer_notes (dealer_id, note) VALUES (?, ?)")->execute([$sub_dealer_id, $note]);
+            } else {
+                $note = "Package Downgrade/Change for user $u. Total Cost: Rs." . round($new_total_value, 2) . " covered by Old Credit Rs." . round($old_remaining_value, 2) . ". No balance deducted.";
+                $pdo->prepare("INSERT INTO dealer_notes (dealer_id, note) VALUES (?, ?)")->execute([$sub_dealer_id, $note]);
+            }
+        }
         
         // Update DB
         $pdo->prepare("UPDATE subscribers SET package_id = ?, expiry_date = ?, status = 'active', balance = ? WHERE id = ?")
@@ -84,8 +130,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Expiration', ':=', ?)")->execute([$u, $formatted_expiry]);
         
         // Logs
-        $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, 'Admin', ?, 'User', 'Package Renewed & Expiry Updated')")
-            ->execute([$client_id, $u]);
+        $act_dealer_id = ($sub_dealer_id > 0) ? $sub_dealer_id : null;
+        $pdo->prepare("INSERT INTO activity_logs (client_id, dealer_id, by_user, against_to, against_role, activity) VALUES (?, ?, 'Admin', ?, 'User', 'Package Renewed & Expiry Updated')")
+            ->execute([$client_id, $act_dealer_id, $u]);
             
         if ($pkg_price > 0) {
             $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'debit', ?, ?, ?)")
@@ -93,12 +140,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         
         $pdo->commit();
-        echo "<script>alert('User renewed successfully!'); window.location='dashboard.php';</script>";
+        
+        // Kick active session so router reconnects immediately with renewed speed & profile
+        try {
+            kick_subscriber_session($pdo, $u, $client_id);
+        } catch (Exception $e) {}
+
+        echo "<script>alert('User renewed successfully!'); window.location='$redirect_url';</script>";
         exit;
         
     } catch (Exception $e) {
         $pdo->rollBack();
-        die("<script>alert('Error: " . addslashes($e->getMessage()) . "'); window.location='dashboard.php';</script>");
+        die("<script>alert('Error: " . addslashes($e->getMessage()) . "'); window.location='$redirect_url';</script>");
     }
 } else {
     header("Location: dashboard.php");

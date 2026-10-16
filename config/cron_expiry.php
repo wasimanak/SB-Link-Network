@@ -28,7 +28,7 @@ $res = sync_expired_subscribers($pdo, null, true);
 $duration = round(microtime(true) - $start, 3);
 
 $timestamp = date('Y-m-d H:i:s');
-$msg = "[{$timestamp}] Auto-Expiry Sync Done in {$duration}s: {$res['blocked']} newly blocked in RADIUS, {$res['kicked']} active sessions kicked from MikroTik, {$res['restored']} renewed restored.\n";
+$msg = "[{$timestamp}] Auto-Expiry Sync Done in {$duration}s: {$res['walled']} expired walled-garden, {$res['disabled']} hard disabled, {$res['kicked']} sessions kicked from MikroTik, {$res['restored']} renewed restored.\n";
 
 if ($is_cli) {
     echo $msg;
@@ -37,7 +37,8 @@ if ($is_cli) {
     echo json_encode([
         'status' => 'success',
         'timestamp' => $timestamp,
-        'blocked_in_radius' => $res['blocked'],
+        'walled_in_radius' => $res['walled'],
+        'hard_disabled' => $res['disabled'],
         'kicked_from_mikrotik' => $res['kicked'],
         'active_restored' => $res['restored'],
         'execution_seconds' => $duration

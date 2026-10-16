@@ -340,7 +340,7 @@ if ($total_bytes >= 1073741824) {
 }
 
 // Check if currently online
-$onStmt = $pdo->prepare("SELECT acctstarttime FROM radacct WHERE username = ? AND acctstoptime IS NULL ORDER BY radacctid DESC LIMIT 1");
+$onStmt = $pdo->prepare("SELECT * FROM radacct WHERE username = ? AND acctstoptime IS NULL ORDER BY radacctid DESC LIMIT 1");
 $onStmt->execute([$user['username']]);
 $online = $onStmt->fetch();
 
@@ -411,19 +411,28 @@ $is_expired = false;
 if (!empty($user['expiry_date']) && strtotime($user['expiry_date']) < time()) {
     $is_expired = true;
 }
+if (strtolower($user['status'] ?? '') === 'expired') {
+    $is_expired = true;
+}
 
 $profile_status = 'Offline';
 $status_color = 'secondary';
 $header_badge_class = 'offline';
 
-if (strtolower($user['status']) === 'disabled') {
+if (strtolower($user['status'] ?? '') === 'disabled') {
     $profile_status = 'Disabled';
     $status_color = 'danger';
     $header_badge_class = 'disabled';
 } elseif ($is_expired) {
-    $profile_status = 'Expired';
-    $status_color = 'warning text-dark';
-    $header_badge_class = 'expired';
+    if ($online) {
+        $profile_status = 'Expired (Online)';
+        $status_color = 'warning text-dark';
+        $header_badge_class = 'expired';
+    } else {
+        $profile_status = 'Expired (Offline)';
+        $status_color = 'danger';
+        $header_badge_class = 'offline';
+    }
 } elseif ($online) {
     $profile_status = 'Online';
     $status_color = 'success';
@@ -509,8 +518,21 @@ if (strtolower($user['status']) === 'disabled') {
                 <?php endif; ?>
                 <div class="profile-info">
                     <h5><?= htmlspecialchars($user['full_name'] ?: 'Unknown Name') ?></h5>
-                    <p><?= htmlspecialchars($user['username']) ?></p>
-                    <span class="status-badge <?= $header_badge_class ?>"><?= $profile_status ?></span>
+                    <p class="mb-1"><?= htmlspecialchars($user['username']) ?></p>
+                    <div class="d-flex align-items-center gap-2 flex-wrap mt-1">
+                        <span class="status-badge <?= $header_badge_class ?>"><?= $profile_status ?></span>
+                        <?php if ($online): ?>
+                            <span class="badge rounded-pill bg-success text-white px-2 py-1 shadow-sm d-inline-flex align-items-center gap-1" style="font-size: 0.72rem; letter-spacing: 0.3px;">
+                                <span class="spinner-grow spinner-grow-sm text-white" style="width: 6px; height: 6px;" role="status"></span>
+                                <span>ONLINE</span>
+                            </span>
+                        <?php else: ?>
+                            <span class="badge rounded-pill bg-secondary text-white px-2 py-1 d-inline-flex align-items-center gap-1" style="font-size: 0.72rem; letter-spacing: 0.3px;">
+                                <i class="fa-solid fa-circle text-white-50" style="font-size: 0.45rem;"></i>
+                                <span>OFFLINE</span>
+                            </span>
+                        <?php endif; ?>
+                    </div>
                 </div>
             </div>
             <ul class="profile-list">
@@ -585,10 +607,18 @@ if (strtolower($user['status']) === 'disabled') {
         <div class="row mb-4">
             <div class="col-xl-3 col-sm-6 mb-3 mb-xl-0">
                 <div class="view-card metric-card mb-0 h-100">
-                    <div class="metric-icon bg-light-info"><i class="fa-regular fa-clock"></i></div>
+                    <div class="metric-icon <?= $online ? 'bg-light-success text-success' : 'bg-light-secondary text-secondary' ?>"><i class="fa-solid fa-wifi"></i></div>
                     <div class="metric-data">
-                        <h6>Online Uptime</h6>
-                        <h4 id="live_uptime"><?= $uptime_str ?></h4>
+                        <h6>Connection Status</h6>
+                        <div class="d-flex align-items-center gap-2 mt-1">
+                            <?php if ($online): ?>
+                                <span class="badge bg-success rounded-pill px-2 py-1" style="font-size: 0.75rem;">Online</span>
+                                <h5 class="mb-0 fw-bold text-dark font-monospace" id="live_uptime" style="font-size: 0.95rem;"><?= $uptime_str ?></h5>
+                            <?php else: ?>
+                                <span class="badge bg-secondary rounded-pill px-2 py-1" style="font-size: 0.75rem;">Offline</span>
+                                <span class="text-muted small" id="live_uptime">Disconnected</span>
+                            <?php endif; ?>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -650,7 +680,30 @@ if (strtolower($user['status']) === 'disabled') {
                     <div class="accordion-body text-secondary p-3">
                         <table class="table table-sm table-borderless text-secondary mb-0" style="font-size: 0.9rem;">
                             <tbody>
-                                <tr><td class="fw-bold w-50">Profile Status</td><td><span class="badge bg-<?= $status_color ?>"><?= $profile_status ?></span></td></tr>
+                                <tr>
+                                    <td class="fw-bold w-50">Profile Status</td>
+                                    <td>
+                                        <?php if (strtolower($user['status'] ?? '') === 'disabled'): ?>
+                                            <span class="badge bg-danger">Disabled</span>
+                                        <?php elseif ($is_expired): ?>
+                                            <span class="badge bg-warning text-dark">Expired</span>
+                                        <?php else: ?>
+                                            <span class="badge bg-success">Active</span>
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td class="fw-bold">Connection State</td>
+                                    <td>
+                                        <?php if ($online): ?>
+                                            <span class="badge bg-success"><i class="fa-solid fa-wifi me-1"></i>Online</span>
+                                            <span class="text-success small fw-semibold ms-2">(Connected - Uptime: <span id="svc_uptime_display"><?= $uptime_str ?></span>)</span>
+                                        <?php else: ?>
+                                            <span class="badge bg-secondary"><i class="fa-solid fa-power-off me-1"></i>Offline</span>
+                                            <span class="text-muted small ms-2">(Disconnected)</span>
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
                                 <tr><td class="fw-bold">Connection Type</td><td>Radius <?= strtoupper($user['service_type']) ?></td></tr>
                                 <tr><td class="fw-bold">Package</td><td><?= htmlspecialchars($user['pkg_name'] ?? 'N/A') ?></td></tr>
                                 <tr><td class="fw-bold">Package Duration</td><td><?= $user['validity_days'] ? $user['validity_days'] . ' Days' : 'N/A' ?></td></tr>
@@ -1054,7 +1107,10 @@ function fetchLiveBandwidth() {
         .then(data => {
             if(data.bytes_in !== undefined && data.bytes_out !== undefined) {
                 if(data.uptime !== undefined) {
-                    document.getElementById('live_uptime').innerText = data.uptime;
+                    let uEl = document.getElementById('live_uptime');
+                    if (uEl) uEl.innerText = data.uptime;
+                    let svcU = document.getElementById('svc_uptime_display');
+                    if (svcU) svcU.innerText = data.uptime;
                 }
                 
                 // Update Used Volume LIVE

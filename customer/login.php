@@ -82,6 +82,8 @@ if (isset($_GET['error'])) {
     if ($_GET['error'] == 'operator_suspended') $error = "Service temporarily unavailable.";
     if ($_GET['error'] == 'account_disabled') $error = "Your account is disabled.";
 }
+
+$is_expired_notice = (isset($_GET['msg']) && $_GET['msg'] === 'expired') || isset($_GET['expired']);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -191,6 +193,22 @@ if (isset($_GET['error'])) {
             <div class="text-muted small">Customer Self-Service Portal</div>
         </div>
         
+        <!-- Expired Notice Banner -->
+        <?php if($is_expired_notice): ?>
+            <div class="alert alert-warning border-0 rounded-4 small p-3 mb-4 bg-warning-subtle text-dark shadow-sm">
+                <div class="d-flex align-items-center gap-2 mb-2">
+                    <i class="fa-solid fa-triangle-exclamation fs-4 text-warning"></i>
+                    <strong class="fs-6 text-dark">Aap Ka Internet Package Expire Ho Chuka Hai!</strong>
+                </div>
+                <div class="small text-secondary mb-2">
+                    Barah-e-karam apna bill ada karein ya wallet balance recharge karein taake aap ka internet foran bahaal (activate) ho sakay.
+                </div>
+                <div class="small fw-bold text-primary">
+                    <i class="fa-solid fa-arrow-down me-1"></i> Neeche login karein aur apna package renew karein:
+                </div>
+            </div>
+        <?php endif; ?>
+
         <!-- Error Alert -->
         <?php if($error): ?>
             <div class="alert alert-danger border-0 rounded-4 small p-3 mb-4 d-flex align-items-center gap-2 bg-danger-subtle text-danger-emphasis">

@@ -136,12 +136,27 @@ function kick_subscriber_session($pdo, $username, $client_id = null) {
 }
 
 /**
- * 2. Real-Time Auto-Block & Sync Function for ALL Expired Subscribers
+ * 2. Real-Time Auto-Block & Walled Garden Sync for Subscribers
  *
- * Enforces:
- * 1. Anyone with expiry_date <= NOW() or status IN ('expired', 'disabled') GETS 'Auth-Type := Reject' in radcheck!
- * 2. Active sessions for expired users are kicked from MikroTik router.
- * 3. Active users (expiry_date > NOW() and status = 'active') HAVE 'Auth-Type = Reject' REMOVED so they can connect!
+ * Enterprise ISP Architecture (Like PTCL, StormFiber, Nayatel):
+ * 1. DISABLED users (status = 'disabled'):
+ *    - In radcheck: 'Auth-Type := Reject' (Hard cutoff, no connection permitted).
+ *    - Open sessions are immediately kicked from MikroTik.
+ *
+ * 2. EXPIRED users (status = 'expired' OR expiry_date <= NOW()):
+ *    - In radcheck: 'Auth-Type' is REMOVED so PPPoE connection stays ONLINE (Green light / optical line monitored).
+ *    - In radreply:
+ *      * 'Mikrotik-Address-List = EXPIRED_USERS' (MikroTik firewall drops all traffic = 0 KB data leak).
+ *      * 'Mikrotik-Rate-Limit = 10k/10k' (Strict throttle for billing portal loading only).
+ *      * 'Mikrotik-Group = expired' (Assigns expired profile).
+ *    - Kicked ONCE upon transition so router reconnects into EXPIRED_USERS.
+ *    - While already in walled garden, cron DOES NOT kick them again, keeping line 24/7 online.
+ *
+ * 3. RENEWED/ACTIVE users (status = 'active' AND (expiry_date IS NULL OR expiry_date > NOW())):
+ *    - Removes 'Auth-Type' reject from radcheck.
+ *    - Removes 'EXPIRED_USERS' from radreply.
+ *    - Restores normal package rate-limit and profile in radreply.
+ *    - Kicked once so session reconnects with full speed and unrestricted internet.
  *
  * @param PDO $pdo
  * @param int|null $client_id
@@ -149,90 +164,191 @@ function kick_subscriber_session($pdo, $username, $client_id = null) {
  * @return array
  */
 function sync_expired_subscribers($pdo, $client_id = null, $kick_sessions = true) {
-    $blocked_count = 0;
+    $walled_count = 0;
+    $hard_blocked_count = 0;
     $kicked_count = 0;
     $restored_count = 0;
 
     try {
-        // Query 1: Find all users that SHOULD BE BLOCKED
-        // Condition: (expiry_date <= NOW() OR status IN ('expired', 'disabled'))
-        $sqlBlocked = "
+        // Reusable prepared statements
+        $delRadcheckAuthStmt = $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute = 'Auth-Type'");
+        $insertRejectStmt    = $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Auth-Type', ':=', 'Reject')");
+        $checkRejectStmt     = $pdo->prepare("SELECT COUNT(*) FROM radcheck WHERE username = ? AND attribute = 'Auth-Type' AND value = 'Reject'");
+        
+        $delWalledRadreply   = $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute IN ('Mikrotik-Address-List', 'Mikrotik-Rate-Limit', 'Mikrotik-Group')");
+        $insertRadreply      = $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, ?, '=', ?)");
+        $updateStatusStmt    = $pdo->prepare("UPDATE subscribers SET status = 'expired' WHERE id = ? AND status = 'active'");
+
+        // Map online users currently in radacct
+        $onlineStmt = $pdo->query("SELECT DISTINCT username FROM radacct WHERE acctstoptime IS NULL");
+        $online_users = $onlineStmt->fetchAll(PDO::FETCH_COLUMN);
+        $online_map = array_flip($online_users);
+
+        // -------------------------------------------------------------
+        // Group A: HARD-DISABLED SUBSCRIBERS (status = 'disabled')
+        // Strict cutoff - no connection allowed
+        // -------------------------------------------------------------
+        $sqlDisabled = "SELECT s.id, s.username, s.client_id FROM subscribers s WHERE s.status = 'disabled'";
+        if ($client_id) {
+            $sqlDisabled .= " AND s.client_id = " . (int)$client_id;
+        }
+        $disabledUsers = $pdo->query($sqlDisabled)->fetchAll(PDO::FETCH_ASSOC);
+
+        foreach ($disabledUsers as $d) {
+            $user = trim($d['username']);
+            if (empty($user)) continue;
+
+            $checkRejectStmt->execute([$user]);
+            if ($checkRejectStmt->fetchColumn() == 0) {
+                $delRadcheckAuthStmt->execute([$user]);
+                $insertRejectStmt->execute([$user]);
+                $hard_blocked_count++;
+            }
+
+            // Remove walled garden reply entries if any
+            $delWalledRadreply->execute([$user]);
+
+            // If online, kick them out immediately
+            if ($kick_sessions && isset($online_map[$user])) {
+                kick_subscriber_session($pdo, $user, $d['client_id']);
+                $kicked_count++;
+            }
+        }
+
+        // -------------------------------------------------------------
+        // Group B: EXPIRED SUBSCRIBERS (Walled Garden / Redirection)
+        // (expiry_date <= NOW() OR status = 'expired') AND status != 'disabled'
+        // Allowed to connect (shows Online) but throttled & added to EXPIRED_USERS list
+        // -------------------------------------------------------------
+        $sqlExpired = "
             SELECT s.id, s.username, s.client_id, s.status, s.expiry_date
             FROM subscribers s
             WHERE (
                 (s.expiry_date IS NOT NULL AND s.expiry_date <= NOW())
-                OR s.status IN ('expired', 'disabled')
+                OR s.status = 'expired'
             )
+            AND s.status != 'disabled'
         ";
         if ($client_id) {
-            $sqlBlocked .= " AND s.client_id = " . (int)$client_id;
+            $sqlExpired .= " AND s.client_id = " . (int)$client_id;
         }
+        $expiredUsers = $pdo->query($sqlExpired)->fetchAll(PDO::FETCH_ASSOC);
 
-        $stmtBlocked = $pdo->query($sqlBlocked);
-        $to_block = $stmtBlocked->fetchAll(PDO::FETCH_ASSOC);
+        // Statement to check if user is already configured with EXPIRED_USERS in radreply
+        $checkWalledStmt = $pdo->prepare("
+            SELECT COUNT(*) FROM radreply 
+            WHERE username = ? AND attribute = 'Mikrotik-Address-List' AND value = 'EXPIRED_USERS'
+        ");
 
-        if (!empty($to_block)) {
-            $updateStatusStmt = $pdo->prepare("UPDATE subscribers SET status = 'expired' WHERE id = ? AND status = 'active'");
-            
-            // Check existing Reject in radcheck to avoid duplicate inserts
-            $checkRejectStmt = $pdo->prepare("SELECT COUNT(*) FROM radcheck WHERE username = ? AND attribute = 'Auth-Type' AND value = 'Reject'");
-            $insertRejectStmt = $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Auth-Type', ':=', 'Reject')");
+        foreach ($expiredUsers as $u) {
+            $user = trim($u['username']);
+            if (empty($user)) continue;
 
-            // Check who is currently online among the expired
-            $onlineExpiredStmt = $pdo->query("SELECT DISTINCT username FROM radacct WHERE acctstoptime IS NULL");
-            $online_users = $onlineExpiredStmt->fetchAll(PDO::FETCH_COLUMN);
-            $online_map = array_flip($online_users);
+            // Ensure status is marked 'expired' in subscribers table
+            if ($u['status'] === 'active') {
+                $updateStatusStmt->execute([$u['id']]);
+            }
 
-            foreach ($to_block as $u) {
-                $user = trim($u['username']);
-                if (empty($user)) continue;
+            // Remove any Auth-Type := Reject from radcheck so PPPoE connection succeeds
+            $delRadcheckAuthStmt->execute([$user]);
 
-                // Mark expired in subscribers if it was active
-                if ($u['status'] === 'active') {
-                    $updateStatusStmt->execute([$u['id']]);
-                }
+            // Check if user is ALREADY walled in radreply
+            $checkWalledStmt->execute([$user]);
+            $is_already_walled = ($checkWalledStmt->fetchColumn() > 0);
 
-                // CRITICAL: Ensure Auth-Type := Reject is in radcheck
-                // This guarantees FreeRADIUS rejects any new auth attempt!
-                $checkRejectStmt->execute([$user]);
-                if ($checkRejectStmt->fetchColumn() == 0) {
-                    $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute = 'Auth-Type'")->execute([$user]);
-                    $insertRejectStmt->execute([$user]);
-                    $blocked_count++;
-                }
+            if (!$is_already_walled) {
+                // Newly expired: inject Walled Garden attributes into radreply
+                $delWalledRadreply->execute([$user]);
+                $insertRadreply->execute([$user, 'Mikrotik-Address-List', 'EXPIRED_USERS']);
+                $insertRadreply->execute([$user, 'Mikrotik-Rate-Limit', '10k/10k']);
+                $insertRadreply->execute([$user, 'Mikrotik-Group', 'expired']);
+                $walled_count++;
 
-                // If user is currently online and kick is enabled, kick them immediately
+                // Kick once so router re-dials and joins EXPIRED_USERS
                 if ($kick_sessions && isset($online_map[$user])) {
                     kick_subscriber_session($pdo, $user, $u['client_id']);
                     $kicked_count++;
                 }
+            } else {
+                // If already walled but rate limit is still old (e.g. 128k), update to 10k/10k
+                $checkRate = $pdo->prepare("SELECT value FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Rate-Limit'");
+                $checkRate->execute([$user]);
+                $currRate = $checkRate->fetchColumn();
+                if ($currRate !== '10k/10k') {
+                    $pdo->prepare("UPDATE radreply SET value = '10k/10k' WHERE username = ? AND attribute = 'Mikrotik-Rate-Limit'")->execute([$user]);
+                    if ($kick_sessions && isset($online_map[$user])) {
+                        kick_subscriber_session($pdo, $user, $u['client_id']);
+                    }
+                }
             }
+            // If already walled and up to date, DO NOT kick! Connection remains 24/7 online for line testing.
         }
 
-        // Query 2: Ensure ACTIVE users do NOT have 'Auth-Type = Reject' in radcheck
-        // Condition: expiry_date > NOW() AND status = 'active'
-        $sqlActive = "
-            SELECT DISTINCT s.username
+        // -------------------------------------------------------------
+        // Group C: ACTIVE / RENEWED SUBSCRIBERS
+        // status = 'active' AND (expiry_date IS NULL OR expiry_date > NOW())
+        // Restores package speed and unblocks firewall
+        // -------------------------------------------------------------
+        $sqlActiveNeedsRestoration = "
+            SELECT DISTINCT s.id, s.username, s.client_id, s.package_id
             FROM subscribers s
-            JOIN radcheck rc ON s.username = rc.username
             WHERE s.status = 'active'
               AND (s.expiry_date IS NULL OR s.expiry_date > NOW())
-              AND rc.attribute = 'Auth-Type'
-              AND rc.value = 'Reject'
+              AND (
+                  EXISTS (SELECT 1 FROM radcheck rc WHERE rc.username = s.username AND rc.attribute = 'Auth-Type')
+                  OR EXISTS (SELECT 1 FROM radreply rr WHERE rr.username = s.username AND rr.attribute = 'Mikrotik-Address-List' AND rr.value = 'EXPIRED_USERS')
+                  OR EXISTS (SELECT 1 FROM radreply rr WHERE rr.username = s.username AND rr.attribute = 'Mikrotik-Group' AND rr.value = 'expired')
+              )
         ";
         if ($client_id) {
-            $sqlActive .= " AND s.client_id = " . (int)$client_id;
+            $sqlActiveNeedsRestoration .= " AND s.client_id = " . (int)$client_id;
         }
+        $restoredUsers = $pdo->query($sqlActiveNeedsRestoration)->fetchAll(PDO::FETCH_ASSOC);
 
-        $stmtActive = $pdo->query($sqlActive);
-        $to_unblock = $stmtActive->fetchAll(PDO::FETCH_COLUMN);
+        $pkgStmt = $pdo->prepare("
+            SELECT p.name, p.rate_limit, pl.pool_name 
+            FROM packages p 
+            LEFT JOIN ip_pools pl ON p.pool_id = pl.id 
+            WHERE p.id = ?
+        ");
 
-        if (!empty($to_unblock)) {
-            $delRejectStmt = $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute = 'Auth-Type'");
-            foreach ($to_unblock as $active_u) {
-                $delRejectStmt->execute([$active_u]);
-                $restored_count++;
+        foreach ($restoredUsers as $ru) {
+            $user = trim($ru['username']);
+            if (empty($user)) continue;
+
+            // Remove Reject from radcheck
+            $delRadcheckAuthStmt->execute([$user]);
+
+            // Remove walled garden entries from radreply
+            $delWalledRadreply->execute([$user]);
+
+            // Restore normal package rate-limit & profile
+            if (!empty($ru['package_id'])) {
+                $pkgStmt->execute([$ru['package_id']]);
+                $pkg = $pkgStmt->fetch(PDO::FETCH_ASSOC);
+
+                if ($pkg) {
+                    if (!empty($pkg['rate_limit']) && $pkg['rate_limit'] !== 'No Limit' && $pkg['rate_limit'] !== 'Unlimited') {
+                        $insertRadreply->execute([$user, 'Mikrotik-Rate-Limit', $pkg['rate_limit']]);
+                    }
+                    $target_profile = !empty($pkg['pool_name']) ? $pkg['pool_name'] : '';
+                    if (empty($target_profile) || $target_profile === 'PPPoE Pool') {
+                        if (!empty($pkg['name']) && preg_match('/(\d+)\s*(?:M|MB|Mbps)/i', $pkg['name'], $m_prof)) {
+                            $target_profile = $m_prof[1] . 'Mbps';
+                        }
+                    }
+                    if (!empty($target_profile)) {
+                        $insertRadreply->execute([$user, 'Mikrotik-Group', $target_profile]);
+                    }
+                }
             }
+
+            // Kick once so session re-establishes with full package speed
+            if ($kick_sessions && isset($online_map[$user])) {
+                kick_subscriber_session($pdo, $user, $ru['client_id']);
+            }
+
+            $restored_count++;
         }
 
     } catch (Exception $e) {
@@ -240,7 +356,9 @@ function sync_expired_subscribers($pdo, $client_id = null, $kick_sessions = true
     }
 
     return [
-        'blocked' => $blocked_count,
+        'blocked' => $walled_count + $hard_blocked_count,
+        'walled' => $walled_count,
+        'disabled' => $hard_blocked_count,
         'kicked' => $kicked_count,
         'restored' => $restored_count
     ];
