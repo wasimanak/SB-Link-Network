@@ -1488,13 +1488,38 @@ $subs = $pdo->query("SELECT s.*, p.name as package_name,
                                     <label class="col-form-label text-secondary small fw-bold">Full Address</label>
                                     <input type="text" name="address" class="form-control form-control-sm">
                                 </div>
-                                <div class="col-md-6 mb-3">
-                                    <label class="col-form-label text-secondary small fw-bold">Latitude</label>
-                                    <input type="text" name="latitude" class="form-control form-control-sm">
-                                </div>
-                                <div class="col-md-6 mb-3">
-                                    <label class="col-form-label text-secondary small fw-bold">Longitude</label>
-                                    <input type="text" name="longitude" class="form-control form-control-sm">
+                                <div class="col-md-12 mb-3">
+                                    <label class="col-form-label text-secondary small fw-bold d-flex justify-content-between align-items-center">
+                                        <span><i class="fa-solid fa-location-crosshairs text-primary me-1"></i> Customer GPS Location (10m Accuracy)</span>
+                                        <button type="button" class="btn btn-link btn-sm text-decoration-none p-0 text-muted" onclick="toggleManualCoords()" style="font-size: 0.75rem;">
+                                            <i class="fa-solid fa-keyboard me-1"></i> Manual Enter
+                                        </button>
+                                    </label>
+                                    
+                                    <div class="d-grid gap-2">
+                                        <button type="button" class="btn btn-outline-primary fw-bold py-2 shadow-sm" id="btn_capture_location" onclick="captureUserLocation()">
+                                            <i class="fa-solid fa-location-dot me-2 text-danger"></i> Get Current Location (10m GPS)
+                                        </button>
+                                    </div>
+                                    
+                                    <!-- Actual inputs sent to DB -->
+                                    <input type="hidden" name="latitude" id="user_latitude" value="">
+                                    <input type="hidden" name="longitude" id="user_longitude" value="">
+
+                                    <!-- Live Captured Status Card -->
+                                    <div id="location_status_box" class="mt-2 d-none"></div>
+
+                                    <!-- Collapsible Manual Inputs -->
+                                    <div id="manual_coords_container" class="row mt-2 d-none">
+                                        <div class="col-6">
+                                            <label class="small text-muted fw-bold">Latitude</label>
+                                            <input type="text" class="form-control form-control-sm font-monospace" id="manual_lat" placeholder="e.g. 31.520371" oninput="syncManualCoords()">
+                                        </div>
+                                        <div class="col-6">
+                                            <label class="small text-muted fw-bold">Longitude</label>
+                                            <input type="text" class="form-control form-control-sm font-monospace" id="manual_lng" placeholder="e.g. 74.358742" oninput="syncManualCoords()">
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1692,6 +1717,170 @@ function updateRenewDetails() {
         <tr><td class="fw-bold ps-3">Package Price</td><td class="text-success fw-bold">Rs ${pPrice}</td></tr>
     `;
 }
+
+// --- GPS Location Capture Logic (10m accuracy target) ---
+let geoWatchId = null;
+let bestPosition = null;
+
+function toggleManualCoords() {
+    var cont = document.getElementById('manual_coords_container');
+    if (!cont) return;
+    if (cont.classList.contains('d-none')) {
+        cont.classList.remove('d-none');
+        document.getElementById('manual_lat').value = document.getElementById('user_latitude').value;
+        document.getElementById('manual_lng').value = document.getElementById('user_longitude').value;
+    } else {
+        cont.classList.add('d-none');
+    }
+}
+
+function syncManualCoords() {
+    var lat = document.getElementById('manual_lat').value.trim();
+    var lng = document.getElementById('manual_lng').value.trim();
+    document.getElementById('user_latitude').value = lat;
+    document.getElementById('user_longitude').value = lng;
+    
+    var statusEl = document.getElementById('location_status_box');
+    if (lat && lng) {
+        statusEl.classList.remove('d-none');
+        statusEl.innerHTML = `
+            <div class="d-flex align-items-center justify-content-between p-2 rounded bg-light border">
+                <div>
+                    <div class="fw-bold text-primary small"><i class="fa-solid fa-pen-to-square me-1"></i> Manual Coordinates Entered</div>
+                    <div class="font-monospace text-dark small"><strong>Lat:</strong> ${lat} &nbsp;|&nbsp; <strong>Lng:</strong> ${lng}</div>
+                </div>
+                <div>
+                    <a href="https://www.google.com/maps?q=${lat},${lng}" target="_blank" class="btn btn-sm btn-outline-primary">
+                        <i class="fa-solid fa-map-pin me-1"></i> View Map
+                    </a>
+                </div>
+            </div>
+        `;
+    }
+}
+
+function captureUserLocation() {
+    if (!navigator.geolocation) {
+        alert("Geolocation is not supported by your browser/device.");
+        return;
+    }
+    
+    const btn = document.getElementById('btn_capture_location');
+    const statusEl = document.getElementById('location_status_box');
+    const latInp = document.getElementById('user_latitude');
+    const lngInp = document.getElementById('user_longitude');
+    
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin me-2"></i> Locking GPS (Target: &le;10m)...';
+    statusEl.classList.remove('d-none');
+    statusEl.innerHTML = '<div class="alert alert-info py-2 px-3 small mb-0"><i class="fa-solid fa-satellite-dish fa-spin me-2"></i> Searching for high-accuracy GPS satellites (&le;10m target)...</div>';
+    
+    if (geoWatchId !== null) {
+        navigator.geolocation.clearWatch(geoWatchId);
+        geoWatchId = null;
+    }
+    bestPosition = null;
+
+    const finishCapture = (pos) => {
+        if (geoWatchId !== null) {
+            navigator.geolocation.clearWatch(geoWatchId);
+            geoWatchId = null;
+        }
+        btn.disabled = false;
+        btn.className = 'btn btn-outline-success fw-bold py-2 shadow-sm';
+        btn.innerHTML = '<i class="fa-solid fa-arrows-rotate me-2"></i> Re-capture Location';
+        
+        const lat = pos.coords.latitude.toFixed(7);
+        const lng = pos.coords.longitude.toFixed(7);
+        const acc = Math.round(pos.coords.accuracy);
+        
+        latInp.value = lat;
+        lngInp.value = lng;
+        
+        const manLat = document.getElementById('manual_lat');
+        const manLng = document.getElementById('manual_lng');
+        if (manLat) manLat.value = lat;
+        if (manLng) manLng.value = lng;
+        
+        let accBadge = acc <= 10 
+            ? `<span class="badge bg-success text-white px-2 py-1"><i class="fa-solid fa-bullseye me-1"></i> High Accuracy: ±${acc}m (Locked &le;10m)</span>`
+            : `<span class="badge bg-warning text-dark px-2 py-1"><i class="fa-solid fa-satellite me-1"></i> Accuracy: ±${acc}m</span>`;
+            
+        statusEl.innerHTML = `
+            <div class="d-flex align-items-center justify-content-between p-2 rounded bg-success-subtle border border-success-subtle shadow-sm">
+                <div>
+                    <div class="fw-bold text-success small mb-1"><i class="fa-solid fa-circle-check me-1"></i> GPS Coordinates Saved for Database</div>
+                    <div class="font-monospace text-dark small"><strong>Lat:</strong> ${lat} &nbsp;|&nbsp; <strong>Lng:</strong> ${lng}</div>
+                    <div class="mt-1">${accBadge}</div>
+                </div>
+                <div>
+                    <a href="https://www.google.com/maps?q=${lat},${lng}" target="_blank" class="btn btn-sm btn-outline-success fw-bold">
+                        <i class="fa-solid fa-map-location-dot me-1"></i> View on Map
+                    </a>
+                </div>
+            </div>
+        `;
+    };
+
+    const timeoutTimer = setTimeout(() => {
+        if (bestPosition) {
+            finishCapture(bestPosition);
+        } else {
+            if (geoWatchId !== null) {
+                navigator.geolocation.clearWatch(geoWatchId);
+                geoWatchId = null;
+            }
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-location-dot me-2 text-danger"></i> Get Current Location (10m GPS)';
+            statusEl.innerHTML = '<div class="alert alert-warning py-2 px-3 small mb-0"><i class="fa-solid fa-triangle-exclamation me-1"></i> GPS request timed out. Please ensure Device Location/GPS is turned ON.</div>';
+        }
+    }, 12000);
+
+    try {
+        geoWatchId = navigator.geolocation.watchPosition(
+            (pos) => {
+                const acc = pos.coords.accuracy;
+                if (!bestPosition || acc < bestPosition.coords.accuracy) {
+                    bestPosition = pos;
+                }
+                
+                statusEl.innerHTML = `<div class="alert alert-info py-2 px-3 small mb-0"><i class="fa-solid fa-satellite-dish me-2"></i> Reading GPS signals... Current accuracy: <strong>±${Math.round(acc)}m</strong></div>`;
+                
+                // If accuracy is within 10 meters, lock immediately!
+                if (acc <= 10) {
+                    clearTimeout(timeoutTimer);
+                    finishCapture(pos);
+                }
+            },
+            (err) => {
+                clearTimeout(timeoutTimer);
+                if (geoWatchId !== null) {
+                    navigator.geolocation.clearWatch(geoWatchId);
+                    geoWatchId = null;
+                }
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-location-dot me-2 text-danger"></i> Get Current Location (10m GPS)';
+                
+                let errMsg = 'Failed to get location.';
+                if (err.code === 1) errMsg = 'Location permission denied. Please allow location access in your browser.';
+                else if (err.code === 2) errMsg = 'Location unavailable. Turn on GPS/Device Location.';
+                else if (err.code === 3) errMsg = 'Location request timed out.';
+                
+                statusEl.innerHTML = `<div class="alert alert-danger py-2 px-3 small mb-0"><i class="fa-solid fa-circle-exclamation me-1"></i> ${errMsg}</div>`;
+            },
+            {
+                enableHighAccuracy: true,
+                maximumAge: 0,
+                timeout: 10000
+            }
+        );
+    } catch(e) {
+        clearTimeout(timeoutTimer);
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-location-dot me-2 text-danger"></i> Get Current Location (10m GPS)';
+        statusEl.innerHTML = `<div class="alert alert-danger py-2 px-3 small mb-0"><i class="fa-solid fa-circle-exclamation me-1"></i> Geolocation error: ${e.message}</div>`;
+    }
+}
 </script>
 
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
@@ -1709,6 +1898,13 @@ function updateRenewDetails() {
 $(document).ready(function() {
     // Fix modal backdrop z-index issues
     $('.modal').appendTo('body');
+
+    $('#addUserModal').on('hidden.bs.modal', function () {
+        if (geoWatchId !== null) {
+            navigator.geolocation.clearWatch(geoWatchId);
+            geoWatchId = null;
+        }
+    });
 
     // Donut Chart initialization
     const ctx = document.getElementById('usersDonut').getContext('2d');
