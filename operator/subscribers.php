@@ -371,6 +371,8 @@ $count_offline = max(0, $count_all - $count_online);
 <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
 <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.2/css/buttons.bootstrap5.min.css">
 <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<!-- Leaflet Map CSS -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 
 <style>
     body { background-color: #f8fafc; font-family: 'Inter', system-ui, -apple-system, sans-serif; }
@@ -943,24 +945,53 @@ $count_offline = max(0, $count_all - $count_online);
                                 </div>
                                 <div class="col-md-12 mb-3">
                                     <label class="col-form-label d-flex justify-content-between align-items-center">
-                                        <span><i class="fa-solid fa-location-crosshairs text-primary me-1"></i> Customer GPS Location (10m Accuracy)</span>
+                                        <span><i class="fa-solid fa-map-location-dot text-primary me-1"></i> Customer Location (Map Pin & GPS)</span>
                                         <button type="button" class="btn btn-link btn-sm text-decoration-none p-0 text-muted" onclick="toggleManualCoords()" style="font-size: 0.75rem;">
                                             <i class="fa-solid fa-keyboard me-1"></i> Manual Enter
                                         </button>
                                     </label>
                                     
-                                    <div class="d-grid gap-2">
-                                        <button type="button" class="btn btn-outline-primary fw-bold py-2 shadow-sm" id="btn_capture_location" onclick="captureUserLocation()">
-                                            <i class="fa-solid fa-location-dot me-2 text-danger"></i> Get Current Location (10m GPS)
-                                        </button>
+                                    <!-- Action controls: GPS Button + Map Search Box -->
+                                    <div class="row g-2 mb-2">
+                                        <div class="col-md-6">
+                                            <button type="button" class="btn btn-outline-primary btn-sm fw-bold w-100 py-2 shadow-sm" id="btn_capture_location" onclick="captureUserLocation()">
+                                                <i class="fa-solid fa-crosshairs me-1 text-danger"></i> Get Current GPS (10m)
+                                            </button>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <div class="input-group input-group-sm">
+                                                <input type="text" class="form-control" id="map_search_input" placeholder="Search area, colony, city..." onkeydown="if(event.key==='Enter'){event.preventDefault();searchLocationOnMap();}">
+                                                <button class="btn btn-primary" type="button" id="btn_map_search" onclick="searchLocationOnMap()" title="Search Area on Map">
+                                                    <i class="fa-solid fa-magnifying-glass"></i> Search
+                                                </button>
+                                            </div>
+                                        </div>
                                     </div>
-                                    
+
+                                    <!-- Interactive Leaflet Map Container -->
+                                    <div class="position-relative rounded border overflow-hidden shadow-sm" style="height: 280px;">
+                                        <div id="user_map_picker" style="height: 100%; width: 100%; z-index: 1;"></div>
+                                        <div class="position-absolute bottom-0 start-0 m-2 px-2 py-1 rounded bg-dark bg-opacity-75 text-white small" style="z-index: 1000; font-size: 0.75rem; pointer-events: none;">
+                                            <i class="fa-solid fa-hand-pointer text-warning me-1"></i> Map par click karein ya pin ko drag kar ke customer ki location par set karein
+                                        </div>
+                                    </div>
+
                                     <!-- Actual inputs sent to DB -->
                                     <input type="hidden" name="latitude" id="user_latitude" value="">
                                     <input type="hidden" name="longitude" id="user_longitude" value="">
 
-                                    <!-- Live Captured Status Card -->
-                                    <div id="location_status_box" class="mt-2 d-none"></div>
+                                    <!-- Live Pinned / Captured Status Card -->
+                                    <div id="location_status_box" class="mt-2">
+                                        <div class="d-flex align-items-center justify-content-between p-2 rounded bg-light border small">
+                                            <div>
+                                                <span class="text-secondary fw-semibold"><i class="fa-solid fa-location-dot text-danger me-1"></i> Pinned Coordinates:</span>
+                                                <span class="font-monospace text-dark fw-bold ms-1" id="pinned_coords_text">Not set (Click map or drag pin)</span>
+                                            </div>
+                                            <div id="location_accuracy_badge">
+                                                <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">Draggable Pin</span>
+                                            </div>
+                                        </div>
+                                    </div>
 
                                     <!-- Collapsible Manual Inputs -->
                                     <div id="manual_coords_container" class="row mt-2 d-none">
@@ -1191,9 +1222,134 @@ function openRenewModal(userId) {
     m.show();
 }
 
-// --- GPS Location Capture Logic (10m accuracy target) ---
+// --- GPS Location & Interactive Leaflet Map Logic (10m accuracy target) ---
 let geoWatchId = null;
 let bestPosition = null;
+let userMap = null;
+let userMarker = null;
+const defaultMapLat = 31.5204;
+const defaultMapLng = 74.3587; // Central Pakistan default
+
+function initUserMapPicker() {
+    if (userMap !== null) {
+        setTimeout(function() {
+            if (userMap) userMap.invalidateSize();
+        }, 150);
+        return;
+    }
+    
+    var container = document.getElementById('user_map_picker');
+    if (!container) return;
+    
+    var curLat = parseFloat(document.getElementById('user_latitude').value);
+    var curLng = parseFloat(document.getElementById('user_longitude').value);
+    var hasExisting = !isNaN(curLat) && curLat !== 0 && !isNaN(curLng) && curLng !== 0;
+    var startLat = hasExisting ? curLat : defaultMapLat;
+    var startLng = hasExisting ? curLng : defaultMapLng;
+
+    userMap = L.map('user_map_picker', {
+        center: [startLat, startLng],
+        zoom: hasExisting ? 17 : 13,
+        zoomControl: true
+    });
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap'
+    }).addTo(userMap);
+
+    var pinIcon = L.icon({
+        iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+        iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+        shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+        iconSize: [25, 41],
+        iconAnchor: [12, 41],
+        popupAnchor: [1, -34],
+        shadowSize: [41, 41]
+    });
+
+    userMarker = L.marker([startLat, startLng], {
+        draggable: true,
+        icon: pinIcon
+    }).addTo(userMap);
+
+    userMarker.bindTooltip("Drag me or click map", { permanent: false, direction: 'top' });
+
+    if (hasExisting) {
+        updateCoordsFromMap(startLat, startLng, false);
+    }
+
+    userMarker.on('dragend', function () {
+        var pos = userMarker.getLatLng();
+        updateCoordsFromMap(pos.lat, pos.lng);
+    });
+
+    userMap.on('click', function (e) {
+        userMarker.setLatLng(e.latlng);
+        updateCoordsFromMap(e.latlng.lat, e.latlng.lng);
+    });
+
+    setTimeout(function() {
+        if (userMap) userMap.invalidateSize();
+    }, 200);
+}
+
+function updateCoordsFromMap(lat, lng, panTo) {
+    var fixedLat = parseFloat(lat).toFixed(7);
+    var fixedLng = parseFloat(lng).toFixed(7);
+    
+    document.getElementById('user_latitude').value = fixedLat;
+    document.getElementById('user_longitude').value = fixedLng;
+    
+    var manLat = document.getElementById('manual_lat');
+    var manLng = document.getElementById('manual_lng');
+    if (manLat) manLat.value = fixedLat;
+    if (manLng) manLng.value = fixedLng;
+    
+    var textEl = document.getElementById('pinned_coords_text');
+    if (textEl) {
+        textEl.innerHTML = `<span class="text-primary">${fixedLat}</span>, <span class="text-primary">${fixedLng}</span>`;
+    }
+    
+    var badgeEl = document.getElementById('location_accuracy_badge');
+    if (badgeEl) {
+        badgeEl.innerHTML = '<span class="badge bg-primary-subtle text-primary border border-primary-subtle"><i class="fa-solid fa-map-pin me-1"></i> Pinned on Map</span>';
+    }
+    
+    if (panTo && userMap) {
+        userMap.panTo([fixedLat, fixedLng]);
+    }
+}
+
+function searchLocationOnMap() {
+    var query = document.getElementById('map_search_input').value.trim();
+    if (!query) return;
+    var btn = document.getElementById('btn_map_search');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+    
+    fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`)
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-magnifying-glass"></i> Search';
+            if (data && data.length > 0) {
+                var lat = parseFloat(data[0].lat);
+                var lon = parseFloat(data[0].lon);
+                if (userMap && userMarker) {
+                    userMap.setView([lat, lon], 16);
+                    userMarker.setLatLng([lat, lon]);
+                }
+                updateCoordsFromMap(lat, lon);
+            } else {
+                alert('Area/location not found. Please try another search term or drag the map manually.');
+            }
+        })
+        .catch(function() {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-magnifying-glass"></i> Search';
+        });
+}
 
 function toggleManualCoords() {
     var cont = document.getElementById('manual_coords_container');
@@ -1208,27 +1364,15 @@ function toggleManualCoords() {
 }
 
 function syncManualCoords() {
-    var lat = document.getElementById('manual_lat').value.trim();
-    var lng = document.getElementById('manual_lng').value.trim();
-    document.getElementById('user_latitude').value = lat;
-    document.getElementById('user_longitude').value = lng;
+    var lat = parseFloat(document.getElementById('manual_lat').value.trim());
+    var lng = parseFloat(document.getElementById('manual_lng').value.trim());
     
-    var statusEl = document.getElementById('location_status_box');
-    if (lat && lng) {
-        statusEl.classList.remove('d-none');
-        statusEl.innerHTML = `
-            <div class="d-flex align-items-center justify-content-between p-2 rounded bg-light border">
-                <div>
-                    <div class="fw-bold text-primary small"><i class="fa-solid fa-pen-to-square me-1"></i> Manual Coordinates Entered</div>
-                    <div class="font-monospace text-dark small"><strong>Lat:</strong> ${lat} &nbsp;|&nbsp; <strong>Lng:</strong> ${lng}</div>
-                </div>
-                <div>
-                    <a href="https://www.google.com/maps?q=${lat},${lng}" target="_blank" class="btn btn-sm btn-outline-primary">
-                        <i class="fa-solid fa-map-pin me-1"></i> View Map
-                    </a>
-                </div>
-            </div>
-        `;
+    if (!isNaN(lat) && !isNaN(lng)) {
+        if (userMap && userMarker) {
+            userMarker.setLatLng([lat, lng]);
+            userMap.setView([lat, lng], 17);
+        }
+        updateCoordsFromMap(lat, lng);
     }
 }
 
@@ -1239,14 +1383,15 @@ function captureUserLocation() {
     }
     
     const btn = document.getElementById('btn_capture_location');
-    const statusEl = document.getElementById('location_status_box');
+    const statusEl = document.getElementById('location_accuracy_badge');
     const latInp = document.getElementById('user_latitude');
     const lngInp = document.getElementById('user_longitude');
     
     btn.disabled = true;
-    btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin me-2"></i> Locking GPS (Target: &le;10m)...';
-    statusEl.classList.remove('d-none');
-    statusEl.innerHTML = '<div class="alert alert-info py-2 px-3 small mb-0"><i class="fa-solid fa-satellite-dish fa-spin me-2"></i> Searching for high-accuracy GPS satellites (&le;10m target)...</div>';
+    btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin me-1"></i> Locking GPS (&le;10m)...';
+    if (statusEl) {
+        statusEl.innerHTML = '<span class="badge bg-info-subtle text-info border border-info-subtle"><i class="fa-solid fa-satellite-dish fa-spin me-1"></i> Locking GPS...</span>';
+    }
     
     if (geoWatchId !== null) {
         navigator.geolocation.clearWatch(geoWatchId);
@@ -1260,39 +1405,25 @@ function captureUserLocation() {
             geoWatchId = null;
         }
         btn.disabled = false;
-        btn.className = 'btn btn-outline-success fw-bold py-2 shadow-sm';
-        btn.innerHTML = '<i class="fa-solid fa-arrows-rotate me-2"></i> Re-capture Location';
+        btn.className = 'btn btn-outline-success btn-sm fw-bold w-100 py-2 shadow-sm';
+        btn.innerHTML = '<i class="fa-solid fa-arrows-rotate me-1"></i> Re-capture GPS';
         
         const lat = pos.coords.latitude.toFixed(7);
         const lng = pos.coords.longitude.toFixed(7);
         const acc = Math.round(pos.coords.accuracy);
         
-        latInp.value = lat;
-        lngInp.value = lng;
+        if (userMap && userMarker) {
+            userMap.setView([lat, lng], 17);
+            userMarker.setLatLng([lat, lng]);
+        }
         
-        const manLat = document.getElementById('manual_lat');
-        const manLng = document.getElementById('manual_lng');
-        if (manLat) manLat.value = lat;
-        if (manLng) manLng.value = lng;
+        updateCoordsFromMap(lat, lng);
         
         let accBadge = acc <= 10 
-            ? `<span class="badge bg-success text-white px-2 py-1"><i class="fa-solid fa-bullseye me-1"></i> High Accuracy: ±${acc}m (Locked &le;10m)</span>`
-            : `<span class="badge bg-warning text-dark px-2 py-1"><i class="fa-solid fa-satellite me-1"></i> Accuracy: ±${acc}m</span>`;
+            ? `<span class="badge bg-success text-white px-2 py-1"><i class="fa-solid fa-bullseye me-1"></i> High GPS: ±${acc}m (&le;10m)</span>`
+            : `<span class="badge bg-warning text-dark px-2 py-1"><i class="fa-solid fa-satellite me-1"></i> GPS: ±${acc}m</span>`;
             
-        statusEl.innerHTML = `
-            <div class="d-flex align-items-center justify-content-between p-2 rounded bg-success-subtle border border-success-subtle shadow-sm">
-                <div>
-                    <div class="fw-bold text-success small mb-1"><i class="fa-solid fa-circle-check me-1"></i> GPS Coordinates Saved for Database</div>
-                    <div class="font-monospace text-dark small"><strong>Lat:</strong> ${lat} &nbsp;|&nbsp; <strong>Lng:</strong> ${lng}</div>
-                    <div class="mt-1">${accBadge}</div>
-                </div>
-                <div>
-                    <a href="https://www.google.com/maps?q=${lat},${lng}" target="_blank" class="btn btn-sm btn-outline-success fw-bold">
-                        <i class="fa-solid fa-map-location-dot me-1"></i> View on Map
-                    </a>
-                </div>
-            </div>
-        `;
+        if (statusEl) statusEl.innerHTML = accBadge;
     };
 
     const timeoutTimer = setTimeout(() => {
@@ -1304,8 +1435,9 @@ function captureUserLocation() {
                 geoWatchId = null;
             }
             btn.disabled = false;
-            btn.innerHTML = '<i class="fa-solid fa-location-dot me-2 text-danger"></i> Get Current Location (10m GPS)';
-            statusEl.innerHTML = '<div class="alert alert-warning py-2 px-3 small mb-0"><i class="fa-solid fa-triangle-exclamation me-1"></i> GPS request timed out. Please ensure Device Location/GPS is turned ON.</div>';
+            btn.innerHTML = '<i class="fa-solid fa-crosshairs me-1 text-danger"></i> Get Current GPS (10m)';
+            if (statusEl) statusEl.innerHTML = '<span class="badge bg-warning text-dark">GPS Timeout</span>';
+            alert("GPS request timed out. Make sure Location/GPS is turned ON, or use the interactive map to pin the location!");
         }
     }, 12000);
 
@@ -1317,7 +1449,9 @@ function captureUserLocation() {
                     bestPosition = pos;
                 }
                 
-                statusEl.innerHTML = `<div class="alert alert-info py-2 px-3 small mb-0"><i class="fa-solid fa-satellite-dish me-2"></i> Reading GPS signals... Current accuracy: <strong>±${Math.round(acc)}m</strong></div>`;
+                if (statusEl) {
+                    statusEl.innerHTML = `<span class="badge bg-info-subtle text-info">GPS reading: ±${Math.round(acc)}m</span>`;
+                }
                 
                 // If accuracy is within 10 meters, lock immediately!
                 if (acc <= 10) {
@@ -1332,14 +1466,14 @@ function captureUserLocation() {
                     geoWatchId = null;
                 }
                 btn.disabled = false;
-                btn.innerHTML = '<i class="fa-solid fa-location-dot me-2 text-danger"></i> Get Current Location (10m GPS)';
+                btn.innerHTML = '<i class="fa-solid fa-crosshairs me-1 text-danger"></i> Get Current GPS (10m)';
                 
                 let errMsg = 'Failed to get location.';
-                if (err.code === 1) errMsg = 'Location permission denied. Please allow location access in your browser.';
-                else if (err.code === 2) errMsg = 'Location unavailable. Turn on GPS/Device Location.';
+                if (err.code === 1) errMsg = 'Location permission denied in browser.';
+                else if (err.code === 2) errMsg = 'Location unavailable on device.';
                 else if (err.code === 3) errMsg = 'Location request timed out.';
                 
-                statusEl.innerHTML = `<div class="alert alert-danger py-2 px-3 small mb-0"><i class="fa-solid fa-circle-exclamation me-1"></i> ${errMsg}</div>`;
+                if (statusEl) statusEl.innerHTML = `<span class="badge bg-danger">${errMsg}</span>`;
             },
             {
                 enableHighAccuracy: true,
@@ -1350,14 +1484,15 @@ function captureUserLocation() {
     } catch(e) {
         clearTimeout(timeoutTimer);
         btn.disabled = false;
-        btn.innerHTML = '<i class="fa-solid fa-location-dot me-2 text-danger"></i> Get Current Location (10m GPS)';
-        statusEl.innerHTML = `<div class="alert alert-danger py-2 px-3 small mb-0"><i class="fa-solid fa-circle-exclamation me-1"></i> Geolocation error: ${e.message}</div>`;
+        btn.innerHTML = '<i class="fa-solid fa-crosshairs me-1 text-danger"></i> Get Current GPS (10m)';
+        if (statusEl) statusEl.innerHTML = `<span class="badge bg-danger">GPS Error</span>`;
     }
 }
 </script>
 
 <!-- jQuery & DataTables JS -->
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
 <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
 
@@ -1456,6 +1591,10 @@ $(document).ready(function() {
     
     // Append modals to body to prevent z-index backdrop bugs inside card containers
     $('.modal').appendTo('body');
+
+    $('#addUserModal').on('shown.bs.modal', function () {
+        initUserMapPicker();
+    });
 
     $('#addUserModal').on('hidden.bs.modal', function () {
         if (geoWatchId !== null) {
