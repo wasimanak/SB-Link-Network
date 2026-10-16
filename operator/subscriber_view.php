@@ -540,7 +540,13 @@ if (strtolower($user['status'] ?? '') === 'disabled') {
                 <li><i class="fa-solid fa-user-shield"></i> Admin</li>
                 <li><i class="fa-solid fa-id-card"></i> <?= htmlspecialchars($user['national_id'] ?: 'N/A') ?></li>
                 <li><i class="fa-solid fa-phone"></i> <?= htmlspecialchars($user['mobile'] ?: ($user['phone'] ?: 'N/A')) ?></li>
-                <li><i class="fa-solid fa-location-dot"></i> <?= htmlspecialchars($user['address'] ?: 'N/A') ?></li>
+                <li><i class="fa-solid fa-location-dot"></i> <?= htmlspecialchars($user['address'] ?: 'N/A') ?>
+                    <?php if (!empty($user['latitude']) && !empty($user['longitude']) && (float)$user['latitude'] != 0): ?>
+                        <a href="https://www.google.com/maps?q=<?= $user['latitude'] ?>,<?= $user['longitude'] ?>" target="_blank" class="badge bg-primary text-white text-decoration-none ms-1 px-2 py-1" style="font-size: 0.7rem;" title="View exact house location on Google Maps">
+                            <i class="fa-solid fa-map-location-dot me-1"></i> Maps
+                        </a>
+                    <?php endif; ?>
+                </li>
                 <li><i class="fa-solid fa-calendar-alt"></i> <?= $user['expiry_date'] ? date('Y-m-d H:i:s', strtotime($user['expiry_date'])) : 'N/A' ?></li>
             </ul>
             <div class="action-grid">

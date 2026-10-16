@@ -951,19 +951,25 @@ $count_offline = max(0, $count_all - $count_online);
                                         </button>
                                     </label>
                                     
-                                    <!-- Action controls: GPS Button + Map Search Box -->
+                                    <!-- Action controls: GPS Button + Map Search Box + Satellite/Map toggle -->
                                     <div class="row g-2 mb-2">
-                                        <div class="col-md-6">
+                                        <div class="col-md-5">
                                             <button type="button" class="btn btn-outline-primary btn-sm fw-bold w-100 py-2 shadow-sm" id="btn_capture_location" onclick="captureUserLocation()">
                                                 <i class="fa-solid fa-crosshairs me-1 text-danger"></i> Get Current GPS (10m)
                                             </button>
                                         </div>
-                                        <div class="col-md-6">
+                                        <div class="col-md-4">
                                             <div class="input-group input-group-sm">
-                                                <input type="text" class="form-control" id="map_search_input" placeholder="Search area, colony, city..." onkeydown="if(event.key==='Enter'){event.preventDefault();searchLocationOnMap();}">
+                                                <input type="text" class="form-control" id="map_search_input" placeholder="Search area, colony..." onkeydown="if(event.key==='Enter'){event.preventDefault();searchLocationOnMap();}">
                                                 <button class="btn btn-primary" type="button" id="btn_map_search" onclick="searchLocationOnMap()" title="Search Area on Map">
-                                                    <i class="fa-solid fa-magnifying-glass"></i> Search
+                                                    <i class="fa-solid fa-magnifying-glass"></i>
                                                 </button>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <div class="btn-group btn-group-sm w-100 shadow-sm" role="group">
+                                                <button type="button" class="btn btn-primary btn-sm fw-bold" id="btnUserMapHybrid" onclick="switchUserMapLayer('hybrid')" title="Satellite View with Streets"><i class="fa-solid fa-satellite me-1"></i>Sat</button>
+                                                <button type="button" class="btn btn-outline-secondary btn-sm fw-bold" id="btnUserMapStreets" onclick="switchUserMapLayer('streets')" title="Streets Map View"><i class="fa-solid fa-road me-1"></i>Map</button>
                                             </div>
                                         </div>
                                     </div>
@@ -1227,6 +1233,8 @@ let geoWatchId = null;
 let bestPosition = null;
 let userMap = null;
 let userMarker = null;
+let userHybridLayer = null;
+let userStreetsLayer = null;
 const defaultMapLat = 31.5204;
 const defaultMapLng = 74.3587; // Central Pakistan default
 
@@ -1247,16 +1255,44 @@ function initUserMapPicker() {
     var startLat = hasExisting ? curLat : defaultMapLat;
     var startLng = hasExisting ? curLng : defaultMapLng;
 
-    userMap = L.map('user_map_picker', {
-        center: [startLat, startLng],
-        zoom: hasExisting ? 17 : 13,
-        zoomControl: true
+    userHybridLayer = L.tileLayer('https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+        maxZoom: 22,
+        subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+        attribution: '&copy; Google Maps'
     });
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    userStreetsLayer = L.tileLayer('https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+        maxZoom: 22,
+        subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+        attribution: '&copy; Google Maps'
+    });
+
+    var userEsri = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 19,
+        attribution: 'Tiles &copy; Esri'
+    });
+
+    var userOsm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
         attribution: '&copy; OpenStreetMap'
-    }).addTo(userMap);
+    });
+
+    var userBaseMaps = {
+        "🛰️ Google Satellite (Hybrid)": userHybridLayer,
+        "🗺️ Google Streets": userStreetsLayer,
+        "🌍 Esri Satellite": userEsri,
+        "📍 OpenStreetMap": userOsm
+    };
+
+    userMap = L.map('user_map_picker', {
+        center: [startLat, startLng],
+        zoom: hasExisting ? 18 : 14,
+        maxZoom: 22,
+        zoomControl: true,
+        layers: [userHybridLayer]
+    });
+
+    L.control.layers(userBaseMaps, null, { position: 'topright' }).addTo(userMap);
 
     var pinIcon = L.icon({
         iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
@@ -1292,6 +1328,23 @@ function initUserMapPicker() {
     setTimeout(function() {
         if (userMap) userMap.invalidateSize();
     }, 200);
+}
+
+function switchUserMapLayer(type) {
+    if (!userMap || !userHybridLayer || !userStreetsLayer) return;
+    var btnHybrid = document.getElementById('btnUserMapHybrid');
+    var btnStreets = document.getElementById('btnUserMapStreets');
+    if (type === 'hybrid') {
+        userMap.removeLayer(userStreetsLayer);
+        userMap.addLayer(userHybridLayer);
+        if (btnHybrid) { btnHybrid.className = 'btn btn-primary btn-sm fw-bold'; }
+        if (btnStreets) { btnStreets.className = 'btn btn-outline-secondary btn-sm fw-bold'; }
+    } else if (type === 'streets') {
+        userMap.removeLayer(userHybridLayer);
+        userMap.addLayer(userStreetsLayer);
+        if (btnStreets) { btnStreets.className = 'btn btn-primary btn-sm fw-bold'; }
+        if (btnHybrid) { btnHybrid.className = 'btn btn-outline-secondary btn-sm fw-bold'; }
+    }
 }
 
 function updateCoordsFromMap(lat, lng, panTo) {
