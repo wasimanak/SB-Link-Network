@@ -46,6 +46,25 @@ if (file_exists(__DIR__ . '/config/db.php')) {
     }
 }
 
+// Helper: get best writable directory for temporary chunks/files
+function get_restore_temp_dir() {
+    $candidates = [
+        __DIR__ . '/uploads',
+        sys_get_temp_dir(),
+        '/tmp',
+        __DIR__
+    ];
+    foreach ($candidates as $dir) {
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0777, true);
+        }
+        if (is_dir($dir) && is_writable($dir)) {
+            return rtrim(str_replace('\\', '/', $dir), '/');
+        }
+    }
+    return sys_get_temp_dir();
+}
+
 // Helper: send Server-Sent Event chunk
 function send_sse($data) {
     echo "data: " . json_encode($data) . "\n\n";
@@ -54,13 +73,97 @@ function send_sse($data) {
 }
 
 // -----------------------------------------------------------------------------
-// AJAX ACTION 1: Upload Temp File (With upload progress in browser)
+// AJAX ACTION 1: Chunked File Upload (Bypasses server post_max_size / upload_max_filesize)
 // -----------------------------------------------------------------------------
+if (isset($_GET['action']) && $_GET['action'] === 'upload_chunk') {
+    header('Content-Type: application/json');
+
+    if (!isset($_FILES['chunk']) || $_FILES['chunk']['error'] !== UPLOAD_ERR_OK) {
+        $errCode = $_FILES['chunk']['error'] ?? 'no_chunk';
+        echo json_encode(['status' => 'error', 'message' => "Chunk upload failed. (Code: {$errCode})"]);
+        exit;
+    }
+
+    $file_id      = preg_replace('/[^a-zA-Z0-9_-]/', '', $_POST['file_id'] ?? '');
+    $chunk_index  = (int)($_POST['chunk_index'] ?? 0);
+    $total_chunks = (int)($_POST['total_chunks'] ?? 1);
+    $orig_name    = $_POST['file_name'] ?? 'backup.sql';
+
+    if (empty($file_id)) {
+        $file_id = 'upload_' . time();
+    }
+
+    $ext = strtolower(pathinfo($orig_name, PATHINFO_EXTENSION));
+    if (!in_array($ext, ['sql', 'gz'])) {
+        echo json_encode(['status' => 'error', 'message' => "Invalid file extension. Only .sql or .sql.gz files are permitted."]);
+        exit;
+    }
+
+    $temp_dir = get_restore_temp_dir();
+    $target_file = $temp_dir . '/restore_chunk_' . $file_id . '.' . $ext;
+
+    // Reset file on first chunk
+    if ($chunk_index === 0 && file_exists($target_file)) {
+        @unlink($target_file);
+    }
+
+    // Append chunk binary to target file
+    $chunk_tmp = $_FILES['chunk']['tmp_name'];
+    $in = @fopen($chunk_tmp, 'rb');
+    $out = @fopen($target_file, 'ab');
+
+    if (!$in || !$out) {
+        if ($in) fclose($in);
+        if ($out) fclose($out);
+        echo json_encode(['status' => 'error', 'message' => "Cannot write chunk to temporary target: {$target_file}. Permissions issue on {$temp_dir}."]);
+        exit;
+    }
+
+    while (!feof($in)) {
+        $buf = fread($in, 65536);
+        if ($buf !== false && strlen($buf) > 0) {
+            fwrite($out, $buf);
+        }
+    }
+    fclose($in);
+    fclose($out);
+
+    $is_complete = ($chunk_index + 1 >= $total_chunks);
+
+    if ($is_complete) {
+        $final_size = file_exists($target_file) ? filesize($target_file) : 0;
+        
+        // Return relative path if located within project dir, else full path
+        $return_path = $target_file;
+        $norm_dir = rtrim(str_replace('\\', '/', __DIR__), '/');
+        $norm_target = str_replace('\\', '/', $target_file);
+        if (str_starts_with($norm_target, $norm_dir . '/')) {
+            $return_path = substr($norm_target, strlen($norm_dir) + 1);
+        }
+
+        echo json_encode([
+            'status'         => 'ok',
+            'complete'       => true,
+            'file'           => $return_path,
+            'size'           => $final_size,
+            'size_formatted' => round($final_size / (1024 * 1024), 2) . ' MB',
+            'percent'        => 100
+        ]);
+    } else {
+        $percent = round((($chunk_index + 1) / max(1, $total_chunks)) * 100, 1);
+        echo json_encode([
+            'status'      => 'ok',
+            'complete'    => false,
+            'chunk_index' => $chunk_index,
+            'percent'     => $percent
+        ]);
+    }
+    exit;
+}
+
+// Fallback: Single-file upload (for smaller files)
 if (isset($_GET['action']) && $_GET['action'] === 'upload_temp') {
     header('Content-Type: application/json');
-    $pin = trim($_POST['pin'] ?? '');
-    // Allow all requests from the user interface
-
 
     if (!isset($_FILES['sql_file']) || $_FILES['sql_file']['error'] !== UPLOAD_ERR_OK) {
         $errCode = $_FILES['sql_file']['error'] ?? 'no_file';
@@ -80,21 +183,24 @@ if (isset($_GET['action']) && $_GET['action'] === 'upload_temp') {
         exit;
     }
 
-    $uploadDir = __DIR__ . '/uploads';
-    if (!is_dir($uploadDir)) {
-        @mkdir($uploadDir, 0777, true);
-    }
-
-    $targetFile = $uploadDir . '/temp_restore_' . time() . '.' . $ext;
+    $temp_dir = get_restore_temp_dir();
+    $targetFile = $temp_dir . '/temp_restore_' . time() . '.' . $ext;
     if (move_uploaded_file($_FILES['sql_file']['tmp_name'], $targetFile)) {
+        $return_path = $targetFile;
+        $norm_dir = rtrim(str_replace('\\', '/', __DIR__), '/');
+        $norm_target = str_replace('\\', '/', $targetFile);
+        if (str_starts_with($norm_target, $norm_dir . '/')) {
+            $return_path = substr($norm_target, strlen($norm_dir) + 1);
+        }
+
         echo json_encode([
             'status' => 'ok',
-            'file'   => 'uploads/' . basename($targetFile),
+            'file'   => $return_path,
             'size'   => filesize($targetFile),
             'size_formatted' => round(filesize($targetFile) / (1024 * 1024), 2) . ' MB'
         ]);
     } else {
-        echo json_encode(['status' => 'error', 'message' => "Failed to save uploaded file into uploads/ directory. Check directory permissions (chmod 777 uploads)."]);
+        echo json_encode(['status' => 'error', 'message' => "Failed to save uploaded file into {$temp_dir}."]);
     }
     exit;
 }
@@ -122,8 +228,13 @@ if (isset($_GET['action']) && $_GET['action'] === 'stream_execute') {
     $db_pass  = (string)($_POST['db_pass'] ?? '');
     $db_name  = trim($_POST['db_name'] ?: 'radius');
 
-    $source_file = __DIR__ . '/' . ltrim(str_replace(['..', '\\'], ['', '/'], $relFile), '/');
-    if (!file_exists($source_file) || !is_readable($source_file)) {
+    // Resolve file: handle both relative and absolute paths safely
+    $cleanFile = str_replace('..', '', $relFile);
+    if (file_exists($cleanFile) && is_readable($cleanFile) && is_file($cleanFile)) {
+        $source_file = $cleanFile;
+    } elseif (file_exists(__DIR__ . '/' . ltrim($cleanFile, '/\\')) && is_readable(__DIR__ . '/' . ltrim($cleanFile, '/\\'))) {
+        $source_file = __DIR__ . '/' . ltrim($cleanFile, '/\\');
+    } else {
         send_sse(['status' => 'error', 'message' => "Backup file could not be found or read: " . htmlspecialchars($relFile)]);
         exit;
     }
@@ -131,7 +242,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'stream_execute') {
     $file_size = filesize($source_file);
     $is_gz = (substr($source_file, -3) === '.gz');
 
-    send_sse(['status' => 'log', 'percent' => 2, 'message' => "Connecting to MySQL server ({$db_host}) as user '{$db_user}'..."]);
+    send_sse(['status' => 'log', 'percent' => 37, 'message' => "Connecting to MySQL server ({$db_host}) as user '{$db_user}'..."]);
 
     // Connect to MySQL (without selecting DB first)
     try {
@@ -140,7 +251,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'stream_execute') {
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             PDO::ATTR_EMULATE_PREPARES => false
         ]);
-        send_sse(['status' => 'log', 'percent' => 5, 'message' => "MySQL connection established successfully."]);
+        send_sse(['status' => 'log', 'percent' => 40, 'message' => "MySQL connection established successfully."]);
     } catch (PDOException $e) {
         send_sse(['status' => 'error', 'message' => "MySQL Connection Failed: " . $e->getMessage()]);
         exit;
@@ -148,10 +259,10 @@ if (isset($_GET['action']) && $_GET['action'] === 'stream_execute') {
 
     // Create database if not exists and switch to it
     try {
-        send_sse(['status' => 'log', 'percent' => 8, 'message' => "Checking target database `{$db_name}`..."]);
+        send_sse(['status' => 'log', 'percent' => 42, 'message' => "Checking target database `{$db_name}`..."]);
         $pdo->exec("CREATE DATABASE IF NOT EXISTS `{$db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
         $pdo->exec("USE `{$db_name}`");
-        send_sse(['status' => 'log', 'percent' => 10, 'message' => "Database `{$db_name}` is ready."]);
+        send_sse(['status' => 'log', 'percent' => 44, 'message' => "Database `{$db_name}` is ready."]);
 
         // Optimization directives
         $pdo->exec("SET FOREIGN_KEY_CHECKS = 0");
@@ -178,10 +289,10 @@ if (isset($_GET['action']) && $_GET['action'] === 'stream_execute') {
     $batch_count = 0;
     $current_table = 'Initializing';
     $tables_created = [];
-    $last_reported_percent = 10;
+    $last_reported_percent = 44;
     $bytes_processed = 0;
 
-    send_sse(['status' => 'log', 'percent' => 12, 'message' => "Executing SQL statements from backup file (" . round($file_size/(1024*1024), 2) . " MB)..."]);
+    send_sse(['status' => 'log', 'percent' => 45, 'message' => "Executing SQL statements from backup file (" . round($file_size/(1024*1024), 2) . " MB)..."]);
 
     while (($line = ($is_gz ? gzgets($handle) : fgets($handle))) !== false) {
         $bytes_processed += strlen($line);
@@ -229,9 +340,9 @@ if (isset($_GET['action']) && $_GET['action'] === 'stream_execute') {
             }
             $query = '';
 
-            // Calculate progress by file offset
-            $cur_percent = 10 + round(($bytes_processed / max(1, $file_size)) * 85);
-            $cur_percent = min(96, max(12, $cur_percent));
+            // Calculate progress by file offset (45% to 96%)
+            $cur_percent = 45 + round(($bytes_processed / max(1, $file_size)) * 51);
+            $cur_percent = min(96, max(45, $cur_percent));
 
             if ($cur_percent > $last_reported_percent) {
                 $last_reported_percent = $cur_percent;
@@ -279,8 +390,8 @@ if (isset($_GET['action']) && $_GET['action'] === 'stream_execute') {
         $table_details[] = ['name' => $t, 'rows' => $cnt];
     }
 
-    // Clean up temporary uploaded file if in uploads/ directory
-    if (str_contains($source_file, 'temp_restore_')) {
+    // Clean up temporary uploaded file if in uploads/ or temp directory
+    if (str_contains($source_file, 'restore_chunk_') || str_contains($source_file, 'temp_restore_')) {
         @unlink($source_file);
     }
 
@@ -322,9 +433,29 @@ $candidate_files = [
     'database_schema.sql',
     'backup.sql'
 ];
+
+if (is_dir(__DIR__ . '/uploads')) {
+    $sc = @scandir(__DIR__ . '/uploads');
+    if ($sc) {
+        foreach ($sc as $f) {
+            if ((str_ends_with($f, '.sql') || str_ends_with($f, '.sql.gz')) && !str_starts_with($f, 'restore_chunk_')) {
+                $candidate_files[] = 'uploads/' . $f;
+            }
+        }
+    }
+}
+$sc_root = @scandir(__DIR__);
+if ($sc_root) {
+    foreach ($sc_root as $f) {
+        if ((str_ends_with($f, '.sql') || str_ends_with($f, '.sql.gz')) && !in_array($f, $candidate_files) && !str_starts_with($f, 'restore_chunk_')) {
+            $candidate_files[] = $f;
+        }
+    }
+}
+
 foreach ($candidate_files as $cf) {
     $full = __DIR__ . '/' . $cf;
-    if (file_exists($full) && is_readable($full)) {
+    if (file_exists($full) && is_readable($full) && is_file($full)) {
         $size_mb = round(filesize($full) / (1024 * 1024), 2);
         $existing_backups[] = [
             'relative' => $cf,
@@ -810,55 +941,112 @@ document.getElementById('restoreForm').addEventListener('submit', function(e) {
     }
 });
 
-// Phase 1: Upload File with live XMLHttpRequest upload progress
+// Phase 1: Chunked File Upload (bypasses server post_max_size / upload_max_filesize limits)
 function uploadAndRestore() {
-    setProgressBar(0, '<i class="fa-solid fa-cloud-arrow-up fa-fade me-1"></i> Phase 1: Uploading File', 'Uploading backup file to server...', '0 MB', 'bg-info');
-    appendTerminalLog("Starting file upload to server...");
+    var fileInput = document.getElementById('sql_file');
+    var file = fileInput.files[0];
+    if (!file) {
+        showError('No file selected.');
+        return;
+    }
 
-    var formData = new FormData();
-    formData.append('pin', document.getElementById('pin').value.trim());
-    formData.append('sql_file', document.getElementById('sql_file').files[0]);
+    var chunkSize = 1.5 * 1024 * 1024; // 1.5 MB chunks (safe for default 2M/8M php limits)
+    var totalSize = file.size;
+    var totalChunks = Math.ceil(totalSize / chunkSize);
+    var fileId = 'restore_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
+    var currentChunk = 0;
+    var maxRetries = 3;
+    var retries = 0;
 
-    var xhr = new XMLHttpRequest();
-    xhr.open('POST', 'restorebackup.php?action=upload_temp', true);
+    var totalMB = (totalSize / (1024 * 1024)).toFixed(1);
+    setProgressBar(0, '<i class="fa-solid fa-cloud-arrow-up fa-fade me-1"></i> Phase 1: Uploading File', 'Starting chunked upload (' + totalChunks + ' chunks)...', '0 / ' + totalMB + ' MB', 'bg-info');
+    appendTerminalLog('Starting chunked upload of <b>' + file.name + '</b> (' + totalMB + ' MB in ' + totalChunks + ' chunks)...');
 
-    xhr.upload.onprogress = function(e) {
-        if (e.lengthComputable) {
-            var percent = (e.loaded / e.total) * 100;
-            var loadedMB = (e.loaded / (1024*1024)).toFixed(1);
-            var totalMB = (e.total / (1024*1024)).toFixed(1);
-            setProgressBar(percent * 0.4, '<i class="fa-solid fa-cloud-arrow-up fa-fade me-1"></i> Uploading: ' + Math.round(percent) + '%', 'Uploading backup file...', loadedMB + ' / ' + totalMB + ' MB', 'bg-info');
-        }
-    };
+    function sendNextChunk() {
+        if (currentChunk >= totalChunks) return;
 
-    xhr.onload = function() {
-        if (xhr.status === 200) {
-            try {
-                var res = JSON.parse(xhr.responseText);
-                if (res.status === 'ok') {
-                    appendTerminalLog("<span class='text-success'>File uploaded successfully: " + res.file + " (" + res.size_formatted + ")</span>");
-                    startStreamRestore(res.file);
-                } else {
-                    showError(res.message || 'Upload error');
+        var start = currentChunk * chunkSize;
+        var end = Math.min(start + chunkSize, totalSize);
+        var blob = file.slice(start, end);
+
+        var formData = new FormData();
+        formData.append('chunk', blob);
+        formData.append('file_id', fileId);
+        formData.append('chunk_index', currentChunk);
+        formData.append('total_chunks', totalChunks);
+        formData.append('file_name', file.name);
+        formData.append('total_size', totalSize);
+        formData.append('pin', document.getElementById('pin').value.trim());
+
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', 'restorebackup.php?action=upload_chunk', true);
+
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                try {
+                    var res = JSON.parse(xhr.responseText);
+                    if (res.status === 'ok') {
+                        retries = 0;
+                        currentChunk++;
+                        var uploadedBytes = Math.min(currentChunk * chunkSize, totalSize);
+                        var uploadedMB = (uploadedBytes / (1024 * 1024)).toFixed(1);
+                        var percent = (uploadedBytes / totalSize) * 100;
+                        var overallPercent = Math.min(35, Math.round(percent * 0.35));
+
+                        setProgressBar(
+                            overallPercent,
+                            '<i class="fa-solid fa-cloud-arrow-up fa-fade me-1"></i> Uploading: ' + Math.round(percent) + '%',
+                            'Uploaded ' + currentChunk + ' of ' + totalChunks + ' chunks...',
+                            uploadedMB + ' / ' + totalMB + ' MB',
+                            'bg-info'
+                        );
+
+                        if (currentChunk % 5 === 0 || res.complete) {
+                            appendTerminalLog('Uploaded chunk ' + currentChunk + '/' + totalChunks + ' (' + uploadedMB + ' MB / ' + totalMB + ' MB)...');
+                        }
+
+                        if (res.complete) {
+                            appendTerminalLog("<span class='text-success fw-bold'>All " + totalChunks + " chunks uploaded & assembled successfully (" + res.size_formatted + ")!</span>");
+                            startStreamRestore(res.file);
+                        } else {
+                            sendNextChunk();
+                        }
+                    } else {
+                        showError(res.message || 'Error uploading chunk ' + currentChunk);
+                    }
+                } catch (e) {
+                    showError('Failed parsing server response on chunk ' + currentChunk + ': ' + xhr.responseText);
                 }
-            } catch (err) {
-                showError('Invalid server upload response: ' + xhr.responseText);
+            } else {
+                if (retries < maxRetries) {
+                    retries++;
+                    appendTerminalLog("<span class='text-warning'>Chunk " + currentChunk + " retry " + retries + "/" + maxRetries + "...</span>");
+                    setTimeout(sendNextChunk, 1000);
+                } else {
+                    showError('Upload failed on chunk ' + currentChunk + ' (HTTP Status: ' + xhr.status + ')');
+                }
             }
-        } else {
-            showError('Server upload failed with HTTP status ' + xhr.status);
-        }
-    };
+        };
 
-    xhr.onerror = function() {
-        showError('Network error occurred during file upload. Check VPS network connection.');
-    };
+        xhr.onerror = function() {
+            if (retries < maxRetries) {
+                retries++;
+                appendTerminalLog("<span class='text-warning'>Network issue on chunk " + currentChunk + ". Retrying (" + retries + "/" + maxRetries + ")...</span>");
+                setTimeout(sendNextChunk, 1500);
+            } else {
+                showError('Network connection lost while uploading chunk ' + currentChunk + '. Please check your VPS connection.');
+            }
+        };
 
-    xhr.send(formData);
+        xhr.send(formData);
+    }
+
+    sendNextChunk();
 }
 
 // Phase 2: Stream Execution with real-time SSE chunks
 function startStreamRestore(filePath) {
-    setProgressBar(10, '<i class="fa-solid fa-database fa-spin me-1"></i> Phase 2: Restoring Database', 'Connecting to MySQL database...', '', 'bg-primary');
+    setProgressBar(36, '<i class="fa-solid fa-database fa-spin me-1"></i> Phase 2: Restoring Database', 'Connecting to MySQL database...', '', 'bg-primary');
     appendTerminalLog("Initiating streaming database execution engine...");
 
     var postData = new URLSearchParams();
