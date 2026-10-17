@@ -310,13 +310,13 @@ if (isset($_GET['action']) && $_GET['action'] === 'stream_execute') {
         $pdo->exec("USE `{$db_name}`");
         send_sse(['status' => 'log', 'percent' => 44, 'message' => "Database `{$db_name}` is ready."]);
 
-        // Optimization directives
-        $pdo->exec("SET FOREIGN_KEY_CHECKS = 0");
-        $pdo->exec("SET SQL_MODE = 'NO_AUTO_VALUE_ON_ZERO'");
-        $pdo->exec("SET AUTOCOMMIT = 0");
-        @$pdo->exec("SET SESSION max_allowed_packet = 1073741824");
-        @$pdo->exec("SET SESSION net_read_timeout = 600");
-        @$pdo->exec("SET SESSION net_write_timeout = 600");
+        // Optimization directives (safely wrapped for all MySQL / MariaDB versions)
+        try { $pdo->exec("SET FOREIGN_KEY_CHECKS = 0"); } catch (Exception $e) {}
+        try { $pdo->exec("SET SQL_MODE = 'NO_AUTO_VALUE_ON_ZERO'"); } catch (Exception $e) {}
+        try { $pdo->exec("SET AUTOCOMMIT = 0"); } catch (Exception $e) {}
+        try { $pdo->exec("SET GLOBAL max_allowed_packet = 1073741824"); } catch (Exception $e) {}
+        try { $pdo->exec("SET SESSION net_read_timeout = 600"); } catch (Exception $e) {}
+        try { $pdo->exec("SET SESSION net_write_timeout = 600"); } catch (Exception $e) {}
     } catch (Exception $e) {
         send_sse(['status' => 'error', 'message' => "Database initialization error: " . $e->getMessage()]);
         exit;
@@ -408,9 +408,9 @@ if (isset($_GET['action']) && $_GET['action'] === 'stream_execute') {
     // Finalize transaction
     try {
         send_sse(['status' => 'log', 'percent' => 97, 'message' => "Committing final transactions and enabling foreign key checks..."]);
-        $pdo->exec("COMMIT");
-        $pdo->exec("SET FOREIGN_KEY_CHECKS = 1");
-        $pdo->exec("SET AUTOCOMMIT = 1");
+        try { $pdo->exec("COMMIT"); } catch (Exception $e) {}
+        try { $pdo->exec("SET FOREIGN_KEY_CHECKS = 1"); } catch (Exception $e) {}
+        try { $pdo->exec("SET AUTOCOMMIT = 1"); } catch (Exception $e) {}
     } catch (Exception $e) {}
 
     $time_taken = round(microtime(true) - $start_time, 2);
