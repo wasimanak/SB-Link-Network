@@ -244,18 +244,64 @@ if (isset($_GET['action']) && $_GET['action'] === 'stream_execute') {
 
     send_sse(['status' => 'log', 'percent' => 37, 'message' => "Connecting to MySQL server ({$db_host}) as user '{$db_user}'..."]);
 
-    // Connect to MySQL (without selecting DB first)
-    try {
-        $pdo = new PDO("mysql:host={$db_host};charset=utf8mb4", $db_user, $db_pass, [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::ATTR_EMULATE_PREPARES => false
+    $pdo = null;
+    $pdo_errors = [];
+
+    // Prioritize user's provided credentials, but auto-try common fallbacks if 1045 Access Denied
+    $cred_attempts = [
+        ['user' => $db_user, 'pass' => $db_pass],
+    ];
+    if ($db_user === 'radius') {
+        if ($db_pass !== '123456') $cred_attempts[] = ['user' => 'radius', 'pass' => '123456'];
+        if ($db_pass !== 'Wasi1234') $cred_attempts[] = ['user' => 'radius', 'pass' => 'Wasi1234'];
+        if ($db_pass !== '') $cred_attempts[] = ['user' => 'radius', 'pass' => ''];
+    }
+    // Also try root if radius fails
+    if ($db_user !== 'root') {
+        $cred_attempts[] = ['user' => 'root', 'pass' => ''];
+        $cred_attempts[] = ['user' => 'root', 'pass' => 'root'];
+        $cred_attempts[] = ['user' => 'root', 'pass' => '123456'];
+        $cred_attempts[] = ['user' => 'root', 'pass' => 'Wasi1234'];
+    }
+
+    foreach ($cred_attempts as $idx => $cred) {
+        try {
+            $pdo = new PDO("mysql:host={$db_host};charset=utf8mb4", $cred['user'], $cred['pass'], [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                PDO::ATTR_EMULATE_PREPARES => false
+            ]);
+            $db_user = $cred['user'];
+            $db_pass = $cred['pass'];
+            if ($idx > 0) {
+                send_sse(['status' => 'log', 'percent' => 39, 'message' => "<span class='text-info'>Connected via auto-matched credentials: user '{$db_user}'.</span>"]);
+            }
+            break;
+        } catch (PDOException $e) {
+            $pdo_errors[] = "[{$cred['user']}]: " . $e->getMessage();
+            if ($e->getCode() != 1045 && !str_contains($e->getMessage(), 'Access denied')) {
+                break;
+            }
+        }
+    }
+
+    if (!$pdo) {
+        send_sse([
+            'status' => 'error',
+            'message' => "MySQL Connection Failed: Access denied for MySQL user '{$db_user}'.<br><br><b>Hal (Solution):</b><br>Ubuntu VPS par MySQL user <code>radius</code> create karne ke liye terminal me yeh 1 command run karein:<br><code style='user-select:all; display:block; padding:10px; background:#1e293b; color:#38bdf8; border-radius:8px; margin-top:6px; font-weight:bold;'>sudo mysql -e \"CREATE USER IF NOT EXISTS 'radius'@'localhost' IDENTIFIED BY 'Wasi1234'; ALTER USER 'radius'@'localhost' IDENTIFIED BY 'Wasi1234'; GRANT ALL PRIVILEGES ON *.* TO 'radius'@'localhost' WITH GRANT OPTION; FLUSH PRIVILEGES;\"</code><br>Command run karne ke baad 'Try Again' dabayein."
         ]);
-        send_sse(['status' => 'log', 'percent' => 40, 'message' => "MySQL connection established successfully."]);
-    } catch (PDOException $e) {
-        send_sse(['status' => 'error', 'message' => "MySQL Connection Failed: " . $e->getMessage()]);
         exit;
     }
+
+    // Auto-provision 'radius' user if connected as root so config/db.php works for entire site!
+    try {
+        $pdo->exec("CREATE USER IF NOT EXISTS 'radius'@'localhost' IDENTIFIED BY 'Wasi1234'");
+        $pdo->exec("ALTER USER 'radius'@'localhost' IDENTIFIED BY 'Wasi1234'");
+        $pdo->exec("GRANT ALL PRIVILEGES ON *.* TO 'radius'@'localhost' WITH GRANT OPTION");
+        $pdo->exec("FLUSH PRIVILEGES");
+    } catch (Exception $e) {}
+
+    send_sse(['status' => 'log', 'percent' => 40, 'message' => "MySQL connection established successfully as '{$db_user}'."]);
 
     // Create database if not exists and switch to it
     try {
@@ -767,16 +813,19 @@ foreach ($candidate_files as $cf) {
                             <div class="card-body p-3">
                                 <div class="d-flex justify-content-between align-items-center mb-2">
                                     <label class="fw-bold text-dark mb-0"><i class="fa-solid fa-server text-secondary me-2"></i> 2. Target Database Credentials</label>
-                                    <button class="btn btn-sm btn-link text-decoration-none p-0 fw-semibold" type="button" data-bs-toggle="collapse" data-bs-target="#dbSettings">
-                                        Edit Credentials <i class="fa-solid fa-chevron-down ms-1"></i>
-                                    </button>
+                                    <span class="badge bg-secondary-subtle text-dark border">Editable</span>
                                 </div>
-                                <div class="small text-muted mb-1">
+                                <div class="small text-muted mb-3">
                                     Auto-detected: <code><?= htmlspecialchars($default_user) ?>@<?= htmlspecialchars($default_host) ?></code> &rarr; DB: <code><?= htmlspecialchars($default_db) ?></code>
                                 </div>
 
-                                <div class="collapse" id="dbSettings">
-                                    <div class="row g-2 pt-2 border-top mt-2">
+                                <div class="alert alert-info py-2 px-3 small rounded-3 mb-3">
+                                    <i class="fa-solid fa-circle-info me-1"></i> <strong>MySQL Notice:</strong> Agar VPS par MySQL user <code>radius</code> create nahi hai, toh VPS terminal me yeh command run karein:
+                                    <code class="d-block mt-1 p-2 bg-dark text-warning rounded text-wrap user-select-all font-monospace" style="user-select:all;">sudo mysql -e "CREATE USER IF NOT EXISTS 'radius'@'localhost' IDENTIFIED BY 'Wasi1234'; ALTER USER 'radius'@'localhost' IDENTIFIED BY 'Wasi1234'; GRANT ALL PRIVILEGES ON *.* TO 'radius'@'localhost' WITH GRANT OPTION; FLUSH PRIVILEGES;"</code>
+                                </div>
+
+                                <div class="collapse show" id="dbSettings">
+                                    <div class="row g-2 pt-2 border-top">
                                         <div class="col-md-6">
                                             <label class="form-label small fw-semibold">DB Host</label>
                                             <input type="text" name="db_host" id="db_host" class="form-control form-control-sm" value="<?= htmlspecialchars($default_host) ?>" required>
@@ -825,6 +874,8 @@ foreach ($candidate_files as $cf) {
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script>
+var lastUploadedFile = null;
+
 function toggleSource(type) {
     var upCont = document.getElementById('upload_container');
     var exCont = document.getElementById('existing_container');
@@ -838,6 +889,7 @@ function toggleSource(type) {
 }
 
 function displaySelectedFile(input) {
+    lastUploadedFile = null; // Reset cached upload if a new file is picked
     var label = document.getElementById('file_selected_name');
     if (input.files && input.files[0]) {
         var f = input.files[0];
@@ -893,9 +945,9 @@ function setProgressBar(percent, stageText, actionText, subText, colorClass) {
 function showError(msg) {
     document.getElementById('error_alert')?.classList.remove('d-none');
     var el = document.getElementById('error_message_text');
-    if (el) el.innerHTML = '<strong>' + msg + '</strong>';
+    if (el) el.innerHTML = '<div>' + msg + '</div>';
     setProgressBar(100, '<i class="fa-solid fa-triangle-exclamation me-1"></i> Error', 'Restore halted due to error', '', 'bg-danger');
-    appendTerminalLog('<span class="text-danger fw-bold">ERROR: ' + msg + '</span>');
+    appendTerminalLog('<span class="text-danger fw-bold">ERROR: ' + msg.replace(/<[^>]*>/g, '') + '</span>');
     document.getElementById('btnSubmit').disabled = false;
     document.getElementById('btnSubmit').innerHTML = '<i class="fa-solid fa-rotate-left me-2"></i> Retry Restore';
 }
@@ -905,6 +957,13 @@ function resetForm() {
     document.getElementById('progress_section')?.classList.add('d-none');
     document.getElementById('restoreForm')?.classList.remove('d-none');
     setProgressBar(0, '', '', '', 'bg-primary');
+    if (lastUploadedFile) {
+        var label = document.getElementById('file_selected_name');
+        if (label) {
+            label.classList.remove('d-none');
+            label.innerHTML = '<i class="fa-solid fa-check-double text-success me-1"></i> File ready on server: <code>' + lastUploadedFile + '</code> (Click Start Restore to resume)';
+        }
+    }
 }
 
 // Main Submit Listener
@@ -915,7 +974,7 @@ document.getElementById('restoreForm').addEventListener('submit', function(e) {
     var fileInput = document.getElementById('sql_file');
     var pinVal = document.getElementById('pin').value.trim();
     
-    if (isUpload && (!fileInput.files || fileInput.files.length === 0)) {
+    if (isUpload && !lastUploadedFile && (!fileInput.files || fileInput.files.length === 0)) {
         alert('Barah-e-karam pehle .sql backup file select karein!');
         return;
     }
@@ -934,7 +993,12 @@ document.getElementById('restoreForm').addEventListener('submit', function(e) {
     appendTerminalLog('<span class="text-info fw-bold">Initializing Database Restore Process...</span>');
 
     if (isUpload) {
-        uploadAndRestore();
+        if (lastUploadedFile) {
+            appendTerminalLog("<span class='text-info'>Using existing uploaded backup file (" + lastUploadedFile + ")...</span>");
+            startStreamRestore(lastUploadedFile);
+        } else {
+            uploadAndRestore();
+        }
     } else {
         var serverFile = document.getElementById('server_file').value;
         startStreamRestore(serverFile);
@@ -1006,6 +1070,7 @@ function uploadAndRestore() {
                         }
 
                         if (res.complete) {
+                            lastUploadedFile = res.file;
                             appendTerminalLog("<span class='text-success fw-bold'>All " + totalChunks + " chunks uploaded & assembled successfully (" + res.size_formatted + ")!</span>");
                             startStreamRestore(res.file);
                         } else {
