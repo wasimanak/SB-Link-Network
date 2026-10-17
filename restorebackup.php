@@ -1,17 +1,17 @@
 <?php
 /**
- * SB Link Network / NetBee - 1-Click Database Restore Utility
+ * SB Link Network / NetBee - Real-Time 1-Click Database Restore Utility
  * Usage: http://YOUR_VPS_IP/restorebackup.php
- * For security, delete this file after completing database restoration!
+ * Features: Live Upload Progress + Live SQL Execution Progress Bar + Live Terminal Console + Full Table Verification
  */
 
-@ini_set('upload_max_filesize', '256M');
-@ini_set('post_max_size', '256M');
+@ini_set('upload_max_filesize', '512M');
+@ini_set('post_max_size', '512M');
 @ini_set('max_execution_time', 1800);
 @set_time_limit(1800);
 @ini_set('memory_limit', '512M');
 
-$security_pin = '1234'; // Default PIN to prevent unauthorized triggers
+$security_pin = '1234'; // Default PIN to authorize database overwrite
 
 // Determine default DB credentials from config/db.php if available
 $default_host = 'localhost';
@@ -33,11 +33,10 @@ if (!$is_windows) {
 }
 
 if (file_exists(__DIR__ . '/config/db.php')) {
-    $db_code = file_get_contents(__DIR__ . '/config/db.php');
-    if (preg_match('/\$host\s*=\s*[\'"]([^\'"]+)[\'"]/', $db_code, $m)) $default_host = $m[1];
-    if (!$is_windows) {
-        if (preg_match('/\$user\s*=\s*[\'"]([^\'"]+)[\'"]\s*;\s*.*?\$pass\s*=\s*[\'"]([^\'"]*)[\'"]/s', $db_code, $m)) {
-            // inside VPS else block
+    $db_code = @file_get_contents(__DIR__ . '/config/db.php');
+    if ($db_code) {
+        if (preg_match('/\$host\s*=\s*[\'"]([^\'"]+)[\'"]/', $db_code, $m)) $default_host = $m[1];
+        if (!$is_windows) {
             if (preg_match('/else\s*\{[^}]*?\$db\s*=\s*[\'"]([^\'"]+)[\'"][^}]*?\$user\s*=\s*[\'"]([^\'"]+)[\'"][^}]*?\$pass\s*=\s*[\'"]([^\'"]*)[\'"]/s', $db_code, $m2)) {
                 $default_db   = $m2[1];
                 $default_user = $m2[2];
@@ -47,7 +46,279 @@ if (file_exists(__DIR__ . '/config/db.php')) {
     }
 }
 
-// Find existing .sql files on server
+// Helper: send Server-Sent Event chunk
+function send_sse($data) {
+    echo "data: " . json_encode($data) . "\n\n";
+    if (ob_get_level() > 0) @ob_flush();
+    @flush();
+}
+
+// -----------------------------------------------------------------------------
+// AJAX ACTION 1: Upload Temp File (With upload progress in browser)
+// -----------------------------------------------------------------------------
+if (isset($_GET['action']) && $_GET['action'] === 'upload_temp') {
+    header('Content-Type: application/json');
+    $pin = trim($_POST['pin'] ?? '');
+    if ($pin !== $security_pin) {
+        echo json_encode(['status' => 'error', 'message' => "Invalid Security PIN! Default is '1234'."]);
+        exit;
+    }
+
+    if (!isset($_FILES['sql_file']) || $_FILES['sql_file']['error'] !== UPLOAD_ERR_OK) {
+        $errCode = $_FILES['sql_file']['error'] ?? 'no_file';
+        $errMsg = 'File upload failed.';
+        if ($errCode === UPLOAD_ERR_INI_SIZE || $errCode === UPLOAD_ERR_FORM_SIZE) {
+            $errMsg = 'File size is too large for web server PHP limits.';
+        } elseif ($errCode === UPLOAD_ERR_NO_FILE) {
+            $errMsg = 'No file was selected for upload.';
+        }
+        echo json_encode(['status' => 'error', 'message' => $errMsg . " (Code: {$errCode})"]);
+        exit;
+    }
+
+    $ext = strtolower(pathinfo($_FILES['sql_file']['name'], PATHINFO_EXTENSION));
+    if (!in_array($ext, ['sql', 'gz'])) {
+        echo json_encode(['status' => 'error', 'message' => "Invalid file extension. Only .sql or .sql.gz backup files are allowed."]);
+        exit;
+    }
+
+    $uploadDir = __DIR__ . '/uploads';
+    if (!is_dir($uploadDir)) {
+        @mkdir($uploadDir, 0777, true);
+    }
+
+    $targetFile = $uploadDir . '/temp_restore_' . time() . '.' . $ext;
+    if (move_uploaded_file($_FILES['sql_file']['tmp_name'], $targetFile)) {
+        echo json_encode([
+            'status' => 'ok',
+            'file'   => 'uploads/' . basename($targetFile),
+            'size'   => filesize($targetFile),
+            'size_formatted' => round(filesize($targetFile) / (1024 * 1024), 2) . ' MB'
+        ]);
+    } else {
+        echo json_encode(['status' => 'error', 'message' => "Failed to save uploaded file into uploads/ directory. Check directory permissions (chmod 777 uploads)."]);
+    }
+    exit;
+}
+
+// -----------------------------------------------------------------------------
+// AJAX ACTION 2: Real-Time Streaming SQL Restore (EventStream)
+// -----------------------------------------------------------------------------
+if (isset($_GET['action']) && $_GET['action'] === 'stream_execute') {
+    // Disable all buffering
+    @ini_set('zlib.output_compression', 0);
+    @ini_set('output_buffering', 'off');
+    @ini_set('implicit_flush', 1);
+    while (ob_get_level() > 0) @ob_end_clean();
+    ob_implicit_flush(true);
+
+    header('Content-Type: text/event-stream; charset=utf-8');
+    header('Cache-Control: no-cache, no-transform');
+    header('Connection: keep-alive');
+    header('X-Accel-Buffering: no');
+
+    $pin      = trim($_POST['pin'] ?? '');
+    $relFile  = trim($_POST['file'] ?? '');
+    $db_host  = trim($_POST['db_host'] ?: 'localhost');
+    $db_user  = trim($_POST['db_user'] ?: 'root');
+    $db_pass  = (string)($_POST['db_pass'] ?? '');
+    $db_name  = trim($_POST['db_name'] ?: 'radius');
+
+    if ($pin !== $security_pin) {
+        send_sse(['status' => 'error', 'message' => "Invalid Security PIN! Default is '1234'."]);
+        exit;
+    }
+
+    $source_file = __DIR__ . '/' . ltrim(str_replace(['..', '\\'], ['', '/'], $relFile), '/');
+    if (!file_exists($source_file) || !is_readable($source_file)) {
+        send_sse(['status' => 'error', 'message' => "Backup file could not be found or read: " . htmlspecialchars($relFile)]);
+        exit;
+    }
+
+    $file_size = filesize($source_file);
+    $is_gz = (substr($source_file, -3) === '.gz');
+
+    send_sse(['status' => 'log', 'percent' => 2, 'message' => "Connecting to MySQL server ({$db_host}) as user '{$db_user}'..."]);
+
+    // Connect to MySQL (without selecting DB first)
+    try {
+        $pdo = new PDO("mysql:host={$db_host};charset=utf8mb4", $db_user, $db_pass, [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES => false
+        ]);
+        send_sse(['status' => 'log', 'percent' => 5, 'message' => "MySQL connection established successfully."]);
+    } catch (PDOException $e) {
+        send_sse(['status' => 'error', 'message' => "MySQL Connection Failed: " . $e->getMessage()]);
+        exit;
+    }
+
+    // Create database if not exists and switch to it
+    try {
+        send_sse(['status' => 'log', 'percent' => 8, 'message' => "Checking target database `{$db_name}`..."]);
+        $pdo->exec("CREATE DATABASE IF NOT EXISTS `{$db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+        $pdo->exec("USE `{$db_name}`");
+        send_sse(['status' => 'log', 'percent' => 10, 'message' => "Database `{$db_name}` is ready."]);
+
+        // Optimization directives
+        $pdo->exec("SET FOREIGN_KEY_CHECKS = 0");
+        $pdo->exec("SET SQL_MODE = 'NO_AUTO_VALUE_ON_ZERO'");
+        $pdo->exec("SET AUTOCOMMIT = 0");
+    } catch (Exception $e) {
+        send_sse(['status' => 'error', 'message' => "Database initialization error: " . $e->getMessage()]);
+        exit;
+    }
+
+    // Open file stream
+    $handle = $is_gz ? @gzopen($source_file, 'r') : @fopen($source_file, 'r');
+    if (!$handle) {
+        send_sse(['status' => 'error', 'message' => "Failed to open stream for backup file."]);
+        exit;
+    }
+
+    $start_time = microtime(true);
+    $query = '';
+    $queries_count = 0;
+    $batch_count = 0;
+    $current_table = 'Initializing';
+    $tables_created = [];
+    $last_reported_percent = 10;
+    $bytes_processed = 0;
+
+    send_sse(['status' => 'log', 'percent' => 12, 'message' => "Executing SQL statements from backup file (" . round($file_size/(1024*1024), 2) . " MB)..."]);
+
+    while (($line = ($is_gz ? gzgets($handle) : fgets($handle))) !== false) {
+        $bytes_processed += strlen($line);
+        $trim = trim($line);
+
+        // Skip comments and empty lines
+        if ($trim === '' || str_starts_with($trim, '--') || (str_starts_with($trim, '/*') && !str_starts_with($trim, '/*!'))) {
+            continue;
+        }
+
+        // Detect current table name for live status display
+        if (preg_match('/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?`?([a-zA-Z0-9_]+)`?/i', $trim, $tblMatch)) {
+            $current_table = $tblMatch[1];
+            if (!in_array($current_table, $tables_created)) {
+                $tables_created[] = $current_table;
+                send_sse([
+                    'status'  => 'log',
+                    'percent' => $last_reported_percent,
+                    'message' => "Creating table structure: `{$current_table}`...",
+                    'table'   => $current_table
+                ]);
+            }
+        } elseif (preg_match('/INSERT\s+INTO\s+`?([a-zA-Z0-9_]+)`?/i', $trim, $tblMatch)) {
+            $current_table = $tblMatch[1];
+        }
+
+        $query .= $line;
+
+        if (str_ends_with($trim, ';')) {
+            try {
+                $pdo->exec($query);
+                $queries_count++;
+                $batch_count++;
+
+                // Transaction batch commit
+                if ($batch_count >= 250) {
+                    $pdo->exec("COMMIT");
+                    $batch_count = 0;
+                }
+            } catch (PDOException $qe) {
+                // Ignore benign DROP TABLE IF EXISTS errors
+                if (!str_contains($qe->getMessage(), "Unknown table")) {
+                    send_sse(['status' => 'log', 'percent' => $last_reported_percent, 'message' => "<span class='text-warning'>Warning on query #{$queries_count}: " . htmlspecialchars($qe->getMessage()) . "</span>"]);
+                }
+            }
+            $query = '';
+
+            // Calculate progress by file offset
+            $cur_percent = 10 + round(($bytes_processed / max(1, $file_size)) * 85);
+            $cur_percent = min(96, max(12, $cur_percent));
+
+            if ($cur_percent > $last_reported_percent) {
+                $last_reported_percent = $cur_percent;
+                send_sse([
+                    'status'  => 'progress',
+                    'percent' => $cur_percent,
+                    'message' => "Restoring `{$current_table}`... ({$queries_count} queries executed)",
+                    'table'   => $current_table,
+                    'queries' => $queries_count
+                ]);
+            }
+        }
+    }
+
+    if ($is_gz) gzclose($handle); else fclose($handle);
+
+    // Finalize transaction
+    try {
+        send_sse(['status' => 'log', 'percent' => 97, 'message' => "Committing final transactions and enabling foreign key checks..."]);
+        $pdo->exec("COMMIT");
+        $pdo->exec("SET FOREIGN_KEY_CHECKS = 1");
+        $pdo->exec("SET AUTOCOMMIT = 1");
+    } catch (Exception $e) {}
+
+    $time_taken = round(microtime(true) - $start_time, 2);
+
+    // Post-Restore Verification Stats
+    send_sse(['status' => 'log', 'percent' => 99, 'message' => "Verifying restored tables and data counts..."]);
+    $tables = $pdo->query("SHOW TABLES")->fetchAll(PDO::FETCH_COLUMN);
+    $table_details = [];
+    $total_records = 0;
+    $sub_count = 0;
+    $pkg_count = 0;
+    $nas_count = 0;
+
+    foreach ($tables as $t) {
+        $cnt = 0;
+        try {
+            $cnt = (int)$pdo->query("SELECT COUNT(*) FROM `{$t}`")->fetchColumn();
+            $total_records += $cnt;
+            if ($t === 'subscribers') $sub_count = $cnt;
+            if ($t === 'packages') $pkg_count = $cnt;
+            if ($t === 'nas') $nas_count = $cnt;
+        } catch(Exception $e) {}
+        $table_details[] = ['name' => $t, 'rows' => $cnt];
+    }
+
+    // Clean up temporary uploaded file if in uploads/ directory
+    if (str_contains($source_file, 'temp_restore_')) {
+        @unlink($source_file);
+    }
+
+    send_sse([
+        'status'   => 'complete',
+        'percent'  => 100,
+        'message'  => "SUCCESS: Database restoration completed in {$time_taken} seconds!",
+        'stats'    => [
+            'queries'       => $queries_count,
+            'time_sec'      => $time_taken,
+            'db_name'       => $db_name,
+            'table_count'   => count($tables),
+            'total_records' => $total_records,
+            'subscribers'   => $sub_count,
+            'packages'      => $pkg_count,
+            'routers'       => $nas_count
+        ],
+        'tables'   => $table_details
+    ]);
+    exit;
+}
+
+// -----------------------------------------------------------------------------
+// ACTION 3: Self Delete
+// -----------------------------------------------------------------------------
+if (isset($_POST['action']) && $_POST['action'] === 'self_delete') {
+    if (@unlink(__FILE__)) {
+        die('<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>File Deleted</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"></head><body class="bg-light p-5"><div class="container text-center"><div class="alert alert-success shadow p-5 rounded-4"><h3 class="fw-bold text-success mb-2"><i class="fa-solid fa-shield-halved"></i> restorebackup.php Has Been Deleted!</h3><p class="text-secondary">Aapka server ab 100% secure hai. Script delete ho chuki hai.</p><a href="/operator/login.php" class="btn btn-primary px-4 py-2 mt-3 fw-bold rounded-pill">Open Operator Login</a></div></div></body></html>');
+    } else {
+        $error_msg = "Could not delete restorebackup.php automatically due to file permissions. Please delete it via terminal: rm -f " . __FILE__;
+    }
+}
+
+// Existing candidate files on server
 $existing_backups = [];
 $candidate_files = [
     'config/backup.sql',
@@ -61,160 +332,9 @@ foreach ($candidate_files as $cf) {
         $size_mb = round(filesize($full) / (1024 * 1024), 2);
         $existing_backups[] = [
             'relative' => $cf,
-            'full'     => $full,
             'size'     => ($size_mb > 0 ? $size_mb . ' MB' : round(filesize($full)/1024, 1) . ' KB'),
             'mtime'    => date('Y-m-d H:i:s', filemtime($full))
         ];
-    }
-}
-
-// Self-delete handler
-if (isset($_POST['action']) && $_POST['action'] === 'self_delete') {
-    if (unlink(__FILE__)) {
-        die('<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>File Deleted</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"></head><body class="bg-light p-5"><div class="container text-center"><div class="alert alert-success shadow p-4 rounded-4"><h3 class="fw-bold"><i class="fa-solid fa-shield-halved text-success"></i> restorebackup.php Has Been Successfully Deleted!</h3><p class="text-muted mt-2">Aapka server ab 100% secure hai. Restoration script delete ho chuki hai.</p><a href="/operator/login.php" class="btn btn-primary px-4 py-2 mt-3 fw-bold">Go To Operator Login</a></div></div></body></html>');
-    } else {
-        $error_msg = "Could not delete restorebackup.php automatically due to file permissions. Please delete it manually via SSH/FTP: rm -f " . __FILE__;
-    }
-}
-
-// Restoration Handler
-$restore_success = false;
-$restore_stats = [];
-$error_msg = '';
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'restore') {
-    $pin = trim($_POST['pin'] ?? '');
-    if ($pin !== $security_pin) {
-        $error_msg = "Galat Security PIN! Default PIN '1234' hai.";
-    } else {
-        $db_host = trim($_POST['db_host'] ?: 'localhost');
-        $db_user = trim($_POST['db_user'] ?: 'root');
-        $db_pass = (string)($_POST['db_pass'] ?? '');
-        $db_name = trim($_POST['db_name'] ?: 'radius');
-        $source_type = $_POST['source_type'] ?? 'upload';
-
-        $source_file = '';
-        $temp_uploaded = false;
-
-        if ($source_type === 'existing' && !empty($_POST['server_file'])) {
-            $chosen = __DIR__ . '/' . ltrim(str_replace(['..', '\\'], ['', '/'], $_POST['server_file']), '/');
-            if (file_exists($chosen) && is_readable($chosen)) {
-                $source_file = $chosen;
-            } else {
-                $error_msg = "Selected server file nahi mila ya read nahi ho saka: " . htmlspecialchars($_POST['server_file']);
-            }
-        } elseif ($source_type === 'upload' && isset($_FILES['sql_file']) && $_FILES['sql_file']['error'] === UPLOAD_ERR_OK) {
-            $ext = strtolower(pathinfo($_FILES['sql_file']['name'], PATHINFO_EXTENSION));
-            if (!in_array($ext, ['sql', 'gz'])) {
-                $error_msg = "Sirf .sql ya .sql.gz backup files allow hain!";
-            } else {
-                $source_file = $_FILES['sql_file']['tmp_name'];
-                $temp_uploaded = true;
-            }
-        } else {
-            $error_msg = "Barah-e-karam backup file select karein ya upload karein!";
-        }
-
-        if (empty($error_msg) && !empty($source_file)) {
-            $start_time = microtime(true);
-            try {
-                // Step 1: Connect to MySQL server (without selecting DB first)
-                $pdo = new PDO("mysql:host={$db_host};charset=utf8mb4", $db_user, $db_pass, [
-                    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-                    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-                    PDO::ATTR_EMULATE_PREPARES => false
-                ]);
-
-                // Step 2: Create DB if not exists and select it
-                $pdo->exec("CREATE DATABASE IF NOT EXISTS `{$db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-                $pdo->exec("USE `{$db_name}`");
-
-                // Step 3: Optimize MySQL session for lightning fast import
-                $pdo->exec("SET FOREIGN_KEY_CHECKS = 0");
-                $pdo->exec("SET SQL_MODE = 'NO_AUTO_VALUE_ON_ZERO'");
-                $pdo->exec("SET AUTOCOMMIT = 0");
-
-                // Step 4: Stream and execute SQL statements
-                $is_gz = (substr($source_file, -3) === '.gz');
-                $handle = $is_gz ? gzopen($source_file, 'r') : fopen($source_file, 'r');
-
-                if (!$handle) {
-                    throw new Exception("Backup file open nahi ho saki: " . $source_file);
-                }
-
-                $query = '';
-                $queries_count = 0;
-                $batch_count = 0;
-
-                while (($line = ($is_gz ? gzgets($handle) : fgets($handle))) !== false) {
-                    $trim = trim($line);
-                    // Skip comments and empty lines
-                    if ($trim === '' || str_starts_with($trim, '--') || (str_starts_with($trim, '/*') && !str_starts_with($trim, '/*!'))) {
-                        continue;
-                    }
-
-                    $query .= $line;
-
-                    if (str_ends_with($trim, ';')) {
-                        try {
-                            $pdo->exec($query);
-                            $queries_count++;
-                            $batch_count++;
-                            if ($batch_count >= 300) {
-                                $pdo->exec("COMMIT");
-                                $batch_count = 0;
-                            }
-                        } catch (PDOException $qe) {
-                            // Ignore minor drop errors if table doesn't exist
-                            if (!str_contains($qe->getMessage(), "Unknown table")) {
-                                // Silent continue or track
-                            }
-                        }
-                        $query = '';
-                    }
-                }
-
-                if ($is_gz) gzclose($handle); else fclose($handle);
-
-                // Commit remaining and re-enable FK
-                $pdo->exec("COMMIT");
-                $pdo->exec("SET FOREIGN_KEY_CHECKS = 1");
-                $pdo->exec("SET AUTOCOMMIT = 1");
-
-                $time_taken = round(microtime(true) - $start_time, 2);
-
-                // Fetch database verification stats
-                $table_count = (int)$pdo->query("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '{$db_name}'")->fetchColumn();
-                $sub_count = 0;
-                try {
-                    $sub_count = (int)$pdo->query("SELECT COUNT(*) FROM subscribers")->fetchColumn();
-                } catch (Exception $e) {}
-
-                $pkg_count = 0;
-                try {
-                    $pkg_count = (int)$pdo->query("SELECT COUNT(*) FROM packages")->fetchColumn();
-                } catch (Exception $e) {}
-
-                $nas_count = 0;
-                try {
-                    $nas_count = (int)$pdo->query("SELECT COUNT(*) FROM nas")->fetchColumn();
-                } catch (Exception $e) {}
-
-                $restore_success = true;
-                $restore_stats = [
-                    'queries'     => $queries_count,
-                    'time_sec'    => $time_taken,
-                    'db_name'     => $db_name,
-                    'tables'      => $table_count,
-                    'subscribers' => $sub_count,
-                    'packages'    => $pkg_count,
-                    'routers'     => $nas_count
-                ];
-
-            } catch (Exception $ex) {
-                $error_msg = "Restore Error: " . $ex->getMessage();
-            }
-        }
     }
 }
 ?>
@@ -223,34 +343,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>1-Click Database Restore Utility - SB Link Network / NetBee</title>
+    <title>1-Click Database Restore with Live Progress - SB Link Network / NetBee</title>
     <!-- Bootstrap 5 CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- FontAwesome 6 -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <style>
         body {
-            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            background: linear-gradient(135deg, #090d16 0%, #1e293b 100%);
             min-height: 100vh;
             color: #334155;
             font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
         }
         .main-card {
             background: #ffffff;
-            border-radius: 20px;
-            box-shadow: 0 20px 45px rgba(0,0,0,0.35);
+            border-radius: 24px;
+            box-shadow: 0 25px 60px rgba(0,0,0,0.45);
             overflow: hidden;
-            border: 1px solid rgba(255,255,255,0.2);
+            border: 1px solid rgba(255,255,255,0.15);
         }
         .card-header-gradient {
-            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+            background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%);
             color: white;
-            padding: 30px;
+            padding: 35px 30px;
         }
         .upload-dropzone {
             border: 2px dashed #93c5fd;
-            border-radius: 12px;
-            padding: 25px;
+            border-radius: 16px;
+            padding: 30px;
             text-align: center;
             background: #f8fafc;
             cursor: pointer;
@@ -258,26 +378,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         }
         .upload-dropzone:hover {
             background: #eff6ff;
-            border-color: #3b82f6;
+            border-color: #2563eb;
+        }
+        .terminal-window {
+            background: #090d16;
+            color: #38bdf8;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 0.82rem;
+            line-height: 1.5;
+            padding: 16px;
+            border-radius: 12px;
+            height: 220px;
+            overflow-y: auto;
+            border: 1px solid #1e293b;
+            box-shadow: inset 0 2px 8px rgba(0,0,0,0.5);
+        }
+        .terminal-window::-webkit-scrollbar {
+            width: 8px;
+        }
+        .terminal-window::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 4px;
         }
         .stat-badge {
-            background: #f1f5f9;
+            background: #f8fafc;
             border: 1px solid #e2e8f0;
-            border-radius: 12px;
-            padding: 15px;
+            border-radius: 14px;
+            padding: 16px;
             text-align: center;
         }
         .stat-badge h3 {
             margin: 0;
-            color: #1e293b;
-            font-weight: 700;
+            color: #0f172a;
+            font-weight: 800;
         }
         .stat-badge small {
             color: #64748b;
-            font-weight: 600;
+            font-weight: 700;
             text-transform: uppercase;
             font-size: 0.72rem;
             letter-spacing: 0.5px;
+        }
+        .progress {
+            height: 28px;
+            border-radius: 14px;
+            background-color: #e2e8f0;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .progress-bar {
+            font-size: 0.85rem;
+            font-weight: bold;
+            letter-spacing: 0.5px;
+            transition: width 0.3s ease;
         }
     </style>
 </head>
@@ -290,61 +442,130 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             <div class="main-card">
                 <!-- Header -->
                 <div class="card-header-gradient text-center">
-                    <div class="d-inline-flex align-items-center justify-content-center bg-white bg-opacity-20 rounded-circle mb-3" style="width: 65px; height: 65px;">
+                    <div class="d-inline-flex align-items-center justify-content-center bg-white bg-opacity-20 rounded-circle mb-3" style="width: 70px; height: 70px;">
                         <i class="fa-solid fa-database fa-2x text-white"></i>
                     </div>
-                    <h3 class="fw-bold mb-1">1-Click Database Restore</h3>
-                    <p class="mb-0 text-white-50 small">New VPS & Local PC Database Setup & Restore Utility</p>
+                    <h3 class="fw-bold mb-1">1-Click Live Database Restore</h3>
+                    <p class="mb-0 text-white-50 small">Automated Migration & Restore Engine with Real-Time Progress</p>
                 </div>
 
                 <div class="p-4 p-md-5">
 
-                    <!-- Alert messages -->
-                    <?php if (!empty($error_msg)): ?>
-                        <div class="alert alert-danger border-0 shadow-sm rounded-3 d-flex align-items-center gap-3 mb-4">
-                            <i class="fa-solid fa-triangle-exclamation fa-2x text-danger"></i>
-                            <div>
-                                <h6 class="fw-bold mb-1">Restoration Failed!</h6>
-                                <p class="mb-0 small"><?= htmlspecialchars($error_msg) ?></p>
+                    <!-- Live Progress & Activity Card (Hidden initially) -->
+                    <div id="progress_section" class="d-none mb-4">
+                        <div class="card border-0 shadow-sm rounded-4 p-4" style="background: #f8fafc; border: 1px solid #e2e8f0;">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <span class="badge bg-primary px-3 py-2 rounded-pill" id="stage_badge">
+                                    <i class="fa-solid fa-spinner fa-spin me-1"></i> Phase 1: Uploading
+                                </span>
+                                <span class="fw-bold text-dark fs-5 font-monospace" id="percent_text">0%</span>
+                            </div>
+
+                            <!-- Animated Progress Bar -->
+                            <div class="progress mb-3">
+                                <div id="live_progress_bar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" role="progressbar" style="width: 0%">
+                                    0%
+                                </div>
+                            </div>
+
+                            <!-- Current Action Text -->
+                            <div class="d-flex align-items-center justify-content-between small text-muted mb-3">
+                                <div id="action_status_text" class="fw-semibold text-truncate">
+                                    Initializing restore engine...
+                                </div>
+                                <div id="sub_status_text" class="text-nowrap ms-2 font-monospace"></div>
+                            </div>
+
+                            <!-- Live Terminal Logs -->
+                            <label class="small fw-bold text-secondary mb-1">
+                                <i class="fa-solid fa-terminal text-dark me-1"></i> Live Execution Terminal
+                            </label>
+                            <div id="terminal_console" class="terminal-window">
+                                <div>[<?= date('H:i:s') ?>] Restore engine initialized. Ready to receive commands.</div>
                             </div>
                         </div>
-                    <?php endif; ?>
+                    </div>
 
-                    <?php if ($restore_success): ?>
-                        <!-- Success Banner & Stats -->
-                        <div class="alert alert-success border-0 shadow-sm rounded-4 p-4 mb-4 text-center">
-                            <div class="d-inline-flex align-items-center justify-content-center bg-success text-white rounded-circle mb-3" style="width: 55px; height: 55px;">
+                    <!-- Error Alert Box -->
+                    <div id="error_alert" class="alert alert-danger border-0 shadow-sm rounded-4 d-none p-4 mb-4">
+                        <div class="d-flex align-items-start gap-3">
+                            <i class="fa-solid fa-circle-xmark fa-2x text-danger mt-1"></i>
+                            <div>
+                                <h5 class="fw-bold mb-1 text-danger">Restoration Failed!</h5>
+                                <div id="error_message_text" class="mb-2 small"></div>
+                                <div class="small text-muted p-2 bg-white rounded border">
+                                    <strong>Troubleshooting Tips:</strong>
+                                    <ul class="mb-0 ps-3 mt-1">
+                                        <li>MySQL credentials check karein (User / Password / Host).</li>
+                                        <li>Ensure karein ke MySQL service VPS par active hai: <code>sudo systemctl status mysql</code></li>
+                                        <li>Security PIN check karein (Default: <code>1234</code>).</li>
+                                    </ul>
+                                </div>
+                                <button type="button" class="btn btn-sm btn-outline-danger mt-3 fw-bold rounded-pill" onclick="resetForm()">
+                                    <i class="fa-solid fa-rotate-left me-1"></i> Try Again
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Success Summary Card -->
+                    <div id="success_section" class="d-none">
+                        <div class="alert alert-success border-0 shadow-sm rounded-4 p-4 text-center mb-4">
+                            <div class="d-inline-flex align-items-center justify-content-center bg-success text-white rounded-circle mb-3" style="width: 60px; height: 60px;">
                                 <i class="fa-solid fa-check fa-2x"></i>
                             </div>
                             <h4 class="fw-bold text-success mb-1">Database Restored Successfully!</h4>
-                            <p class="text-secondary small mb-4">Aapki database <strong><?= htmlspecialchars($restore_stats['db_name']) ?></strong> mukammal restore ho chuki hai.</p>
+                            <p class="text-secondary small mb-4">Aapki database mukammal aur sahi salamat restore ho chuki hai.</p>
 
+                            <!-- Stat Badges -->
                             <div class="row g-2 mb-4">
                                 <div class="col-4">
                                     <div class="stat-badge">
-                                        <h3><?= number_format($restore_stats['tables']) ?></h3>
+                                        <h3 id="stat_tables">0</h3>
                                         <small>Tables Created</small>
                                     </div>
                                 </div>
                                 <div class="col-4">
                                     <div class="stat-badge">
-                                        <h3 class="text-primary"><?= number_format($restore_stats['subscribers']) ?></h3>
+                                        <h3 class="text-primary" id="stat_subscribers">0</h3>
                                         <small>Subscribers</small>
                                     </div>
                                 </div>
                                 <div class="col-4">
                                     <div class="stat-badge">
-                                        <h3 class="text-success"><?= number_format($restore_stats['routers']) ?></h3>
+                                        <h3 class="text-success" id="stat_routers">0</h3>
                                         <small>Routers (NAS)</small>
                                     </div>
                                 </div>
                             </div>
 
-                            <div class="small text-muted mb-4">
-                                <i class="fa-solid fa-bolt text-warning me-1"></i> Executed <strong><?= number_format($restore_stats['queries']) ?></strong> SQL queries in <strong><?= $restore_stats['time_sec'] ?>s</strong>.
+                            <div class="small text-muted mb-4" id="stat_summary_line"></div>
+
+                            <!-- Restored Tables Accordion -->
+                            <div class="accordion mb-4 text-start" id="tablesAccordion">
+                                <div class="accordion-item border-0 rounded-3 overflow-hidden shadow-sm">
+                                    <h2 class="accordion-header">
+                                        <button class="accordion-button collapsed py-2 px-3 bg-light fw-bold text-secondary small" type="button" data-bs-toggle="collapse" data-bs-target="#collapseTables">
+                                            <i class="fa-solid fa-list-check me-2"></i> View Restored Tables & Row Counts
+                                        </button>
+                                    </h2>
+                                    <div id="collapseTables" class="accordion-collapse collapse" data-bs-parent="#tablesAccordion">
+                                        <div class="accordion-body p-2" style="max-height: 220px; overflow-y: auto;">
+                                            <table class="table table-sm table-striped mb-0 small">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Table Name</th>
+                                                        <th class="text-end">Rows Count</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody id="restored_tables_tbody"></tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
 
-                            <!-- Navigation Links -->
+                            <!-- Login Buttons -->
                             <div class="d-flex flex-wrap gap-2 justify-content-center mb-4">
                                 <a href="/operator/login.php" class="btn btn-primary fw-bold px-4 py-2 rounded-pill shadow-sm">
                                     <i class="fa-solid fa-user-tie me-1"></i> Operator Login
@@ -360,114 +581,111 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                             <!-- Security Self-Delete Box -->
                             <div class="p-3 bg-danger bg-opacity-10 border border-danger-subtle rounded-3 text-start">
                                 <h6 class="fw-bold text-danger mb-1"><i class="fa-solid fa-shield-halved me-1"></i> Security Recommendation:</h6>
-                                <p class="text-muted small mb-2">Restoration ke baad is script (<code>restorebackup.php</code>) ko server se delete kar dein taake koi doosra shakhs database ko dubara overwrite na kar saky.</p>
+                                <p class="text-muted small mb-2">Restoration ke baad is script (<code>restorebackup.php</code>) ko server se delete kar dein taake koi unauthorized shakhs dobara database wipe na kar sake.</p>
                                 <form method="POST" onsubmit="return confirm('Are you sure you want to permanently delete restorebackup.php?');">
                                     <input type="hidden" name="action" value="self_delete">
-                                    <button type="submit" class="btn btn-sm btn-danger fw-bold rounded-pill px-3">
+                                    <button type="submit" class="btn btn-sm btn-danger fw-bold rounded-pill px-3 shadow-sm">
                                         <i class="fa-solid fa-trash-can me-1"></i> Delete restorebackup.php Now
                                     </button>
                                 </form>
                             </div>
                         </div>
-                    <?php endif; ?>
+                    </div>
 
-                    <?php if (!$restore_success): ?>
-                        <form method="POST" enctype="multipart/form-data" id="restoreForm">
-                            <input type="hidden" name="action" value="restore">
-
-                            <!-- Section 1: Choose Backup File -->
-                            <div class="mb-4">
-                                <label class="form-label fw-bold text-dark"><i class="fa-solid fa-file-arrow-up text-primary me-2"></i> 1. Select Backup File (.sql / .sql.gz)</label>
-                                
-                                <div class="mb-3">
-                                    <div class="form-check form-check-inline">
-                                        <input class="form-check-input" type="radio" name="source_type" id="src_upload" value="upload" checked onclick="toggleSource('upload')">
-                                        <label class="form-check-label fw-semibold" for="src_upload">Upload File From PC / Mobile</label>
-                                    </div>
-                                    <?php if (!empty($existing_backups)): ?>
-                                    <div class="form-check form-check-inline">
-                                        <input class="form-check-input" type="radio" name="source_type" id="src_existing" value="existing" onclick="toggleSource('existing')">
-                                        <label class="form-check-label fw-semibold" for="src_existing">Pick File Already On Server (<?= count($existing_backups) ?> found)</label>
-                                    </div>
-                                    <?php endif; ?>
+                    <!-- Input Form -->
+                    <form id="restoreForm">
+                        <!-- Section 1: Choose Backup File -->
+                        <div class="mb-4">
+                            <label class="form-label fw-bold text-dark"><i class="fa-solid fa-file-arrow-up text-primary me-2"></i> 1. Select Backup File (.sql / .sql.gz)</label>
+                            
+                            <div class="mb-3">
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="radio" name="source_type" id="src_upload" value="upload" checked onclick="toggleSource('upload')">
+                                    <label class="form-check-label fw-semibold" for="src_upload">Upload File From PC / Mobile</label>
                                 </div>
-
-                                <!-- Upload Input Container -->
-                                <div id="upload_container" class="upload-dropzone mb-2" onclick="document.getElementById('sql_file').click();">
-                                    <i class="fa-solid fa-cloud-arrow-up fa-3x text-primary mb-2"></i>
-                                    <h6 class="fw-bold mb-1">Click to browse or drop your .sql file here</h6>
-                                    <p class="text-muted small mb-0">Max allowed upload size: 256 MB</p>
-                                    <input type="file" name="sql_file" id="sql_file" class="d-none" accept=".sql,.gz" onchange="displaySelectedFile(this)">
-                                    <div id="file_selected_name" class="mt-2 fw-bold text-success small d-none"></div>
-                                </div>
-
-                                <!-- Existing Server Files Picker -->
                                 <?php if (!empty($existing_backups)): ?>
-                                <div id="existing_container" class="d-none">
-                                    <select name="server_file" class="form-select form-select-lg">
-                                        <?php foreach ($existing_backups as $eb): ?>
-                                            <option value="<?= htmlspecialchars($eb['relative']) ?>">
-                                                <?= htmlspecialchars($eb['relative']) ?> (<?= $eb['size'] ?> - <?= $eb['mtime'] ?>)
-                                            </option>
-                                        <?php endforeach; ?>
-                                    </select>
-                                    <small class="text-muted">Yeh files aapke server par pehle se mojood hain.</small>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="radio" name="source_type" id="src_existing" value="existing" onclick="toggleSource('existing')">
+                                    <label class="form-check-label fw-semibold" for="src_existing">Pick File Already On Server (<?= count($existing_backups) ?> found)</label>
                                 </div>
                                 <?php endif; ?>
                             </div>
 
-                            <!-- Section 2: Database Credentials (Collapsible) -->
-                            <div class="card bg-light border-0 rounded-3 mb-4">
-                                <div class="card-body p-3">
-                                    <div class="d-flex justify-content-between align-items-center mb-2">
-                                        <label class="fw-bold text-dark mb-0"><i class="fa-solid fa-server text-secondary me-2"></i> 2. Target Database Credentials</label>
-                                        <button class="btn btn-sm btn-link text-decoration-none p-0 fw-semibold" type="button" data-bs-toggle="collapse" data-bs-target="#dbSettings">
-                                            Edit Credentials <i class="fa-solid fa-chevron-down ms-1"></i>
-                                        </button>
-                                    </div>
-                                    <div class="small text-muted mb-2">
-                                        Auto-detected: <code><?= htmlspecialchars($default_user) ?>@<?= htmlspecialchars($default_host) ?></code> &rarr; DB: <code><?= htmlspecialchars($default_db) ?></code>
-                                    </div>
+                            <!-- Upload Box -->
+                            <div id="upload_container" class="upload-dropzone mb-2" onclick="document.getElementById('sql_file').click();">
+                                <i class="fa-solid fa-cloud-arrow-up fa-3x text-primary mb-2"></i>
+                                <h6 class="fw-bold mb-1">Click to browse or drop your .sql file here</h6>
+                                <p class="text-muted small mb-0">Supports .sql and compressed .sql.gz (Up to 512 MB)</p>
+                                <input type="file" name="sql_file" id="sql_file" class="d-none" accept=".sql,.gz" onchange="displaySelectedFile(this)">
+                                <div id="file_selected_name" class="mt-2 fw-bold text-success small d-none"></div>
+                            </div>
 
-                                    <div class="collapse" id="dbSettings">
-                                        <div class="row g-2 pt-2 border-top">
-                                            <div class="col-md-6">
-                                                <label class="form-label small fw-semibold">DB Host</label>
-                                                <input type="text" name="db_host" class="form-control form-control-sm" value="<?= htmlspecialchars($default_host) ?>" required>
-                                            </div>
-                                            <div class="col-md-6">
-                                                <label class="form-label small fw-semibold">Database Name</label>
-                                                <input type="text" name="db_name" class="form-control form-control-sm" value="<?= htmlspecialchars($default_db) ?>" required>
-                                            </div>
-                                            <div class="col-md-6">
-                                                <label class="form-label small fw-semibold">DB Username</label>
-                                                <input type="text" name="db_user" class="form-control form-control-sm" value="<?= htmlspecialchars($default_user) ?>" required>
-                                            </div>
-                                            <div class="col-md-6">
-                                                <label class="form-label small fw-semibold">DB Password</label>
-                                                <input type="text" name="db_pass" class="form-control form-control-sm" value="<?= htmlspecialchars($default_pass) ?>" placeholder="Leave blank if no password">
-                                            </div>
+                            <!-- Server File Picker -->
+                            <?php if (!empty($existing_backups)): ?>
+                            <div id="existing_container" class="d-none">
+                                <select name="server_file" id="server_file" class="form-select form-select-lg">
+                                    <?php foreach ($existing_backups as $eb): ?>
+                                        <option value="<?= htmlspecialchars($eb['relative']) ?>">
+                                            <?= htmlspecialchars($eb['relative']) ?> (<?= $eb['size'] ?> - <?= $eb['mtime'] ?>)
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <small class="text-muted">Yeh files aapke server par pehle se mojood hain.</small>
+                            </div>
+                            <?php endif; ?>
+                        </div>
+
+                        <!-- Section 2: Database Credentials -->
+                        <div class="card bg-light border-0 rounded-3 mb-4">
+                            <div class="card-body p-3">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <label class="fw-bold text-dark mb-0"><i class="fa-solid fa-server text-secondary me-2"></i> 2. Target Database Credentials</label>
+                                    <button class="btn btn-sm btn-link text-decoration-none p-0 fw-semibold" type="button" data-bs-toggle="collapse" data-bs-target="#dbSettings">
+                                        Edit Credentials <i class="fa-solid fa-chevron-down ms-1"></i>
+                                    </button>
+                                </div>
+                                <div class="small text-muted mb-1">
+                                    Auto-detected: <code><?= htmlspecialchars($default_user) ?>@<?= htmlspecialchars($default_host) ?></code> &rarr; DB: <code><?= htmlspecialchars($default_db) ?></code>
+                                </div>
+
+                                <div class="collapse" id="dbSettings">
+                                    <div class="row g-2 pt-2 border-top mt-2">
+                                        <div class="col-md-6">
+                                            <label class="form-label small fw-semibold">DB Host</label>
+                                            <input type="text" name="db_host" id="db_host" class="form-control form-control-sm" value="<?= htmlspecialchars($default_host) ?>" required>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label small fw-semibold">Database Name</label>
+                                            <input type="text" name="db_name" id="db_name" class="form-control form-control-sm" value="<?= htmlspecialchars($default_db) ?>" required>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label small fw-semibold">DB Username</label>
+                                            <input type="text" name="db_user" id="db_user" class="form-control form-control-sm" value="<?= htmlspecialchars($default_user) ?>" required>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label small fw-semibold">DB Password</label>
+                                            <input type="text" name="db_pass" id="db_pass" class="form-control form-control-sm" value="<?= htmlspecialchars($default_pass) ?>" placeholder="Leave blank if no password">
                                         </div>
                                     </div>
                                 </div>
                             </div>
+                        </div>
 
-                            <!-- Section 3: Security PIN -->
-                            <div class="mb-4">
-                                <label class="form-label fw-bold text-dark"><i class="fa-solid fa-key text-warning me-2"></i> 3. Security PIN</label>
-                                <div class="input-group">
-                                    <input type="password" name="pin" id="pin" class="form-control form-control-lg font-monospace" placeholder="Enter PIN (Default: 1234)" value="1234" required>
-                                    <button class="btn btn-outline-secondary" type="button" onclick="togglePinVisibility()"><i class="fa-solid fa-eye" id="eyeIcon"></i></button>
-                                </div>
-                                <small class="text-muted">Security verification code to authorize database overwrite. Default is <code>1234</code>.</small>
+                        <!-- Section 3: Security PIN -->
+                        <div class="mb-4">
+                            <label class="form-label fw-bold text-dark"><i class="fa-solid fa-key text-warning me-2"></i> 3. Security PIN</label>
+                            <div class="input-group">
+                                <input type="password" name="pin" id="pin" class="form-control form-control-lg font-monospace" placeholder="Enter PIN (Default: 1234)" value="1234" required>
+                                <button class="btn btn-outline-secondary" type="button" onclick="togglePinVisibility()"><i class="fa-solid fa-eye" id="eyeIcon"></i></button>
                             </div>
+                            <small class="text-muted">Security verification code to authorize database overwrite. Default is <code>1234</code>.</small>
+                        </div>
 
-                            <!-- Submit Button -->
-                            <button type="submit" class="btn btn-primary btn-lg w-100 fw-bold shadow-sm py-3 rounded-pill" id="btnSubmit">
-                                <i class="fa-solid fa-play me-2"></i> Start Database Restore Now
-                            </button>
-                        </form>
-                    <?php endif; ?>
+                        <!-- Submit Button -->
+                        <button type="submit" class="btn btn-primary btn-lg w-100 fw-bold shadow-sm py-3 rounded-pill" id="btnSubmit">
+                            <i class="fa-solid fa-play me-2"></i> Start Database Restore Now
+                        </button>
+                    </form>
 
                 </div>
             </div>
@@ -516,25 +734,234 @@ function togglePinVisibility() {
     }
 }
 
-document.getElementById('restoreForm')?.addEventListener('submit', function(e) {
-    var isUpload = document.getElementById('src_upload')?.checked;
-    var fileInp = document.getElementById('sql_file');
+function appendTerminalLog(msg) {
+    var term = document.getElementById('terminal_console');
+    if (!term) return;
+    var d = new Date();
+    var time = d.toTimeString().split(' ')[0];
+    var div = document.createElement('div');
+    div.innerHTML = '[' + time + '] ' + msg;
+    term.appendChild(div);
+    term.scrollTop = term.scrollHeight;
+}
+
+function setProgressBar(percent, stageText, actionText, subText, colorClass) {
+    percent = Math.min(100, Math.max(0, Math.round(percent)));
+    var bar = document.getElementById('live_progress_bar');
+    var txt = document.getElementById('percent_text');
+    var badge = document.getElementById('stage_badge');
+    var action = document.getElementById('action_status_text');
+    var sub = document.getElementById('sub_status_text');
+
+    if (bar) {
+        bar.style.width = percent + '%';
+        bar.innerText = percent + '%';
+        if (colorClass) {
+            bar.className = 'progress-bar progress-bar-striped progress-bar-animated ' + colorClass;
+        }
+    }
+    if (txt) txt.innerText = percent + '%';
+    if (badge && stageText) badge.innerHTML = stageText;
+    if (action && actionText) action.innerHTML = actionText;
+    if (sub && subText) sub.innerHTML = subText;
+}
+
+function showError(msg) {
+    document.getElementById('error_alert')?.classList.remove('d-none');
+    var el = document.getElementById('error_message_text');
+    if (el) el.innerHTML = '<strong>' + msg + '</strong>';
+    setProgressBar(100, '<i class="fa-solid fa-triangle-exclamation me-1"></i> Error', 'Restore halted due to error', '', 'bg-danger');
+    appendTerminalLog('<span class="text-danger fw-bold">ERROR: ' + msg + '</span>');
+    document.getElementById('btnSubmit').disabled = false;
+    document.getElementById('btnSubmit').innerHTML = '<i class="fa-solid fa-rotate-left me-2"></i> Retry Restore';
+}
+
+function resetForm() {
+    document.getElementById('error_alert')?.classList.add('d-none');
+    document.getElementById('progress_section')?.classList.add('d-none');
+    document.getElementById('restoreForm')?.classList.remove('d-none');
+    setProgressBar(0, '', '', '', 'bg-primary');
+}
+
+// Main Submit Listener
+document.getElementById('restoreForm').addEventListener('submit', function(e) {
+    e.preventDefault();
     
-    if (isUpload && (!fileInp.files || fileInp.files.length === 0)) {
-        e.preventDefault();
+    var isUpload = document.getElementById('src_upload').checked;
+    var fileInput = document.getElementById('sql_file');
+    var pinVal = document.getElementById('pin').value.trim();
+    
+    if (isUpload && (!fileInput.files || fileInput.files.length === 0)) {
         alert('Barah-e-karam pehle .sql backup file select karein!');
-        return false;
+        return;
     }
-    
+
     if (!confirm('WARNING: Yeh action database ko update / overwrite kar dega. Kya aap waqai database restore karna chahte hain?')) {
-        e.preventDefault();
-        return false;
+        return;
     }
-    
-    var btn = document.getElementById('btnSubmit');
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin me-2"></i> Restoring Database... Please wait (do not close this window)';
+
+    // Hide errors & form, show progress section
+    document.getElementById('error_alert').classList.add('d-none');
+    document.getElementById('restoreForm').classList.add('d-none');
+    document.getElementById('progress_section').classList.remove('d-none');
+
+    var term = document.getElementById('terminal_console');
+    term.innerHTML = '';
+    appendTerminalLog('<span class="text-info fw-bold">Initializing Database Restore Process...</span>');
+
+    if (isUpload) {
+        uploadAndRestore();
+    } else {
+        var serverFile = document.getElementById('server_file').value;
+        startStreamRestore(serverFile);
+    }
 });
+
+// Phase 1: Upload File with live XMLHttpRequest upload progress
+function uploadAndRestore() {
+    setProgressBar(0, '<i class="fa-solid fa-cloud-arrow-up fa-fade me-1"></i> Phase 1: Uploading File', 'Uploading backup file to server...', '0 MB', 'bg-info');
+    appendTerminalLog("Starting file upload to server...");
+
+    var formData = new FormData();
+    formData.append('pin', document.getElementById('pin').value.trim());
+    formData.append('sql_file', document.getElementById('sql_file').files[0]);
+
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', 'restorebackup.php?action=upload_temp', true);
+
+    xhr.upload.onprogress = function(e) {
+        if (e.lengthComputable) {
+            var percent = (e.loaded / e.total) * 100;
+            var loadedMB = (e.loaded / (1024*1024)).toFixed(1);
+            var totalMB = (e.total / (1024*1024)).toFixed(1);
+            setProgressBar(percent * 0.4, '<i class="fa-solid fa-cloud-arrow-up fa-fade me-1"></i> Uploading: ' + Math.round(percent) + '%', 'Uploading backup file...', loadedMB + ' / ' + totalMB + ' MB', 'bg-info');
+        }
+    };
+
+    xhr.onload = function() {
+        if (xhr.status === 200) {
+            try {
+                var res = JSON.parse(xhr.responseText);
+                if (res.status === 'ok') {
+                    appendTerminalLog("<span class='text-success'>File uploaded successfully: " + res.file + " (" + res.size_formatted + ")</span>");
+                    startStreamRestore(res.file);
+                } else {
+                    showError(res.message || 'Upload error');
+                }
+            } catch (err) {
+                showError('Invalid server upload response: ' + xhr.responseText);
+            }
+        } else {
+            showError('Server upload failed with HTTP status ' + xhr.status);
+        }
+    };
+
+    xhr.onerror = function() {
+        showError('Network error occurred during file upload. Check VPS network connection.');
+    };
+
+    xhr.send(formData);
+}
+
+// Phase 2: Stream Execution with real-time SSE chunks
+function startStreamRestore(filePath) {
+    setProgressBar(10, '<i class="fa-solid fa-database fa-spin me-1"></i> Phase 2: Restoring Database', 'Connecting to MySQL database...', '', 'bg-primary');
+    appendTerminalLog("Initiating streaming database execution engine...");
+
+    var postData = new URLSearchParams();
+    postData.append('pin', document.getElementById('pin').value.trim());
+    postData.append('file', filePath);
+    postData.append('db_host', document.getElementById('db_host').value.trim());
+    postData.append('db_user', document.getElementById('db_user').value.trim());
+    postData.append('db_pass', document.getElementById('db_pass').value);
+    postData.append('db_name', document.getElementById('db_name').value.trim());
+
+    fetch('restorebackup.php?action=stream_execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: postData
+    }).then(function(response) {
+        if (!response.ok) {
+            throw new Error('HTTP Server Error ' + response.status);
+        }
+        var reader = response.body.getReader();
+        var decoder = new TextDecoder();
+        var buffer = '';
+
+        function readChunk() {
+            reader.read().then(function(result) {
+                if (result.done) return;
+
+                buffer += decoder.decode(result.value, { stream: true });
+                var lines = buffer.split("\n\n");
+                buffer = lines.pop(); // Keep unfinished tail
+
+                for (var i = 0; i < lines.length; i++) {
+                    var line = lines[i].trim();
+                    if (line.startsWith('data: ')) {
+                        var jsonStr = line.substring(6).trim();
+                        try {
+                            var data = JSON.parse(jsonStr);
+                            handleStreamEvent(data);
+                        } catch(e) {
+                            console.error("JSON parse error:", e, jsonStr);
+                        }
+                    }
+                }
+                readChunk();
+            }).catch(function(err) {
+                showError('Stream connection error: ' + err.message);
+            });
+        }
+        readChunk();
+    }).catch(function(err) {
+        showError(err.message);
+    });
+}
+
+function handleStreamEvent(data) {
+    if (data.status === 'log') {
+        if (data.percent !== undefined) {
+            setProgressBar(data.percent, null, data.message, null, null);
+        }
+        appendTerminalLog(data.message);
+    } else if (data.status === 'progress') {
+        setProgressBar(data.percent, '<i class="fa-solid fa-bolt fa-fade me-1"></i> Restoring Database...', data.message, data.queries ? data.queries + ' queries' : '', 'bg-primary');
+    } else if (data.status === 'error') {
+        showError(data.message);
+    } else if (data.status === 'complete') {
+        setProgressBar(100, '<i class="fa-solid fa-circle-check text-white me-1"></i> Completed!', 'All database tables restored successfully!', '', 'bg-success');
+        appendTerminalLog("<span class='text-success fw-bold'>" + data.message + "</span>");
+        showSuccessView(data.stats, data.tables);
+    }
+}
+
+function showSuccessView(stats, tables) {
+    document.getElementById('stat_tables').innerText = stats.table_count || 0;
+    document.getElementById('stat_subscribers').innerText = stats.subscribers || 0;
+    document.getElementById('stat_routers').innerText = stats.routers || 0;
+
+    var summaryEl = document.getElementById('stat_summary_line');
+    if (summaryEl) {
+        summaryEl.innerHTML = '<i class="fa-solid fa-bolt text-warning me-1"></i> Executed <strong>' + (stats.queries || 0).toLocaleString() + '</strong> queries across <strong>' + (stats.table_count || 0) + '</strong> tables in <strong>' + stats.time_sec + 's</strong>.';
+    }
+
+    var tbody = document.getElementById('restored_tables_tbody');
+    if (tbody && tables && tables.length) {
+        tbody.innerHTML = '';
+        tables.forEach(function(t) {
+            var tr = document.createElement('tr');
+            tr.innerHTML = '<td><code>' + t.name + '</code></td><td class="text-end fw-bold text-primary">' + Number(t.rows).toLocaleString() + '</td>';
+            tbody.appendChild(tr);
+        });
+    }
+
+    setTimeout(function() {
+        document.getElementById('progress_section').classList.add('d-none');
+        document.getElementById('success_section').classList.remove('d-none');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }, 1500);
+}
 </script>
 
 </body>
