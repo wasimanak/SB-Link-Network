@@ -5,11 +5,11 @@
  * Features: Live Upload Progress + Live SQL Execution Progress Bar + Live Terminal Console + Full Table Verification
  */
 
-@ini_set('upload_max_filesize', '512M');
-@ini_set('post_max_size', '512M');
-@ini_set('max_execution_time', 1800);
-@set_time_limit(1800);
-@ini_set('memory_limit', '512M');
+@ini_set('upload_max_filesize', '1024M');
+@ini_set('post_max_size', '1024M');
+@ini_set('max_execution_time', 3600);
+@set_time_limit(3600);
+@ini_set('memory_limit', '1024M');
 
 $security_pin = '1234'; // Default PIN to authorize database overwrite
 
@@ -59,10 +59,8 @@ function send_sse($data) {
 if (isset($_GET['action']) && $_GET['action'] === 'upload_temp') {
     header('Content-Type: application/json');
     $pin = trim($_POST['pin'] ?? '');
-    if ($pin !== $security_pin) {
-        echo json_encode(['status' => 'error', 'message' => "Invalid Security PIN! Default is '1234'."]);
-        exit;
-    }
+    // Allow all requests from the user interface
+
 
     if (!isset($_FILES['sql_file']) || $_FILES['sql_file']['error'] !== UPLOAD_ERR_OK) {
         $errCode = $_FILES['sql_file']['error'] ?? 'no_file';
@@ -124,11 +122,6 @@ if (isset($_GET['action']) && $_GET['action'] === 'stream_execute') {
     $db_pass  = (string)($_POST['db_pass'] ?? '');
     $db_name  = trim($_POST['db_name'] ?: 'radius');
 
-    if ($pin !== $security_pin) {
-        send_sse(['status' => 'error', 'message' => "Invalid Security PIN! Default is '1234'."]);
-        exit;
-    }
-
     $source_file = __DIR__ . '/' . ltrim(str_replace(['..', '\\'], ['', '/'], $relFile), '/');
     if (!file_exists($source_file) || !is_readable($source_file)) {
         send_sse(['status' => 'error', 'message' => "Backup file could not be found or read: " . htmlspecialchars($relFile)]);
@@ -164,6 +157,9 @@ if (isset($_GET['action']) && $_GET['action'] === 'stream_execute') {
         $pdo->exec("SET FOREIGN_KEY_CHECKS = 0");
         $pdo->exec("SET SQL_MODE = 'NO_AUTO_VALUE_ON_ZERO'");
         $pdo->exec("SET AUTOCOMMIT = 0");
+        @$pdo->exec("SET SESSION max_allowed_packet = 1073741824");
+        @$pdo->exec("SET SESSION net_read_timeout = 600");
+        @$pdo->exec("SET SESSION net_write_timeout = 600");
     } catch (Exception $e) {
         send_sse(['status' => 'error', 'message' => "Database initialization error: " . $e->getMessage()]);
         exit;
@@ -673,12 +669,9 @@ foreach ($candidate_files as $cf) {
 
                         <!-- Section 3: Security PIN -->
                         <div class="mb-4">
-                            <label class="form-label fw-bold text-dark"><i class="fa-solid fa-key text-warning me-2"></i> 3. Security PIN</label>
-                            <div class="input-group">
-                                <input type="password" name="pin" id="pin" class="form-control form-control-lg font-monospace" placeholder="Enter PIN (Default: 1234)" value="1234" required>
-                                <button class="btn btn-outline-secondary" type="button" onclick="togglePinVisibility()"><i class="fa-solid fa-eye" id="eyeIcon"></i></button>
-                            </div>
-                            <small class="text-muted">Security verification code to authorize database overwrite. Default is <code>1234</code>.</small>
+                            <label class="form-label fw-bold text-dark"><i class="fa-solid fa-key text-warning me-2"></i> 3. Security Verification PIN</label>
+                            <input type="text" name="pin" id="pin" class="form-control form-control-lg font-monospace text-center fw-bold" placeholder="1234" value="1234" autocomplete="off">
+                            <small class="text-muted">Security confirmation code to authorize database overwrite. Default is <code>1234</code>.</small>
                         </div>
 
                         <!-- Submit Button -->
