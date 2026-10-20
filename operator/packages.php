@@ -1,6 +1,7 @@
 <?php
 require_once 'header.php';
 require_once '../config/routeros_api.class.php';
+require_once '../config/speed_scheduler_helper.php';
 
 $client_id = $_SESSION['operator_id'];
 
@@ -114,46 +115,16 @@ try {
 
 // --- 2. Live MikroTik Router Outbound WAN Shifter Function ---
 
-// --- 1.5 Sync FreeRADIUS radgroupreply & radreply for Multi-WAN (Tenant Isolated) ---
+// --- 1.5 Sync FreeRADIUS radgroupreply & radreply for Multi-WAN & Speed Caps ---
 function sync_freeradius_package_and_users($pdo, $package_id, $pkg_name, $rate_limit, $pool_name, $wan_provider, $client_id) {
     if (empty($wan_provider)) $wan_provider = "PTCL";
+    $norm_rate = normalize_mikrotik_speed($rate_limit);
 
-    // Determine target profile / pool name for Mikrotik-Group (e.g. '4Mbps')
-    $target_profile = !empty($pool_name) ? $pool_name : '';
-    if (empty($target_profile) || $target_profile === 'PPPoE Pool') {
-        if (preg_match('/(\d+)\s*(?:M|MB|Mbps)/i', $pkg_name, $m_prof)) {
-            $target_profile = $m_prof[1] . 'Mbps';
-        } else {
-            $target_profile = $pkg_name;
-        }
-    }
+    // 1. Sync FreeRADIUS radgroupreply, radusergroup, and radreply for subscribers
+    sync_freeradius_rate_and_profile($pdo, $package_id, $pkg_name, $norm_rate, $pool_name, $client_id);
 
-    // A. Sync radgroupreply for package group (ONLY Mikrotik-Rate-Limit belongs in shared group table)
-    try {
-        $pdo->prepare("DELETE FROM radgroupreply WHERE groupname = ? AND attribute IN ('Mikrotik-Group', 'Framed-Pool', 'Mikrotik-Address-List')")->execute([$pkg_name]);
-        if (!empty($rate_limit) && $rate_limit !== 'Unlimited' && $rate_limit !== 'No Limit') {
-            $pdo->prepare("DELETE FROM radgroupreply WHERE groupname = ? AND attribute = 'Mikrotik-Rate-Limit'")->execute([$pkg_name]);
-            $pdo->prepare("INSERT INTO radgroupreply (groupname, attribute, op, value) VALUES (?, 'Mikrotik-Rate-Limit', ':=', ?)")->execute([$pkg_name, $rate_limit]);
-        }
-    } catch (Exception $e) {}
-
-    // B. Sync existing subscribers in radreply STRICTLY for THIS operator (client_id)
-    try {
-        $sub_stmt = $pdo->prepare("SELECT username FROM subscribers WHERE package_id = ? AND client_id = ?");
-        $sub_stmt->execute([$package_id, $client_id]);
-        $subscribers = $sub_stmt->fetchAll(PDO::FETCH_COLUMN);
-
-        foreach ($subscribers as $u) {
-            // NEVER inject Mikrotik-Address-List (prevents 700 dynamic entries and WAN hijacking)
-            $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute IN ('Mikrotik-Address-List', 'Framed-Pool')")->execute([$u]);
-            
-            // Set Mikrotik-Group so router assigns user to their package PPP profile and pool
-            if (!empty($target_profile)) {
-                $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Group'")->execute([$u]);
-                $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Group', '=', ?)")->execute([$u, $target_profile]);
-            }
-        }
-    } catch (Exception $e) {}
+    // 2. Live update active MikroTik simple queues and sessions
+    live_update_mikrotik_speed_for_package($pdo, $package_id, $client_id, $norm_rate);
 }
 
 function sync_mikrotik_package_wan($pdo, $client_id, $target_wan, $pool_name, $subnet_cidr = '') {
@@ -277,9 +248,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pool_id = (int)($_POST['pool_id'] ?? 0);
         $wan_provider = trim($_POST['wan_provider'] ?? '');
 
-        $rate_up = trim($_POST['rate_up'] ?? '');
-        $rate_down = trim($_POST['rate_down'] ?? '');
-        if (strcasecmp($rate_up, 'Unlimited') === 0 || empty($rate_up) || empty($rate_down)) {
+        $rate_up = normalize_single_speed($_POST['rate_up'] ?? '');
+        $rate_down = normalize_single_speed($_POST['rate_down'] ?? '');
+        if (strcasecmp($rate_up, 'Unlimited') === 0 && strcasecmp($rate_down, 'Unlimited') === 0) {
+            $rate_limit = 'Unlimited';
+        } elseif (empty($rate_up) || empty($rate_down)) {
             $rate_limit = 'Unlimited';
         } else {
             $rate_limit = $rate_up . '/' . $rate_down;
@@ -292,10 +265,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Night / Speed Scheduler
             $scheduler = null;
             if (!empty($_POST['sched_start']) && !empty($_POST['sched_end']) && (!empty($_POST['sched_up']) || !empty($_POST['sched_down']))) {
+                $s_up = normalize_single_speed($_POST['sched_up'] ?? $rate_up);
+                $s_down = normalize_single_speed($_POST['sched_down'] ?? $rate_down);
                 $scheduler = json_encode([
-                    'start_time' => $_POST['sched_start'],
-                    'end_time'   => $_POST['sched_end'],
-                    'speed'      => trim($_POST['sched_up'] ?? '') . '/' . trim($_POST['sched_down'] ?? '')
+                    'start_time' => trim($_POST['sched_start']),
+                    'end_time'   => trim($_POST['sched_end']),
+                    'speed'      => $s_up . '/' . $s_down
                 ]);
             }
 
@@ -450,6 +425,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $flash_type = 'success';
         }
     }
+
+    // D. QUICK ACTION: SYNC ALL SCHEDULERS NOW
+    if ($action === 'sync_schedulers_now') {
+        $sync_res = sync_all_speed_schedulers($pdo, $client_id, true);
+        $upd_cnt = 0;
+        foreach ($sync_res as $sr) {
+            if (!empty($sr['changed'])) $upd_cnt++;
+        }
+        $flash_msg = "All Speed Schedulers Synchronized! Checked " . count($sync_res) . " packages, updated {$upd_cnt} package speed(s) and pushed live queues to MikroTik!";
+        $flash_type = 'success';
+    }
 }
 
 // --- 4. Fetch Data for UI Rendering ---
@@ -509,6 +495,15 @@ function get_wan_badge($wan) {
     }
     return ['class' => 'badge-custom', 'icon' => 'fa-solid fa-network-wired', 'name' => $wan ?: 'PTCL'];
 }
+
+// Auto-check speed schedulers on page load
+$active_sched_map = [];
+try {
+    $current_scheds = sync_all_speed_schedulers($pdo, $client_id, false);
+    foreach ($current_scheds as $cs) {
+        $active_sched_map[$cs['package_id']] = $cs;
+    }
+} catch (Exception $e) {}
 ?>
 
 <style>
@@ -679,10 +674,18 @@ function get_wan_badge($wan) {
                 <h5 class="fw-bold mb-1 text-dark">Package Profiles &amp; Pool Assignment</h5>
                 <div class="text-muted small">Har package ka assigned IP Pool aur active internet WAN route yahan show ho raha hai.</div>
             </div>
-            <div style="min-width: 250px;">
-                <div class="input-group input-group-sm">
-                    <span class="input-group-text bg-light border-end-0"><i class="fa-solid fa-magnifying-glass text-muted"></i></span>
-                    <input type="text" id="packageFilter" class="form-control border-start-0" placeholder="Filter packages or WAN..." onkeyup="filterPackages()">
+            <div class="d-flex align-items-center gap-2">
+                <form method="POST" class="m-0">
+                    <input type="hidden" name="action" value="sync_schedulers_now">
+                    <button type="submit" class="btn btn-sm btn-outline-info rounded-pill px-3 fw-bold" title="Synchronize Night/Day speed schedules and push to MikroTik queues">
+                        <i class="fa-solid fa-clock-rotate-left me-1"></i> Sync Schedulers Now
+                    </button>
+                </form>
+                <div style="min-width: 250px;">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text bg-light border-end-0"><i class="fa-solid fa-magnifying-glass text-muted"></i></span>
+                        <input type="text" id="packageFilter" class="form-control border-start-0" placeholder="Filter packages or WAN..." onkeyup="filterPackages()">
+                    </div>
                 </div>
             </div>
         </div>
@@ -734,9 +737,27 @@ function get_wan_badge($wan) {
                                         <i class="fa-solid fa-infinity me-1"></i> Unlimited
                                     </span>
                                 <?php else: ?>
-                                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle font-monospace px-2 py-1 rounded-pill">
-                                        <i class="fa-solid fa-gauge-high me-1"></i> <?= htmlspecialchars($p['rate_limit']) ?>
-                                    </span>
+                                    <?php 
+                                    $r_parts = explode('/', $p['rate_limit']);
+                                    $r_up = $r_parts[0] ?? $p['rate_limit'];
+                                    $r_down = $r_parts[1] ?? $r_parts[0];
+                                    $pkg_sc = $active_sched_map[$p['id']] ?? null;
+                                    ?>
+                                    <div class="d-flex flex-column gap-1">
+                                        <div class="d-flex gap-1 align-items-center">
+                                            <span class="badge bg-danger-subtle text-danger border border-danger-subtle font-monospace px-2 py-1 rounded-pill" title="Upload Speed Limit">
+                                                <i class="fa-solid fa-arrow-up me-1"></i><?= htmlspecialchars($r_up) ?>
+                                            </span>
+                                            <span class="badge bg-success-subtle text-success border border-success-subtle font-monospace px-2 py-1 rounded-pill" title="Download Speed Limit">
+                                                <i class="fa-solid fa-arrow-down me-1"></i><?= htmlspecialchars($r_down) ?>
+                                            </span>
+                                        </div>
+                                        <?php if ($pkg_sc && !empty($pkg_sc['mode']) && $pkg_sc['mode'] === 'night'): ?>
+                                            <span class="badge bg-warning text-dark px-2 py-1 rounded-pill shadow-sm" style="font-size: 0.68rem;" title="Night Speed Currently Active">
+                                                <i class="fa-solid fa-bolt me-1 text-danger"></i> Night Boost: <?= htmlspecialchars($pkg_sc['speed']) ?>
+                                            </span>
+                                        <?php endif; ?>
+                                    </div>
                                 <?php endif; ?>
                             </td>
                             <td>

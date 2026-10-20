@@ -22,13 +22,20 @@ if (!$is_cli && !$is_local_call) {
 
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/radius_kick_helper.php';
+require_once __DIR__ . '/speed_scheduler_helper.php';
 
 $start = microtime(true);
 $res = sync_expired_subscribers($pdo, null, true);
+$sched_res = sync_all_speed_schedulers($pdo);
 $duration = round(microtime(true) - $start, 3);
 
+$sched_updated = 0;
+foreach ($sched_res as $sr) {
+    if (!empty($sr['changed'])) $sched_updated++;
+}
+
 $timestamp = date('Y-m-d H:i:s');
-$msg = "[{$timestamp}] Auto-Expiry Sync Done in {$duration}s: {$res['walled']} expired walled-garden, {$res['disabled']} hard disabled, {$res['kicked']} sessions kicked from MikroTik, {$res['restored']} renewed restored.\n";
+$msg = "[{$timestamp}] Auto-Expiry & Speed Sync Done in {$duration}s: {$res['walled']} expired walled-garden, {$res['disabled']} hard disabled, {$res['kicked']} sessions kicked from MikroTik, {$res['restored']} renewed restored. Speed Scheduler: " . count($sched_res) . " plans checked, {$sched_updated} speeds transitioned.\n";
 
 if ($is_cli) {
     echo $msg;
@@ -41,6 +48,8 @@ if ($is_cli) {
         'hard_disabled' => $res['disabled'],
         'kicked_from_mikrotik' => $res['kicked'],
         'active_restored' => $res['restored'],
+        'speed_schedulers_checked' => count($sched_res),
+        'speed_schedulers_updated' => $sched_updated,
         'execution_seconds' => $duration
     ], JSON_PRETTY_PRINT);
 }

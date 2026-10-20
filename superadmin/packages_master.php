@@ -1,5 +1,6 @@
 <?php
 require_once 'header.php';
+require_once '../config/speed_scheduler_helper.php';
 
 // Auto-upgrade schema for Master/Child packages & scheduler
 try {
@@ -26,16 +27,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $name = trim($_POST['name']);
                 
                 // Advanced Speed Options
-                $rate_up = trim($_POST['rate_up'] ?? '');
-                $rate_down = trim($_POST['rate_down'] ?? '');
-                $rate_limit = (strcasecmp($rate_up, 'Unlimited') === 0 || empty($rate_up) || empty($rate_down)) ? 'Unlimited' : $rate_up . '/' . $rate_down;
+                $rate_up = normalize_single_speed($_POST['rate_up'] ?? '');
+                $rate_down = normalize_single_speed($_POST['rate_down'] ?? '');
+                if (strcasecmp($rate_up, 'Unlimited') === 0 && strcasecmp($rate_down, 'Unlimited') === 0) {
+                    $rate_limit = 'Unlimited';
+                } elseif (empty($rate_up) || empty($rate_down)) {
+                    $rate_limit = 'Unlimited';
+                } else {
+                    $rate_limit = $rate_up . '/' . $rate_down;
+                }
 
                 $scheduler = null;
                 if (!empty($_POST['sched_start']) && !empty($_POST['sched_end']) && (!empty($_POST['sched_up']) || !empty($_POST['sched_down']))) {
+                    $s_up = normalize_single_speed($_POST['sched_up'] ?? $rate_up);
+                    $s_down = normalize_single_speed($_POST['sched_down'] ?? $rate_down);
                     $sched_array = [
-                        'start_time' => $_POST['sched_start'],
-                        'end_time' => $_POST['sched_end'],
-                        'speed' => trim($_POST['sched_up'] ?? '') . '/' . trim($_POST['sched_down'] ?? '')
+                        'start_time' => trim($_POST['sched_start']),
+                        'end_time'   => trim($_POST['sched_end']),
+                        'speed'      => $s_up . '/' . $s_down
                     ];
                     $scheduler = json_encode($sched_array);
                 }
