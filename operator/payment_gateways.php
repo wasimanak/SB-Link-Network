@@ -111,6 +111,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+// Auto-create online_payments table and seed Safepay default if none exists
+try {
+    require_once '../config/safepay_helper.php';
+    ensure_online_payments_table($pdo);
+
+    $checkSp = $pdo->prepare("SELECT id FROM payment_gateways WHERE client_id = ? AND gateway_name = 'Safepay' LIMIT 1");
+    $checkSp->execute([$client_id]);
+    if (!$checkSp->fetch()) {
+        // Pre-insert Safepay Sandbox credentials
+        $insSp = $pdo->prepare("INSERT INTO payment_gateways (client_id, gateway_name, account_name, merchant_id, api_key, api_secret, mode, status) VALUES (?, 'Safepay', 'Safepay (All Bank Cards & Wallets)', '', 'sec_d45fe081-9ba5-4437-a8f6-96e157c0569f', 'b5559a16fde4d60797ff18e9b148dd6cdd18eb17888ff36bf7ec04b9adf4e3c2', 'sandbox', 'active')");
+        $insSp->execute([$client_id]);
+    }
+} catch (Exception $e) {}
+
 // Fetch Gateways
 $stmt = $pdo->prepare("SELECT * FROM payment_gateways WHERE client_id = ? ORDER BY created_at DESC");
 $stmt->execute([$client_id]);
@@ -127,6 +141,22 @@ $banks = $bStmt->fetchAll();
         <h4 class="m-0 text-secondary fw-bold mb-1"><i class="fa-solid fa-credit-card text-primary me-2"></i> Payment Methods</h4>
         <p class="text-muted small mb-0">Manage API Gateways & Bank Accounts. (Only ONE method can be active at a time).</p>
     </div>
+</div>
+
+<!-- Webhook Guidance Banner -->
+<?php
+$current_protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? "https://" : "http://";
+$webhook_url = $current_protocol . $_SERVER['HTTP_HOST'] . '/safepay_webhook.php';
+?>
+<div class="alert alert-info border-0 rounded-4 shadow-sm mb-4 p-3 d-flex flex-wrap align-items-center justify-content-between gap-3 bg-primary-subtle text-primary-emphasis">
+    <div>
+        <div class="fw-bold mb-1"><i class="fa-solid fa-bolt text-warning me-1"></i> Safepay Automated Webhook URL:</div>
+        <code class="small text-dark font-monospace user-select-all p-1 bg-white rounded border d-inline-block"><?= htmlspecialchars($webhook_url) ?></code>
+        <div class="text-muted small mt-1">Safepay Dashboard &rarr; <strong>Developers &rarr; Webhooks</strong> mein ja kar yeh Webhook URL paste karein taake customer payment karte hi background me auto-verify ho jaye.</div>
+    </div>
+    <button type="button" class="btn btn-sm btn-primary rounded-pill px-3 shadow-sm" onclick="navigator.clipboard.writeText('<?= addslashes($webhook_url) ?>'); alert('Webhook URL Copied: <?= addslashes($webhook_url) ?>');">
+        <i class="fa-regular fa-clipboard me-1"></i> Copy Webhook URL
+    </button>
 </div>
 
 <div class="row">
@@ -286,6 +316,7 @@ $banks = $bStmt->fetchAll();
                 <label class="form-label fw-bold text-secondary small">Provider / Gateway Name</label>
                 <select name="gateway_name" class="form-select" required>
                     <option value="">Select Provider...</option>
+                    <option value="Safepay" selected>Safepay (All Bank Cards, EasyPaisa, JazzCash, 1Link)</option>
                     <option value="JazzCash">JazzCash</option>
                     <option value="EasyPaisa">EasyPaisa</option>
                     <option value="NayaPay">NayaPay</option>
@@ -342,6 +373,7 @@ $banks = $bStmt->fetchAll();
             <div class="mb-3">
                 <label class="form-label fw-bold text-secondary small">Provider / Gateway Name</label>
                 <select name="gateway_name" id="edit_gateway_name" class="form-select" required>
+                    <option value="Safepay">Safepay (All Bank Cards, EasyPaisa, JazzCash, 1Link)</option>
                     <option value="JazzCash">JazzCash</option>
                     <option value="EasyPaisa">EasyPaisa</option>
                     <option value="NayaPay">NayaPay</option>

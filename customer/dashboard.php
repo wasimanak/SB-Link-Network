@@ -64,6 +64,11 @@ $opStmt->execute([$client_id]);
 $operator_info = $opStmt->fetch();
 $bank_details = (isset($operator_info['bank_details']) && $operator_info['bank_details']) ? $operator_info['bank_details'] : "Bank details not provided. Please contact operator.";
 
+// Check Safepay Payment Gateway
+require_once '../config/safepay_helper.php';
+$safepay_cfg = get_safepay_config($pdo, $client_id);
+$has_safepay = ($safepay_cfg && !empty($safepay_cfg['api_key']) && !empty($safepay_cfg['api_secret']) && ($safepay_cfg['status'] ?? '') === 'active');
+
 // Fetch Active Bank Account or Operator Bank Details
 $active_method = 'bank';
 $gateway_display_name = '';
@@ -763,10 +768,12 @@ if (empty($gateway_display_name)) {
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
 
-      <form action="request_action.php" method="POST">
+      <form action="<?= $has_safepay ? 'safepay_checkout.php' : 'request_action.php' ?>" method="POST" id="buyPackageForm">
         <div class="modal-body p-4">
             <input type="hidden" name="action" value="buy_package">
             <input type="hidden" name="package_id" id="modal_pkg_id">
+            <input type="hidden" name="amount" id="modal_pkg_amount" value="0">
+            <input type="hidden" name="purpose" value="package_renew">
             
             <!-- Summary Header Box -->
             <div class="text-center p-3 rounded-4 mb-4" style="background: linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%); border: 1px solid #dbeafe;">
@@ -777,8 +784,25 @@ if (empty($gateway_display_name)) {
                 </div>
             </div>
 
-            <!-- Online Payment Details Box -->
-            <div id="onlinePaymentBox" class="text-center mb-3">
+            <!-- 1. Safepay Payment Info Box -->
+            <?php if ($has_safepay): ?>
+            <div id="safepayPaymentBox" class="text-center mb-3 py-3 px-3 bg-light rounded-4 border">
+                <div class="rounded-circle bg-primary-subtle text-primary d-inline-flex align-items-center justify-content-center mb-2" style="width: 50px; height: 50px;">
+                    <i class="fa-solid fa-bolt fs-4 text-primary"></i>
+                </div>
+                <h6 class="text-dark fw-bold mb-1">Instant Online Checkout (Safepay)</h6>
+                <p class="text-muted small mb-2 px-2" style="font-size: 0.8rem;">Pay securely using ANY Pakistani Bank Debit/Credit Card, EasyPaisa, JazzCash, or 1Link Raast. Internet activates immediately!</p>
+                <div class="d-flex justify-content-center gap-1 flex-wrap" style="font-size: 0.72rem;">
+                    <span class="badge bg-white text-dark border"><i class="fa-solid fa-credit-card text-primary me-1"></i> All Bank Cards</span>
+                    <span class="badge bg-white text-success border"><i class="fa-solid fa-mobile-screen-button me-1"></i> EasyPaisa</span>
+                    <span class="badge bg-white text-danger border"><i class="fa-solid fa-bolt me-1"></i> JazzCash</span>
+                    <span class="badge bg-white text-primary border"><i class="fa-solid fa-building-columns me-1"></i> 1Link / Raast</span>
+                </div>
+            </div>
+            <?php endif; ?>
+
+            <!-- 2. Online Payment Details Box (Manual Bank) -->
+            <div id="onlinePaymentBox" class="text-center mb-3 d-none">
                 <div class="bank-box-card text-start mx-auto shadow-sm mb-3" style="max-width: 400px; background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 18px; padding: 18px;">
                     <div class="d-flex align-items-center justify-content-between mb-3 pb-2 border-bottom border-slate-200">
                         <div class="d-flex align-items-center gap-2">
@@ -820,7 +844,7 @@ if (empty($gateway_display_name)) {
 
                 <div class="mb-3 text-start">
                     <label class="form-label text-dark fw-bold small mb-1">Transaction Reference / TID <span class="text-danger">*</span></label>
-                    <input type="text" name="payment_reference" id="payment_reference" class="form-control" placeholder="e.g. TRX192837465" required>
+                    <input type="text" name="payment_reference" id="payment_reference" class="form-control" placeholder="e.g. TRX192837465">
                     <div class="form-text text-muted" style="font-size: 0.72rem;">Enter the Transaction ID received in your bank receipt or SMS after transfer.</div>
                 </div>
 
@@ -829,7 +853,7 @@ if (empty($gateway_display_name)) {
                 </div>
             </div>
 
-            <!-- Balance Payment Info -->
+            <!-- 3. Balance Payment Info -->
             <div id="balancePaymentBox" class="d-none text-center mb-3 py-4 bg-light rounded-4 border">
                 <div class="rounded-circle bg-success-subtle text-success d-inline-flex align-items-center justify-content-center mb-2" style="width: 60px; height: 60px;">
                     <i class="fa-solid fa-wallet fs-3"></i>
@@ -842,24 +866,37 @@ if (empty($gateway_display_name)) {
             
             <!-- Payment Options Selector -->
             <div class="d-flex flex-column gap-2">
-                <!-- Online Transfer -->
-                <label class="payment-option-pill active w-100 m-0" id="opt_online_box">
+                <!-- Safepay Instant Payment -->
+                <?php if ($has_safepay): ?>
+                <label class="payment-option-pill active w-100 m-0" id="opt_safepay_box">
                     <div class="d-flex align-items-center">
-                        <input class="form-check-input mt-0 me-3" type="radio" name="payment_method" id="pay_online" value="bank_transfer" checked onchange="togglePaymentUI()">
+                        <input class="form-check-input mt-0 me-3" type="radio" name="payment_method" id="pay_safepay" value="safepay" checked onchange="togglePaymentUI()">
                         <div>
-                            <div class="fw-bold text-dark" style="font-size: 0.92rem;"><i class="fa-solid fa-building-columns text-primary me-1"></i> Bank Transfer / Direct Payment</div>
-                            <div class="text-muted small">Pay via mobile bank, JazzCash, EasyPaisa or ATM</div>
+                            <div class="fw-bold text-dark" style="font-size: 0.92rem;"><i class="fa-solid fa-bolt text-primary me-1"></i> Pay Online Instantly (Safepay)</div>
+                            <div class="text-muted small">Cards, EasyPaisa, JazzCash, Any Bank &bull; <span class="badge bg-success-subtle text-success py-0 px-2 fw-bold">Instant Activation</span></div>
+                        </div>
+                    </div>
+                </label>
+                <?php endif; ?>
+
+                <!-- Account Balance -->
+                <label class="payment-option-pill w-100 m-0 <?= !$has_safepay ? 'active' : '' ?>" id="opt_balance_box">
+                    <div class="d-flex align-items-center">
+                        <input class="form-check-input mt-0 me-3" type="radio" name="payment_method" id="pay_balance" value="balance" <?= !$has_safepay ? 'checked' : '' ?> onchange="togglePaymentUI()">
+                        <div>
+                            <div class="fw-bold text-dark" style="font-size: 0.92rem;"><i class="fa-solid fa-wallet text-success me-1"></i> Available Wallet Balance</div>
+                            <div class="text-muted small">Available Funds: <strong class="text-success">Rs <?= number_format($current_user['balance'], 2) ?></strong></div>
                         </div>
                     </div>
                 </label>
 
-                <!-- Account Balance -->
-                <label class="payment-option-pill w-100 m-0" id="opt_balance_box">
+                <!-- Manual Bank Transfer -->
+                <label class="payment-option-pill w-100 m-0" id="opt_online_box">
                     <div class="d-flex align-items-center">
-                        <input class="form-check-input mt-0 me-3" type="radio" name="payment_method" id="pay_balance" value="balance" onchange="togglePaymentUI()">
+                        <input class="form-check-input mt-0 me-3" type="radio" name="payment_method" id="pay_online" value="bank_transfer" onchange="togglePaymentUI()">
                         <div>
-                            <div class="fw-bold text-dark" style="font-size: 0.92rem;"><i class="fa-solid fa-wallet text-success me-1"></i> Available Wallet Balance</div>
-                            <div class="text-muted small">Available Funds: <strong class="text-success">Rs <?= number_format($current_user['balance'], 2) ?></strong></div>
+                            <div class="fw-bold text-dark" style="font-size: 0.92rem;"><i class="fa-solid fa-building-columns text-secondary me-1"></i> Manual Bank Transfer / TID</div>
+                            <div class="text-muted small">Pay via mobile bank or ATM (Manual operator approval)</div>
                         </div>
                     </div>
                 </label>
@@ -868,8 +905,8 @@ if (empty($gateway_display_name)) {
         </div>
         <div class="modal-footer d-flex justify-content-between">
             <button type="button" class="btn btn-light px-4 rounded-pill fw-semibold" data-bs-dismiss="modal">Cancel</button>
-            <button type="submit" id="submitBtn" class="btn btn-primary px-4 rounded-pill fw-bold">
-                <i class="fa-solid fa-paper-plane me-1"></i> Submit Request
+            <button type="submit" id="submitBtn" class="btn btn-primary px-4 rounded-pill fw-bold shadow-sm">
+                <i class="fa-solid fa-bolt me-1"></i> Proceed to Pay Online
             </button>
         </div>
       </form>
@@ -891,76 +928,136 @@ if (empty($gateway_display_name)) {
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
 
-      <form action="fund_action.php" method="POST">
-        <div class="modal-body p-4">
-            
-            <div class="text-center mb-3">
-                <div class="bank-box-card text-start mx-auto shadow-sm mb-3" style="max-width: 400px; background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 18px; padding: 18px;">
-                    <div class="d-flex align-items-center justify-content-between mb-3 pb-2 border-bottom border-slate-200">
-                        <div class="d-flex align-items-center gap-2">
-                            <i class="fa-solid fa-building-columns text-success fs-5"></i>
-                            <span class="fw-bold text-dark fs-6"><?= htmlspecialchars($gateway_display_name ?: 'Bank Account') ?></span>
-                        </div>
-                        <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill">Bank Account</span>
-                    </div>
+      <?php if ($has_safepay): ?>
+      <!-- Mode Tabs -->
+      <div class="px-4 pt-3 pb-0">
+        <ul class="nav nav-pills nav-fill bg-light p-1 rounded-pill border" id="fundTabs" role="tablist">
+          <li class="nav-item" role="presentation">
+            <button class="nav-link active rounded-pill fw-bold small py-2" id="tab-safepay" data-bs-toggle="pill" data-bs-target="#pane-safepay" type="button" role="tab">
+              <i class="fa-solid fa-bolt text-warning me-1"></i> Pay Online (Safepay)
+            </button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link rounded-pill fw-semibold small py-2" id="tab-manual" data-bs-toggle="pill" data-bs-target="#pane-manual" type="button" role="tab">
+              <i class="fa-solid fa-building-columns me-1"></i> Manual Bank Transfer
+            </button>
+          </li>
+        </ul>
+      </div>
+      <?php endif; ?>
 
-                    <div class="mb-2">
-                        <div class="text-muted small text-uppercase" style="font-size: 0.68rem; font-weight: 700;">Account Title</div>
-                        <div class="fw-bold text-dark fs-6"><?= htmlspecialchars($gateway_account_name ?: ($operator_info['company_name'] ?? 'ISP Provider')) ?></div>
-                    </div>
-
-                    <?php if(!empty($account_number_str)): ?>
-                    <div class="mb-2">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <div class="text-muted small text-uppercase" style="font-size: 0.68rem; font-weight: 700;">Account Number</div>
-                            <button type="button" class="btn-copy-chip" onclick="copyText('<?= htmlspecialchars($account_number_str) ?>', this)" title="Copy Account Number">
-                                <i class="fa-regular fa-clipboard me-1"></i>Copy
-                            </button>
-                        </div>
-                        <div class="fw-bold text-success fs-5 font-monospace" style="letter-spacing: 0.5px;"><?= htmlspecialchars($account_number_str) ?></div>
-                    </div>
-                    <?php endif; ?>
-
-                    <?php if(!empty($iban_str)): ?>
-                    <div class="mb-0">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <div class="text-muted small text-uppercase" style="font-size: 0.68rem; font-weight: 700;">IBAN</div>
-                            <button type="button" class="btn-copy-chip" onclick="copyText('<?= htmlspecialchars($iban_str) ?>', this)" title="Copy IBAN">
-                                <i class="fa-regular fa-clipboard me-1"></i>Copy
-                            </button>
-                        </div>
-                        <div class="fw-bold text-dark font-monospace" style="font-size: 0.88rem;"><?= htmlspecialchars($iban_str) ?></div>
-                    </div>
-                    <?php endif; ?>
+      <div class="tab-content" id="fundTabsContent">
+        <!-- 1. Safepay Instant Recharge Tab -->
+        <?php if ($has_safepay): ?>
+        <div class="tab-pane fade show active" id="pane-safepay" role="tabpanel">
+          <form action="safepay_checkout.php" method="POST">
+            <input type="hidden" name="purpose" value="recharge">
+            <div class="modal-body p-4">
+              <div class="text-center mb-3 py-3 px-3 bg-light rounded-4 border">
+                <i class="fa-solid fa-credit-card text-primary fa-2x mb-2"></i>
+                <h6 class="fw-bold mb-1 text-dark">Instant Online Wallet Recharge</h6>
+                <p class="text-muted small mb-2">Debit / Credit Cards (Any Bank), EasyPaisa, JazzCash, 1Link Raast</p>
+                <div class="d-flex justify-content-center gap-1 flex-wrap" style="font-size: 0.72rem;">
+                  <span class="badge bg-white text-dark border">All Bank Cards</span>
+                  <span class="badge bg-white text-success border">EasyPaisa</span>
+                  <span class="badge bg-white text-danger border">JazzCash</span>
+                  <span class="badge bg-white text-primary border">1Link / Raast</span>
                 </div>
-            </div>
+              </div>
 
-            <div class="mb-3">
-                <label class="form-label text-dark fw-bold small mb-1">Enter Recharge Amount (Rs)</label>
+              <div class="mb-3">
+                <label class="form-label text-dark fw-bold small mb-1">Enter Recharge Amount (Rs) <span class="text-danger">*</span></label>
                 <div class="input-group">
-                    <span class="input-group-text bg-light text-muted fw-bold">Rs</span>
-                    <input type="number" name="amount" id="fund_amount" class="form-control" placeholder="e.g. 1500" required onkeyup="updateFundQR()">
+                  <span class="input-group-text bg-light text-muted fw-bold">Rs</span>
+                  <input type="number" name="amount" class="form-control form-control-lg font-monospace fw-bold" placeholder="e.g. 1500" min="10" required>
                 </div>
+                <div class="form-text text-muted small"><i class="fa-solid fa-shield-halved text-success me-1"></i> 100% Secure Checkout via Safepay. Funds are credited automatically!</div>
+              </div>
             </div>
-            
-            <div class="mb-3">
-                <label class="form-label text-dark fw-bold small mb-1">Transaction Reference / TID</label>
-                <input type="text" name="payment_reference" class="form-control" placeholder="e.g. TRX982736451" required>
-                <div class="form-text text-muted" style="font-size: 0.74rem;">Enter the Transaction ID provided by your banking app after transfer.</div>
+            <div class="modal-footer d-flex justify-content-between">
+              <button type="button" class="btn btn-light px-4 rounded-pill fw-semibold" data-bs-dismiss="modal">Cancel</button>
+              <button type="submit" class="btn btn-primary px-4 rounded-pill fw-bold shadow-sm">
+                <i class="fa-solid fa-bolt me-1"></i> Pay Online via Safepay
+              </button>
             </div>
-
-            <div class="alert alert-light border small text-muted mb-0">
-                <i class="fa-solid fa-circle-check text-success me-1"></i> Once submitted, your operator will verify and credit funds directly to your wallet balance.
-            </div>
-
+          </form>
         </div>
-        <div class="modal-footer d-flex justify-content-between">
-          <button type="button" class="btn btn-light px-4 rounded-pill fw-semibold" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-success px-4 rounded-pill fw-bold">
-            <i class="fa-solid fa-paper-plane me-1"></i> Submit Recharge
-          </button>
+        <?php endif; ?>
+
+        <!-- 2. Manual Bank Transfer Tab -->
+        <div class="tab-pane fade <?= !$has_safepay ? 'show active' : '' ?>" id="pane-manual" role="tabpanel">
+          <form action="fund_action.php" method="POST">
+            <div class="modal-body p-4">
+                
+                <div class="text-center mb-3">
+                    <div class="bank-box-card text-start mx-auto shadow-sm mb-3" style="max-width: 400px; background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 18px; padding: 18px;">
+                        <div class="d-flex align-items-center justify-content-between mb-3 pb-2 border-bottom border-slate-200">
+                            <div class="d-flex align-items-center gap-2">
+                                <i class="fa-solid fa-building-columns text-success fs-5"></i>
+                                <span class="fw-bold text-dark fs-6"><?= htmlspecialchars($gateway_display_name ?: 'Bank Account') ?></span>
+                            </div>
+                            <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill">Bank Account</span>
+                        </div>
+
+                        <div class="mb-2">
+                            <div class="text-muted small text-uppercase" style="font-size: 0.68rem; font-weight: 700;">Account Title</div>
+                            <div class="fw-bold text-dark fs-6"><?= htmlspecialchars($gateway_account_name ?: ($operator_info['company_name'] ?? 'ISP Provider')) ?></div>
+                        </div>
+
+                        <?php if(!empty($account_number_str)): ?>
+                        <div class="mb-2">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <div class="text-muted small text-uppercase" style="font-size: 0.68rem; font-weight: 700;">Account Number</div>
+                                <button type="button" class="btn-copy-chip" onclick="copyText('<?= htmlspecialchars($account_number_str) ?>', this)" title="Copy Account Number">
+                                    <i class="fa-regular fa-clipboard me-1"></i>Copy
+                                </button>
+                            </div>
+                            <div class="fw-bold text-success fs-5 font-monospace" style="letter-spacing: 0.5px;"><?= htmlspecialchars($account_number_str) ?></div>
+                        </div>
+                        <?php endif; ?>
+
+                        <?php if(!empty($iban_str)): ?>
+                        <div class="mb-0">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <div class="text-muted small text-uppercase" style="font-size: 0.68rem; font-weight: 700;">IBAN</div>
+                                <button type="button" class="btn-copy-chip" onclick="copyText('<?= htmlspecialchars($iban_str) ?>', this)" title="Copy IBAN">
+                                    <i class="fa-regular fa-clipboard me-1"></i>Copy
+                                </button>
+                            </div>
+                            <div class="fw-bold text-dark font-monospace" style="font-size: 0.88rem;"><?= htmlspecialchars($iban_str) ?></div>
+                        </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label text-dark fw-bold small mb-1">Enter Recharge Amount (Rs)</label>
+                    <div class="input-group">
+                        <span class="input-group-text bg-light text-muted fw-bold">Rs</span>
+                        <input type="number" name="amount" id="fund_amount" class="form-control" placeholder="e.g. 1500" required onkeyup="updateFundQR()">
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <label class="form-label text-dark fw-bold small mb-1">Transaction Reference / TID</label>
+                    <input type="text" name="payment_reference" class="form-control" placeholder="e.g. TRX982736451" required>
+                    <div class="form-text text-muted" style="font-size: 0.74rem;">Enter the Transaction ID provided by your banking app after transfer.</div>
+                </div>
+
+                <div class="alert alert-light border small text-muted mb-0">
+                    <i class="fa-solid fa-circle-check text-success me-1"></i> Once submitted, your operator will verify and credit funds directly to your wallet balance.
+                </div>
+
+            </div>
+            <div class="modal-footer d-flex justify-content-between">
+              <button type="button" class="btn btn-light px-4 rounded-pill fw-semibold" data-bs-dismiss="modal">Cancel</button>
+              <button type="submit" class="btn btn-success px-4 rounded-pill fw-bold">
+                <i class="fa-solid fa-paper-plane me-1"></i> Submit Recharge
+              </button>
+            </div>
+          </form>
         </div>
-      </form>
+      </div>
     </div>
   </div>
 </div>
@@ -969,41 +1066,71 @@ if (empty($gateway_display_name)) {
 function openBuyModal(id, name, price) {
     document.getElementById('modal_pkg_id').value = id;
     document.getElementById('modal_pkg_name').innerText = name;
-    document.getElementById('modal_pkg_price').innerText = price.toFixed(2);
+    document.getElementById('modal_pkg_price').innerText = Number(price).toFixed(2);
     
-    var qrData = encodeURIComponent("PAY_<?= $current_user['id'] ?>_AMT_" + price.toFixed(2) + "_TS_" + Date.now());
+    var amtInput = document.getElementById('modal_pkg_amount');
+    if (amtInput) amtInput.value = price;
+    
+    var qrData = encodeURIComponent("PAY_<?= $current_user['id'] ?>_AMT_" + Number(price).toFixed(2) + "_TS_" + Date.now());
     var qrUrl = "https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=" + qrData;
     var qrElement = document.getElementById('qr_code_img');
     if (qrElement) {
         qrElement.src = qrUrl;
     }
     
+    togglePaymentUI();
     var modal = new bootstrap.Modal(document.getElementById('buyModal'));
     modal.show();
 }
 
 function togglePaymentUI() {
-    var isOnline = document.getElementById('pay_online').checked;
+    var paySafepayEl = document.getElementById('pay_safepay');
+    var isSafepay = paySafepayEl && paySafepayEl.checked;
+    var isOnline = document.getElementById('pay_online') && document.getElementById('pay_online').checked;
     
+    var form = document.getElementById('buyPackageForm');
+    var optSafepay = document.getElementById('opt_safepay_box');
     var optOnline = document.getElementById('opt_online_box');
     var optBalance = document.getElementById('opt_balance_box');
+    var prefInput = document.getElementById('payment_reference');
+    var submitBtn = document.getElementById('submitBtn');
     
-    if (isOnline) {
-        document.getElementById('onlinePaymentBox').classList.remove('d-none');
-        document.getElementById('balancePaymentBox').classList.add('d-none');
-        document.getElementById('payment_reference').setAttribute('required', 'required');
-        document.getElementById('submitBtn').innerHTML = '<i class="fa-solid fa-paper-plane me-1"></i> Submit Request';
-        
-        optOnline.classList.add('active');
-        optBalance.classList.remove('active');
+    // Hide all boxes first
+    document.getElementById('onlinePaymentBox')?.classList.add('d-none');
+    document.getElementById('balancePaymentBox')?.classList.add('d-none');
+    document.getElementById('safepayPaymentBox')?.classList.add('d-none');
+    
+    optSafepay?.classList.remove('active');
+    optOnline?.classList.remove('active');
+    optBalance?.classList.remove('active');
+    
+    if (isSafepay) {
+        if (form) form.action = 'safepay_checkout.php';
+        document.getElementById('safepayPaymentBox')?.classList.remove('d-none');
+        if (prefInput) prefInput.removeAttribute('required');
+        if (submitBtn) {
+            submitBtn.innerHTML = '<i class="fa-solid fa-bolt me-1"></i> Proceed to Pay Online';
+            submitBtn.className = 'btn btn-primary px-4 rounded-pill fw-bold shadow-sm';
+        }
+        optSafepay?.classList.add('active');
+    } else if (isOnline) {
+        if (form) form.action = 'request_action.php';
+        document.getElementById('onlinePaymentBox')?.classList.remove('d-none');
+        if (prefInput) prefInput.setAttribute('required', 'required');
+        if (submitBtn) {
+            submitBtn.innerHTML = '<i class="fa-solid fa-paper-plane me-1"></i> Submit Request';
+            submitBtn.className = 'btn btn-secondary px-4 rounded-pill fw-bold';
+        }
+        optOnline?.classList.add('active');
     } else {
-        document.getElementById('onlinePaymentBox').classList.add('d-none');
-        document.getElementById('balancePaymentBox').classList.remove('d-none');
-        document.getElementById('payment_reference').removeAttribute('required');
-        document.getElementById('submitBtn').innerHTML = '<i class="fa-solid fa-bolt me-1"></i> Confirm & Activate';
-        
-        optBalance.classList.add('active');
-        optOnline.classList.remove('active');
+        if (form) form.action = 'request_action.php';
+        document.getElementById('balancePaymentBox')?.classList.remove('d-none');
+        if (prefInput) prefInput.removeAttribute('required');
+        if (submitBtn) {
+            submitBtn.innerHTML = '<i class="fa-solid fa-check me-1"></i> Confirm & Activate';
+            submitBtn.className = 'btn btn-success px-4 rounded-pill fw-bold';
+        }
+        optBalance?.classList.add('active');
     }
 }
 
