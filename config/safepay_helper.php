@@ -123,8 +123,12 @@ function get_safepay_checkout_url($tracker_token, $order_id, $redirect_url, $can
         ? 'https://getsafepay.com/checkout/pay' 
         : 'https://sandbox.api.getsafepay.com/checkout/pay';
 
+    $env_name = ($mode === 'live') ? 'production' : 'sandbox';
+
     $params = [
         'beacon'       => $tracker_token,
+        'env'          => $env_name,
+        'environment'  => $env_name,
         'order_id'     => $order_id,
         'redirect_url' => $redirect_url,
         'cancel_url'   => $cancel_url,
