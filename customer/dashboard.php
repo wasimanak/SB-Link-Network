@@ -69,6 +69,24 @@ require_once '../config/safepay_helper.php';
 $safepay_cfg = get_safepay_config($pdo, $client_id);
 $has_safepay = ($safepay_cfg && !empty($safepay_cfg['api_key']) && !empty($safepay_cfg['api_secret']) && ($safepay_cfg['status'] ?? '') === 'active');
 
+// Auto-Sync pending Safepay transactions if any
+$synced_payments = [];
+if ($has_safepay && !empty($current_user['id'])) {
+    try {
+        $synced_payments = sync_pending_safepay_payments($pdo, $client_id, (int)$current_user['id']);
+        if (!empty($synced_payments)) {
+            // Refresh current user data since balance / expiry might have updated
+            $uStmt = $pdo->prepare("SELECT s.*, p.name as package_name, p.price as package_price, p.validity_days, p.rate_limit, pl.pool_name 
+                                    FROM subscribers s 
+                                    LEFT JOIN packages p ON s.package_id = p.id 
+                                    LEFT JOIN ip_pools pl ON p.pool_id = pl.id 
+                                    WHERE s.id = ?");
+            $uStmt->execute([$current_user['id']]);
+            $current_user = $uStmt->fetch(PDO::FETCH_ASSOC);
+        }
+    } catch (Exception $e) {}
+}
+
 // Fetch Active Bank Account or Operator Bank Details
 $active_method = 'bank';
 $gateway_display_name = '';
@@ -387,6 +405,26 @@ if (empty($gateway_display_name)) {
             </a>
         </div>
     </div>
+</div>
+<?php endif; ?>
+
+<?php if (!empty($synced_payments)): ?>
+<div class="alert alert-success alert-dismissible fade show border-0 shadow-sm rounded-4 mb-4 py-3 px-4" role="alert" style="background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);">
+    <div class="d-flex align-items-center gap-3">
+        <div class="rounded-circle bg-success text-white d-flex align-items-center justify-content-center shadow-sm" style="width: 44px; height: 44px; min-width: 44px;">
+            <i class="fa-solid fa-check fs-5"></i>
+        </div>
+        <div>
+            <h6 class="fw-bold mb-1 text-success-emphasis">Online Payment Verified & Activated!</h6>
+            <div class="small text-success-emphasis">
+                <?php foreach ($synced_payments as $sp): ?>
+                    Your payment of <strong>Rs. <?= number_format($sp['amount'], 2) ?></strong> (Order #<?= htmlspecialchars($sp['order_id']) ?>) was confirmed with Safepay. 
+                    <?= !empty($sp['package_renewed']) ? 'Your internet package (<strong>' . htmlspecialchars($sp['package_name']) . '</strong>) has been renewed and connection re-activated!' : 'Your wallet balance has been credited!' ?>
+                <?php endforeach; ?>
+            </div>
+        </div>
+    </div>
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
 </div>
 <?php endif; ?>
 

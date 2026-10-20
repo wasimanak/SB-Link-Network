@@ -8,11 +8,36 @@ require_once 'auth_check.php';
 require_once '../config/db.php';
 require_once '../config/safepay_helper.php';
 
-$tracker  = trim($_GET['tracker'] ?? ($_GET['beacon'] ?? ''));
-$sig      = trim($_GET['sig'] ?? '');
-$order_id = trim($_GET['order_id'] ?? '');
+$raw_input  = @file_get_contents('php://input');
+$json_input = json_decode($raw_input, true) ?? [];
 
-$client_id = (int)$current_user['client_id'];
+// Safepay passes parameters via POST or GET or JSON
+$tracker  = trim($_REQUEST['tracker'] ?? ($_REQUEST['beacon'] ?? ($_REQUEST['token'] ?? ($json_input['data']['token'] ?? ($json_input['tracker'] ?? '')))));
+$sig      = trim($_REQUEST['sig'] ?? ($_REQUEST['signature'] ?? ($json_input['sig'] ?? '')));
+$order_id = trim($_REQUEST['order_id'] ?? ($json_input['order_id'] ?? ($json_input['data']['metadata']['order_id'] ?? '')));
+
+$client_id = (int)($current_user['client_id'] ?? 0);
+$sub_id    = (int)($current_user['id'] ?? 0);
+
+// Fallback 1: If tracker is missing but order_id is present, get tracker from database
+if (empty($tracker) && !empty($order_id)) {
+    $tStmt = $pdo->prepare("SELECT tracker_token FROM online_payments WHERE order_id = ? LIMIT 1");
+    $tStmt->execute([$order_id]);
+    $tracker = $tStmt->fetchColumn() ?: '';
+}
+
+// Fallback 2: If both tracker and order_id are missing, check if this subscriber has a recent pending payment
+if (empty($tracker) && $sub_id > 0) {
+    $lastStmt = $pdo->prepare("SELECT order_id, tracker_token, client_id FROM online_payments WHERE subscriber_id = ? AND status = 'pending' ORDER BY id DESC LIMIT 1");
+    $lastStmt->execute([$sub_id]);
+    $lastOrder = $lastStmt->fetch(PDO::FETCH_ASSOC);
+    if ($lastOrder) {
+        $tracker = $lastOrder['tracker_token'];
+        $order_id = $lastOrder['order_id'];
+        if ($client_id === 0) $client_id = (int)$lastOrder['client_id'];
+    }
+}
+
 $safepay   = get_safepay_config($pdo, $client_id);
 $mode      = strtolower($safepay['mode'] ?? 'sandbox');
 $secret    = trim($safepay['api_secret'] ?? '');
@@ -20,6 +45,8 @@ $secret    = trim($safepay['api_secret'] ?? '');
 $payment_verified = false;
 $error_message = '';
 $order_data = null;
+$package_renewed = false;
+$renewed_pkg_name = '';
 
 if (empty($tracker)) {
     $error_message = "No payment transaction identifier found in return URL.";
@@ -28,10 +55,12 @@ if (empty($tracker)) {
     $ver = verify_safepay_payment($tracker, $sig, $secret, $mode);
     if ($ver['verified']) {
         // 2. Process successful payment (Idempotency safe)
-        $process = process_successful_payment($order_id ?: $tracker, $pdo, 'Safepay (Online)');
+        $process = process_successful_payment($order_id ?: $tracker, $pdo, 'Safepay (Online Checkout)');
         if ($process['success']) {
             $payment_verified = true;
             $order_data = $process['order'] ?? null;
+            $package_renewed = $process['package_renewed'] ?? false;
+            $renewed_pkg_name = $process['package_name'] ?? '';
         } else {
             $error_message = $process['message'] ?? 'Error updating your account balance.';
         }
@@ -115,9 +144,15 @@ if (empty($tracker)) {
                 <?php endif; ?>
             </div>
 
+            <?php if ($package_renewed): ?>
             <div class="alert alert-success border-0 small text-success-emphasis bg-success-subtle rounded-3 py-2">
-                <i class="fa-solid fa-bolt me-1"></i> Your account balance and internet package have been updated instantly!
+                <i class="fa-solid fa-circle-check text-success me-1"></i> Internet Package (<strong><?= htmlspecialchars($renewed_pkg_name ?: 'Active Plan') ?></strong>) has been renewed and activated immediately!
             </div>
+            <?php else: ?>
+            <div class="alert alert-success border-0 small text-success-emphasis bg-success-subtle rounded-3 py-2">
+                <i class="fa-solid fa-wallet text-success me-1"></i> Your account balance has been credited with <strong>Rs. <?= number_format($order_data['amount'] ?? 0, 2) ?></strong>!
+            </div>
+            <?php endif; ?>
 
             <a href="dashboard.php" class="btn btn-primary btn-lg rounded-pill px-4 fw-bold w-100 shadow-sm mt-2">
                 <i class="fa-solid fa-house me-1"></i> Return to Customer Dashboard

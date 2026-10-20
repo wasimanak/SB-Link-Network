@@ -35,8 +35,19 @@ if (!$payload) {
 }
 
 // Extract tracker token or order reference
-$tracker = $payload['data']['token'] ?? ($payload['data']['tracker'] ?? '');
-$state   = strtoupper($payload['data']['state'] ?? ($payload['event'] ?? ''));
+$tracker = $payload['data']['token'] 
+    ?? ($payload['data']['tracker'] 
+    ?? ($payload['data']['beacon'] 
+    ?? ($payload['tracker'] 
+    ?? ($payload['token'] ?? ''))));
+
+$state   = strtoupper($payload['data']['state'] 
+    ?? ($payload['event'] 
+    ?? ($payload['status'] ?? '')));
+
+$meta_order = $payload['data']['metadata']['order_id'] 
+    ?? ($payload['order_id'] 
+    ?? ($payload['metadata']['order_id'] ?? ''));
 
 if (empty($tracker)) {
     http_response_code(422);
