@@ -8,9 +8,9 @@ Options -Indexes -MultiViews +FollowSymLinks
 RewriteEngine On
 RewriteBase /
 
-# 1. Force HTTPS on live domain (prevents mobile network carriers from hanging on HTTP)
+# 1. Force HTTPS on live domain (lasani.tech, sblink.tech, etc. - skips raw IP)
 RewriteCond %{HTTPS} off
-RewriteCond %{HTTP_HOST} (^|\.)sblink\.tech$ [NC]
+RewriteCond %{HTTP_HOST} !^[0-9.:]+$
 RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 
 # 2. Automatically route customer.sblink.tech to /customer/ folder
