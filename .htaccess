@@ -6,6 +6,7 @@ Options -Indexes -MultiViews +FollowSymLinks
 
 <IfModule mod_rewrite.c>
 RewriteEngine On
+RewriteBase /
 
 # 1. Force HTTPS on live domain (prevents mobile network carriers from hanging on HTTP)
 RewriteCond %{HTTPS} off
@@ -40,7 +41,8 @@ RewriteRule ^ %1 [R=301,L]
 
 # 7. Internal Rewrite: Route /path/file to /path/file.php if file.php exists
 RewriteCond %{REQUEST_FILENAME} !-d
-RewriteCond %{REQUEST_FILENAME}.php -f
+RewriteCond %{REQUEST_FILENAME}.php -f [OR]
+RewriteCond %{DOCUMENT_ROOT}/$1.php -f
 RewriteRule ^(.*?)/?$ $1.php [L,QSA]
 
 </IfModule>
