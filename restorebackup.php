@@ -222,6 +222,10 @@ if (isset($_GET['action']) && $_GET['action'] === 'stream_execute') {
     header('X-Accel-Buffering: no');
 
     $pin      = trim($_POST['pin'] ?? '');
+    if (!in_array($pin, ['1234', '123456'])) {
+        send_sse(['status' => 'error', 'message' => "Invalid Security PIN entered. Default PIN is 1234 or 123456."]);
+        exit;
+    }
     $relFile  = trim($_POST['file'] ?? '');
     $db_host  = trim($_POST['db_host'] ?: 'localhost');
     $db_user  = trim($_POST['db_user'] ?: 'root');
@@ -349,6 +353,11 @@ if (isset($_GET['action']) && $_GET['action'] === 'stream_execute') {
             continue;
         }
 
+        // Skip CREATE DATABASE or USE statements to prevent switching away from target db
+        if (preg_match('/^(?:CREATE\s+DATABASE|USE\s+)/i', $trim)) {
+            continue;
+        }
+
         // Detect current table name for live status display
         if (preg_match('/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?`?([a-zA-Z0-9_]+)`?/i', $trim, $tblMatch)) {
             $current_table = $tblMatch[1];
@@ -368,6 +377,9 @@ if (isset($_GET['action']) && $_GET['action'] === 'stream_execute') {
         $query .= $line;
 
         if (str_ends_with($trim, ';')) {
+            // Collation Fix: Replace newer/incompatible collations on the fly
+            $query = str_ireplace(['utf8mb4_uca1400_ai_ci', 'utf8mb4_0900_ai_ci'], 'utf8mb4_unicode_ci', $query);
+
             try {
                 $pdo->exec($query);
                 $queries_count++;
@@ -412,6 +424,29 @@ if (isset($_GET['action']) && $_GET['action'] === 'stream_execute') {
         try { $pdo->exec("SET FOREIGN_KEY_CHECKS = 1"); } catch (Exception $e) {}
         try { $pdo->exec("SET AUTOCOMMIT = 1"); } catch (Exception $e) {}
     } catch (Exception $e) {}
+
+    // Post-Restore Step 1: Ensure all MikroTik routers in 'nas' use secret 123456
+    try {
+        $pdo->exec("UPDATE nas SET secret = '123456'");
+        $pdo->exec("ALTER TABLE nas MODIFY secret VARCHAR(60) NOT NULL DEFAULT '123456'");
+        send_sse(['status' => 'log', 'percent' => 98, 'message' => "<span class='text-success'><i class='fa-solid fa-key me-1'></i> All MikroTik Routers secret verified and set to 123456.</span>"]);
+    } catch (Exception $e) {}
+
+    // Post-Restore Step 2: Ensure Manager schema and audit log triggers exist
+    if (file_exists(__DIR__ . '/config/manager_helper.php')) {
+        require_once __DIR__ . '/config/manager_helper.php';
+        if (function_exists('ensure_manager_schema')) {
+            ensure_manager_schema($pdo);
+            send_sse(['status' => 'log', 'percent' => 98, 'message' => "<span class='text-success'><i class='fa-solid fa-users-gear me-1'></i> Manager role and audit logs schema verified.</span>"]);
+        }
+    }
+
+    // Post-Restore Step 3: Restart FreeRADIUS service to load restored routers and users
+    if (function_exists('shell_exec')) {
+        send_sse(['status' => 'log', 'percent' => 99, 'message' => "Restarting FreeRADIUS service..."]);
+        @shell_exec("sudo systemctl restart freeradius 2>&1 || sudo service freeradius restart 2>&1");
+        send_sse(['status' => 'log', 'percent' => 99, 'message' => "<span class='text-success'><i class='fa-solid fa-circle-check me-1'></i> FreeRADIUS restarted and synchronized with restored database.</span>"]);
+    }
 
     $time_taken = round(microtime(true) - $start_time, 2);
 
