@@ -465,7 +465,7 @@ $routers = $nasStmt->fetchAll(PDO::FETCH_ASSOC);
             </div>
             <div class="mb-3">
                 <label class="form-label fw-bold text-secondary small">RADIUS Secret</label>
-                <input type="text" name="secret" class="form-control font-monospace" placeholder="e.g. 123456" required>
+                <input type="text" name="secret" class="form-control font-monospace" value="123456" required>
             </div>
             <div class="row">
                 <div class="col-6 mb-3">
