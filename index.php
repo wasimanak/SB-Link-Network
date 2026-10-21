@@ -417,6 +417,22 @@ if (empty($site_packages)) {
                 box-shadow: 0 15px 35px rgba(15, 23, 42, 0.08);
             }
         }
+
+        /* Light Footer Styles */
+        .footer-light {
+            background: #ffffff;
+            border-top: 1px solid #e2e8f0;
+        }
+        .footer-link {
+            color: #64748b;
+            text-decoration: none;
+            transition: all 0.2s ease;
+            display: inline-block;
+        }
+        .footer-link:hover {
+            color: #0284c7 !important;
+            transform: translateX(3px);
+        }
     </style>
 </head>
 <body>
@@ -458,8 +474,8 @@ if (empty($site_packages)) {
                 </ul>
 
                 <div class="d-flex align-items-center">
-                    <!-- Prominent Sign In Button -->
-                    <a href="/login" class="btn-signin btn-signin-pulse" title="Sign In to Portal">
+                    <!-- Prominent Customer Sign In Button -->
+                    <a href="/customer/login" class="btn-signin btn-signin-pulse" title="Customer Portal Sign In">
                         <i class="fa-solid fa-arrow-right-to-bracket"></i> Sign In
                     </a>
                 </div>
@@ -1018,79 +1034,79 @@ if (empty($site_packages)) {
     <!-- ============================================================== -->
     <!-- FOOTER -->
     <!-- ============================================================== -->
-    <footer class="py-5" style="background: #0f172a; border-top: 1px solid #1e293b;">
+    <footer class="py-5 footer-light">
         <div class="container">
             <div class="row g-4 justify-content-between mb-5">
                 <div class="col-lg-3 col-md-6">
                     <div class="d-flex align-items-center gap-2 mb-3">
-                        <div style="width:36px; height:36px; border-radius:10px; background:linear-gradient(135deg, #06b6d4, #2563eb); display:flex; align-items:center; justify-content:center; color:#fff; font-size:1rem;">
+                        <div style="width:36px; height:36px; border-radius:10px; background:linear-gradient(135deg, #0284c7, #2563eb); display:flex; align-items:center; justify-content:center; color:#fff; font-size:1rem;">
                             <i class="fa-solid fa-bolt-lightning"></i>
                         </div>
-                        <span class="fs-4 fw-bold text-white font-heading"><?= BRAND_NAME ?></span>
+                        <span class="fs-4 fw-bold text-dark font-heading"><?= BRAND_NAME ?></span>
                     </div>
-                    <p class="text-muted small mb-3">
+                    <p class="small mb-3" style="color: #475569; line-height: 1.6;">
                         <?= BRAND_POWERED_BY ?>. Providing blazing-fast optical fiber broadband, enterprise leased lines, and carrier-grade connectivity solutions.
                     </p>
-                    <div class="text-muted small">
-                        <div class="mb-1"><i class="fa-solid fa-phone text-info me-2"></i> <?= htmlspecialchars($site_phone) ?></div>
-                        <div class="mb-1"><i class="fa-solid fa-envelope text-info me-2"></i> <?= htmlspecialchars($site_email) ?></div>
-                        <div class="mb-1"><i class="fa-solid fa-clock text-info me-2"></i> Mon–Sun 09:00 AM – 11:00 PM</div>
+                    <div class="small" style="color: #334155;">
+                        <div class="mb-2"><i class="fa-solid fa-phone text-primary me-2"></i> <strong class="text-dark"><?= htmlspecialchars($site_phone) ?></strong></div>
+                        <div class="mb-2"><i class="fa-solid fa-envelope text-primary me-2"></i> <?= htmlspecialchars($site_email) ?></div>
+                        <div class="mb-2"><i class="fa-solid fa-clock text-primary me-2"></i> Mon–Sun 09:00 AM – 11:00 PM</div>
                         <div class="mt-2"><i class="fa-solid fa-location-dot text-danger me-2"></i> <?= htmlspecialchars($site_address) ?></div>
                     </div>
                 </div>
 
                 <div class="col-sm-6 col-lg-2">
-                    <h6 class="fw-bold text-white mb-3">Quick Navigation</h6>
-                    <ul class="list-unstyled small text-muted">
-                        <li class="mb-2"><a href="#home" class="text-decoration-none text-secondary hover-white">Home</a></li>
-                        <li class="mb-2"><a href="#packages" class="text-decoration-none text-secondary hover-white">Fiber Packages</a></li>
-                        <li class="mb-2"><a href="#features" class="text-decoration-none text-secondary hover-white">Why Pure Fiber</a></li>
-                        <li class="mb-2"><a href="#work" class="text-decoration-none text-secondary hover-white">Infrastructure</a></li>
-                        <li class="mb-2"><a href="#coverage" class="text-decoration-none text-secondary hover-white">Coverage Zones</a></li>
+                    <h6 class="fw-bold text-dark mb-3">Quick Navigation</h6>
+                    <ul class="list-unstyled small">
+                        <li class="mb-2"><a href="#home" class="footer-link">Home</a></li>
+                        <li class="mb-2"><a href="#packages" class="footer-link">Fiber Packages</a></li>
+                        <li class="mb-2"><a href="#features" class="footer-link">Why Pure Fiber</a></li>
+                        <li class="mb-2"><a href="#work" class="footer-link">Infrastructure</a></li>
+                        <li class="mb-2"><a href="#coverage" class="footer-link">Coverage Zones</a></li>
                     </ul>
                 </div>
 
                 <div class="col-sm-6 col-lg-2">
-                    <h6 class="fw-bold text-white mb-3">Customer Care</h6>
-                    <ul class="list-unstyled small text-muted">
+                    <h6 class="fw-bold text-dark mb-3">Customer Care</h6>
+                    <ul class="list-unstyled small">
                         <li class="mb-2">
-                            <a href="<?= htmlspecialchars($customer_portal_url) ?>" class="text-info fw-bold text-decoration-none">
+                            <a href="<?= htmlspecialchars($customer_portal_url) ?>" class="text-primary fw-bold text-decoration-none">
                                 <i class="fa-solid fa-arrow-right-to-bracket me-1"></i> Customer Sign In
                             </a>
                         </li>
-                        <li class="mb-2"><a href="<?= htmlspecialchars($customer_portal_url) ?>" class="text-decoration-none text-secondary hover-white">Self-Care Portal</a></li>
-                        <li class="mb-2"><a href="<?= htmlspecialchars($customer_portal_url) ?>" class="text-decoration-none text-secondary hover-white">Check Bills &amp; Expiry</a></li>
-                        <li class="mb-2"><a href="/policies?tab=faqs" class="text-decoration-none text-secondary hover-white">Frequently Asked FAQs</a></li>
-                        <li class="mb-2"><a href="#contact" class="text-decoration-none text-secondary hover-white">Report an Issue</a></li>
+                        <li class="mb-2"><a href="<?= htmlspecialchars($customer_portal_url) ?>" class="footer-link">Self-Care Portal</a></li>
+                        <li class="mb-2"><a href="<?= htmlspecialchars($customer_portal_url) ?>" class="footer-link">Check Bills &amp; Expiry</a></li>
+                        <li class="mb-2"><a href="/policies?tab=faqs" class="footer-link">Frequently Asked FAQs</a></li>
+                        <li class="mb-2"><a href="#contact" class="footer-link">Report an Issue</a></li>
                     </ul>
                 </div>
 
                 <div class="col-sm-6 col-lg-2">
-                    <h6 class="fw-bold text-white mb-3"><i class="fa-solid fa-shield-halved text-info me-1"></i> Legal &amp; Policies</h6>
-                    <ul class="list-unstyled small text-muted">
-                        <li class="mb-2"><a href="/policies?tab=privacy" class="text-decoration-none text-secondary hover-white">Privacy Policy</a></li>
-                        <li class="mb-2"><a href="/policies?tab=refund" class="text-decoration-none text-secondary hover-white">Return &amp; Refund Policy</a></li>
-                        <li class="mb-2"><a href="/policies?tab=terms" class="text-decoration-none text-secondary hover-white">Terms &amp; Conditions</a></li>
-                        <li class="mb-2"><a href="/policies?tab=shipping" class="text-decoration-none text-secondary hover-white">Shipping &amp; Delivery</a></li>
-                        <li class="mb-2"><a href="/policies?tab=contact" class="text-decoration-none text-secondary hover-white">Contact &amp; Support Hours</a></li>
+                    <h6 class="fw-bold text-dark mb-3"><i class="fa-solid fa-shield-halved text-primary me-1"></i> Legal &amp; Policies</h6>
+                    <ul class="list-unstyled small">
+                        <li class="mb-2"><a href="/policies?tab=privacy" class="footer-link">Privacy Policy</a></li>
+                        <li class="mb-2"><a href="/policies?tab=refund" class="footer-link">Return &amp; Refund Policy</a></li>
+                        <li class="mb-2"><a href="/policies?tab=terms" class="footer-link">Terms &amp; Conditions</a></li>
+                        <li class="mb-2"><a href="/policies?tab=shipping" class="footer-link">Shipping &amp; Delivery</a></li>
+                        <li class="mb-2"><a href="/policies?tab=contact" class="footer-link">Contact &amp; Support Hours</a></li>
                     </ul>
                 </div>
 
                 <div class="col-lg-3 col-md-6">
-                    <h6 class="fw-bold text-white mb-3">Consumer Fair Trade</h6>
-                    <p class="text-muted small mb-3">All tariff plans are officially quoted in Pakistani Rupees (PKR) with 100% price transparency.</p>
+                    <h6 class="fw-bold text-dark mb-3">Consumer Fair Trade</h6>
+                    <p class="small mb-3" style="color: #475569;">All tariff plans are officially quoted in Pakistani Rupees (PKR) with 100% price transparency.</p>
                     <a href="https://wa.me/<?= $site_whatsapp ?>" target="_blank" class="btn btn-outline-success rounded-pill w-100 py-2 btn-sm fw-bold mb-2">
                         <i class="fa-brands fa-whatsapp me-2"></i> WhatsApp Helpline
                     </a>
-                    <a href="/policies" class="btn btn-outline-info rounded-pill w-100 py-2 btn-sm fw-bold">
+                    <a href="/policies" class="btn btn-outline-primary rounded-pill w-100 py-2 btn-sm fw-bold">
                         <i class="fa-solid fa-scale-balanced me-2"></i> Full Policies Portal
                     </a>
                 </div>
             </div>
 
-            <div class="pt-4 border-top border-secondary border-opacity-25 d-flex flex-wrap justify-content-between align-items-center gap-2 small text-muted">
-                <div>&copy; <?= date('Y') ?> <?= BRAND_NAME ?>. All Rights Reserved. Fully compliant with Payment Gateway &amp; Consumer Fair Trade Standards.</div>
-                <div>Powered by <strong class="text-info"><?= BRAND_POWERED_BY ?></strong></div>
+            <div class="pt-4 border-top border-slate-200 d-flex flex-wrap justify-content-between align-items-center gap-2 small" style="color: #64748b;">
+                <div>&copy; <?= date('Y') ?> <strong class="text-dark"><?= BRAND_NAME ?></strong>. All Rights Reserved. Fully compliant with Payment Gateway &amp; Consumer Fair Trade Standards.</div>
+                <div>Powered by <strong class="text-primary"><?= BRAND_POWERED_BY ?></strong></div>
             </div>
         </div>
     </footer>

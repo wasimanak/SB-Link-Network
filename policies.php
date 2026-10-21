@@ -459,13 +459,13 @@ $active_tab    = $_GET['tab'] ?? 'privacy';
     </main>
 
     <!-- FOOTER -->
-    <footer class="py-4 border-top border-secondary border-opacity-25" style="background: #050914;">
-        <div class="container d-flex flex-wrap justify-content-between align-items-center gap-2 small text-muted">
+    <footer class="py-4 bg-white border-top border-slate-200">
+        <div class="container d-flex flex-wrap justify-content-between align-items-center gap-2 small" style="color: #64748b;">
             <div>
-                &copy; <?= date('Y') ?> <?= BRAND_NAME ?>. All Rights Reserved. Fully compliant with Payment Gateway &amp; Consumer Fair Trade Standards.
+                &copy; <?= date('Y') ?> <strong class="text-dark"><?= BRAND_NAME ?></strong>. All Rights Reserved. Fully compliant with Payment Gateway &amp; Consumer Fair Trade Standards.
             </div>
             <div>
-                Powered by <strong class="text-info"><?= BRAND_POWERED_BY ?></strong>
+                Powered by <strong class="text-primary"><?= BRAND_POWERED_BY ?></strong>
             </div>
         </div>
     </footer>
