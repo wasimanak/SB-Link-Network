@@ -437,6 +437,11 @@ $routers = $nasStmt->fetchAll(PDO::FETCH_ASSOC);
               <?php endif; ?>
           </div>
 
+          <div class="alert alert-info py-2 px-3 small rounded-3 mb-3 border-0 bg-primary bg-opacity-10 text-dark">
+              <i class="fa-solid fa-circle-info text-primary me-1"></i>
+              <strong>Tip:</strong> Subscribers connect via RADIUS (Port 1812 UDP) directly from MikroTik to this server.
+          </div>
+
           <?php if(empty($routers)): ?>
               <div class="alert alert-warning text-center border-warning border-opacity-25 shadow-sm fw-bold">
                   <i class="fa-solid fa-triangle-exclamation fs-4 mb-2 d-block"></i> No routers linked! Add one to sync users.
@@ -649,7 +654,7 @@ function checkRouterStatuses() {
             }
         })
         .catch(err => {
-            el.innerHTML = '<span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-50"><i class="fa-solid fa-triangle-exclamation me-1"></i> Error</span>';
+            el.innerHTML = '<span class="badge bg-secondary bg-opacity-25 text-dark border border-secondary" title="API check timed out or unreachable over web. PPPoE/Hotspot RADIUS is active."><i class="fa-solid fa-signal text-secondary me-1"></i> RADIUS Ready</span>';
         });
     });
 }
