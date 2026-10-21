@@ -85,7 +85,7 @@ CREATE TABLE `dealer_notes` (
   `note` text NOT NULL,
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -103,7 +103,7 @@ CREATE TABLE `dealer_packages` (
   `dealer_profit` decimal(10,2) DEFAULT 0.00,
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -136,7 +136,7 @@ CREATE TABLE `dealers` (
   `status` enum('active','disabled') DEFAULT 'active',
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -158,7 +158,7 @@ CREATE TABLE `fund_requests` (
   `notes` text DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -196,7 +196,7 @@ CREATE TABLE `linemen` (
   `status` enum('active','disabled') DEFAULT 'active',
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -239,7 +239,7 @@ CREATE TABLE `nasreload` (
   `nasipaddress` varchar(15) NOT NULL,
   `reloadtime` datetime NOT NULL,
   PRIMARY KEY (`nasipaddress`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -309,7 +309,7 @@ CREATE TABLE `payment_gateways` (
   `status` enum('active','disabled') DEFAULT 'active',
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -396,7 +396,7 @@ CREATE TABLE `radgroupcheck` (
   `value` varchar(253) NOT NULL DEFAULT '',
   PRIMARY KEY (`id`),
   KEY `groupname` (`groupname`(32))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -414,7 +414,7 @@ CREATE TABLE `radgroupreply` (
   `value` varchar(253) NOT NULL DEFAULT '',
   PRIMARY KEY (`id`),
   KEY `groupname` (`groupname`(32))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -434,7 +434,7 @@ CREATE TABLE `radpostauth` (
   PRIMARY KEY (`id`),
   KEY `username` (`username`),
   KEY `class` (`class`)
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -469,7 +469,7 @@ CREATE TABLE `radusergroup` (
   `priority` int(11) NOT NULL DEFAULT 1,
   PRIMARY KEY (`id`),
   KEY `username` (`username`(32))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -491,7 +491,7 @@ CREATE TABLE `recovery_men` (
   `status` enum('active','disabled') DEFAULT 'active',
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -575,7 +575,7 @@ CREATE TABLE `support_tickets` (
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -593,7 +593,7 @@ CREATE TABLE `ticket_messages` (
   `message` text NOT NULL,
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -614,7 +614,7 @@ CREATE TABLE `user_ledger` (
   `description` text NOT NULL,
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -631,3 +631,21 @@ CREATE TABLE `user_ledger` (
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
 -- Dump completed on 2026-10-01 18:07:24
+
+
+-- Initial System Seeds
+INSERT IGNORE INTO `global_settings` (`setting_key`, `setting_value`) VALUES 
+  ('app_name', 'SB Link Network'),
+  ('system_timezone', 'Asia/Karachi'),
+  ('currency', 'PKR');
+
+INSERT IGNORE INTO `super_admins` (`id`, `username`, `email`, `password`, `name`) VALUES 
+  (1, 'admin', 'admin@sblink.net', '$2y$10$AvsBZceYBoEb0YQwl94xM.A2zEEomsxMptLMY6xZXRWOq/K..Z5gy', 'Super Admin');
+
+INSERT IGNORE INTO `clients` (`id`, `company_name`, `email`, `password`, `phone`, `status`, `expiry_date`, `max_routers`, `max_subscribers`) VALUES 
+  (1, 'SB Link ISP', 'operator@sblink.net', '$2y$10$AvsBZceYBoEb0YQwl94xM.A2zEEomsxMptLMY6xZXRWOq/K..Z5gy', '03001234567', 'active', '2030-12-31', 10, 5000);
+
+INSERT IGNORE INTO `packages` (`id`, `client_id`, `name`, `rate_limit`, `validity_days`, `price`) VALUES 
+  (1, 1, '5Mbps Standard', '5M/5M', 30, 1000.00),
+  (2, 1, '10Mbps Ultra', '10M/10M', 30, 1500.00),
+  (3, 1, '20Mbps Fiber', '20M/20M', 30, 2000.00);
