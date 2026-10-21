@@ -678,7 +678,7 @@ $map_subscribers = $pdo->query("
 <!-- Top 7 Quick Actions -->
 <div class="quick-actions-grid mb-4">
     <!-- 1. My Profile -->
-    <a href="profile.php" class="quick-action-card">
+    <a href="profile" class="quick-action-card">
         <div class="quick-action-icon" style="background: linear-gradient(135deg, #3b82f6, #1d4ed8);">
             <i class="fa-solid fa-user"></i>
         </div>
@@ -686,7 +686,7 @@ $map_subscribers = $pdo->query("
     </a>
 
     <!-- 2. All Packages -->
-    <a href="packages.php" class="quick-action-card">
+    <a href="packages" class="quick-action-card">
         <div class="quick-action-icon" style="background: linear-gradient(135deg, #10b981, #059669);">
             <i class="fa-solid fa-box-open"></i>
         </div>
@@ -719,7 +719,7 @@ $map_subscribers = $pdo->query("
 
     <?php if (empty($_SESSION['is_manager'])): ?>
     <!-- 6. Backup (CSV) -->
-    <a href="backup_users.php" class="quick-action-card">
+    <a href="backup_users" class="quick-action-card">
         <div class="quick-action-icon" style="background: linear-gradient(135deg, #14b8a6, #0f766e);">
             <i class="fa-solid fa-download"></i>
         </div>
@@ -735,7 +735,7 @@ $map_subscribers = $pdo->query("
     </a>
 
     <!-- 8. IP Pool -->
-    <a href="ip_pools.php" class="quick-action-card">
+    <a href="ip_pools" class="quick-action-card">
         <div class="quick-action-icon" style="background: linear-gradient(135deg, #06b6d4, #0891b2);">
             <i class="fa-solid fa-network-wired"></i>
         </div>

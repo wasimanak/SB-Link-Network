@@ -5,9 +5,9 @@ session_start();
 $host = $_SERVER['HTTP_HOST'] ?? '';
 if (stripos($host, 'customer.') === 0 || stripos($host, 'customer') !== false) {
     if (isset($_SESSION['customer_logged_in']) && $_SESSION['customer_logged_in'] === true) {
-        header("Location: customer/dashboard.php");
+        header("Location: customer/dashboard");
     } else {
-        header("Location: customer/login.php");
+        header("Location: customer/login");
     }
     exit;
 }
@@ -20,7 +20,7 @@ $site_phone          = app_brand('support_phone', '0303-6542000');
 $site_whatsapp       = brand_whatsapp_number();
 $site_email          = app_brand('support_email', 'support@sblink.tech');
 $site_address        = app_brand('support_address', 'Main Optical Fiber NOC, Piplan / Liaqatabad, District Mianwali, Pakistan');
-$customer_portal_url = app_brand('customer_portal_url', 'https://sblink.tech/customer/login.php');
+$customer_portal_url = app_brand('customer_portal_url', 'https://sblink.tech/customer/login');
 
 // Speed formatter helper
 if (!function_exists('format_pkg_speed')) {
@@ -436,7 +436,7 @@ if (empty($site_packages)) {
                     <li class="nav-item"><a class="nav-link" href="#work">Our Network &amp; Work</a></li>
                     <li class="nav-item"><a class="nav-link" href="#coverage">Coverage</a></li>
                     <li class="nav-item"><a class="nav-link" href="#contact">Contact</a></li>
-                    <li class="nav-item"><a class="nav-link" href="/policies.php"><i class="fa-solid fa-shield-halved text-info me-1"></i> Policies</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/policies"><i class="fa-solid fa-shield-halved text-info me-1"></i> Policies</a></li>
                 </ul>
 
                 <div class="d-flex align-items-center">
@@ -1042,7 +1042,7 @@ if (empty($site_packages)) {
                         </li>
                         <li class="mb-2"><a href="<?= htmlspecialchars($customer_portal_url) ?>" class="text-decoration-none text-secondary hover-white">Self-Care Portal</a></li>
                         <li class="mb-2"><a href="<?= htmlspecialchars($customer_portal_url) ?>" class="text-decoration-none text-secondary hover-white">Check Bills &amp; Expiry</a></li>
-                        <li class="mb-2"><a href="/policies.php?tab=faqs" class="text-decoration-none text-secondary hover-white">Frequently Asked FAQs</a></li>
+                        <li class="mb-2"><a href="/policies?tab=faqs" class="text-decoration-none text-secondary hover-white">Frequently Asked FAQs</a></li>
                         <li class="mb-2"><a href="#contact" class="text-decoration-none text-secondary hover-white">Report an Issue</a></li>
                     </ul>
                 </div>
@@ -1050,11 +1050,11 @@ if (empty($site_packages)) {
                 <div class="col-sm-6 col-lg-2">
                     <h6 class="fw-bold text-white mb-3"><i class="fa-solid fa-shield-halved text-info me-1"></i> Legal &amp; Policies</h6>
                     <ul class="list-unstyled small text-muted">
-                        <li class="mb-2"><a href="/policies.php?tab=privacy" class="text-decoration-none text-secondary hover-white">Privacy Policy</a></li>
-                        <li class="mb-2"><a href="/policies.php?tab=refund" class="text-decoration-none text-secondary hover-white">Return &amp; Refund Policy</a></li>
-                        <li class="mb-2"><a href="/policies.php?tab=terms" class="text-decoration-none text-secondary hover-white">Terms &amp; Conditions</a></li>
-                        <li class="mb-2"><a href="/policies.php?tab=shipping" class="text-decoration-none text-secondary hover-white">Shipping &amp; Delivery</a></li>
-                        <li class="mb-2"><a href="/policies.php?tab=contact" class="text-decoration-none text-secondary hover-white">Contact &amp; Support Hours</a></li>
+                        <li class="mb-2"><a href="/policies?tab=privacy" class="text-decoration-none text-secondary hover-white">Privacy Policy</a></li>
+                        <li class="mb-2"><a href="/policies?tab=refund" class="text-decoration-none text-secondary hover-white">Return &amp; Refund Policy</a></li>
+                        <li class="mb-2"><a href="/policies?tab=terms" class="text-decoration-none text-secondary hover-white">Terms &amp; Conditions</a></li>
+                        <li class="mb-2"><a href="/policies?tab=shipping" class="text-decoration-none text-secondary hover-white">Shipping &amp; Delivery</a></li>
+                        <li class="mb-2"><a href="/policies?tab=contact" class="text-decoration-none text-secondary hover-white">Contact &amp; Support Hours</a></li>
                     </ul>
                 </div>
 
@@ -1064,7 +1064,7 @@ if (empty($site_packages)) {
                     <a href="https://wa.me/<?= $site_whatsapp ?>" target="_blank" class="btn btn-outline-success rounded-pill w-100 py-2 btn-sm fw-bold mb-2">
                         <i class="fa-brands fa-whatsapp me-2"></i> WhatsApp Helpline
                     </a>
-                    <a href="/policies.php" class="btn btn-outline-info rounded-pill w-100 py-2 btn-sm fw-bold">
+                    <a href="/policies" class="btn btn-outline-info rounded-pill w-100 py-2 btn-sm fw-bold">
                         <i class="fa-solid fa-scale-balanced me-2"></i> Full Policies Portal
                     </a>
                 </div>

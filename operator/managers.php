@@ -7,7 +7,7 @@ if (!empty($_SESSION['is_manager'])) {
             <div class='alert alert-danger shadow-sm'>
                 <i class='fa-solid fa-shield-halved me-2'></i> Access Denied: Only the Operator can manage Manager accounts.
             </div>
-            <a href='dashboard.php' class='btn btn-outline-secondary'><i class='fa-solid fa-arrow-left me-1'></i> Return to Dashboard</a>
+            <a href='dashboard' class='btn btn-outline-secondary'><i class='fa-solid fa-arrow-left me-1'></i> Return to Dashboard</a>
           </div>";
     require_once 'footer.php';
     exit;
@@ -374,7 +374,7 @@ foreach ($managers as $m) {
                                         <?= strtoupper(substr($m['full_name'], 0, 1)) ?>
                                     </div>
                                     <div>
-                                        <a href="manager_view.php?id=<?= $m['id'] ?>" class="text-decoration-none fw-bold text-dark hover-primary" style="font-size: 0.92rem;">
+                                        <a href="manager_view?id=<?= $m['id'] ?>" class="text-decoration-none fw-bold text-dark hover-primary" style="font-size: 0.92rem;">
                                             <?= htmlspecialchars($m['full_name']) ?>
                                         </a>
                                         <div class="text-muted small"><?= htmlspecialchars($m['city'] ?: 'No City') ?></div>
@@ -434,13 +434,13 @@ foreach ($managers as $m) {
                                 <?php endif; ?>
                             </td>
                             <td>
-                                <a href="manager_view.php?id=<?= $m['id'] ?>#activityLogs" class="btn btn-sm btn-light border rounded-pill px-3 py-1 shadow-sm text-dark fw-semibold" style="font-size: 0.78rem;">
+                                <a href="manager_view?id=<?= $m['id'] ?>#activityLogs" class="btn btn-sm btn-light border rounded-pill px-3 py-1 shadow-sm text-dark fw-semibold" style="font-size: 0.78rem;">
                                     <i class="fa-solid fa-clock-rotate-left text-primary me-1"></i> <?= $m['recent_activity_count'] ?> action(s)
                                 </a>
                             </td>
                             <td class="text-end">
                                 <div class="d-flex justify-content-end gap-1">
-                                    <a href="manager_view.php?id=<?= $m['id'] ?>" class="btn btn-sm btn-outline-primary rounded-circle" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;" title="View 30-Day Activity & Profile">
+                                    <a href="manager_view?id=<?= $m['id'] ?>" class="btn btn-sm btn-outline-primary rounded-circle" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;" title="View 30-Day Activity & Profile">
                                         <i class="fa-solid fa-eye"></i>
                                     </a>
                                     <button class="btn btn-sm btn-outline-secondary rounded-circle" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;" title="Edit Manager" onclick='openEditModal(<?= json_encode($m) ?>)'>

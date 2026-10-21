@@ -4,7 +4,7 @@ require_once '../config/db.php';
 require_once '../config/security.php';
 
 if (isset($_SESSION['customer_logged_in']) && $_SESSION['customer_logged_in'] === true) {
-    header("Location: dashboard.php");
+    header("Location: dashboard");
     exit;
 }
 
@@ -63,7 +63,7 @@ if ($is_blocked) {
                         $_SESSION['customer_id'] = $user['id'];
                         $_SESSION['customer_client_id'] = $user['client_id'];
                         $_SESSION['customer_username'] = $username;
-                        header("Location: dashboard.php");
+                        header("Location: dashboard");
                         exit;
                     }
                 }

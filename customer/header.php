@@ -104,7 +104,7 @@
 
 <nav class="navbar navbar-expand-lg navbar-dark mb-5 sticky-top">
     <div class="container">
-        <a class="navbar-brand text-accent fw-bold" href="dashboard.php">
+        <a class="navbar-brand text-accent fw-bold" href="dashboard">
             <i class="fa-solid fa-wifi me-2"></i><?= BRAND_SHORT_NAME ?>
         </a>
         <button class="navbar-toggler border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
@@ -112,11 +112,11 @@
         </button>
         <div class="collapse navbar-collapse" id="navbarNav">
             <ul class="navbar-nav ms-auto align-items-center">
-                <li class="nav-item me-2"><a class="nav-link" href="dashboard.php"><i class="fa-solid fa-chart-pie me-1"></i> Dashboard</a></li>
-                <li class="nav-item me-2"><a class="nav-link" href="history.php"><i class="fa-solid fa-clock-rotate-left me-1"></i> History</a></li>
-                <li class="nav-item me-2"><a class="nav-link" href="tickets.php"><i class="fa-solid fa-headset me-1"></i> Support</a></li>
+                <li class="nav-item me-2"><a class="nav-link" href="dashboard"><i class="fa-solid fa-chart-pie me-1"></i> Dashboard</a></li>
+                <li class="nav-item me-2"><a class="nav-link" href="history"><i class="fa-solid fa-clock-rotate-left me-1"></i> History</a></li>
+                <li class="nav-item me-2"><a class="nav-link" href="tickets"><i class="fa-solid fa-headset me-1"></i> Support</a></li>
                 <li class="nav-item ms-lg-3 mt-3 mt-lg-0">
-                    <a class="btn btn-outline-danger btn-sm rounded-pill px-3" href="logout.php">
+                    <a class="btn btn-outline-danger btn-sm rounded-pill px-3" href="logout">
                         <i class="fa-solid fa-right-from-bracket me-1"></i> Logout
                     </a>
                 </li>

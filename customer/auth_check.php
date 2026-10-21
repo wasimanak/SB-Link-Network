@@ -3,7 +3,7 @@ session_start();
 require_once '../config/db.php';
 
 if (!isset($_SESSION['customer_logged_in']) || $_SESSION['customer_logged_in'] !== true) {
-    header("Location: login.php");
+    header("Location: login");
     exit;
 }
 
@@ -17,7 +17,7 @@ $client_status = $stmt->fetchColumn();
 
 if ($client_status === 'suspended' || $client_status === 'expired') {
     session_destroy();
-    header("Location: login.php?error=operator_suspended");
+    header("Location: login?error=operator_suspended");
     exit;
 }
 
@@ -28,7 +28,7 @@ $current_user = $stmt->fetch();
 
 if (!$current_user || $current_user['status'] === 'disabled') {
     session_destroy();
-    header("Location: login.php?error=account_disabled");
+    header("Location: login?error=account_disabled");
     exit;
 }
 ?>

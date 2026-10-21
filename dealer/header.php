@@ -170,12 +170,12 @@ $current_page = basename($_SERVER['PHP_SELF']);
 
     <ul class="nav flex-column mt-3">
         <li class="nav-item">
-            <a class="nav-link <?= $current_page == 'dashboard.php' ? 'active' : '' ?>" href="dashboard.php">
+            <a class="nav-link <?= in_array($current_page, ['dashboard.php', 'dashboard']) ? 'active' : '' ?>" href="dashboard">
                 <i class="fa-solid fa-gauge"></i> Dashboard
             </a>
         </li>
         <li class="nav-item">
-            <a class="nav-link <?= $current_page == 'users.php' ? 'active' : '' ?>" href="users.php">
+            <a class="nav-link <?= in_array($current_page, ['users.php', 'users']) ? 'active' : '' ?>" href="users">
                 <i class="fa-solid fa-users"></i> My Users
             </a>
         </li>
@@ -185,7 +185,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
             </a>
         </li>
         <li class="nav-item mt-4">
-            <a class="nav-link text-danger" href="logout.php">
+            <a class="nav-link text-danger" href="logout">
                 <i class="fa-solid fa-right-from-bracket"></i> Logout
             </a>
         </li>

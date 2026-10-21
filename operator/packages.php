@@ -610,7 +610,7 @@ try {
         </div>
         <div class="d-flex gap-2">
             <?php if (empty($_SESSION['is_manager'])): ?>
-            <a href="ip_pools.php" class="btn btn-outline-primary rounded-pill px-3 shadow-sm">
+            <a href="ip_pools" class="btn btn-outline-primary rounded-pill px-3 shadow-sm">
                 <i class="fa-solid fa-network-wired me-1"></i> IP Pools Manager
             </a>
             <?php endif; ?>

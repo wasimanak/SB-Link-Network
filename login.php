@@ -4,9 +4,9 @@ session_start();
 $host = $_SERVER['HTTP_HOST'] ?? '';
 if (stripos($host, 'customer.') === 0 || stripos($host, 'customer') !== false) {
     if (isset($_SESSION['customer_logged_in']) && $_SESSION['customer_logged_in'] === true) {
-        header("Location: customer/dashboard.php");
+        header("Location: customer/dashboard");
     } else {
-        header("Location: customer/login.php");
+        header("Location: customer/login");
     }
     exit;
 }
@@ -57,7 +57,7 @@ if ($is_blocked) {
                         $_SESSION['operator_company'] = $client['company_name'];
                         $_SESSION['client_id'] = $client['id'];
 
-                        header("Location: operator/dashboard.php");
+                        header("Location: operator/dashboard");
                         exit;
                     }
                 } else {
@@ -83,7 +83,7 @@ if ($is_blocked) {
                     $_SESSION['dealer_id'] = $user['id'];
                     $_SESSION['client_id'] = $user['client_id'];
                     $_SESSION['dealer_name'] = $user['name'] ?? $user['username'];
-                    header("Location: dealer/dashboard.php");
+                    header("Location: dealer/dashboard");
                     exit;
                 } else {
                     record_failed_attempt($pdo, 'staff', $identifier);
@@ -108,7 +108,7 @@ if ($is_blocked) {
                     $_SESSION['lineman_id'] = $user['id'];
                     $_SESSION['client_id'] = $user['client_id'];
                     $_SESSION['lineman_name'] = $user['full_name'];
-                    header("Location: lineman/dashboard.php");
+                    header("Location: lineman/dashboard");
                     exit;
                 } else {
                     record_failed_attempt($pdo, 'staff', $identifier);
@@ -133,7 +133,7 @@ if ($is_blocked) {
                     $_SESSION['rm_id'] = $user['id'];
                     $_SESSION['client_id'] = $user['client_id'];
                     $_SESSION['rm_name'] = $user['full_name'];
-                    header("Location: recoveryman/dashboard.php");
+                    header("Location: recoveryman/dashboard");
                     exit;
                 } else {
                     record_failed_attempt($pdo, 'staff', $identifier);
@@ -183,7 +183,7 @@ if ($is_blocked) {
 
                     log_staff_activity($pdo, 'Logged in to Manager Portal', 'System', 'Login');
 
-                    header("Location: operator/dashboard.php");
+                    header("Location: operator/dashboard");
                     exit;
                 } else {
                     record_failed_attempt($pdo, 'staff', $identifier);

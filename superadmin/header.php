@@ -71,22 +71,22 @@ require_once '../config/db.php';
         </div>
 
         <?php $page = basename($_SERVER['PHP_SELF']); ?>
-        <a href="dashboard.php" class="<?= $page === 'dashboard.php' ? 'active' : '' ?>"><i class="fa-solid fa-gauge-high menu-icon"></i> Dashboard</a>
+        <a href="dashboard" class="<?= in_array($page, ['dashboard.php', 'dashboard']) ? 'active' : '' ?>"><i class="fa-solid fa-gauge-high menu-icon"></i> Dashboard</a>
         
         <div class="px-4 mt-4 mb-2 text-muted fw-bold" style="font-size: 0.65rem; text-transform: uppercase; letter-spacing: 1px;">Tenant Management</div>
-        <a href="operators.php" class="<?= strpos($page, 'operator') !== false ? 'active' : '' ?>"><i class="fa-solid fa-users-cog menu-icon"></i> Operators (ISPs)</a>
-        <a href="routers.php" class="<?= strpos($page, 'router') !== false ? 'active' : '' ?>"><i class="fa-solid fa-server menu-icon"></i> Global NAS/Routers</a>
-        <a href="live_routers.php" class="<?= $page === 'live_routers.php' ? 'active' : '' ?>"><i class="fa-solid fa-network-wired menu-icon"></i> Live Routers & Users</a>
-        <a href="packages_master.php" class="<?= $page === 'packages_master.php' ? 'active' : '' ?>"><i class="fa-solid fa-box-open menu-icon"></i> Master Packages</a>
+        <a href="operators" class="<?= strpos($page, 'operator') !== false ? 'active' : '' ?>"><i class="fa-solid fa-users-cog menu-icon"></i> Operators (ISPs)</a>
+        <a href="routers" class="<?= strpos($page, 'router') !== false ? 'active' : '' ?>"><i class="fa-solid fa-server menu-icon"></i> Global NAS/Routers</a>
+        <a href="live_routers" class="<?= in_array($page, ['live_routers.php', 'live_routers']) ? 'active' : '' ?>"><i class="fa-solid fa-network-wired menu-icon"></i> Live Routers & Users</a>
+        <a href="packages_master" class="<?= in_array($page, ['packages_master.php', 'packages_master']) ? 'active' : '' ?>"><i class="fa-solid fa-box-open menu-icon"></i> Master Packages</a>
         
         <div class="px-4 mt-4 mb-2 text-muted fw-bold" style="font-size: 0.65rem; text-transform: uppercase; letter-spacing: 1px;">System & Finance</div>
-        <a href="billing.php" class="<?= $page === 'billing.php' ? 'active' : '' ?>"><i class="fa-solid fa-file-invoice-dollar menu-icon"></i> Subscriptions</a>
-        <a href="support_admin.php" class="<?= strpos($page, 'support') !== false ? 'active' : '' ?>"><i class="fa-solid fa-headset menu-icon"></i> Support Tickets</a>
-        <a href="logs.php" class="<?= $page === 'logs.php' ? 'active' : '' ?>"><i class="fa-solid fa-file-shield menu-icon"></i> System Logs</a>
-        <a href="settings.php" class="<?= $page === 'settings.php' ? 'active' : '' ?>"><i class="fa-solid fa-sliders menu-icon"></i> Global Settings</a>
+        <a href="billing" class="<?= in_array($page, ['billing.php', 'billing']) ? 'active' : '' ?>"><i class="fa-solid fa-file-invoice-dollar menu-icon"></i> Subscriptions</a>
+        <a href="support_admin" class="<?= strpos($page, 'support') !== false ? 'active' : '' ?>"><i class="fa-solid fa-headset menu-icon"></i> Support Tickets</a>
+        <a href="logs" class="<?= in_array($page, ['logs.php', 'logs']) ? 'active' : '' ?>"><i class="fa-solid fa-file-shield menu-icon"></i> System Logs</a>
+        <a href="settings" class="<?= in_array($page, ['settings.php', 'settings']) ? 'active' : '' ?>"><i class="fa-solid fa-sliders menu-icon"></i> Global Settings</a>
         
         <hr class="text-muted opacity-25 mx-3 mt-4 mb-3">
-        <a href="logout.php" class="text-danger mb-4"><i class="fa-solid fa-arrow-right-from-bracket menu-icon text-danger"></i> Logout</a>
+        <a href="logout" class="text-danger mb-4"><i class="fa-solid fa-arrow-right-from-bracket menu-icon text-danger"></i> Logout</a>
     </div>
 
     <!-- Main Content -->

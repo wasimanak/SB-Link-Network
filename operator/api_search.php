@@ -21,18 +21,18 @@ $results = [];
 
 // 1. Static Pages & Functions
 $pages = [
-    ['title' => 'Dashboard / Home', 'url' => 'dashboard.php', 'icon' => 'fa-house'],
-    ['title' => 'All Users / Subscribers', 'url' => 'subscribers.php', 'icon' => 'fa-users'],
-    ['title' => 'Add New User', 'url' => 'subscribers.php', 'icon' => 'fa-user-plus'],
-    ['title' => 'Online Users / Live Sessions', 'url' => 'live_sessions.php', 'icon' => 'fa-wifi'],
-    ['title' => 'Packages & Plans', 'url' => 'packages.php', 'icon' => 'fa-box'],
-    ['title' => 'Activity Logs', 'url' => 'activity_logs.php', 'icon' => 'fa-list'],
-    ['title' => 'MikroTik Settings', 'url' => 'mikrotik_connect.php', 'icon' => 'fa-router'],
-    ['title' => 'My Profile', 'url' => 'profile.php', 'icon' => 'fa-user'],
+    ['title' => 'Dashboard / Home', 'url' => 'dashboard', 'icon' => 'fa-house'],
+    ['title' => 'All Users / Subscribers', 'url' => 'subscribers', 'icon' => 'fa-users'],
+    ['title' => 'Add New User', 'url' => 'subscribers', 'icon' => 'fa-user-plus'],
+    ['title' => 'Online Users / Live Sessions', 'url' => 'live_sessions', 'icon' => 'fa-wifi'],
+    ['title' => 'Packages & Plans', 'url' => 'packages', 'icon' => 'fa-box'],
+    ['title' => 'Activity Logs', 'url' => 'activity_logs', 'icon' => 'fa-list'],
+    ['title' => 'MikroTik Settings', 'url' => 'mikrotik_connect', 'icon' => 'fa-router'],
+    ['title' => 'My Profile', 'url' => 'profile', 'icon' => 'fa-user'],
 ];
 
 if (empty($_SESSION['is_manager'])) {
-    $pages[] = ['title' => 'Team Managers', 'url' => 'managers.php', 'icon' => 'fa-user-shield'];
+    $pages[] = ['title' => 'Team Managers', 'url' => 'managers', 'icon' => 'fa-user-shield'];
 }
 
 foreach ($pages as $page) {
@@ -56,7 +56,7 @@ while ($row = $uStmt->fetch()) {
     $results[] = [
         'type' => 'Subscriber',
         'title' => $title,
-        'url' => "subscriber_view.php?id=" . $row['id'],
+        'url' => "subscriber_view?id=" . $row['id'],
         'icon' => 'fa-user-circle'
     ];
 }
@@ -68,7 +68,7 @@ while ($row = $pStmt->fetch()) {
     $results[] = [
         'type' => 'Package',
         'title' => htmlspecialchars($row['name']),
-        'url' => "packages.php", // Highlight or filter in the future
+        'url' => "packages", // Highlight or filter in the future
         'icon' => 'fa-box-open'
     ];
 }
@@ -81,7 +81,7 @@ if (empty($_SESSION['is_manager'])) {
         $results[] = [
             'type' => 'Manager',
             'title' => htmlspecialchars($row['full_name']) . ' (' . htmlspecialchars($row['username']) . ')',
-            'url' => "manager_view.php?id=" . $row['id'],
+            'url' => "manager_view?id=" . $row['id'],
             'icon' => 'fa-user-shield'
         ];
     }

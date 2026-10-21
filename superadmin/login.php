@@ -36,7 +36,7 @@ if ($is_blocked) {
                 $_SESSION['superadmin_id'] = $admin['id'];
                 $_SESSION['superadmin_name'] = $admin['name'];
                 
-                header("Location: dashboard.php");
+                header("Location: dashboard");
                 exit;
             } else {
                 record_failed_attempt($pdo, 'superadmin', $username);

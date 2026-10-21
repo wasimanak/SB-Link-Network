@@ -148,7 +148,7 @@ $active_tab    = $_GET['tab'] ?? 'privacy';
                 <a href="/" class="btn btn-outline-secondary rounded-pill px-3 py-1 btn-sm">
                     <i class="fa-solid fa-arrow-left me-1"></i> Back to Home
                 </a>
-                <a href="/customer/login.php" class="btn btn-primary rounded-pill px-3 py-1 btn-sm fw-bold">
+                <a href="/customer/login" class="btn btn-primary rounded-pill px-3 py-1 btn-sm fw-bold">
                     <i class="fa-solid fa-right-to-bracket me-1"></i> Customer Login
                 </a>
             </div>

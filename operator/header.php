@@ -335,11 +335,11 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
 
         <div class="px-3">
             <div class="text-muted fw-bold mb-2 px-3 menu-section-heading" style="font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px;">Main Menu</div>
-            <a href="dashboard.php" class="nav-link-main rounded-3 mb-1 <?= $p==='dashboard.php' ? 'active-parent' : '' ?>">
+            <a href="dashboard" class="nav-link-main rounded-3 mb-1 <?= ($p==='dashboard.php' || $p==='dashboard') ? 'active-parent' : '' ?>">
                 <i class="fa-solid fa-house menu-icon"></i> <span class="menu-text">Home</span>
             </a>
 
-            <a href="profile.php" class="nav-link-main rounded-3 mb-1 <?= $p==='profile.php' ? 'active-parent' : '' ?>">
+            <a href="profile" class="nav-link-main rounded-3 mb-1 <?= ($p==='profile.php' || $p==='profile') ? 'active-parent' : '' ?>">
                 <i class="fa-solid fa-user menu-icon"></i> <span class="menu-text">My Profile</span>
             </a>
 
@@ -349,11 +349,11 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
         </a>
         <div class="collapse submenu <?= $isTeamMenu ? 'show' : '' ?>" id="teamMenu">
             <?php if (empty($_SESSION['is_manager'])): ?>
-                <a href="managers.php" class="<?= $p==='managers.php' || $p==='manager_view.php' ? 'active' : '' ?>">Manager</a>
+                <a href="managers" class="<?= in_array($p, ['managers.php', 'managers', 'manager_view.php', 'manager_view']) ? 'active' : '' ?>">Manager</a>
             <?php endif; ?>
-            <a href="dealers.php" class="<?= $p==='dealers.php' || $p==='dealer_view.php' ? 'active' : '' ?>">Dealer</a>
-            <a href="recovery_man.php" class="<?= $p==='recovery_man.php' ? 'active' : '' ?>">Recovery Man</a>
-            <a href="line_man.php" class="<?= $p==='line_man.php' ? 'active' : '' ?>">Line Man</a>
+            <a href="dealers" class="<?= in_array($p, ['dealers.php', 'dealers', 'dealer_view.php', 'dealer_view']) ? 'active' : '' ?>">Dealer</a>
+            <a href="recovery_man" class="<?= in_array($p, ['recovery_man.php', 'recovery_man']) ? 'active' : '' ?>">Recovery Man</a>
+            <a href="line_man" class="<?= in_array($p, ['line_man.php', 'line_man']) ? 'active' : '' ?>">Line Man</a>
         </div>
 
         <!-- User -->
@@ -361,13 +361,13 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
             <i class="fa-solid fa-user menu-icon"></i> <span class="menu-text">User</span>
         </a>
         <div class="collapse submenu <?= $isUserMenu ? 'show' : '' ?>" id="userMenu">
-            <a href="subscribers.php" class="<?= ($p==='subscribers.php' && $filter==='') ? 'active' : '' ?>">All Users</a>
-            <a href="live_sessions.php" class="<?= ($p==='live_sessions.php' && $filter!=='expired_online') ? 'active' : '' ?>">Online Users</a>
-            <a href="live_sessions.php?filter=expired_online" class="<?= $filter==='expired_online' ? 'active' : '' ?>">Expired Online</a>
-            <a href="subscribers.php?filter=offline" class="<?= $filter==='offline' ? 'active' : '' ?>">Offline Users (Radius)</a>
-            <a href="subscribers.php?filter=expired" class="<?= $filter==='expired' ? 'active' : '' ?>">Expired Users</a>
-            <a href="subscribers.php?filter=expiring_1w" class="<?= $filter==='expiring_1w' ? 'active' : '' ?>">Expiring In Week</a>
-            <a href="subscribers.php?filter=expiring_2w" class="<?= $filter==='expiring_2w' ? 'active' : '' ?>">Expiring In 2 Weeks</a>
+            <a href="subscribers" class="<?= ($p==='subscribers.php' && $filter==='') ? 'active' : '' ?>">All Users</a>
+            <a href="live_sessions" class="<?= ($p==='live_sessions.php' && $filter!=='expired_online') ? 'active' : '' ?>">Online Users</a>
+            <a href="live_sessions?filter=expired_online" class="<?= $filter==='expired_online' ? 'active' : '' ?>">Expired Online</a>
+            <a href="subscribers?filter=offline" class="<?= $filter==='offline' ? 'active' : '' ?>">Offline Users (Radius)</a>
+            <a href="subscribers?filter=expired" class="<?= $filter==='expired' ? 'active' : '' ?>">Expired Users</a>
+            <a href="subscribers?filter=expiring_1w" class="<?= $filter==='expiring_1w' ? 'active' : '' ?>">Expiring In Week</a>
+            <a href="subscribers?filter=expiring_2w" class="<?= $filter==='expiring_2w' ? 'active' : '' ?>">Expiring In 2 Weeks</a>
         </div>
 
         <!-- Accounting -->
@@ -376,8 +376,8 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
         </a>
         <div class="collapse submenu <?= $isAccMenu ? 'show' : '' ?>" id="accountingMenu">
             
-            <a href="invoices.php" class="<?= $p==='invoices.php' ? 'active' : '' ?>">Invoices / Receipts</a>
-            <a href="fund_requests.php" class="<?= $p==='fund_requests.php' ? 'active' : '' ?>">Payments / Fund Requests</a>
+            <a href="invoices" class="<?= in_array($p, ['invoices.php', 'invoices']) ? 'active' : '' ?>">Invoices / Receipts</a>
+            <a href="fund_requests" class="<?= in_array($p, ['fund_requests.php', 'fund_requests']) ? 'active' : '' ?>">Payments / Fund Requests</a>
         </div>
 
         <!-- Logs & Reports -->
@@ -385,15 +385,15 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
             <i class="fa-regular fa-file-lines menu-icon"></i> <span class="menu-text">Logs & Reports</span>
         </a>
         <div class="collapse submenu <?= in_array($p, ['activity_logs.php', 'package_logs.php', 'session_logs.php']) ? 'show' : '' ?>" id="logsMenu">
-            <a href="activity_logs.php" class="<?= $p==='activity_logs.php' ? 'active' : '' ?>">Activity Logs</a>
-            <a href="package_logs.php" class="<?= $p==='package_logs.php' ? 'active' : '' ?>">Package Logs</a>
-            <a href="session_logs.php" class="<?= $p==='session_logs.php' ? 'active' : '' ?>">Session Logs</a>
+            <a href="activity_logs" class="<?= in_array($p, ['activity_logs.php', 'activity_logs']) ? 'active' : '' ?>">Activity Logs</a>
+            <a href="package_logs" class="<?= in_array($p, ['package_logs.php', 'package_logs']) ? 'active' : '' ?>">Package Logs</a>
+            <a href="session_logs" class="<?= in_array($p, ['session_logs.php', 'session_logs']) ? 'active' : '' ?>">Session Logs</a>
         </div>
         
         <!-- MikroTik Menu -->
         <?php if (empty($_SESSION['is_manager'])): ?>
         <!-- Network & Multi-WAN Pools -->
-        <a href="ip_pools.php" class="nav-link-main rounded-3 mb-1 <?= $p==='ip_pools.php' ? 'active-parent' : '' ?>">
+        <a href="ip_pools" class="nav-link-main rounded-3 mb-1 <?= in_array($p, ['ip_pools.php', 'ip_pools']) ? 'active-parent' : '' ?>">
             <i class="fa-solid fa-network-wired menu-icon"></i> <span class="menu-text">IP Pools (Multi-WAN)</span>
         </a>
         <?php endif; ?>
@@ -407,18 +407,18 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
             <?php endif; ?>
         </a>
         <div class="collapse submenu <?= $isTicketMenu ? 'show' : '' ?>" id="ticketMenu">
-            <a href="requests.php" class="<?= $p==='requests.php' ? 'active' : '' ?>">Package Requests
+            <a href="requests" class="<?= in_array($p, ['requests.php', 'requests']) ? 'active' : '' ?>">Package Requests
                 <?php if($pending_pkgs > 0): ?><span class="badge bg-danger float-end rounded-pill"><?= $pending_pkgs ?></span><?php endif; ?>
             </a>
-            <a href="fund_requests.php" class="<?= $p==='fund_requests.php' ? 'active' : '' ?>">Fund Requests
+            <a href="fund_requests" class="<?= in_array($p, ['fund_requests.php', 'fund_requests']) ? 'active' : '' ?>">Fund Requests
                 <?php if($pending_funds > 0): ?><span class="badge bg-danger float-end rounded-pill"><?= $pending_funds ?></span><?php endif; ?>
             </a>
-            <a href="support_tickets.php" class="<?= $p==='support_tickets.php' || $p==='view_ticket.php' ? 'active' : '' ?>">Support Tickets
+            <a href="support_tickets" class="<?= in_array($p, ['support_tickets.php', 'support_tickets', 'view_ticket.php', 'view_ticket']) ? 'active' : '' ?>">Support Tickets
                 <?php if($open_tickets > 0): ?><span class="badge bg-danger float-end rounded-pill"><?= $open_tickets ?></span><?php endif; ?>
             </a>
         </div>
         <?php if (empty($_SESSION['is_manager'])): ?>
-        <a href="payment_gateways.php" class="nav-link-main <?= $p==='payment_gateways.php' ? 'active-parent' : '' ?>">
+        <a href="payment_gateways" class="nav-link-main <?= in_array($p, ['payment_gateways.php', 'payment_gateways']) ? 'active-parent' : '' ?>">
             <i class="fa-brands fa-cc-stripe menu-icon"></i> <span class="menu-text">Payment Gateways</span>
         </a>
         <?php endif; ?>
@@ -429,7 +429,7 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
 
         <hr class="text-muted opacity-25 mx-3 my-3">
 
-        <a href="logout.php" class="nav-link-main text-danger rounded-3 mb-4 <?= $p==='logout.php' ? 'active-parent' : '' ?>">
+        <a href="logout" class="nav-link-main text-danger rounded-3 mb-4 <?= in_array($p, ['logout.php', 'logout']) ? 'active-parent' : '' ?>">
             <i class="fa-solid fa-arrow-right-from-bracket menu-icon text-danger"></i> <span class="menu-text">Logout</span>
         </a>
         </div>
@@ -441,7 +441,7 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
             <button type="button" id="topNavSidebarToggle" class="btn btn-sm btn-light border rounded-circle text-secondary d-flex align-items-center justify-content-center shadow-sm" style="width: 36px; height: 36px;" title="Toggle Sidebar">
                 <i class="fa-solid fa-bars-staggered"></i>
             </button>
-            <a href="dashboard.php" class="text-decoration-none d-flex align-items-center gap-2">
+            <a href="dashboard" class="text-decoration-none d-flex align-items-center gap-2">
                 <div class="bg-primary text-white d-flex align-items-center justify-content-center rounded shadow-sm" style="width: 38px; height: 38px; background: linear-gradient(135deg, #3b82f6, #2563eb);">
                     <i class="fa-solid fa-wifi"></i>
                 </div>

@@ -1,1 +1,1 @@
-<?php header("Location: ../login.php?role=recoveryman"); exit; ?>
+<?php header("Location: ../login?role=recoveryman"); exit; ?>
