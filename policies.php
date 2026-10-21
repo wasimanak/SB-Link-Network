@@ -2,10 +2,10 @@
 // policies.php - Official Legal, Privacy, Refund, Terms & Compliance Portal
 require_once __DIR__ . '/config/branding.php';
 
-$site_phone    = app_brand('support_phone', '0303-6542000');
+$site_phone    = app_brand('support_phone', '0301-6542060');
 $site_whatsapp = brand_whatsapp_number();
-$site_email    = app_brand('support_email', 'support@sblink.tech');
-$site_address  = app_brand('support_address', 'Main Optical Fiber NOC, Piplan / Liaqatabad, District Mianwali, Punjab, Pakistan');
+$site_email    = app_brand('support_email', 'malikmobiles4004@gmail.com');
+$site_address  = app_brand('support_address', 'Al Munir Mobile Shop Nearr MCB Bank, Piplan, District Mianwali, Pakistan');
 $active_tab    = $_GET['tab'] ?? 'privacy';
 ?>
 <!DOCTYPE html>

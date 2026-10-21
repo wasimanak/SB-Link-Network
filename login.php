@@ -495,6 +495,12 @@ if ($is_blocked) {
                     </div>
                 </div>
 
+                <div class="text-center mt-3 pt-3 border-top border-secondary border-opacity-25" id="customer_login_link">
+                    <a href="/customer/login" class="text-decoration-none small text-info fw-semibold">
+                        <i class="fa-solid fa-users me-1"></i> Are you a Customer? Sign In to Customer Portal &rarr;
+                    </a>
+                </div>
+
                 <!-- Credentials Block -->
                 <div class="credentials-block" id="credentials_block">
                     
@@ -579,6 +585,8 @@ if ($is_blocked) {
             document.getElementById('dynamicSubtitle').innerText = subtitle;
 
             document.getElementById('role_selection').style.display = 'none';
+            let custLink = document.getElementById('customer_login_link');
+            if (custLink) custLink.style.display = 'none';
             document.getElementById('credentials_block').style.display = 'block';
             
             setTimeout(() => { document.getElementById('input_identifier').focus(); }, 100);
@@ -587,6 +595,8 @@ if ($is_blocked) {
         function resetRole() {
             document.getElementById('selected_role').value = '';
             document.getElementById('role_selection').style.display = 'grid';
+            let custLink = document.getElementById('customer_login_link');
+            if (custLink) custLink.style.display = 'block';
             document.getElementById('credentials_block').style.display = 'none';
             document.getElementById('dynamicSubtitle').innerText = "SELECT YOUR ROLE";
         }

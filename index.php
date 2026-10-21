@@ -1,7 +1,7 @@
 <?php
 session_start();
 
-// 1. Subdomain Check: If accessed via customer subdomain (e.g. customer.sblink.tech)
+// 1. Subdomain Check: If accessed via customer subdomain (e.g. customer.lasani.tech)
 $host = $_SERVER['HTTP_HOST'] ?? '';
 if (stripos($host, 'customer.') === 0 || stripos($host, 'customer') !== false) {
     if (isset($_SESSION['customer_logged_in']) && $_SESSION['customer_logged_in'] === true) {
@@ -16,11 +16,12 @@ if (stripos($host, 'customer.') === 0 || stripos($host, 'customer') !== false) {
 require_once __DIR__ . '/config/branding.php';
 
 // Contact & Support info fetched DIRECTLY from config/branding.php as requested
-$site_phone          = app_brand('support_phone', '0303-6542000');
+$site_phone          = app_brand('support_phone', '0301-6542060');
 $site_whatsapp       = brand_whatsapp_number();
-$site_email          = app_brand('support_email', 'support@sblink.tech');
-$site_address        = app_brand('support_address', 'Main Optical Fiber NOC, Piplan / Liaqatabad, District Mianwali, Pakistan');
-$customer_portal_url = app_brand('customer_portal_url', 'https://sblink.tech/customer/login');
+$site_email          = app_brand('support_email', 'malikmobiles4004@gmail.com');
+$site_address        = app_brand('support_address', 'Al Munir Mobile Shop Nearr MCB Bank, Piplan, District Mianwali, Pakistan');
+$customer_portal_url = app_brand('customer_portal_url', '/customer/login');
+$login_url           = app_brand('login_url', '/login');
 
 // Speed formatter helper
 if (!function_exists('format_pkg_speed')) {
@@ -440,8 +441,8 @@ if (empty($site_packages)) {
                 </ul>
 
                 <div class="d-flex align-items-center">
-                    <!-- Prominent Customer Sign In Button as Requested -->
-                    <a href="<?= htmlspecialchars($customer_portal_url) ?>" class="btn-signin btn-signin-pulse" title="Sign In to Customer Self-Care Portal">
+                    <!-- Prominent Sign In Button -->
+                    <a href="/login" class="btn-signin btn-signin-pulse" title="Sign In to Portal">
                         <i class="fa-solid fa-arrow-right-to-bracket"></i> Sign In
                     </a>
                 </div>
@@ -469,7 +470,7 @@ if (empty($site_packages)) {
                         <a href="#packages" class="btn btn-primary btn-lg rounded-pill px-4 py-3 fw-bold shadow" style="background: linear-gradient(135deg, #06b6d4, #2563eb); border: none;">
                             <i class="fa-solid fa-tags me-2"></i> View Internet Plans
                         </a>
-                        <a href="<?= htmlspecialchars($customer_portal_url) ?>" class="btn btn-outline-light btn-lg rounded-pill px-4 py-3 fw-bold" style="border-color: rgba(255,255,255,0.25);">
+                        <a href="/customer/login" class="btn btn-outline-light btn-lg rounded-pill px-4 py-3 fw-bold" style="border-color: rgba(255,255,255,0.25);">
                             <i class="fa-solid fa-user-lock me-2 text-info"></i> Customer Sign In
                         </a>
                     </div>
@@ -868,7 +869,7 @@ if (empty($site_packages)) {
                                 <div class="rounded-circle bg-danger" style="width:10px; height:10px;"></div>
                                 <div class="rounded-circle bg-warning" style="width:10px; height:10px;"></div>
                                 <div class="rounded-circle bg-success" style="width:10px; height:10px;"></div>
-                                <span class="text-muted small ms-2 font-monospace">customer.<?= $host ?: 'sblink.tech' ?></span>
+                                <span class="text-muted small ms-2 font-monospace">customer.<?= $host ?: 'lasani.tech' ?></span>
                             </div>
                             <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1 rounded-pill small">Online</span>
                         </div>
