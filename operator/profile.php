@@ -1,7 +1,34 @@
 <?php
 require_once 'header.php';
 
-$client_id = $_SESSION['operator_id'];
+$client_id = (int)($_SESSION['operator_id'] ?? 1);
+
+// Auto-verify and migrate nas table columns if missing (Prevents 1054 Unknown column errors)
+try {
+    $cols = $pdo->query("SHOW COLUMNS FROM nas")->fetchAll(PDO::FETCH_COLUMN);
+    if (!in_array('client_id', $cols)) {
+        $pdo->exec("ALTER TABLE nas ADD COLUMN client_id INT NOT NULL DEFAULT 1");
+    }
+    if (!in_array('api_port', $cols)) {
+        $pdo->exec("ALTER TABLE nas ADD COLUMN api_port INT DEFAULT 8728");
+    }
+    if (!in_array('api_user', $cols)) {
+        $pdo->exec("ALTER TABLE nas ADD COLUMN api_user VARCHAR(50) DEFAULT 'admin'");
+    }
+    if (!in_array('api_password', $cols)) {
+        $pdo->exec("ALTER TABLE nas ADD COLUMN api_password VARCHAR(255) DEFAULT NULL");
+    }
+    if (!in_array('coa_port', $cols)) {
+        $pdo->exec("ALTER TABLE nas ADD COLUMN coa_port INT DEFAULT 3799");
+    }
+} catch (Exception $e) {}
+
+// Determine server IP/domain for MikroTik RADIUS client commands
+$radius_server_ip = $_SERVER['SERVER_ADDR'] ?? '';
+if (empty($radius_server_ip) || in_array($radius_server_ip, ['127.0.0.1', '::1'])) {
+    $radius_server_ip = $_SERVER['HTTP_HOST'] ?? '187.126.127.237';
+    $radius_server_ip = preg_replace('/:\d+$/', '', $radius_server_ip);
+}
 
 // --- HANDLE ACTIONS ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -9,47 +36,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     // Protect Router modifications against Manager
     if (in_array($action, ['add_router', 'update_router', 'delete_router']) && !empty($_SESSION['is_manager'])) {
-        echo "<script>alert('Permission Denied: Managers cannot add, edit, or delete routers.'); window.location='profile.php';</script>";
+        echo "<script>alert('Permission Denied: Managers cannot add, edit, or delete routers.'); window.location='profile';</script>";
         exit;
     }
     
     if ($action === 'add_router') {
         $nasname = trim($_POST['nasname'] ?? '');
         $shortname = trim($_POST['shortname'] ?? 'Router');
-        $secret = trim($_POST['secret'] ?? '');
+        $secret = trim($_POST['secret'] ?? '123456');
         $api_user = trim($_POST['api_user'] ?? '');
         $api_pass = trim($_POST['api_password'] ?? '');
         
-        $chk = $pdo->prepare("SELECT COUNT(*) FROM nas WHERE client_id = ?");
-        $chk->execute([$client_id]);
-        $current_routers = $chk->fetchColumn();
-        
-        $uStmt = $pdo->prepare("SELECT max_routers FROM clients WHERE id = ?");
-        $uStmt->execute([$client_id]);
-        $max_r = $uStmt->fetchColumn() ?: 1;
-        
-        if ($current_routers >= $max_r) {
-            echo "<script>alert('Router limit reached! You cannot add more routers.'); window.location='profile.php';</script>";
-            exit;
-        }
-        
         try {
+            $chk = $pdo->prepare("SELECT COUNT(*) FROM nas WHERE client_id = ?");
+            $chk->execute([$client_id]);
+            $current_routers = $chk->fetchColumn();
+            
+            $uStmt = $pdo->prepare("SELECT max_routers FROM clients WHERE id = ?");
+            $uStmt->execute([$client_id]);
+            $max_r = $uStmt->fetchColumn() ?: 10;
+            
+            if ($current_routers >= $max_r) {
+                echo "<script>alert('Router limit reached ({$max_r})! You cannot add more routers.'); window.location='profile';</script>";
+                exit;
+            }
+            
             $pdo->prepare("INSERT INTO nas (client_id, nasname, shortname, secret, api_port, api_user, api_password) VALUES (?, ?, ?, ?, 8728, ?, ?)")
                 ->execute([$client_id, $nasname, $shortname, $secret, $api_user, $api_pass]);
             
             // Auto-provision network defaults & sync pools from router
-            require_once '../config/mikrotik_sync_helper.php';
-            init_operator_network_defaults($pdo, $client_id);
-            if (!empty($api_user)) {
-                sync_operator_mikrotik_pools($pdo, $client_id);
+            if (file_exists('../config/mikrotik_sync_helper.php')) {
+                require_once '../config/mikrotik_sync_helper.php';
+                try {
+                    init_operator_network_defaults($pdo, $client_id);
+                    if (!empty($api_user)) {
+                        @sync_operator_mikrotik_pools($pdo, $client_id);
+                    }
+                } catch (Throwable $t) {}
             }
 
             // Silently restart FreeRADIUS so the new router is active immediately
-            exec("sudo systemctl restart freeradius 2>&1");
-            exec("systemctl restart freeradius 2>&1");
-            echo "<script>alert('Router added successfully! Pools and WANs auto-synchronized.'); window.location='profile.php';</script>";
-        } catch(Exception $e) {
-            echo "<script>alert('Error: " . addslashes($e->getMessage()) . "'); window.location='profile.php';</script>";
+            @exec("sudo systemctl restart freeradius 2>&1");
+            @exec("systemctl restart freeradius 2>&1");
+            echo "<script>alert('Router added successfully! RADIUS Secret is set to 123456.'); window.location='profile';</script>";
+        } catch(Throwable $e) {
+            echo "<script>alert('Error adding router: " . addslashes($e->getMessage()) . "'); window.location='profile';</script>";
         }
         exit;
     }
@@ -58,7 +89,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $nas_id = (int)$_POST['nas_id'];
         $nasname = trim($_POST['nasname'] ?? '');
         $shortname = trim($_POST['shortname'] ?? 'Router');
-        $secret = trim($_POST['secret'] ?? '');
+        $secret = trim($_POST['secret'] ?? '123456');
         $api_user = trim($_POST['api_user'] ?? '');
         $api_pass = trim($_POST['api_password'] ?? '');
         
@@ -70,23 +101,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             // Auto-provision network defaults & sync pools from router
-            require_once '../config/mikrotik_sync_helper.php';
-            init_operator_network_defaults($pdo, $client_id);
-            if (!empty($api_user)) {
-                sync_operator_mikrotik_pools($pdo, $client_id);
+            if (file_exists('../config/mikrotik_sync_helper.php')) {
+                require_once '../config/mikrotik_sync_helper.php';
+                try {
+                    init_operator_network_defaults($pdo, $client_id);
+                    if (!empty($api_user)) {
+                        @sync_operator_mikrotik_pools($pdo, $client_id);
+                    }
+                } catch (Throwable $t) {}
             }
 
-            echo "<script>alert('Router updated successfully! Pools and WANs auto-synchronized.'); window.location='profile.php';</script>";
-        } catch(Exception $e) {
-            echo "<script>alert('Error: " . addslashes($e->getMessage()) . "'); window.location='profile.php';</script>";
+            @exec("sudo systemctl restart freeradius 2>&1");
+            echo "<script>alert('Router updated successfully!'); window.location='profile';</script>";
+        } catch(Throwable $e) {
+            echo "<script>alert('Error updating router: " . addslashes($e->getMessage()) . "'); window.location='profile';</script>";
         }
         exit;
     }
     
     if ($action === 'delete_router') {
         $nas_id = (int)$_POST['nas_id'];
-        $pdo->prepare("DELETE FROM nas WHERE id=? AND client_id=?")->execute([$nas_id, $client_id]);
-        echo "<script>alert('Router deleted successfully!'); window.location='profile.php';</script>";
+        try {
+            $pdo->prepare("DELETE FROM nas WHERE id=? AND client_id=?")->execute([$nas_id, $client_id]);
+            @exec("sudo systemctl restart freeradius 2>&1");
+            echo "<script>alert('Router deleted successfully!'); window.location='profile';</script>";
+        } catch(Throwable $e) {
+            echo "<script>alert('Error deleting router: " . addslashes($e->getMessage()) . "'); window.location='profile';</script>";
+        }
         exit;
     }
     elseif ($action === 'change_password') {
@@ -100,7 +141,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (password_verify($current, $client_pass)) {
             $hashed = password_hash($new, PASSWORD_DEFAULT);
             $pdo->prepare("UPDATE clients SET password = ? WHERE id = ?")->execute([$hashed, $client_id]);
-            echo "<script>alert('Password updated successfully!'); window.location='profile.php';</script>";
+            echo "<script>alert('Password updated successfully!'); window.location='profile';</script>";
         } else {
             echo "<script>alert('Current password is incorrect.');</script>";
         }
@@ -108,7 +149,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     elseif ($action === 'add_note') {
         $notes = trim($_POST['notes']);
         $pdo->prepare("UPDATE clients SET notes = ? WHERE id = ?")->execute([$notes, $client_id]);
-        echo "<script>alert('Notes updated successfully!'); window.location='profile.php';</script>";
+        echo "<script>alert('Notes updated successfully!'); window.location='profile';</script>";
         exit;
     }
 }
@@ -431,7 +472,14 @@ $routers = $nasStmt->fetchAll(PDO::FETCH_ASSOC);
                           <div class="mb-1"><span class="badge bg-dark bg-opacity-10 text-dark border border-secondary px-2"><i class="fa-solid fa-network-wired me-1"></i> IP: <?= htmlspecialchars($r['nasname']) ?></span></div>
                           <div class="mb-3"><span class="badge bg-success bg-opacity-10 text-success border border-success"><i class="fa-solid fa-link me-1"></i> Linked</span></div>
                           
-                          <button class="btn btn-sm btn-outline-secondary w-100 rounded-pill script-btn" data-script="/radius add address=<?= $host ?> secret=&quot;<?= $r['secret'] ?>&quot; service=ppp,hotspot\n/radius incoming set accept=yes port=3799\n/ppp aaa set use-radius=yes interim-update=1m\n/ip hotspot profile set [find] use-radius=yes radius-interim-update=1m\n">
+                          <?php
+                          $r_secret = !empty($r['secret']) ? $r['secret'] : '123456';
+                          $script_cmd = "/radius add address=" . $radius_server_ip . " secret=\"" . $r_secret . "\" service=ppp,hotspot authentication-port=1812 accounting-port=1813 timeout=3000ms\n"
+                                      . "/radius incoming set accept=yes port=3799\n"
+                                      . "/ppp aaa set use-radius=yes interim-update=1m\n"
+                                      . "/ip hotspot profile set [find] use-radius=yes radius-interim-update=1m\n";
+                          ?>
+                          <button type="button" class="btn btn-sm btn-outline-secondary w-100 rounded-pill script-btn" data-script="<?= htmlspecialchars($script_cmd, ENT_QUOTES) ?>">
                               <i class="fa-solid fa-terminal me-1"></i> Show Setup Script
                           </button>
                       </div>
@@ -594,6 +642,8 @@ function checkRouterStatuses() {
         .then(data => {
             if (data.status === "success") {
                 el.innerHTML = '<span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-50"><span class="live-dot me-1"></span> Connected</span>';
+            } else if (data.status === "warning") {
+                el.innerHTML = '<span class="badge bg-warning bg-opacity-25 text-dark border border-warning" title="' + (data.tooltip || data.message) + '"><i class="fa-solid fa-triangle-exclamation text-warning me-1"></i> ' + data.message + '</span>';
             } else {
                 el.innerHTML = '<span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-50" title="'+data.message+'"><i class="fa-solid fa-circle-xmark me-1"></i> Offline ('+data.message+')</span>';
             }

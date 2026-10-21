@@ -6,6 +6,7 @@ require_once __DIR__ . '/routeros_api.class.php';
 /**
  * 1. Initialize Network Database Columns & Defaults for an Operator
  */
+if (!function_exists('init_operator_network_defaults')) {
 function init_operator_network_defaults($pdo, $client_id) {
     if (empty($client_id)) return;
 
@@ -74,10 +75,12 @@ function init_operator_network_defaults($pdo, $client_id) {
             OR wan_name LIKE '%VLAN%'");
     } catch (Exception $e) {}
 }
+}
 
 /**
  * 2. Strict Validator: Only True WAN Providers Allowed
  */
+if (!function_exists('is_valid_wan_provider_name')) {
 function is_valid_wan_provider_name($name) {
     $name = trim($name);
     if (empty($name)) return false;
@@ -123,6 +126,7 @@ function is_valid_wan_provider_name($name) {
 
     return false;
 }
+}
 
 if (!function_exists('is_valid_wan_name')) {
     function is_valid_wan_name($name) {
@@ -133,6 +137,7 @@ if (!function_exists('is_valid_wan_name')) {
 /**
  * 3. Auto-Calculate Subnet CIDR, Total IPs, and Gateway from an IP Range
  */
+if (!function_exists('parse_ip_range_info')) {
 function parse_ip_range_info($ip_range) {
     $ip_range = trim($ip_range);
     $result = [
@@ -186,10 +191,12 @@ function parse_ip_range_info($ip_range) {
 
     return $result;
 }
+}
 
 /**
  * 4. Live Sync Pools & WANs from MikroTik Router to Database (Auto-Import)
  */
+if (!function_exists('sync_operator_mikrotik_pools')) {
 function sync_operator_mikrotik_pools($pdo, $client_id) {
     init_operator_network_defaults($pdo, $client_id);
 
@@ -376,10 +383,12 @@ function sync_operator_mikrotik_pools($pdo, $client_id) {
         return ['status' => false, 'message' => $e->getMessage()];
     }
 }
+}
 
 /**
  * 5. Create a New Pool in Database AND Live on MikroTik Router
  */
+if (!function_exists('create_mikrotik_pool_and_route')) {
 function create_mikrotik_pool_and_route($pdo, $client_id, $pool_name, $ip_range, $wan_provider, $subnet_cidr = '', $gateway = '') {
     init_operator_network_defaults($pdo, $client_id);
 
@@ -515,4 +524,5 @@ function create_mikrotik_pool_and_route($pdo, $client_id, $pool_name, $ip_range,
         'id' => $new_id,
         'message' => "Pool '<strong>{$pool_name}</strong>' ({$ip_range}) created successfully{$router_feedback}"
     ];
+}
 }

@@ -3,14 +3,15 @@
  * RouterOS API client implementation.
  * Standard implementation for MikroTik API communication.
  */
+if (!class_exists('RouterosAPI')) {
 class RouterosAPI
 {
     public $debug     = false;
     public $connected = false;
     public $port      = 8728;
     public $timeout   = 3;
-    public $attempts  = 5;
-    public $delay     = 2;
+    public $attempts  = 1;
+    public $delay     = 0;
 
     private $socket;
     private $error_no;
@@ -187,4 +188,5 @@ class RouterosAPI
         }
         return $result;
     }
+}
 }
