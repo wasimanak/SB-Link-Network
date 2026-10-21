@@ -377,6 +377,13 @@ foreach ($activities as $act) {
             </span>
         </div>
 
+        <?php if (empty($activities)): ?>
+            <div class="text-center py-5 text-muted">
+                <i class="fa-solid fa-circle-check fs-1 text-success opacity-50 mb-3 d-block"></i>
+                <h6 class="fw-bold text-dark">No Activities Recorded Yet</h6>
+                <p class="small text-secondary mb-0">Activities performed by this Manager within the last 30 days will appear here automatically.</p>
+            </div>
+        <?php else: ?>
         <div class="table-responsive">
             <table id="managerLogsTable" class="table table-hover table-borderless align-middle w-100">
                 <thead class="table-light">
@@ -390,59 +397,50 @@ foreach ($activities as $act) {
                     </tr>
                 </thead>
                 <tbody>
-                    <?php if (empty($activities)): ?>
+                    <?php foreach ($activities as $act): ?>
                         <tr>
-                            <td colspan="6" class="text-center py-5 text-muted">
-                                <i class="fa-solid fa-circle-check fs-1 text-success opacity-50 mb-3 d-block"></i>
-                                <h6>No Activities Recorded Yet</h6>
-                                <p class="small text-secondary mb-0">Activities performed by this Manager within the last 30 days will appear here automatically.</p>
+                            <td class="fw-bold text-secondary"><?= $act['id'] ?></td>
+                            <td style="white-space: nowrap;">
+                                <div class="fw-semibold text-dark"><?= date('d M Y', strtotime($act['created_at'])) ?></div>
+                                <div class="text-muted small"><?= date('h:i:s A', strtotime($act['created_at'])) ?></div>
+                            </td>
+                            <td>
+                                <?php 
+                                    $act_text = htmlspecialchars($act['activity']);
+                                    if (stripos($act_text, 'renew') !== false) {
+                                        echo "<span class='badge badge-soft-success px-2 py-1 rounded-pill me-1'><i class='fa-solid fa-arrows-rotate me-1'></i>Renew</span> " . $act_text;
+                                    } elseif (stripos($act_text, 'create') !== false) {
+                                        echo "<span class='badge badge-soft-info px-2 py-1 rounded-pill me-1'><i class='fa-solid fa-plus-circle me-1'></i>Create</span> " . $act_text;
+                                    } elseif (stripos($act_text, 'login') !== false) {
+                                        echo "<span class='badge badge-soft-secondary px-2 py-1 rounded-pill me-1'><i class='fa-solid fa-arrow-right-to-bracket me-1'></i>Login</span> " . $act_text;
+                                    } else {
+                                        echo "<span class='fw-medium text-dark'>" . $act_text . "</span>";
+                                    }
+                                ?>
+                            </td>
+                            <td>
+                                <?php if ($act['against_to'] && $act['against_to'] !== 'N/A'): ?>
+                                    <span class="badge bg-light text-dark border px-2 py-1 rounded-pill">
+                                        <?= htmlspecialchars($act['against_to']) ?>
+                                    </span>
+                                <?php else: ?>
+                                    <span class="text-muted small">N/A</span>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <span class="badge bg-secondary-subtle text-secondary rounded-pill px-2 py-1">
+                                    <?= htmlspecialchars($act['against_role'] ?: 'System') ?>
+                                </span>
+                            </td>
+                            <td class="font-monospace text-muted small">
+                                <?= htmlspecialchars($act['station_ip'] ?: '127.0.0.1') ?>
                             </td>
                         </tr>
-                    <?php else: ?>
-                        <?php foreach ($activities as $act): ?>
-                            <tr>
-                                <td class="fw-bold text-secondary"><?= $act['id'] ?></td>
-                                <td style="white-space: nowrap;">
-                                    <div class="fw-semibold text-dark"><?= date('d M Y', strtotime($act['created_at'])) ?></div>
-                                    <div class="text-muted small"><?= date('h:i:s A', strtotime($act['created_at'])) ?></div>
-                                </td>
-                                <td>
-                                    <?php 
-                                        $act_text = htmlspecialchars($act['activity']);
-                                        if (stripos($act_text, 'renew') !== false) {
-                                            echo "<span class='badge badge-soft-success px-2 py-1 rounded-pill me-1'><i class='fa-solid fa-arrows-rotate me-1'></i>Renew</span> " . $act_text;
-                                        } elseif (stripos($act_text, 'create') !== false) {
-                                            echo "<span class='badge badge-soft-info px-2 py-1 rounded-pill me-1'><i class='fa-solid fa-plus-circle me-1'></i>Create</span> " . $act_text;
-                                        } elseif (stripos($act_text, 'login') !== false) {
-                                            echo "<span class='badge badge-soft-secondary px-2 py-1 rounded-pill me-1'><i class='fa-solid fa-arrow-right-to-bracket me-1'></i>Login</span> " . $act_text;
-                                        } else {
-                                            echo "<span class='fw-medium text-dark'>" . $act_text . "</span>";
-                                        }
-                                    ?>
-                                </td>
-                                <td>
-                                    <?php if ($act['against_to'] && $act['against_to'] !== 'N/A'): ?>
-                                        <span class="badge bg-light text-dark border px-2 py-1 rounded-pill">
-                                            <?= htmlspecialchars($act['against_to']) ?>
-                                        </span>
-                                    <?php else: ?>
-                                        <span class="text-muted small">N/A</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td>
-                                    <span class="badge bg-secondary-subtle text-secondary rounded-pill px-2 py-1">
-                                        <?= htmlspecialchars($act['against_role'] ?: 'System') ?>
-                                    </span>
-                                </td>
-                                <td class="font-monospace text-muted small">
-                                    <?= htmlspecialchars($act['station_ip'] ?: '127.0.0.1') ?>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                    <?php endif; ?>
+                    <?php endforeach; ?>
                 </tbody>
             </table>
         </div>
+        <?php endif; ?>
     </div>
 </div>
 
@@ -482,22 +480,24 @@ foreach ($activities as $act) {
 
 <script>
 $(document).ready(function() {
-    $('#managerLogsTable').DataTable({
-        dom: "<'row mb-3'<'col-sm-6'B><'col-sm-6 text-end'f>>" +
-             "<'row'<'col-sm-12'tr>>" +
-             "<'row mt-3'<'col-sm-5'i><'col-sm-7'p>>",
-        buttons: [
-            { extend: 'excel', text: '<i class="fa-solid fa-file-excel me-1"></i> Excel', className: 'btn btn-sm btn-dark' },
-            { extend: 'csv', text: '<i class="fa-solid fa-file-csv me-1"></i> CSV', className: 'btn btn-sm btn-dark' },
-            { extend: 'print', text: '<i class="fa-solid fa-print me-1"></i> Print', className: 'btn btn-sm btn-dark' }
-        ],
-        order: [[0, 'desc']],
-        pageLength: 25,
-        language: {
-            search: "_INPUT_",
-            searchPlaceholder: "Search activities..."
-        }
-    });
+    if ($('#managerLogsTable').length) {
+        $('#managerLogsTable').DataTable({
+            dom: "<'row mb-3'<'col-sm-6'B><'col-sm-6 text-end'f>>" +
+                 "<'row'<'col-sm-12'tr>>" +
+                 "<'row mt-3'<'col-sm-5'i><'col-sm-7'p>>",
+            buttons: [
+                { extend: 'excel', text: '<i class="fa-solid fa-file-excel me-1"></i> Excel', className: 'btn btn-sm btn-dark' },
+                { extend: 'csv', text: '<i class="fa-solid fa-file-csv me-1"></i> CSV', className: 'btn btn-sm btn-dark' },
+                { extend: 'print', text: '<i class="fa-solid fa-print me-1"></i> Print', className: 'btn btn-sm btn-dark' }
+            ],
+            order: [[0, 'desc']],
+            pageLength: 25,
+            language: {
+                search: "_INPUT_",
+                searchPlaceholder: "Search activities..."
+            }
+        });
+    }
 });
 </script>
 

@@ -339,6 +339,16 @@ foreach ($managers as $m) {
 
     <!-- Managers Table -->
     <div class="table-card p-3 p-md-4">
+        <?php if (empty($managers)): ?>
+            <div class="text-center py-5 text-muted">
+                <i class="fa-solid fa-user-shield fs-1 text-secondary opacity-50 mb-3 d-block"></i>
+                <h5 class="fw-bold text-dark">No Managers Found</h5>
+                <p class="small text-secondary mb-3">You haven't added any Manager to your team yet.</p>
+                <button class="btn btn-primary rounded-pill px-4 shadow-sm" data-bs-toggle="modal" data-bs-target="#addManagerModal">
+                    <i class="fa-solid fa-user-plus me-1"></i> Add First Manager
+                </button>
+            </div>
+        <?php else: ?>
         <div class="table-responsive">
             <table class="table table-custom table-hover align-middle w-100" id="managersTable">
                 <thead>
@@ -355,114 +365,102 @@ foreach ($managers as $m) {
                     </tr>
                 </thead>
                 <tbody>
-                    <?php if (empty($managers)): ?>
+                    <?php foreach ($managers as $m): ?>
                         <tr>
-                            <td colspan="9" class="text-center py-5 text-muted">
-                                <i class="fa-solid fa-user-shield fs-1 text-secondary opacity-50 mb-3 d-block"></i>
-                                <h6>No Managers Found</h6>
-                                <p class="small text-secondary mb-3">You haven't added any Manager to your team yet.</p>
-                                <button class="btn btn-outline-primary btn-sm rounded-pill px-3" data-bs-toggle="modal" data-bs-target="#addManagerModal">
-                                    <i class="fa-solid fa-plus me-1"></i> Add First Manager
-                                </button>
+                            <td class="fw-bold text-secondary"><?= $m['id'] ?></td>
+                            <td>
+                                <div class="d-flex align-items-center gap-2">
+                                    <div class="avatar rounded-circle d-flex align-items-center justify-content-center text-white fw-bold shadow-sm" style="width: 36px; height: 36px; background: linear-gradient(135deg, #8b5cf6, #6366f1); font-size: 0.85rem;">
+                                        <?= strtoupper(substr($m['full_name'], 0, 1)) ?>
+                                    </div>
+                                    <div>
+                                        <a href="manager_view.php?id=<?= $m['id'] ?>" class="text-decoration-none fw-bold text-dark hover-primary" style="font-size: 0.92rem;">
+                                            <?= htmlspecialchars($m['full_name']) ?>
+                                        </a>
+                                        <div class="text-muted small"><?= htmlspecialchars($m['city'] ?: 'No City') ?></div>
+                                    </div>
+                                </div>
+                            </td>
+                            <td>
+                                <span class="badge bg-light text-dark border font-monospace px-2 py-1">
+                                    <?= htmlspecialchars($m['username']) ?>
+                                </span>
+                            </td>
+                            <td>
+                                <div><i class="fa-solid fa-phone me-1 text-muted small"></i> <?= htmlspecialchars($m['phone'] ?: 'N/A') ?></div>
+                                <?php if ($m['email']): ?>
+                                    <div class="text-muted small"><i class="fa-regular fa-envelope me-1"></i> <?= htmlspecialchars($m['email']) ?></div>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <form method="POST" class="d-inline">
+                                    <input type="hidden" name="action" value="toggle_permission">
+                                    <input type="hidden" name="id" value="<?= $m['id'] ?>">
+                                    <input type="hidden" name="permission" value="can_manage_packages">
+                                    <input type="hidden" name="value" value="<?= $m['can_manage_packages'] === 'yes' ? 'no' : 'yes' ?>">
+                                    <?php if ($m['can_manage_packages'] === 'yes'): ?>
+                                        <button type="submit" class="perm-badge perm-allowed" title="Click to Revoke Permission">
+                                            <i class="fa-solid fa-check-circle"></i> Allowed
+                                        </button>
+                                    <?php else: ?>
+                                        <button type="submit" class="perm-badge perm-locked" title="Click to Grant Permission">
+                                            <i class="fa-solid fa-lock"></i> Locked
+                                        </button>
+                                    <?php endif; ?>
+                                </form>
+                            </td>
+                            <td>
+                                <form method="POST" class="d-inline">
+                                    <input type="hidden" name="action" value="toggle_permission">
+                                    <input type="hidden" name="id" value="<?= $m['id'] ?>">
+                                    <input type="hidden" name="permission" value="can_collect_recovery">
+                                    <input type="hidden" name="value" value="<?= $m['can_collect_recovery'] === 'yes' ? 'no' : 'yes' ?>">
+                                    <?php if ($m['can_collect_recovery'] === 'yes'): ?>
+                                        <button type="submit" class="perm-badge perm-allowed" title="Click to Revoke Permission">
+                                            <i class="fa-solid fa-check-circle"></i> Allowed
+                                        </button>
+                                    <?php else: ?>
+                                        <button type="submit" class="perm-badge perm-locked" title="Click to Grant Permission">
+                                            <i class="fa-solid fa-lock"></i> Locked
+                                        </button>
+                                    <?php endif; ?>
+                                </form>
+                            </td>
+                            <td>
+                                <?php if ($m['status'] === 'active'): ?>
+                                    <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2 py-1">Active</span>
+                                <?php else: ?>
+                                    <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle rounded-pill px-2 py-1">Inactive</span>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <a href="manager_view.php?id=<?= $m['id'] ?>#activityLogs" class="btn btn-sm btn-light border rounded-pill px-3 py-1 shadow-sm text-dark fw-semibold" style="font-size: 0.78rem;">
+                                    <i class="fa-solid fa-clock-rotate-left text-primary me-1"></i> <?= $m['recent_activity_count'] ?> action(s)
+                                </a>
+                            </td>
+                            <td class="text-end">
+                                <div class="d-flex justify-content-end gap-1">
+                                    <a href="manager_view.php?id=<?= $m['id'] ?>" class="btn btn-sm btn-outline-primary rounded-circle" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;" title="View 30-Day Activity & Profile">
+                                        <i class="fa-solid fa-eye"></i>
+                                    </a>
+                                    <button class="btn btn-sm btn-outline-secondary rounded-circle" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;" title="Edit Manager" onclick='openEditModal(<?= json_encode($m) ?>)'>
+                                        <i class="fa-solid fa-pen"></i>
+                                    </button>
+                                    <form method="POST" class="d-inline" onsubmit="return confirm('Are you sure you want to delete Manager \'<?= addslashes($m['full_name']) ?>\'? This action cannot be undone.');">
+                                        <input type="hidden" name="action" value="delete_manager">
+                                        <input type="hidden" name="id" value="<?= $m['id'] ?>">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger rounded-circle" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;" title="Delete Manager">
+                                            <i class="fa-solid fa-trash"></i>
+                                        </button>
+                                    </form>
+                                </div>
                             </td>
                         </tr>
-                    <?php else: ?>
-                        <?php foreach ($managers as $m): ?>
-                            <tr>
-                                <td class="fw-bold text-secondary"><?= $m['id'] ?></td>
-                                <td>
-                                    <div class="d-flex align-items-center gap-2">
-                                        <div class="avatar rounded-circle d-flex align-items-center justify-content-center text-white fw-bold shadow-sm" style="width: 36px; height: 36px; background: linear-gradient(135deg, #8b5cf6, #6366f1); font-size: 0.85rem;">
-                                            <?= strtoupper(substr($m['full_name'], 0, 1)) ?>
-                                        </div>
-                                        <div>
-                                            <a href="manager_view.php?id=<?= $m['id'] ?>" class="text-decoration-none fw-bold text-dark hover-primary" style="font-size: 0.92rem;">
-                                                <?= htmlspecialchars($m['full_name']) ?>
-                                            </a>
-                                            <div class="text-muted small"><?= htmlspecialchars($m['city'] ?: 'No City') ?></div>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td>
-                                    <span class="badge bg-light text-dark border font-monospace px-2 py-1">
-                                        <?= htmlspecialchars($m['username']) ?>
-                                    </span>
-                                </td>
-                                <td>
-                                    <div><i class="fa-solid fa-phone me-1 text-muted small"></i> <?= htmlspecialchars($m['phone'] ?: 'N/A') ?></div>
-                                    <?php if ($m['email']): ?>
-                                        <div class="text-muted small"><i class="fa-regular fa-envelope me-1"></i> <?= htmlspecialchars($m['email']) ?></div>
-                                    <?php endif; ?>
-                                </td>
-                                <td>
-                                    <form method="POST" class="d-inline">
-                                        <input type="hidden" name="action" value="toggle_permission">
-                                        <input type="hidden" name="id" value="<?= $m['id'] ?>">
-                                        <input type="hidden" name="permission" value="can_manage_packages">
-                                        <input type="hidden" name="value" value="<?= $m['can_manage_packages'] === 'yes' ? 'no' : 'yes' ?>">
-                                        <?php if ($m['can_manage_packages'] === 'yes'): ?>
-                                            <button type="submit" class="perm-badge perm-allowed" title="Click to Revoke Permission">
-                                                <i class="fa-solid fa-check-circle"></i> Allowed
-                                            </button>
-                                        <?php else: ?>
-                                            <button type="submit" class="perm-badge perm-locked" title="Click to Grant Permission">
-                                                <i class="fa-solid fa-lock"></i> Locked
-                                            </button>
-                                        <?php endif; ?>
-                                    </form>
-                                </td>
-                                <td>
-                                    <form method="POST" class="d-inline">
-                                        <input type="hidden" name="action" value="toggle_permission">
-                                        <input type="hidden" name="id" value="<?= $m['id'] ?>">
-                                        <input type="hidden" name="permission" value="can_collect_recovery">
-                                        <input type="hidden" name="value" value="<?= $m['can_collect_recovery'] === 'yes' ? 'no' : 'yes' ?>">
-                                        <?php if ($m['can_collect_recovery'] === 'yes'): ?>
-                                            <button type="submit" class="perm-badge perm-allowed" title="Click to Revoke Permission">
-                                                <i class="fa-solid fa-check-circle"></i> Allowed
-                                            </button>
-                                        <?php else: ?>
-                                            <button type="submit" class="perm-badge perm-locked" title="Click to Grant Permission">
-                                                <i class="fa-solid fa-lock"></i> Locked
-                                            </button>
-                                        <?php endif; ?>
-                                    </form>
-                                </td>
-                                <td>
-                                    <?php if ($m['status'] === 'active'): ?>
-                                        <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2 py-1">Active</span>
-                                    <?php else: ?>
-                                        <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle rounded-pill px-2 py-1">Inactive</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td>
-                                    <a href="manager_view.php?id=<?= $m['id'] ?>#activityLogs" class="btn btn-sm btn-light border rounded-pill px-3 py-1 shadow-sm text-dark fw-semibold" style="font-size: 0.78rem;">
-                                        <i class="fa-solid fa-clock-rotate-left text-primary me-1"></i> <?= $m['recent_activity_count'] ?> action(s)
-                                    </a>
-                                </td>
-                                <td class="text-end">
-                                    <div class="d-flex justify-content-end gap-1">
-                                        <a href="manager_view.php?id=<?= $m['id'] ?>" class="btn btn-sm btn-outline-primary rounded-circle" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;" title="View 30-Day Activity & Profile">
-                                            <i class="fa-solid fa-eye"></i>
-                                        </a>
-                                        <button class="btn btn-sm btn-outline-secondary rounded-circle" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;" title="Edit Manager" onclick='openEditModal(<?= json_encode($m) ?>)'>
-                                            <i class="fa-solid fa-pen"></i>
-                                        </button>
-                                        <form method="POST" class="d-inline" onsubmit="return confirm('Are you sure you want to delete Manager \'<?= addslashes($m['full_name']) ?>\'? This action cannot be undone.');">
-                                            <input type="hidden" name="action" value="delete_manager">
-                                            <input type="hidden" name="id" value="<?= $m['id'] ?>">
-                                            <button type="submit" class="btn btn-sm btn-outline-danger rounded-circle" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;" title="Delete Manager">
-                                                <i class="fa-solid fa-trash"></i>
-                                            </button>
-                                        </form>
-                                    </div>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                    <?php endif; ?>
+                    <?php endforeach; ?>
                 </tbody>
             </table>
         </div>
+        <?php endif; ?>
     </div>
 </div>
 
@@ -651,15 +649,17 @@ foreach ($managers as $m) {
 
 <script>
 $(document).ready(function() {
-    $('#managersTable').DataTable({
-        responsive: true,
-        pageLength: 25,
-        order: [[0, 'desc']],
-        language: {
-            search: "_INPUT_",
-            searchPlaceholder: "Search managers..."
-        }
-    });
+    if ($('#managersTable').length) {
+        $('#managersTable').DataTable({
+            responsive: true,
+            pageLength: 25,
+            order: [[0, 'desc']],
+            language: {
+                search: "_INPUT_",
+                searchPlaceholder: "Search managers..."
+            }
+        });
+    }
 });
 
 function openEditModal(mgr) {
