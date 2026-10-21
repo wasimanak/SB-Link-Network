@@ -20,7 +20,13 @@ if (!$rm) {
 }
 
 // Handle Cash Collection from RM
+$can_collect_recovery = can_collect_recovery();
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'collect_cash') {
+    if (!$can_collect_recovery) {
+        echo "<script>alert('Permission Denied: You do not have permission from the Operator to collect cash from Recovery Men.'); window.location='recoveryman_profile.php?id=$rm_id';</script>";
+        exit;
+    }
     $amount = (float)$_POST['amount'];
     
     if ($amount > 0 && $amount <= $rm['cash_in_hand']) {
@@ -243,9 +249,13 @@ $submissions = $submissionStmt->fetchAll(PDO::FETCH_ASSOC);
                 </h1>
                 
                 <?php if($rm['cash_in_hand'] > 0): ?>
-                    <button class="btn btn-success btn-lg rounded-pill px-5 fw-bold shadow-sm" data-bs-toggle="modal" data-bs-target="#collectModal">
-                        <i class="fa-solid fa-hand-holding-dollar me-2"></i> Collect Cash
-                    </button>
+                    <?php if ($can_collect_recovery): ?>
+                        <button class="btn btn-success btn-lg rounded-pill px-5 fw-bold shadow-sm" data-bs-toggle="modal" data-bs-target="#collectModal">
+                            <i class="fa-solid fa-hand-holding-dollar me-2"></i> Collect Cash
+                        </button>
+                    <?php else: ?>
+                        <div class="badge bg-secondary-subtle text-secondary border p-2 px-3 rounded-pill"><i class="fa-solid fa-lock me-1"></i> Cash Collection Restricted (Operator Only)</div>
+                    <?php endif; ?>
                 <?php else: ?>
                     <div class="badge bg-secondary p-2 px-3 rounded-pill"><i class="fa-solid fa-check-circle me-1"></i> Accounts Cleared</div>
                 <?php endif; ?>
@@ -514,6 +524,7 @@ $submissions = $submissionStmt->fetchAll(PDO::FETCH_ASSOC);
     </div>
 </div>
 
+<?php if ($can_collect_recovery): ?>
 <!-- Collect Cash Modal -->
 <div class="modal fade" id="collectModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered">
@@ -541,6 +552,7 @@ $submissions = $submissionStmt->fetchAll(PDO::FETCH_ASSOC);
     </div>
   </div>
 </div>
+<?php endif; ?>
 
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>

@@ -6,6 +6,12 @@ if (!isset($_SESSION['operator_logged_in']) || !isset($_SESSION['operator_id']))
     exit('Unauthorized');
 }
 
+// Access Control: Block Managers from downloading full user database
+if (!empty($_SESSION['is_manager'])) {
+    http_response_code(403);
+    exit('Access Denied: Managers are not authorized to download system backups.');
+}
+
 $client_id = $_SESSION['operator_id'];
 
 header('Content-Type: text/csv; charset=utf-8');

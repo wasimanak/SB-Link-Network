@@ -295,6 +295,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
 // Handle Delete Profile
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_profile') {
+    if (!empty($_SESSION['is_manager'])) {
+        echo "<script>alert('Permission Denied: Managers cannot delete team members.'); window.location.href='dealer_view.php?id=$dealer_id';</script>";
+        exit;
+    }
     // 1. Fetch all users belonging to this dealer
     $stmt = $pdo->prepare("SELECT username FROM subscribers WHERE dealer_id = ?");
     $stmt->execute([$dealer_id]);
@@ -629,10 +633,12 @@ body { background-color: #f1f5f9; }
     <button type="submit" class="btn w-100 h-100 <?= ($dealer['status'] ?? 'active') === 'active' ? 'text-warning' : 'text-success' ?>"><i class="fa-solid <?= ($dealer['status'] ?? 'active') === 'active' ? 'fa-user-lock' : 'fa-user-check' ?>"></i> <?= ($dealer['status'] ?? 'active') === 'active' ? 'Disable<br>Dealer' : 'Enable<br>Dealer' ?></button>
 </form>
 
+                  <?php if (empty($_SESSION['is_manager'])): ?>
                   <form method="POST" class="m-0 p-0" onsubmit="return confirm('Are you sure you want to completely delete this dealer profile?');">
                     <input type="hidden" name="action" value="delete_profile">
-                    <button type="submit" class="btn w-100 h-100"><i class="fa-solid fa-ban"></i> Delete<br>Profile</button>
-                </form>
+                    <button type="submit" class="btn w-100 h-100 text-danger"><i class="fa-solid fa-ban"></i> Delete<br>Profile</button>
+                  </form>
+                  <?php endif; ?>
             </div>
         </div>
     </div>

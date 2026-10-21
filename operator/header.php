@@ -1,6 +1,10 @@
 <?php
 session_start();
 require_once '../config/db.php';
+require_once '../config/manager_helper.php';
+
+// Ensure Manager schema & triggers are updated
+ensure_manager_schema($pdo);
 
 // Prune old activity logs (30 days)
 try { $pdo->exec("DELETE FROM activity_logs WHERE created_at < NOW() - INTERVAL 30 DAY"); } catch (Exception $e) {}
@@ -23,10 +27,41 @@ if (!$tenant || $tenant['status'] !== 'active' || (strtotime($tenant['expiry_dat
     exit;
 }
 
+// Manager Session & Realtime Permission Validation
+if (!empty($_SESSION['is_manager']) && !empty($_SESSION['manager_id'])) {
+    $m_stmt = $pdo->prepare("SELECT status, full_name, username, can_manage_packages, can_collect_recovery FROM managers WHERE id = ? AND client_id = ?");
+    $m_stmt->execute([$_SESSION['manager_id'], $_SESSION['operator_id']]);
+    $current_mgr = $m_stmt->fetch();
+
+    if (!$current_mgr || $current_mgr['status'] !== 'active') {
+        session_destroy();
+        echo "<script>alert('Manager account is inactive or disabled.'); window.location='../login.php';</script>";
+        exit;
+    }
+
+    // Keep dynamic permissions in sync with database in real-time
+    $_SESSION['manager_name'] = $current_mgr['full_name'];
+    $_SESSION['manager_username'] = $current_mgr['username'];
+    $_SESSION['can_manage_packages'] = ($current_mgr['can_manage_packages'] === 'yes');
+    $_SESSION['can_collect_recovery'] = ($current_mgr['can_collect_recovery'] === 'yes');
+
+    // Stamp MySQL session for automatic activity log capture
+    try {
+        $pdo->query("SET @current_manager_id = " . (int)$_SESSION['manager_id']);
+        $pdo->query("SET @current_manager_name = " . $pdo->quote($current_mgr['full_name']));
+    } catch (Exception $e) {}
+} else {
+    try {
+        $pdo->query("SET @current_manager_id = NULL");
+        $pdo->query("SET @current_manager_name = NULL");
+    } catch (Exception $e) {}
+}
+
 $p = basename($_SERVER['PHP_SELF']);
 $filter = $_GET['filter'] ?? '';
 
 // Menu Active States
+$isTeamMenu = in_array($p, ['dealers.php', 'dealer_view.php', 'recovery_man.php', 'line_man.php', 'managers.php', 'manager_view.php']);
 $isUserMenu = in_array($p, ['subscribers.php', 'live_sessions.php']);
 $isAccMenu = in_array($p, ['packages.php', 'fund_requests.php', 'invoices.php']);
 $isTicketMenu = in_array($p, ['requests.php', 'fund_requests.php', 'support_tickets.php', 'view_ticket.php']);
@@ -313,6 +348,9 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
             <i class="fa-solid fa-sitemap menu-icon"></i> <span class="menu-text">Team</span>
         </a>
         <div class="collapse submenu <?= $isTeamMenu ? 'show' : '' ?>" id="teamMenu">
+            <?php if (empty($_SESSION['is_manager'])): ?>
+                <a href="managers.php" class="<?= $p==='managers.php' || $p==='manager_view.php' ? 'active' : '' ?>">Manager</a>
+            <?php endif; ?>
             <a href="dealers.php" class="<?= $p==='dealers.php' || $p==='dealer_view.php' ? 'active' : '' ?>">Dealer</a>
             <a href="recovery_man.php" class="<?= $p==='recovery_man.php' ? 'active' : '' ?>">Recovery Man</a>
             <a href="line_man.php" class="<?= $p==='line_man.php' ? 'active' : '' ?>">Line Man</a>
@@ -353,10 +391,12 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
         </div>
         
         <!-- MikroTik Menu -->
+        <?php if (empty($_SESSION['is_manager'])): ?>
         <!-- Network & Multi-WAN Pools -->
         <a href="ip_pools.php" class="nav-link-main rounded-3 mb-1 <?= $p==='ip_pools.php' ? 'active-parent' : '' ?>">
             <i class="fa-solid fa-network-wired menu-icon"></i> <span class="menu-text">IP Pools (Multi-WAN)</span>
         </a>
+        <?php endif; ?>
         <!-- Payment Gateways -->
         
         <!-- Requests & Support -->
@@ -377,9 +417,11 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
                 <?php if($open_tickets > 0): ?><span class="badge bg-danger float-end rounded-pill"><?= $open_tickets ?></span><?php endif; ?>
             </a>
         </div>
+        <?php if (empty($_SESSION['is_manager'])): ?>
         <a href="payment_gateways.php" class="nav-link-main <?= $p==='payment_gateways.php' ? 'active-parent' : '' ?>">
             <i class="fa-brands fa-cc-stripe menu-icon"></i> <span class="menu-text">Payment Gateways</span>
         </a>
+        <?php endif; ?>
 
         <a href="#" class="nav-link-main">
             <i class="fa-solid fa-bell menu-icon"></i> <span class="menu-text">Notices</span>
@@ -404,6 +446,11 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
                     <i class="fa-solid fa-wifi"></i>
                 </div>
                 <span class="fs-4 fw-bold text-dark" style="letter-spacing: -0.5px;"><?= BRAND_SHORT_NAME ?> <span class="text-primary"><?= htmlspecialchars($tenant['company_name']) ?></span></span>
+                <?php if (!empty($_SESSION['is_manager'])): ?>
+                    <span class="badge border rounded-pill px-3 py-1 ms-2 shadow-sm" style="font-size: 0.78rem; background: #ede9fe; color: #7c3aed; border-color: #ddd6fe !important;">
+                        <i class="fa-solid fa-user-shield me-1"></i>Manager: <?= htmlspecialchars($_SESSION['manager_name'] ?? 'Manager') ?>
+                    </span>
+                <?php endif; ?>
             </a>
         </div>
         <div class="position-relative d-none d-md-block" style="width: 350px;">

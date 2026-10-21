@@ -7,6 +7,12 @@ $client_id = $_SESSION['operator_id'];
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     
+    // Protect Router modifications against Manager
+    if (in_array($action, ['add_router', 'update_router', 'delete_router']) && !empty($_SESSION['is_manager'])) {
+        echo "<script>alert('Permission Denied: Managers cannot add, edit, or delete routers.'); window.location='profile.php';</script>";
+        exit;
+    }
+    
     if ($action === 'add_router') {
         $nasname = trim($_POST['nasname'] ?? '');
         $shortname = trim($_POST['shortname'] ?? 'Router');
@@ -200,7 +206,9 @@ $routers = $nasStmt->fetchAll(PDO::FETCH_ASSOC);
                 <li><i class="fa-solid fa-calendar-alt"></i> <?= date('Y-m-d H:i:s', strtotime($user['created_at'])) ?></li>
             </ul>
             <div class="action-grid">
+                <?php if (empty($_SESSION['is_manager'])): ?>
                 <button type="button" class="btn-pill dark" data-bs-toggle="modal" data-bs-target="#routerModal"><i class="fa-solid fa-server"></i> Router Settings</button>
+                <?php endif; ?>
                 <button type="button" class="btn-pill"><i class="fa-regular fa-image"></i> Change Photo</button>
                 <button type="button" class="btn-pill" data-bs-toggle="modal" data-bs-target="#changePasswordModal"><i class="fa-solid fa-lock"></i> Change Password</button>
                 <button type="button" class="btn-pill" data-bs-toggle="modal" data-bs-target="#noteModal"><i class="fa-regular fa-note-sticky"></i> Add Note</button>
@@ -368,6 +376,7 @@ $routers = $nasStmt->fetchAll(PDO::FETCH_ASSOC);
 
 <!-- ================= MODALS ================= -->
 
+<?php if (empty($_SESSION['is_manager'])): ?>
 <!-- Router List Modal -->
 <div class="modal fade" id="routerModal" tabindex="-1">
   <div class="modal-dialog modal-lg">
@@ -606,6 +615,7 @@ function copyScript() {
     alert("Script copied to clipboard!");
 }
 </script>
+<?php endif; ?>
 
 <div class="modal fade" id="changePasswordModal" tabindex="-1">
   <div class="modal-dialog">

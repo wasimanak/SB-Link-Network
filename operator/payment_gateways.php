@@ -1,6 +1,18 @@
 <?php
 require_once 'header.php';
 
+// Access Control: Block Manager Access
+if (!empty($_SESSION['is_manager'])) {
+    echo "<div class='container py-5'>
+            <div class='alert alert-danger shadow-sm'>
+                <i class='fa-solid fa-shield-halved me-2'></i> Access Denied: Managers are not authorized to view or configure Payment Gateways.
+            </div>
+            <a href='dashboard.php' class='btn btn-outline-secondary'><i class='fa-solid fa-arrow-left me-1'></i> Return to Dashboard</a>
+          </div>";
+    require_once 'footer.php';
+    exit;
+}
+
 $client_id = $_SESSION['operator_id'];
 
 // --- HANDLE ACTIONS ---

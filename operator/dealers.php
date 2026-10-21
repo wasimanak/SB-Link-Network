@@ -5,6 +5,10 @@ $client_id = $_SESSION['operator_id'] ?? 0;
 
 // Handle Add Dealer
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_dealer') {
+    if (!empty($_SESSION['is_manager'])) {
+        echo "<script>alert('Permission Denied: Managers cannot create team members.'); window.location.href='dealers.php';</script>";
+        exit;
+    }
     $full_name = trim($_POST['full_name']);
     $username = trim($_POST['username']);
     $password = trim($_POST['password']);
@@ -78,9 +82,11 @@ $dealers = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 <div class="dealer-header mt-2">
     <h4><i class="fa-solid fa-users me-2 text-primary" style="opacity: 0.8;"></i> Dealers</h4>
+    <?php if (empty($_SESSION['is_manager'])): ?>
     <button class="btn btn-dark-custom btn-sm px-3 py-2" data-bs-toggle="modal" data-bs-target="#addDealerModal">
         <i class="fa-solid fa-user-plus me-1"></i> Add New Dealer
     </button>
+    <?php endif; ?>
 </div>
 
 <div class="table-ui p-3">
@@ -139,6 +145,7 @@ $dealers = $stmt->fetchAll(PDO::FETCH_ASSOC);
 .dealer-modal-label { color: #475569; font-weight: 700; font-size: 0.9rem; padding-top: 6px; }
 </style>
 
+<?php if (empty($_SESSION['is_manager'])): ?>
 <!-- Add Dealer Modal -->
 <div class="modal fade" id="addDealerModal" tabindex="-1">
   <div class="modal-dialog modal-lg" style="max-width: 600px;">
@@ -246,6 +253,7 @@ $dealers = $stmt->fetchAll(PDO::FETCH_ASSOC);
     </div>
   </div>
 </div>
+<?php endif; ?>
 
 <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
 <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>

@@ -139,6 +139,56 @@ if ($is_blocked) {
                     record_failed_attempt($pdo, 'staff', $identifier);
                     $error = 'Invalid Recovery Man credentials, or Operator is inactive/suspended.';
                 }
+
+            } elseif ($role === 'manager') {
+                require_once 'config/manager_helper.php';
+                ensure_manager_schema($pdo);
+
+                // Manager login by unique username
+                $stmt = $pdo->prepare("
+                    SELECT m.*, c.status as op_status, c.company_name as op_company, c.email as op_email 
+                    FROM managers m 
+                    JOIN clients c ON m.client_id = c.id 
+                    WHERE m.username = ? AND m.status = 'active' AND c.status = 'active'
+                    LIMIT 1
+                ");
+                $stmt->execute([$identifier]);
+                $user = $stmt->fetch();
+
+                if ($user && ($user['password'] === $password || password_verify($password, $user['password']))) {
+                    // Auto-upgrade plain-text password to secure Bcrypt hash
+                    if ($user['password'] === $password) {
+                        $new_hash = password_hash($password, PASSWORD_BCRYPT);
+                        $pdo->prepare("UPDATE managers SET password = ? WHERE id = ?")->execute([$new_hash, $user['id']]);
+                    }
+
+                    clear_failed_attempts($pdo, 'staff');
+                    session_regenerate_id(true);
+
+                    // Manager uses Operator interface with tenant context
+                    $_SESSION['operator_logged_in'] = true;
+                    $_SESSION['operator_id'] = $user['client_id'];
+                    $_SESSION['operator_email'] = $user['op_email'];
+                    $_SESSION['operator_name'] = $user['full_name'];
+                    $_SESSION['operator_company'] = $user['op_company'];
+                    $_SESSION['client_id'] = $user['client_id'];
+
+                    // Specific Manager identity and permission flags
+                    $_SESSION['is_manager'] = true;
+                    $_SESSION['manager_id'] = $user['id'];
+                    $_SESSION['manager_username'] = $user['username'];
+                    $_SESSION['manager_name'] = $user['full_name'];
+                    $_SESSION['can_manage_packages'] = ($user['can_manage_packages'] === 'yes');
+                    $_SESSION['can_collect_recovery'] = ($user['can_collect_recovery'] === 'yes');
+
+                    log_staff_activity($pdo, 'Logged in to Manager Portal', 'System', 'Login');
+
+                    header("Location: operator/dashboard.php");
+                    exit;
+                } else {
+                    record_failed_attempt($pdo, 'staff', $identifier);
+                    $error = 'Invalid Manager credentials, or Operator account is inactive/suspended.';
+                }
             } else {
                 $error = 'Invalid role selected.';
             }
@@ -247,6 +297,12 @@ if ($is_blocked) {
             gap: 15px;
             margin-bottom: 20px;
         }
+        .role-grid > .role-card:last-child:nth-child(odd) {
+            grid-column: span 2;
+            max-width: 215px;
+            margin: 0 auto;
+            width: 100%;
+        }
 
         .role-card {
             background: rgba(30, 41, 59, 0.5);
@@ -283,6 +339,7 @@ if ($is_blocked) {
 
         /* Active states for specific roles */
         .role-card[data-role="operator"] i { color: #3b82f6; }
+        .role-card[data-role="manager"] i { color: #8b5cf6; }
         .role-card[data-role="dealer"] i { color: #10b981; }
         .role-card[data-role="recoveryman"] i { color: #ef4444; }
         .role-card[data-role="lineman"] i { color: #f59e0b; }
@@ -347,11 +404,13 @@ if ($is_blocked) {
 
         /* Color variations for btn-login based on Role */
         .btn-operator { background: linear-gradient(135deg, #3b82f6, #2563eb); box-shadow: 0 10px 20px -5px rgba(59, 130, 246, 0.4); }
+        .btn-manager { background: linear-gradient(135deg, #8b5cf6, #7c3aed); box-shadow: 0 10px 20px -5px rgba(139, 92, 246, 0.4); }
         .btn-dealer { background: linear-gradient(135deg, #10b981, #059669); box-shadow: 0 10px 20px -5px rgba(16, 185, 129, 0.4); }
         .btn-recoveryman { background: linear-gradient(135deg, #ef4444, #dc2626); box-shadow: 0 10px 20px -5px rgba(239, 68, 68, 0.4); }
         .btn-lineman { background: linear-gradient(135deg, #f59e0b, #d97706); box-shadow: 0 10px 20px -5px rgba(245, 158, 11, 0.4); }
         
         .btn-operator:hover { box-shadow: 0 15px 25px -5px rgba(59, 130, 246, 0.6); }
+        .btn-manager:hover { box-shadow: 0 15px 25px -5px rgba(139, 92, 246, 0.6); }
         .btn-dealer:hover { box-shadow: 0 15px 25px -5px rgba(16, 185, 129, 0.6); }
         .btn-recoveryman:hover { box-shadow: 0 15px 25px -5px rgba(239, 68, 68, 0.6); }
         .btn-lineman:hover { box-shadow: 0 15px 25px -5px rgba(245, 158, 11, 0.6); }
@@ -417,6 +476,10 @@ if ($is_blocked) {
                     <div class="role-card" data-role="operator" onclick="selectRole('operator', 'Email')">
                         <i class="fa-solid fa-user-tie"></i>
                         <div class="role-name">Operator</div>
+                    </div>
+                    <div class="role-card" data-role="manager" onclick="selectRole('manager', 'Username')">
+                        <i class="fa-solid fa-user-shield"></i>
+                        <div class="role-name">Manager</div>
                     </div>
                     <div class="role-card" data-role="dealer" onclick="selectRole('dealer', 'Username')">
                         <i class="fa-solid fa-handshake"></i>
@@ -499,6 +562,9 @@ if ($is_blocked) {
             if(role === 'operator') {
                 btnSubmit.classList.add('btn-operator');
                 subtitle = "OPERATOR LOGIN";
+            } else if(role === 'manager') {
+                btnSubmit.classList.add('btn-manager');
+                subtitle = "MANAGER LOGIN";
             } else if(role === 'dealer') {
                 btnSubmit.classList.add('btn-dealer');
                 subtitle = "DEALER LOGIN";

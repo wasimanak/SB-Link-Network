@@ -31,6 +31,10 @@ $pages = [
     ['title' => 'My Profile', 'url' => 'profile.php', 'icon' => 'fa-user'],
 ];
 
+if (empty($_SESSION['is_manager'])) {
+    $pages[] = ['title' => 'Team Managers', 'url' => 'managers.php', 'icon' => 'fa-user-shield'];
+}
+
 foreach ($pages as $page) {
     if (stripos($page['title'], $q) !== false) {
         $results[] = [
@@ -67,6 +71,20 @@ while ($row = $pStmt->fetch()) {
         'url' => "packages.php", // Highlight or filter in the future
         'icon' => 'fa-box-open'
     ];
+}
+
+// 4. Search Managers (Operator Only)
+if (empty($_SESSION['is_manager'])) {
+    $mStmt = $pdo->prepare("SELECT id, username, full_name FROM managers WHERE client_id = ? AND (username LIKE ? OR full_name LIKE ?) LIMIT 3");
+    $mStmt->execute([$client_id, $like, $like]);
+    while ($row = $mStmt->fetch()) {
+        $results[] = [
+            'type' => 'Manager',
+            'title' => htmlspecialchars($row['full_name']) . ' (' . htmlspecialchars($row['username']) . ')',
+            'url' => "manager_view.php?id=" . $row['id'],
+            'icon' => 'fa-user-shield'
+        ];
+    }
 }
 
 echo json_encode($results);

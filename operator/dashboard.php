@@ -11,6 +11,10 @@ if (!isset($_SESSION['last_expiry_sync']) || (time() - $_SESSION['last_expiry_sy
 
 // --- Handle CSV Restore ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'restore_backup') {
+    if (!empty($_SESSION['is_manager'])) {
+        echo "<script>alert('Permission Denied: Managers cannot restore backups.'); window.location='dashboard.php';</script>";
+        exit;
+    }
     if (isset($_FILES['backup_file']) && $_FILES['backup_file']['error'] === UPLOAD_ERR_OK) {
         $tmpName = $_FILES['backup_file']['tmp_name'];
         if (($file = fopen($tmpName, 'r')) !== FALSE) {
@@ -713,6 +717,7 @@ $map_subscribers = $pdo->query("
         <div class="quick-action-text">Activate/Renew</div>
     </a>
 
+    <?php if (empty($_SESSION['is_manager'])): ?>
     <!-- 6. Backup (CSV) -->
     <a href="backup_users.php" class="quick-action-card">
         <div class="quick-action-icon" style="background: linear-gradient(135deg, #14b8a6, #0f766e);">
@@ -736,6 +741,7 @@ $map_subscribers = $pdo->query("
         </div>
         <div class="quick-action-text">IP Pool</div>
     </a>
+    <?php endif; ?>
 </div>
 
 <!-- Reports & Statistics Card -->
@@ -1236,6 +1242,7 @@ $map_subscribers = $pdo->query("
     </div>
 </div>
 
+<?php if (empty($_SESSION['is_manager'])): ?>
 <!-- Restore Backup Modal -->
 <div class="modal fade" id="restoreModal" tabindex="-1">
   <div class="modal-dialog">
@@ -1268,6 +1275,7 @@ $map_subscribers = $pdo->query("
     </div>
   </div>
 </div>
+<?php endif; ?>
 
 <!-- Manage User Balances Modal (Search User & Add / Deduct Payment) -->
 <div class="modal fade" id="addBalanceModal" tabindex="-1" aria-hidden="true">
@@ -1357,13 +1365,13 @@ $map_subscribers = $pdo->query("
                   <input type="radio" class="btn-check" name="trans_type" id="trans_add" value="add" checked onchange="updatePaymentMode()">
                   <label class="btn btn-outline-success flex-fill py-2 fw-bold d-flex align-items-center justify-content-center gap-2" for="trans_add">
                     <i class="fa-solid fa-plus-circle fs-5"></i>
-                    <span>Add Payment (Credit / جمع)</span>
+                    <span>Add Payment (Credit / Ø¬Ù…Ø¹)</span>
                   </label>
 
                   <input type="radio" class="btn-check" name="trans_type" id="trans_deduct" value="deduct" onchange="updatePaymentMode()">
                   <label class="btn btn-outline-danger flex-fill py-2 fw-bold d-flex align-items-center justify-content-center gap-2" for="trans_deduct">
                     <i class="fa-solid fa-minus-circle fs-5"></i>
-                    <span>Deduct Payment (Debit / بنام)</span>
+                    <span>Deduct Payment (Debit / Ø¨Ù†Ø§Ù…)</span>
                   </label>
                 </div>
               </div>
@@ -1868,10 +1876,10 @@ function initUserMapPicker() {
     });
 
     var userBaseMaps = {
-        "🛰️ Google Satellite (Hybrid)": userHybridLayer,
-        "🗺️ Google Streets": userStreetsLayer,
-        "🌍 Esri Satellite": userEsri,
-        "📍 OpenStreetMap": userOsm
+        "ðŸ›°ï¸ Google Satellite (Hybrid)": userHybridLayer,
+        "ðŸ—ºï¸ Google Streets": userStreetsLayer,
+        "ðŸŒ Esri Satellite": userEsri,
+        "ðŸ“ OpenStreetMap": userOsm
     };
 
     userMap = L.map('user_map_picker', {
@@ -2063,8 +2071,8 @@ function captureUserLocation() {
         updateCoordsFromMap(lat, lng);
         
         let accBadge = acc <= 10 
-            ? `<span class="badge bg-success text-white px-2 py-1"><i class="fa-solid fa-bullseye me-1"></i> High GPS: ±${acc}m (&le;10m)</span>`
-            : `<span class="badge bg-warning text-dark px-2 py-1"><i class="fa-solid fa-satellite me-1"></i> GPS: ±${acc}m</span>`;
+            ? `<span class="badge bg-success text-white px-2 py-1"><i class="fa-solid fa-bullseye me-1"></i> High GPS: Â±${acc}m (&le;10m)</span>`
+            : `<span class="badge bg-warning text-dark px-2 py-1"><i class="fa-solid fa-satellite me-1"></i> GPS: Â±${acc}m</span>`;
             
         if (statusEl) statusEl.innerHTML = accBadge;
     };
@@ -2093,7 +2101,7 @@ function captureUserLocation() {
                 }
                 
                 if (statusEl) {
-                    statusEl.innerHTML = `<span class="badge bg-info-subtle text-info">GPS reading: ±${Math.round(acc)}m</span>`;
+                    statusEl.innerHTML = `<span class="badge bg-info-subtle text-info">GPS reading: Â±${Math.round(acc)}m</span>`;
                 }
                 
                 // If accuracy is within 10 meters, lock immediately!
@@ -2415,10 +2423,10 @@ function initNetworkSubscriberMap() {
     });
 
     var networkBaseMaps = {
-        "🛰️ Google Satellite (Hybrid)": networkHybridLayer,
-        "🗺️ Google Streets": networkStreetsLayer,
-        "🌍 Esri Satellite": networkEsri,
-        "📍 OpenStreetMap": networkOsm
+        "ðŸ›°ï¸ Google Satellite (Hybrid)": networkHybridLayer,
+        "ðŸ—ºï¸ Google Streets": networkStreetsLayer,
+        "ðŸŒ Esri Satellite": networkEsri,
+        "ðŸ“ OpenStreetMap": networkOsm
     };
 
     networkMapInstance = L.map('network_subscriber_map', {

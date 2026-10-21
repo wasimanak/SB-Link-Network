@@ -234,12 +234,18 @@ if (empty($available_wans)) {
 // --- 3. Handle Form Actions (Create, Edit, Quick Shift, Delete) ---
 $flash_msg = '';
 $flash_type = 'success';
+$can_manage_packages = can_manage_packages();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
+    // Check Package Management permission for restricted actions
+    if (in_array($action, ['create', 'edit', 'delete', 'shift_wan_quick']) && !$can_manage_packages) {
+        $flash_msg = "Permission Denied: You do not have permission from the Operator to create, edit, or delete packages.";
+        $flash_type = 'danger';
+    }
     // A. CREATE OR EDIT PACKAGE
-    if ($action === 'create' || $action === 'edit') {
+    elseif ($action === 'create' || $action === 'edit') {
         $id = (int)($_POST['package_id'] ?? 0);
         $name = trim($_POST['name'] ?? '');
         $price = (float)($_POST['price'] ?? 0);
@@ -603,12 +609,20 @@ try {
             </div>
         </div>
         <div class="d-flex gap-2">
+            <?php if (empty($_SESSION['is_manager'])): ?>
             <a href="ip_pools.php" class="btn btn-outline-primary rounded-pill px-3 shadow-sm">
                 <i class="fa-solid fa-network-wired me-1"></i> IP Pools Manager
             </a>
+            <?php endif; ?>
+            <?php if ($can_manage_packages): ?>
             <button class="btn btn-primary rounded-pill px-4 shadow-sm fw-semibold" data-bs-toggle="modal" data-bs-target="#packageModal" onclick="openCreateModal()">
                 <i class="fa-solid fa-plus me-1"></i> Create Package
             </button>
+            <?php else: ?>
+            <span class="badge bg-secondary-subtle text-secondary border px-3 py-2 rounded-pill d-inline-flex align-items-center">
+                <i class="fa-solid fa-lock me-1"></i> Package Creation Restricted
+            </span>
+            <?php endif; ?>
         </div>
     </div>
 
@@ -783,6 +797,7 @@ try {
                                         <i class="<?= $w_badge['icon'] ?> me-1"></i><?= htmlspecialchars($w_badge['name']) ?>
                                     </span>
 
+                                    <?php if ($can_manage_packages): ?>
                                     <!-- Quick 1-Click WAN Switch Dropdown -->
                                     <div class="dropdown">
                                         <button class="btn btn-sm btn-light border p-0 rounded-circle" type="button" data-bs-toggle="dropdown" style="width: 24px; height: 24px;" title="Quick Switch WAN Port">
@@ -807,6 +822,7 @@ try {
                                             <?php endforeach; ?>
                                         </ul>
                                     </div>
+                                    <?php endif; ?>
                                 </div>
                             </td>
                             <td class="text-dark fw-bold">
@@ -828,6 +844,7 @@ try {
                                 <?php endif; ?>
                             </td>
                             <td class="text-end">
+                                <?php if ($can_manage_packages): ?>
                                 <button class="btn btn-sm btn-outline-primary rounded-circle me-1" style="width: 32px; height: 32px; padding: 0;" onclick='openEditModal(<?= json_encode($p) ?>)' title="Edit Package & Pool Assignment">
                                     <i class="fa-solid fa-pen"></i>
                                 </button>
@@ -838,6 +855,11 @@ try {
                                         <i class="fa-solid fa-trash"></i>
                                     </button>
                                 </form>
+                                <?php else: ?>
+                                <span class="badge bg-secondary-subtle text-secondary border px-2 py-1 rounded-pill small" title="Editing locked by Operator">
+                                    <i class="fa-solid fa-lock me-1"></i> Read-Only
+                                </span>
+                                <?php endif; ?>
                             </td>
                         </tr>
                         <?php endforeach; ?>

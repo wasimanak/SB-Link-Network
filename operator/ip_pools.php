@@ -1,5 +1,17 @@
 <?php
 require_once 'header.php';
+
+// Access Control: Block Manager Access
+if (!empty($_SESSION['is_manager'])) {
+    echo "<div class='container py-5'>
+            <div class='alert alert-danger shadow-sm'>
+                <i class='fa-solid fa-shield-halved me-2'></i> Access Denied: Managers are not authorized to view or configure MikroTik IP Pools.
+            </div>
+            <a href='dashboard.php' class='btn btn-outline-secondary'><i class='fa-solid fa-arrow-left me-1'></i> Return to Dashboard</a>
+          </div>";
+    require_once 'footer.php';
+    exit;
+}
 require_once '../config/routeros_api.class.php';
 if (file_exists('../config/mikrotik_sync_helper.php')) {
     require_once '../config/mikrotik_sync_helper.php';
@@ -801,8 +813,8 @@ $total_pkgs_count = count($packages);
                             </p>
                             <div class="alert alert-white border p-2 small mb-0 rounded-3">
                                 <a href="https://whatismyipaddress.com" target="_blank" class="text-decoration-none fw-bold">whatismyipaddress.com</a><br>
-                                • Pehle ISP: <strong>PTCL</strong> (PTCL Public IP)<br>
-                                • Shift ke baad ISP: <strong>Telenor Pakistan</strong> (Telenor Public IP)
+                                â€¢ Pehle ISP: <strong>PTCL</strong> (PTCL Public IP)<br>
+                                â€¢ Shift ke baad ISP: <strong>Telenor Pakistan</strong> (Telenor Public IP)
                             </div>
                         </div>
                     </div>
