@@ -97,12 +97,6 @@ if ($is_blocked) {
                 $user = $stmt->fetch();
 
                 if ($user && ($user['password'] === $password || password_verify($password, $user['password']))) {
-                    // Auto-upgrade plain-text password to secure Bcrypt hash
-                    if ($user['password'] === $password) {
-                        $new_hash = password_hash($password, PASSWORD_BCRYPT);
-                        $pdo->prepare("UPDATE linemen SET password = ? WHERE id = ?")->execute([$new_hash, $user['id']]);
-                    }
-
                     clear_failed_attempts($pdo, 'staff');
                     session_regenerate_id(true);
                     $_SESSION['lineman_id'] = $user['id'];
@@ -122,12 +116,6 @@ if ($is_blocked) {
                 $user = $stmt->fetch();
 
                 if ($user && ($user['password'] === $password || password_verify($password, $user['password']))) {
-                    // Auto-upgrade plain-text password to secure Bcrypt hash
-                    if ($user['password'] === $password) {
-                        $new_hash = password_hash($password, PASSWORD_BCRYPT);
-                        $pdo->prepare("UPDATE recovery_men SET password = ? WHERE id = ?")->execute([$new_hash, $user['id']]);
-                    }
-
                     clear_failed_attempts($pdo, 'staff');
                     session_regenerate_id(true);
                     $_SESSION['rm_id'] = $user['id'];
