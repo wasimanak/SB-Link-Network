@@ -73,6 +73,69 @@ if (isset($_POST['ajax_action']) && $_POST['ajax_action'] === 'test_remote_db') 
     exit;
 }
 
+if (isset($_POST['ajax_action']) && $_POST['ajax_action'] === 'reveal_db_credentials') {
+    require_once 'auth_check.php';
+    require_once '../config/db.php';
+    header('Content-Type: application/json; charset=utf-8');
+
+    $admin_id = $_SESSION['superadmin_id'] ?? 0;
+    $verify_password = $_POST['verify_password'] ?? '';
+
+    if (empty($verify_password)) {
+        echo json_encode(['success' => false, 'message' => 'Please enter password to verify identity.']);
+        exit;
+    }
+
+    $is_valid = false;
+
+    // Check SuperAdmin password
+    try {
+        $stmt = $pdo->prepare("SELECT password FROM super_admins WHERE id = ?");
+        $stmt->execute([$admin_id]);
+        $hash = $stmt->fetchColumn();
+        if ($hash && password_verify($verify_password, $hash)) {
+            $is_valid = true;
+        }
+    } catch (Exception $e) {}
+
+    // Also check against VPS DB password (e.g. Wasi1234)
+    if (!$is_valid && !empty($pass) && $verify_password === $pass) {
+        $is_valid = true;
+    }
+
+    if (!$is_valid) {
+        echo json_encode(['success' => false, 'message' => 'Incorrect password. Verification failed.']);
+        exit;
+    }
+
+    // Fetch settings for any custom overrides
+    $setStmt = $pdo->query("SELECT setting_key, setting_value FROM global_settings");
+    $settings_raw = $setStmt->fetchAll(PDO::FETCH_KEY_PAIR);
+
+    $vps_host = $settings_raw['server_public_ip'] ?? ($_SERVER['SERVER_ADDR'] ?? '187.126.127.237');
+    if ($vps_host === '127.0.0.1' || $vps_host === '::1') {
+        $vps_host = '187.126.127.237';
+    }
+
+    $db_port = $settings_raw['server_db_port'] ?? '3306';
+    $db_name = $settings_raw['server_db_name'] ?? ($db ?? 'radius');
+    $db_user = $settings_raw['server_db_user'] ?? ($user ?? 'radius');
+    $db_pass = $settings_raw['server_db_pass'] ?? ($pass ?? 'Wasi1234');
+
+    echo json_encode([
+        'success' => true,
+        'message' => 'Identity verified successfully!',
+        'credentials' => [
+            'host' => $vps_host,
+            'port' => $db_port,
+            'db'   => $db_name,
+            'user' => $db_user,
+            'pass' => $db_pass,
+        ]
+    ]);
+    exit;
+}
+
 require_once 'header.php';
 
 $success = '';
@@ -707,6 +770,122 @@ try {
                     </div>
                 </div>
 
+                <!-- ======================================================= -->
+                <!-- THIS SERVER'S DATABASE SYNC PROFILE (PROTECTED VAULT)   -->
+                <!-- ======================================================= -->
+                <div class="p-3 mb-4 rounded-4 border" style="background: linear-gradient(135deg, #f8fafc, #f1f5f9); border-color: #e2e8f0 !important;">
+                    <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-3">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="rounded-circle bg-dark text-white d-flex align-items-center justify-content-center shadow-sm" style="width: 42px; height: 42px; flex-shrink: 0;">
+                                <i class="fa-solid fa-server"></i>
+                            </div>
+                            <div>
+                                <div class="d-flex align-items-center gap-2 flex-wrap">
+                                    <h6 class="fw-bold text-dark mb-0">This Server's Database Connection Credentials (Sync Profile)</h6>
+                                    <span id="vault_badge" class="badge bg-secondary-subtle text-secondary border border-secondary-subtle rounded-pill px-3 py-1">
+                                        <i class="fa-solid fa-lock me-1"></i> Hidden &amp; Locked
+                                    </span>
+                                </div>
+                                <span class="text-muted small">
+                                    Agar aap is VPS ka data kisi aur server me sync karna chahein, to doosri machine me ye credentials use karein.
+                                </span>
+                            </div>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button type="button" id="btn_toggle_vault" class="btn btn-dark rounded-pill px-3 py-2 btn-sm fw-bold shadow-sm d-inline-flex align-items-center gap-1" onclick="handleVaultToggle()">
+                                <i class="fa-solid fa-eye" id="vault_btn_icon"></i>
+                                <span id="vault_btn_text">Reveal Credentials</span>
+                            </button>
+                            <button type="button" id="btn_copy_all" class="btn btn-outline-primary rounded-pill px-3 py-2 btn-sm fw-bold d-none align-items-center gap-1" onclick="copyAllVaultCredentials()">
+                                <i class="fa-solid fa-copy"></i>
+                                <span>Copy All</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 5 Credential Cards Grid -->
+                    <div class="row g-2" id="vault_credentials_grid">
+                        <!-- 1. Host/IP -->
+                        <div class="col-md-3 col-sm-6">
+                            <div class="bg-white p-3 rounded-3 border border-light-subtle shadow-xs h-100">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.7rem;">Old VPS IP / Host</span>
+                                    <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_host', this)" title="Copy Host/IP">
+                                        <i class="fa-regular fa-copy"></i>
+                                    </button>
+                                </div>
+                                <div class="fw-bold text-dark font-monospace fs-6" id="vault_host">••••••••••••••</div>
+                            </div>
+                        </div>
+
+                        <!-- 2. Port -->
+                        <div class="col-md-2 col-sm-6">
+                            <div class="bg-white p-3 rounded-3 border border-light-subtle shadow-xs h-100">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.7rem;">MySQL Port</span>
+                                    <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_port', this)" title="Copy Port">
+                                        <i class="fa-regular fa-copy"></i>
+                                    </button>
+                                </div>
+                                <div class="fw-bold text-dark font-monospace fs-6" id="vault_port">••••</div>
+                            </div>
+                        </div>
+
+                        <!-- 3. DB Name -->
+                        <div class="col-md-2 col-sm-6">
+                            <div class="bg-white p-3 rounded-3 border border-light-subtle shadow-xs h-100">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.7rem;">DB Name</span>
+                                    <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_db', this)" title="Copy DB Name">
+                                        <i class="fa-regular fa-copy"></i>
+                                    </button>
+                                </div>
+                                <div class="fw-bold text-dark font-monospace fs-6" id="vault_db">••••••</div>
+                            </div>
+                        </div>
+
+                        <!-- 4. DB User -->
+                        <div class="col-md-2 col-sm-6">
+                            <div class="bg-white p-3 rounded-3 border border-light-subtle shadow-xs h-100">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.7rem;">DB Username</span>
+                                    <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_user', this)" title="Copy Username">
+                                        <i class="fa-regular fa-copy"></i>
+                                    </button>
+                                </div>
+                                <div class="fw-bold text-dark font-monospace fs-6" id="vault_user">••••••</div>
+                            </div>
+                        </div>
+
+                        <!-- 5. DB Password -->
+                        <div class="col-md-3 col-sm-12">
+                            <div class="bg-white p-3 rounded-3 border border-light-subtle shadow-xs h-100">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.7rem;">DB Password</span>
+                                    <div class="d-flex align-items-center gap-1">
+                                        <button type="button" class="btn btn-link p-0 text-muted d-none vault-pwd-toggle" onclick="toggleVaultPasswordVisibility(this)" title="Show/Hide Password">
+                                            <i class="fa-regular fa-eye"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_pass_plain', this)" title="Copy Password">
+                                            <i class="fa-regular fa-copy"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="fw-bold text-dark font-monospace fs-6" id="vault_pass">••••••••••••</div>
+                                <input type="hidden" id="vault_pass_plain" value="">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Auto Fill Button for Convenience -->
+                    <div id="vault_autofill_strip" class="d-none mt-2 pt-2 border-top border-light-subtle d-flex justify-content-between align-items-center small text-muted">
+                        <span><i class="fa-solid fa-circle-check text-success me-1"></i> Credentials unlocked and ready.</span>
+                        <button type="button" class="btn btn-link btn-sm text-primary text-decoration-none p-0 fw-semibold" onclick="autoFillInboundSyncForm()">
+                            <i class="fa-solid fa-arrow-down me-1"></i> Fill into Sync Form below
+                        </button>
+                    </div>
+                </div>
+
                 <!-- Setup Guide Accordion (Collapsed by default, opens if requested or error) -->
                 <div class="collapse mb-4" id="syncHelpGuide">
                     <div class="alert alert-info border-0 rounded-4 p-4 shadow-sm" style="background: #f0f9ff; border: 1px solid #bae6fd !important;">
@@ -1000,7 +1179,211 @@ try {
     </div>
 </div>
 
+<!-- Security Verification Modal for Revealing DB Credentials -->
+<div class="modal fade" id="unlockVaultModal" tabindex="-1" aria-labelledby="unlockVaultModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered" style="max-width: 420px;">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header bg-dark text-white py-3 px-4">
+                <div class="d-flex align-items-center gap-2">
+                    <i class="fa-solid fa-shield-halved text-warning fs-5"></i>
+                    <h6 class="modal-title fw-bold mb-0" id="unlockVaultModalLabel">Security Verification</h6>
+                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form onsubmit="handleVaultUnlockSubmit(event)">
+                <div class="modal-body p-4">
+                    <p class="text-muted small mb-3">
+                        Enter your <strong>Super Admin Password</strong> or <strong>VPS Password</strong> to reveal this server's live database credentials.
+                    </p>
+                    <div class="mb-2">
+                        <label class="form-label text-dark fw-bold small mb-1">Password <span class="text-danger">*</span></label>
+                        <div class="input-group">
+                            <input type="password" id="vault_verify_input" class="form-control" placeholder="Enter password" required autocomplete="current-password">
+                            <button class="btn btn-outline-secondary" type="button" onclick="const p = document.getElementById('vault_verify_input'); p.type = p.type === 'password' ? 'text' : 'password';">
+                                <i class="fa-solid fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="vault_error_msg" class="text-danger small mt-2 d-none"></div>
+                </div>
+                <div class="modal-footer bg-light border-top border-light-subtle py-2 px-3 d-flex justify-content-between">
+                    <button type="button" class="btn btn-outline-secondary rounded-pill btn-sm px-3" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" id="btn_verify_vault_submit" class="btn btn-primary rounded-pill btn-sm px-4 fw-bold shadow-sm">
+                        <i class="fa-solid fa-lock-open me-1"></i> Verify &amp; Reveal
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <script>
+let vaultUnlocked = false;
+let vaultData = null;
+let vaultPwdVisible = false;
+
+function handleVaultToggle() {
+    if (vaultUnlocked) {
+        lockVault();
+    } else {
+        document.getElementById('vault_verify_input').value = '';
+        document.getElementById('vault_error_msg').classList.add('d-none');
+        document.getElementById('vault_error_msg').innerText = '';
+        const modal = new bootstrap.Modal(document.getElementById('unlockVaultModal'));
+        modal.show();
+        setTimeout(() => {
+            document.getElementById('vault_verify_input').focus();
+        }, 400);
+    }
+}
+
+function handleVaultUnlockSubmit(e) {
+    e.preventDefault();
+    const pwd = document.getElementById('vault_verify_input').value;
+    const btn = document.getElementById('btn_verify_vault_submit');
+    const errDiv = document.getElementById('vault_error_msg');
+
+    if (!pwd) return;
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Verifying...';
+    errDiv.classList.add('d-none');
+
+    const formData = new FormData();
+    formData.append('ajax_action', 'reveal_db_credentials');
+    formData.append('verify_password', pwd);
+
+    fetch('settings.php', {
+        method: 'POST',
+        body: formData
+    })
+    .then(r => r.json())
+    .then(data => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-lock-open me-1"></i> Verify &amp; Reveal';
+        if (data.success) {
+            vaultUnlocked = true;
+            vaultData = data.credentials;
+            unlockVaultUI(data.credentials);
+            const modalEl = document.getElementById('unlockVaultModal');
+            const modalInstance = bootstrap.Modal.getInstance(modalEl);
+            if (modalInstance) modalInstance.hide();
+        } else {
+            errDiv.innerText = data.message || 'Verification failed.';
+            errDiv.classList.remove('d-none');
+        }
+    })
+    .catch(err => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-lock-open me-1"></i> Verify &amp; Reveal';
+        errDiv.innerText = 'Network error: ' + err.message;
+        errDiv.classList.remove('d-none');
+    });
+}
+
+function unlockVaultUI(creds) {
+    document.getElementById('vault_host').innerText = creds.host;
+    document.getElementById('vault_port').innerText = creds.port;
+    document.getElementById('vault_db').innerText = creds.db;
+    document.getElementById('vault_user').innerText = creds.user;
+    document.getElementById('vault_pass').innerText = '••••••••••••';
+    document.getElementById('vault_pass_plain').value = creds.pass;
+    vaultPwdVisible = false;
+
+    // Badges & Buttons
+    const badge = document.getElementById('vault_badge');
+    badge.className = 'badge bg-success-subtle text-success border border-success-subtle rounded-pill px-3 py-1';
+    badge.innerHTML = '<i class="fa-solid fa-circle-check me-1"></i> Unlocked';
+
+    document.getElementById('vault_btn_icon').className = 'fa-solid fa-eye-slash';
+    document.getElementById('vault_btn_text').innerText = 'Hide Credentials';
+    document.getElementById('btn_toggle_vault').className = 'btn btn-outline-secondary rounded-pill px-3 py-2 btn-sm fw-bold shadow-sm d-inline-flex align-items-center gap-1';
+
+    document.getElementById('btn_copy_all').classList.remove('d-none');
+    document.getElementById('btn_copy_all').classList.add('d-inline-flex');
+    document.getElementById('vault_autofill_strip').classList.remove('d-none');
+
+    // Show copy buttons
+    document.querySelectorAll('.vault-copy-btn, .vault-pwd-toggle').forEach(el => el.classList.remove('d-none'));
+}
+
+function lockVault() {
+    vaultUnlocked = false;
+    vaultData = null;
+    vaultPwdVisible = false;
+
+    document.getElementById('vault_host').innerText = '••••••••••••••';
+    document.getElementById('vault_port').innerText = '••••';
+    document.getElementById('vault_db').innerText = '••••••';
+    document.getElementById('vault_user').innerText = '••••••';
+    document.getElementById('vault_pass').innerText = '••••••••••••';
+    document.getElementById('vault_pass_plain').value = '';
+
+    const badge = document.getElementById('vault_badge');
+    badge.className = 'badge bg-secondary-subtle text-secondary border border-secondary-subtle rounded-pill px-3 py-1';
+    badge.innerHTML = '<i class="fa-solid fa-lock me-1"></i> Hidden &amp; Locked';
+
+    document.getElementById('vault_btn_icon').className = 'fa-solid fa-eye';
+    document.getElementById('vault_btn_text').innerText = 'Reveal Credentials';
+    document.getElementById('btn_toggle_vault').className = 'btn btn-dark rounded-pill px-3 py-2 btn-sm fw-bold shadow-sm d-inline-flex align-items-center gap-1';
+
+    document.getElementById('btn_copy_all').classList.add('d-none');
+    document.getElementById('btn_copy_all').classList.remove('d-inline-flex');
+    document.getElementById('vault_autofill_strip').classList.add('d-none');
+
+    document.querySelectorAll('.vault-copy-btn, .vault-pwd-toggle').forEach(el => el.classList.add('d-none'));
+}
+
+function toggleVaultPasswordVisibility(btn) {
+    if (!vaultUnlocked || !vaultData) return;
+    vaultPwdVisible = !vaultPwdVisible;
+    const passDisplay = document.getElementById('vault_pass');
+    if (vaultPwdVisible) {
+        passDisplay.innerText = vaultData.pass;
+        btn.innerHTML = '<i class="fa-solid fa-eye-slash"></i>';
+    } else {
+        passDisplay.innerText = '••••••••••••';
+        btn.innerHTML = '<i class="fa-regular fa-eye"></i>';
+    }
+}
+
+function copyVaultValue(elementId, btn) {
+    let val = '';
+    const el = document.getElementById(elementId);
+    if (!el) return;
+    if (el.tagName === 'INPUT') {
+        val = el.value;
+    } else {
+        val = el.innerText.trim();
+    }
+    if (!val || val.includes('••')) return;
+
+    navigator.clipboard.writeText(val).then(() => {
+        const origHtml = btn.innerHTML;
+        btn.innerHTML = '<i class="fa-solid fa-check text-success"></i>';
+        setTimeout(() => { btn.innerHTML = origHtml; }, 1500);
+    });
+}
+
+function copyAllVaultCredentials() {
+    if (!vaultData) return;
+    const text = `Old VPS IP / Host: ${vaultData.host}\nMySQL Port: ${vaultData.port}\nDB Name: ${vaultData.db}\nDB Username: ${vaultData.user}\nDB Password: ${vaultData.pass}`;
+    navigator.clipboard.writeText(text).then(() => {
+        const btn = document.getElementById('btn_copy_all');
+        const origText = btn.innerHTML;
+        btn.innerHTML = '<i class="fa-solid fa-check text-success me-1"></i> Copied!';
+        setTimeout(() => { btn.innerHTML = origText; }, 2000);
+    });
+}
+
+function autoFillInboundSyncForm() {
+    if (!vaultData) return;
+    document.getElementById('remote_host').value = vaultData.host;
+    document.getElementById('remote_port').value = vaultData.port;
+    document.getElementById('remote_db').value = vaultData.db;
+    document.getElementById('remote_user').value = vaultData.user;
+    document.getElementById('remote_pass').value = vaultData.pass;
+}
 function testRemoteConnection() {
     const host = document.getElementById('remote_host').value.trim();
     const port = document.getElementById('remote_port').value.trim() || '3306';
