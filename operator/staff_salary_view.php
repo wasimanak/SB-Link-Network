@@ -190,15 +190,7 @@ $ledgerEntries = $ledgerStmt->fetchAll(PDO::FETCH_ASSOC);
                     </tr>
                 </thead>
                 <tbody>
-                    <?php if (empty($ledgerEntries)): ?>
-                        <tr>
-                            <td colspan="9" class="text-center py-4 text-muted">
-                                <i class="fa-solid fa-receipt fa-2x mb-2 text-muted"></i>
-                                <div>No salary or advance records found for this team member.</div>
-                            </td>
-                        </tr>
-                    <?php else: ?>
-                        <?php foreach ($ledgerEntries as $entry): 
+                    <?php foreach ($ledgerEntries as $entry): 
                             $balAfter = (int)$entry['balance_after'];
                             $typeBadge = 'badge-salary-accrual';
                             $typeText = 'Salary Accrual';
@@ -273,7 +265,6 @@ $ledgerEntries = $ledgerStmt->fetchAll(PDO::FETCH_ASSOC);
                             </td>
                         </tr>
                         <?php endforeach; ?>
-                    <?php endif; ?>
                 </tbody>
             </table>
         </div>
