@@ -319,6 +319,74 @@ if (isset($_POST['ajax_action']) && $_POST['ajax_action'] === 'sync_finish') {
     exit;
 }
 
+// Action 4: run_db_maintenance (Instant Database Optimization & Auto-Prune)
+if (isset($_POST['ajax_action']) && $_POST['ajax_action'] === 'run_db_maintenance') {
+    require_once 'auth_check.php';
+    require_once '../config/db.php';
+    require_once '../config/db_maintenance_helper.php';
+    header('Content-Type: application/json; charset=utf-8');
+
+    $auth_days  = intval($_POST['auth_days'] ?? 7) ?: 7;
+    $acct_days  = intval($_POST['acct_days'] ?? 30) ?: 30;
+    $ghost_days = intval($_POST['ghost_days'] ?? 2) ?: 2;
+
+    $res = run_database_maintenance($pdo, $auth_days, $acct_days, $ghost_days);
+
+    // Fetch updated live counts
+    $newTotalPostAuth = 0;
+    $newTotalAcct = 0;
+    $newActiveAcct = 0;
+    $newGhostAcct = 0;
+    try {
+        $newTotalPostAuth = (int)$pdo->query("SELECT COUNT(*) FROM radpostauth")->fetchColumn();
+        $newTotalAcct = (int)$pdo->query("SELECT COUNT(*) FROM radacct")->fetchColumn();
+        $newActiveAcct = (int)$pdo->query("SELECT COUNT(*) FROM radacct WHERE acctstoptime IS NULL")->fetchColumn();
+        $stmtG = $pdo->prepare("SELECT COUNT(*) FROM radacct WHERE acctstoptime IS NULL AND acctstarttime < NOW() - INTERVAL ? DAY");
+        $stmtG->execute([$ghost_days]);
+        $newGhostAcct = (int)$stmtG->fetchColumn();
+    } catch (Exception $e) {}
+
+    if (ob_get_length()) ob_clean();
+    echo json_encode([
+        'success' => true,
+        'message' => "Database optimized successfully! Purged " . number_format($res['auth_deleted']) . " auth logs (> {$auth_days}d), " . number_format($res['acct_deleted']) . " closed sessions (> {$acct_days}d), closed " . number_format($res['ghost_closed']) . " ghost sessions, and optimized " . count($res['optimized_tables']) . " tables in {$res['duration_seconds']}s.",
+        'data' => $res,
+        'counts' => [
+            'total_postauth' => $newTotalPostAuth,
+            'total_acct' => $newTotalAcct,
+            'active_acct' => $newActiveAcct,
+            'ghost_acct' => $newGhostAcct,
+            'last_run' => $res['timestamp']
+        ]
+    ]);
+    exit;
+}
+
+// Action 5: save_db_maintenance_settings
+if (isset($_POST['ajax_action']) && $_POST['ajax_action'] === 'save_db_maintenance_settings') {
+    require_once 'auth_check.php';
+    require_once '../config/db.php';
+    header('Content-Type: application/json; charset=utf-8');
+
+    $auth_days  = max(1, intval($_POST['auth_days'] ?? 7));
+    $acct_days  = max(1, intval($_POST['acct_days'] ?? 30));
+    $ghost_days = max(1, intval($_POST['ghost_days'] ?? 2));
+
+    $saveSettings = [
+        'db_retention_auth_days' => (string)$auth_days,
+        'db_retention_acct_days' => (string)$acct_days,
+        'db_ghost_session_days'  => (string)$ghost_days,
+    ];
+    foreach ($saveSettings as $sk => $sv) {
+        $upStmt = $pdo->prepare("INSERT INTO global_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = ?");
+        $upStmt->execute([$sk, $sv, $sv]);
+    }
+
+    if (ob_get_length()) ob_clean();
+    echo json_encode(['success' => true, 'message' => 'Automatic retention rules updated successfully!']);
+    exit;
+}
+
 require_once 'header.php';
 
 $success = '';
@@ -665,6 +733,58 @@ try {
 } catch (Exception $e) {
     $totalTables = 0;
 }
+
+// Database Health & Auto-Maintenance Metrics
+$authRetentionDays = intval($settings_raw['db_retention_auth_days'] ?? 7) ?: 7;
+$acctRetentionDays = intval($settings_raw['db_retention_acct_days'] ?? 30) ?: 30;
+$ghostDays         = intval($settings_raw['db_ghost_session_days'] ?? 2) ?: 2;
+$lastMaintRun      = $settings_raw['db_maintenance_last_run'] ?? '';
+$lastMaintStats    = json_decode($settings_raw['db_maintenance_last_stats'] ?? '[]', true);
+
+$totalPostAuth     = 0;
+$prunablePostAuth  = 0;
+try {
+    $totalPostAuth = (int)$pdo->query("SELECT COUNT(*) FROM radpostauth")->fetchColumn();
+    $stmtP = $pdo->prepare("SELECT COUNT(*) FROM radpostauth WHERE authdate < NOW() - INTERVAL ? DAY");
+    $stmtP->execute([$authRetentionDays]);
+    $prunablePostAuth = (int)$stmtP->fetchColumn();
+} catch (Exception $e) {}
+
+$totalAcct    = 0;
+$activeAcct   = 0;
+$prunableAcct = 0;
+$ghostAcct    = 0;
+try {
+    $totalAcct = (int)$pdo->query("SELECT COUNT(*) FROM radacct")->fetchColumn();
+    $activeAcct = (int)$pdo->query("SELECT COUNT(*) FROM radacct WHERE acctstoptime IS NULL")->fetchColumn();
+    $stmtA = $pdo->prepare("SELECT COUNT(*) FROM radacct WHERE acctstoptime IS NOT NULL AND acctstoptime < NOW() - INTERVAL ? DAY");
+    $stmtA->execute([$acctRetentionDays]);
+    $prunableAcct = (int)$stmtA->fetchColumn();
+
+    $stmtG = $pdo->prepare("SELECT COUNT(*) FROM radacct WHERE acctstoptime IS NULL AND acctstarttime < NOW() - INTERVAL ? DAY");
+    $stmtG->execute([$ghostDays]);
+    $ghostAcct = (int)$stmtG->fetchColumn();
+} catch (Exception $e) {}
+
+$tableSizes = [];
+$totalDbSizeMb = 0;
+try {
+    $sizeStmt = $pdo->query("
+        SELECT 
+            table_name, 
+            ROUND(((data_length + index_length) / 1024 / 1024), 2) AS size_mb,
+            ROUND((data_free / 1024 / 1024), 2) AS free_mb
+        FROM information_schema.TABLES 
+        WHERE table_schema = DATABASE()
+    ");
+    while ($row = $sizeStmt->fetch(PDO::FETCH_ASSOC)) {
+        $tableSizes[$row['table_name']] = [
+            'size_mb' => floatval($row['size_mb']),
+            'free_mb' => floatval($row['free_mb'])
+        ];
+        $totalDbSizeMb += floatval($row['size_mb']);
+    }
+} catch (Exception $e) {}
 ?>
 
 <style>
@@ -761,6 +881,9 @@ try {
             <div class="d-flex flex-wrap gap-2">
                 <a href="dashboard.php" class="btn btn-outline-secondary rounded-pill px-3 py-2 fw-semibold">
                     <i class="fa-solid fa-arrow-left me-1"></i> Dashboard
+                </a>
+                <a href="#db-maintenance-section" class="btn btn-outline-danger rounded-pill px-3 py-2 fw-bold shadow-sm d-inline-flex align-items-center gap-1">
+                    <i class="fa-solid fa-heart-pulse text-danger"></i> DB Health &amp; Prune
                 </a>
                 <a href="#vps-sync-section" class="btn btn-primary rounded-pill px-3 py-2 fw-bold shadow-sm d-inline-flex align-items-center gap-1">
                     <i class="fa-solid fa-arrows-rotate"></i> Sync from Old VPS
@@ -1122,6 +1245,233 @@ try {
             </div>
         </div>
 
+    </div>
+
+    <!-- 4. Database Health, Auto-Prune & Nightly Maintenance -->
+    <div class="card-ui p-4 mb-4" id="db-maintenance-section">
+        <!-- Section Header -->
+        <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 pb-3 border-bottom border-light-subtle mb-4">
+            <div class="d-flex align-items-center gap-3">
+                <div class="rounded-circle bg-danger-subtle text-danger d-flex align-items-center justify-content-center shadow-sm" style="width: 48px; height: 48px; flex-shrink: 0;">
+                    <i class="fa-solid fa-heart-pulse fs-4"></i>
+                </div>
+                <div>
+                    <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
+                        <h5 class="fw-bold text-dark mb-0 fs-5">Database Health &amp; Auto-Maintenance</h5>
+                        <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-3 py-1">
+                            <i class="fa-solid fa-shield-halved me-1"></i> Auto-Prune Active
+                        </span>
+                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle rounded-pill px-3 py-1">
+                            <i class="fa-solid fa-moon me-1"></i> Nightly 03:00 AM Cron
+                        </span>
+                    </div>
+                    <p class="text-muted small mb-0">
+                        Keeps your FreeRADIUS and billing database ultra-lightweight and fast by auto-purging old auth logs, expiring stale sessions, and defragmenting tables.
+                    </p>
+                </div>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <button type="button" class="btn btn-danger rounded-pill px-4 py-2 fw-bold shadow-sm d-inline-flex align-items-center gap-2" id="btn_run_maintenance" onclick="runInstantMaintenance()">
+                    <i class="fa-solid fa-broom fs-5"></i>
+                    <span>Run Instant Clean 🧹</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Live Health Metric Cards -->
+        <div class="row g-3 mb-4">
+            <!-- 1. radpostauth Card -->
+            <div class="col-md-3">
+                <div class="p-3 bg-light rounded-4 border border-light-subtle h-100">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <span class="text-muted small fw-bold text-uppercase">Auth Logs (radpostauth)</span>
+                        <span class="badge bg-primary rounded-pill small"><?= htmlspecialchars($authRetentionDays) ?>d Rule</span>
+                    </div>
+                    <div class="fs-4 fw-bold text-dark" id="stat_postauth_total"><?= number_format($totalPostAuth) ?></div>
+                    <div class="d-flex justify-content-between align-items-center mt-2 small">
+                        <span class="text-muted"><i class="fa-solid fa-hard-drive me-1"></i> Size: <strong><?= number_format($tableSizes['radpostauth']['size_mb'] ?? 0, 2) ?> MB</strong></span>
+                        <?php if ($prunablePostAuth > 0): ?>
+                            <span class="badge bg-danger-subtle text-danger" id="stat_postauth_prunable"><?= number_format($prunablePostAuth) ?> Prunable</span>
+                        <?php else: ?>
+                            <span class="badge bg-success-subtle text-success">Clean &amp; Optimized</span>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. radacct Sessions Card -->
+            <div class="col-md-3">
+                <div class="p-3 bg-light rounded-4 border border-light-subtle h-100">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <span class="text-muted small fw-bold text-uppercase">Sessions (radacct)</span>
+                        <span class="badge bg-primary rounded-pill small"><?= htmlspecialchars($acctRetentionDays) ?>d Rule</span>
+                    </div>
+                    <div class="fs-4 fw-bold text-dark" id="stat_acct_total"><?= number_format($totalAcct) ?></div>
+                    <div class="d-flex justify-content-between align-items-center mt-2 small">
+                        <span class="text-success fw-bold"><i class="fa-solid fa-circle-dot me-1"></i> Online: <?= number_format($activeAcct) ?></span>
+                        <?php if ($prunableAcct > 0): ?>
+                            <span class="badge bg-warning-subtle text-warning border border-warning-subtle" id="stat_acct_prunable"><?= number_format($prunableAcct) ?> Old Closed</span>
+                        <?php else: ?>
+                            <span class="badge bg-success-subtle text-success">Optimal</span>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3. Ghost / Zombie Sessions -->
+            <div class="col-md-3">
+                <div class="p-3 bg-light rounded-4 border border-light-subtle h-100">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <span class="text-muted small fw-bold text-uppercase">Ghost / Zombie Sessions</span>
+                        <span class="badge bg-secondary rounded-pill small">&gt; <?= htmlspecialchars($ghostDays) ?>d Stuck</span>
+                    </div>
+                    <div class="fs-4 fw-bold <?= $ghostAcct > 0 ? 'text-warning' : 'text-success' ?>" id="stat_ghost_total"><?= number_format($ghostAcct) ?></div>
+                    <div class="d-flex justify-content-between align-items-center mt-2 small">
+                        <span class="text-muted">Unterminated Sessions</span>
+                        <?php if ($ghostAcct > 0): ?>
+                            <span class="badge bg-warning text-dark">Will Auto-Close</span>
+                        <?php else: ?>
+                            <span class="badge bg-success-subtle text-success">Zero Ghosts</span>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 4. Total DB Footprint & Last Clean -->
+            <div class="col-md-3">
+                <div class="p-3 bg-light rounded-4 border border-light-subtle h-100">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <span class="text-muted small fw-bold text-uppercase">Total Database Size</span>
+                        <span class="badge bg-dark rounded-pill small"><?= $totalTables ?> Tables</span>
+                    </div>
+                    <div class="fs-4 fw-bold text-dark"><?= number_format($totalDbSizeMb, 1) ?> MB</div>
+                    <div class="text-muted small mt-2 text-truncate" title="<?= htmlspecialchars($lastMaintRun) ?>" id="stat_last_maint">
+                        <i class="fa-regular fa-clock me-1"></i> Last: <?= htmlspecialchars($lastMaintRun ?: 'Never') ?>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Live Execution Alert Strip (dynamically populated on run) -->
+        <div id="maint_result_alert" style="display: none;" class="alert alert-success rounded-4 p-3 mb-4"></div>
+
+        <!-- 2 Sub-Cards: Retention Rules Form & Nightly Cron Setup -->
+        <div class="row g-4">
+            <!-- Left: Retention Rules Settings Form -->
+            <div class="col-lg-6">
+                <div class="p-4 bg-light rounded-4 border border-light-subtle h-100 d-flex flex-column">
+                    <div class="d-flex align-items-center gap-2 mb-3 pb-2 border-bottom border-light-subtle">
+                        <i class="fa-solid fa-sliders text-primary fs-5"></i>
+                        <h6 class="fw-bold text-dark mb-0">Automatic Retention Rules</h6>
+                    </div>
+                    
+                    <form id="maintRulesForm" onsubmit="saveMaintenanceSettings(event)" class="flex-grow-1 d-flex flex-column">
+                        <div class="mb-3">
+                            <label class="form-label text-dark fw-bold small mb-1">
+                                Auth Logs Retention (`radpostauth`)
+                            </label>
+                            <select name="auth_days" id="maint_auth_days" class="form-select">
+                                <option value="3" <?= $authRetentionDays == 3 ? 'selected' : '' ?>>Keep 3 Days (Ultra-Aggressive / Minimalist)</option>
+                                <option value="7" <?= $authRetentionDays == 7 ? 'selected' : '' ?>>Keep 7 Days (Recommended Standard)</option>
+                                <option value="15" <?= $authRetentionDays == 15 ? 'selected' : '' ?>>Keep 15 Days</option>
+                                <option value="30" <?= $authRetentionDays == 30 ? 'selected' : '' ?>>Keep 30 Days (1 Month)</option>
+                            </select>
+                            <div class="form-text text-muted" style="font-size: 0.73rem;">
+                                FreeRADIUS never reads historical auth attempts. Older records are 100% safe to purge.
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label text-dark fw-bold small mb-1">
+                                Closed Sessions Retention (`radacct`)
+                            </label>
+                            <select name="acct_days" id="maint_acct_days" class="form-select">
+                                <option value="15" <?= $acctRetentionDays == 15 ? 'selected' : '' ?>>Keep 15 Days (High-frequency networks)</option>
+                                <option value="30" <?= $acctRetentionDays == 30 ? 'selected' : '' ?>>Keep 30 Days (Recommended - 1 Full Month)</option>
+                                <option value="60" <?= $acctRetentionDays == 60 ? 'selected' : '' ?>>Keep 60 Days (2 Months)</option>
+                                <option value="90" <?= $acctRetentionDays == 90 ? 'selected' : '' ?>>Keep 90 Days (Quarterly Audit)</option>
+                            </select>
+                            <div class="form-text text-muted" style="font-size: 0.73rem;">
+                                Only closed sessions older than this will be deleted. <strong>Live online sessions are NEVER deleted.</strong>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label text-dark fw-bold small mb-1">
+                                Ghost / Zombie Sessions Auto-Close Threshold
+                            </label>
+                            <select name="ghost_days" id="maint_ghost_days" class="form-select">
+                                <option value="1" <?= $ghostDays == 1 ? 'selected' : '' ?>>After 1 Day (24 Hours of inactivity)</option>
+                                <option value="2" <?= $ghostDays == 2 ? 'selected' : '' ?>>After 2 Days (48 Hours - Recommended)</option>
+                                <option value="3" <?= $ghostDays == 3 ? 'selected' : '' ?>>After 3 Days</option>
+                            </select>
+                            <div class="form-text text-muted" style="font-size: 0.73rem;">
+                                Closes stuck sessions where router rebooted without sending an Acct-Stop packet.
+                            </div>
+                        </div>
+
+                        <div class="mt-auto pt-2 text-end">
+                            <button type="submit" id="btn_save_maint_rules" class="btn btn-outline-primary rounded-pill px-4 fw-bold btn-sm">
+                                <i class="fa-solid fa-floppy-disk me-1"></i> Save Retention Rules
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Right: Nightly Automated Cron Setup -->
+            <div class="col-lg-6">
+                <div class="p-4 bg-light rounded-4 border border-light-subtle h-100 d-flex flex-column">
+                    <div class="d-flex align-items-center justify-content-between mb-3 pb-2 border-bottom border-light-subtle">
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="fa-solid fa-clock-rotate-left text-success fs-5"></i>
+                            <h6 class="fw-bold text-dark mb-0">Nightly Automated Cron Job</h6>
+                        </div>
+                        <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill">03:00 AM Daily</span>
+                    </div>
+
+                    <p class="text-muted small mb-3">
+                        Your Linux VPS executes this maintenance every night at <strong>03:00 AM</strong> automatically. This permanently prevents database bloat without needing manual intervention.
+                    </p>
+
+                    <!-- Command Box -->
+                    <div class="mb-3">
+                        <label class="form-label text-dark fw-bold small mb-1">Linux Crontab Command</label>
+                        <div class="input-group">
+                            <input type="text" id="crontab_cmd_input" class="form-control font-monospace small bg-white" value="0 3 * * * php /var/www/html/config/cron_db_maintenance.php > /dev/null 2>&1" readonly>
+                            <button class="btn btn-outline-secondary" type="button" onclick="copyCrontabCmd()">
+                                <i class="fa-solid fa-copy me-1"></i> Copy
+                            </button>
+                        </div>
+                        <div class="form-text text-muted" style="font-size: 0.73rem;">
+                            Add to VPS root crontab: Run <code>crontab -e</code> and paste this line.
+                        </div>
+                    </div>
+
+                    <!-- Webhook URL Box -->
+                    <div class="mb-3">
+                        <label class="form-label text-dark fw-bold small mb-1">Web URL / External Cron Trigger</label>
+                        <div class="input-group">
+                            <input type="text" id="cron_url_input" class="form-control font-monospace small bg-white" value="http://<?= htmlspecialchars($currentServerHost) ?>/config/cron_db_maintenance.php?key=sb_cron_secret_786" readonly>
+                            <button class="btn btn-outline-secondary" type="button" onclick="copyCronUrl()">
+                                <i class="fa-solid fa-copy me-1"></i> Copy
+                            </button>
+                        </div>
+                        <div class="form-text text-muted" style="font-size: 0.73rem;">
+                            Can also be triggered remotely via curl or automated health monitors.
+                        </div>
+                    </div>
+
+                    <div class="mt-auto pt-2 bg-white p-3 rounded-3 border border-light-subtle d-flex align-items-center justify-content-between">
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="fa-solid fa-circle-check text-success fs-5"></i>
+                            <span class="small text-dark fw-semibold">Zero-Downtime Hot Optimization</span>
+                        </div>
+                        <span class="text-muted small" style="font-size: 0.72rem;">Safe while subscribers are online</span>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
 </div>
@@ -1675,6 +2025,155 @@ function handleRestoreSubmit(e) {
     if (btn) {
         btn.disabled = true;
         btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span> Restoring Database...';
+    }
+}
+
+function runInstantMaintenance() {
+    const authDays = document.getElementById('maint_auth_days')?.value || 7;
+    const acctDays = document.getElementById('maint_acct_days')?.value || 30;
+    const ghostDays = document.getElementById('maint_ghost_days')?.value || 2;
+
+    if (!confirm('Run Instant Database Optimization now?\n\n- Old auth logs (> ' + authDays + ' days) will be purged\n- Old closed sessions (> ' + acctDays + ' days) will be purged\n- Stale ghost sessions (> ' + ghostDays + ' days) will be closed\n- Tables will be defragmented\n\nActive online subscribers will NOT be affected.')) {
+        return;
+    }
+
+    const btn = document.getElementById('btn_run_maintenance');
+    const originalHtml = btn ? btn.innerHTML : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Optimizing Database...';
+    }
+
+    const alertEl = document.getElementById('maint_result_alert');
+    if (alertEl) {
+        alertEl.style.display = 'block';
+        alertEl.className = 'alert alert-info py-2 px-3 rounded-4 mb-4 small';
+        alertEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i> Database cleanup and table defragmentation in progress... Please wait.';
+    }
+
+    const formData = new FormData();
+    formData.append('ajax_action', 'run_db_maintenance');
+    formData.append('auth_days', authDays);
+    formData.append('acct_days', acctDays);
+    formData.append('ghost_days', ghostDays);
+
+    fetch('settings.php', { method: 'POST', body: formData })
+    .then(r => r.json())
+    .then(data => {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        }
+
+        if (data.success) {
+            if (alertEl) {
+                alertEl.className = 'alert alert-success py-2 px-3 rounded-4 mb-4 small';
+                alertEl.innerHTML = `<div class="d-flex align-items-center gap-2">
+                    <i class="fa-solid fa-circle-check fs-5 text-success"></i>
+                    <div>
+                        <strong>Database Cleaned &amp; Optimized!</strong> ${data.message}
+                    </div>
+                </div>`;
+            }
+
+            // Update live metrics on page
+            if (data.counts) {
+                const elAuth = document.getElementById('stat_postauth_total');
+                if (elAuth) elAuth.innerText = Number(data.counts.total_postauth).toLocaleString();
+
+                const elAuthPrune = document.getElementById('stat_postauth_prunable');
+                if (elAuthPrune) elAuthPrune.innerText = '0 Prunable';
+
+                const elAcct = document.getElementById('stat_acct_total');
+                if (elAcct) elAcct.innerText = Number(data.counts.total_acct).toLocaleString();
+
+                const elAcctPrune = document.getElementById('stat_acct_prunable');
+                if (elAcctPrune) elAcctPrune.innerText = '0 Old Closed';
+
+                const elGhost = document.getElementById('stat_ghost_total');
+                if (elGhost) elGhost.innerText = Number(data.counts.ghost_acct).toLocaleString();
+
+                const elLast = document.getElementById('stat_last_maint');
+                if (elLast) elLast.innerHTML = `<i class="fa-regular fa-clock me-1"></i> Last: Just now (${data.counts.last_run})`;
+            }
+        } else {
+            if (alertEl) {
+                alertEl.className = 'alert alert-danger py-2 px-3 rounded-4 mb-4 small';
+                alertEl.innerHTML = '<strong>Error during maintenance:</strong> ' + data.message;
+            }
+        }
+    })
+    .catch(err => {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        }
+        if (alertEl) {
+            alertEl.className = 'alert alert-danger py-2 px-3 rounded-4 mb-4 small';
+            alertEl.innerHTML = 'Request error: ' + err.message;
+        }
+    });
+}
+
+function saveMaintenanceSettings(e) {
+    e.preventDefault();
+    const authDays = document.getElementById('maint_auth_days').value;
+    const acctDays = document.getElementById('maint_acct_days').value;
+    const ghostDays = document.getElementById('maint_ghost_days').value;
+    const btn = document.getElementById('btn_save_maint_rules');
+
+    const origHtml = btn ? btn.innerHTML : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Saving...';
+    }
+
+    const formData = new FormData();
+    formData.append('ajax_action', 'save_db_maintenance_settings');
+    formData.append('auth_days', authDays);
+    formData.append('acct_days', acctDays);
+    formData.append('ghost_days', ghostDays);
+
+    fetch('settings.php', { method: 'POST', body: formData })
+    .then(r => r.json())
+    .then(data => {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = origHtml;
+        }
+        if (data.success) {
+            alert('Automatic Retention Rules saved successfully!');
+            location.reload();
+        } else {
+            alert('Failed to save rules: ' + data.message);
+        }
+    })
+    .catch(err => {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = origHtml;
+        }
+        alert('Network error: ' + err.message);
+    });
+}
+
+function copyCrontabCmd() {
+    const input = document.getElementById('crontab_cmd_input');
+    if (input) {
+        input.select();
+        navigator.clipboard.writeText(input.value).then(() => {
+            alert('Crontab command copied to clipboard!\n\nPaste this in VPS terminal using: crontab -e');
+        });
+    }
+}
+
+function copyCronUrl() {
+    const input = document.getElementById('cron_url_input');
+    if (input) {
+        input.select();
+        navigator.clipboard.writeText(input.value).then(() => {
+            alert('Cron Webhook URL copied to clipboard!');
+        });
     }
 }
 </script>
