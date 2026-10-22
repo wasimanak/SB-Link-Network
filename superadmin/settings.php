@@ -166,6 +166,7 @@ if (isset($_POST['ajax_action']) && $_POST['ajax_action'] === 'sync_init') {
             $totalEstRows += $cnt;
         }
 
+        if (ob_get_length()) ob_clean();
         echo json_encode([
             'success' => true,
             'total_tables' => count($tablesList),
@@ -173,6 +174,7 @@ if (isset($_POST['ajax_action']) && $_POST['ajax_action'] === 'sync_init') {
             'total_estimated_rows' => $totalEstRows
         ]);
     } catch (Exception $e) {
+        if (ob_get_length()) ob_clean();
         echo json_encode(['success' => false, 'message' => 'Connection failed: ' . $e->getMessage()]);
     }
     exit;
@@ -246,26 +248,30 @@ if (isset($_POST['ajax_action']) && $_POST['ajax_action'] === 'sync_table') {
             $escapedColumns = array_map(function($c) { return "`" . str_replace("`", "``", $c) . "`"; }, $columnNames);
             $colsSql = implode(", ", $escapedColumns);
 
-            $insertRows = [];
-            foreach ($rows as $row) {
-                $values = [];
-                foreach ($row as $val) {
-                    if ($val === null) {
-                        $values[] = 'NULL';
-                    } else {
-                        $values[] = $pdo->quote($val);
+            // Insert in safe sub-batches of 500 to stay well within MySQL max_allowed_packet
+            foreach (array_chunk($rows, 500) as $subChunk) {
+                $insertRows = [];
+                foreach ($subChunk as $row) {
+                    $values = [];
+                    foreach ($row as $val) {
+                        if ($val === null) {
+                            $values[] = 'NULL';
+                        } else {
+                            $values[] = $pdo->quote($val);
+                        }
                     }
+                    $insertRows[] = "(" . implode(", ", $values) . ")";
                 }
-                $insertRows[] = "(" . implode(", ", $values) . ")";
-            }
 
-            // INSERT IGNORE INTO guarantees 100% no duplicate key errors!
-            $pdo->exec("INSERT IGNORE INTO `{$table}` ({$colsSql}) VALUES\n" . implode(",\n", $insertRows) . ";");
+                // INSERT IGNORE INTO guarantees 100% zero duplicate key errors!
+                $pdo->exec("INSERT IGNORE INTO `{$table}` ({$colsSql}) VALUES\n" . implode(",\n", $insertRows) . ";");
+            }
         }
 
         $isDone = ($syncedRows < $batchSize);
         $nextOffset = $offset + $syncedRows;
 
+        if (ob_get_length()) ob_clean();
         echo json_encode([
             'success' => true,
             'table' => $table,
@@ -274,6 +280,7 @@ if (isset($_POST['ajax_action']) && $_POST['ajax_action'] === 'sync_table') {
             'is_done' => $isDone
         ]);
     } catch (Exception $e) {
+        if (ob_get_length()) ob_clean();
         echo json_encode(['success' => false, 'message' => "Error syncing table '{$table}': " . $e->getMessage()]);
     }
     exit;
@@ -303,8 +310,10 @@ if (isset($_POST['ajax_action']) && $_POST['ajax_action'] === 'sync_finish') {
         $pdo->exec("SET UNIQUE_CHECKS = 1;");
         $pdo->exec("SET FOREIGN_KEY_CHECKS = 1;");
 
+        if (ob_get_length()) ob_clean();
         echo json_encode(['success' => true, 'message' => 'Synchronization completed successfully!']);
     } catch (Exception $e) {
+        if (ob_get_length()) ob_clean();
         echo json_encode(['success' => false, 'message' => $e->getMessage()]);
     }
     exit;
@@ -568,8 +577,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     $insertRows[] = "(" . implode(", ", $values) . ")";
                                 }
 
-                                // Use REPLACE INTO to gracefully handle duplicate keys or shifting offsets without breaking sync
-                                $pdo->exec("REPLACE INTO `{$table}` ({$colsSql}) VALUES\n" . implode(",\n", $insertRows) . ";");
+                                // Use INSERT IGNORE INTO to gracefully ignore duplicate keys or shifting offsets without breaking sync
+                                $pdo->exec("INSERT IGNORE INTO `{$table}` ({$colsSql}) VALUES\n" . implode(",\n", $insertRows) . ";");
                                 $syncedRowsForTable += count($rows);
                             }
                         }
@@ -992,8 +1001,7 @@ try {
                 </div>
 
                 <!-- Sync Form -->
-                <form method="POST" id="vpsSyncForm" onsubmit="handleSyncSubmit(event)">
-                    <input type="hidden" name="action" value="sync_remote_db">
+                <form id="vpsSyncForm" onsubmit="event.preventDefault(); startLiveProgressSync(event); return false;">
 
                     <div class="row g-3 mb-4">
                         <!-- Old VPS Host/IP -->
@@ -1105,7 +1113,7 @@ try {
                         <div class="text-muted small">
                             <i class="fa-solid fa-circle-info text-primary me-1"></i> Live transfer runs in memory chunks to prevent timeouts and packet drops.
                         </div>
-                        <button type="submit" id="btn_submit_sync" class="btn btn-primary rounded-pill px-4 py-2 fw-bold shadow-sm d-inline-flex align-items-center gap-2">
+                        <button type="button" id="btn_submit_sync" onclick="startLiveProgressSync(event)" class="btn btn-primary rounded-pill px-4 py-2 fw-bold shadow-sm d-inline-flex align-items-center gap-2">
                             <i class="fa-solid fa-cloud-arrow-down fs-5"></i>
                             <span>Start Live Database Sync 🚀</span>
                         </button>
@@ -1171,9 +1179,14 @@ try {
             </div>
             <div class="modal-footer bg-light p-3 border-top d-flex justify-content-between">
                 <span class="text-muted small" id="syncFooterNote"><i class="fa-solid fa-shield-halved text-success me-1"></i> Zero Duplicate Key Protection (INSERT IGNORE) Active.</span>
-                <button type="button" class="btn btn-success rounded-pill px-4 fw-bold shadow-sm" id="btnSyncCompletedDone" style="display: none;" onclick="location.reload()">
-                    <i class="fa-solid fa-check-circle me-1"></i> Sync Complete - Refresh Settings
-                </button>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-secondary rounded-pill px-4 fw-semibold" id="btnSyncErrorClose" style="display: none;" onclick="closeSyncModal()">
+                        <i class="fa-solid fa-xmark me-1"></i> Close
+                    </button>
+                    <button type="button" class="btn btn-success rounded-pill px-4 fw-bold shadow-sm" id="btnSyncCompletedDone" style="display: none;" onclick="location.reload()">
+                        <i class="fa-solid fa-check-circle me-1"></i> Sync Complete - Refresh Settings
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -1324,16 +1337,39 @@ function testRemoteConnection() {
     });
 }
 
-function handleSyncSubmit(e) {
-    e.preventDefault();
+function closeSyncModal() {
+    const syncModalEl = document.getElementById('syncProgressModal');
+    if (syncModalEl) {
+        try {
+            if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+                const inst = bootstrap.Modal.getInstance(syncModalEl);
+                if (inst) inst.hide();
+            } else if (typeof $ !== 'undefined' && $.fn && $.fn.modal) {
+                $('#syncProgressModal').modal('hide');
+            }
+        } catch (e) {}
+        syncModalEl.classList.remove('show');
+        syncModalEl.style.display = 'none';
+        document.body.classList.remove('modal-open');
+        const b = document.querySelector('.modal-backdrop');
+        if (b) b.remove();
+    }
+}
 
-    const host = document.getElementById('remote_host').value.trim();
-    const port = document.getElementById('remote_port').value.trim() || '3306';
-    const db = document.getElementById('remote_db').value.trim() || 'radius';
-    const user = document.getElementById('remote_user').value.trim();
-    const pass = document.getElementById('remote_pass').value;
-    const scope = document.querySelector('select[name="sync_scope"]').value;
-    const preserveSa = document.getElementById('preserve_superadmin').checked;
+function handleSyncSubmit(e) {
+    return startLiveProgressSync(e);
+}
+
+function startLiveProgressSync(e) {
+    if (e && e.preventDefault) e.preventDefault();
+
+    const host = (document.getElementById('remote_host')?.value || '').trim();
+    const port = (document.getElementById('remote_port')?.value || '3306').trim();
+    const db = (document.getElementById('remote_db')?.value || 'radius').trim();
+    const user = (document.getElementById('remote_user')?.value || '').trim();
+    const pass = document.getElementById('remote_pass')?.value || '';
+    const scope = document.querySelector('select[name="sync_scope"]')?.value || 'all';
+    const preserveSa = document.getElementById('preserve_superadmin')?.checked ?? true;
     const confirmBox = document.getElementById('confirm_sync');
 
     if (!host || !user) {
@@ -1341,8 +1377,9 @@ function handleSyncSubmit(e) {
         return false;
     }
 
-    if (!confirmBox.checked) {
+    if (!confirmBox || !confirmBox.checked) {
         alert('Please tick the confirmation checkbox to authorize database synchronization.');
+        if (confirmBox) confirmBox.focus();
         return false;
     }
 
@@ -1350,21 +1387,47 @@ function handleSyncSubmit(e) {
         return false;
     }
 
-    // Launch Realtime Progress Modal
+    // Launch Realtime Progress Modal safely
     const syncModalEl = document.getElementById('syncProgressModal');
-    const syncModal = new bootstrap.Modal(syncModalEl);
-    syncModal.show();
+    if (syncModalEl) {
+        try {
+            if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+                const modal = bootstrap.Modal.getOrCreateInstance(syncModalEl, { backdrop: 'static', keyboard: false });
+                modal.show();
+            } else if (typeof $ !== 'undefined' && $.fn && $.fn.modal) {
+                $('#syncProgressModal').modal({ backdrop: 'static', keyboard: false, show: true });
+            } else {
+                syncModalEl.classList.add('show');
+                syncModalEl.style.display = 'block';
+                syncModalEl.style.backgroundColor = 'rgba(0,0,0,0.6)';
+                document.body.classList.add('modal-open');
+            }
+        } catch (modalErr) {
+            console.error('Modal launch exception:', modalErr);
+            syncModalEl.classList.add('show');
+            syncModalEl.style.display = 'block';
+            syncModalEl.style.backgroundColor = 'rgba(0,0,0,0.6)';
+        }
+    }
 
     // Reset UI state
     document.getElementById('syncPercentBadge').innerText = '0%';
+    document.getElementById('syncPercentBadge').className = 'badge bg-primary px-3 py-1 fs-6 fw-bold';
     document.getElementById('syncProgressBar').style.width = '0%';
     document.getElementById('syncProgressBar').innerText = '0%';
+    document.getElementById('syncProgressBar').className = 'progress-bar progress-bar-striped progress-bar-animated bg-primary fw-bold';
     document.getElementById('syncTableCountLabel').innerHTML = '<i class="fa-solid fa-table me-1"></i> Initializing...';
     document.getElementById('syncRowsCountLabel').innerHTML = '<i class="fa-solid fa-database me-1"></i> Records Synced: 0';
+    document.getElementById('syncCurrentTableAlert').className = 'alert alert-primary d-flex align-items-center gap-2 py-2 px-3 rounded-3 mb-3';
+    document.getElementById('syncCurrentSpinner').style.display = 'inline-block';
     document.getElementById('syncCurrentTableTitle').innerText = 'Connecting to Old VPS database...';
     document.getElementById('syncCurrentTableDetail').innerText = `Target: ${host}:${port}/${db}`;
     document.getElementById('syncTableListUl').innerHTML = '';
     document.getElementById('btnSyncCompletedDone').style.display = 'none';
+    document.getElementById('btnSyncErrorClose').style.display = 'none';
+    document.getElementById('syncModalIcon').className = 'fa-solid fa-arrows-rotate fa-spin text-primary fs-3';
+    document.getElementById('syncModalTitle').innerText = 'Live Database Synchronization in Progress';
+    document.getElementById('syncModalSubtitle').innerText = 'Connecting to Old VPS and initializing transfer engine...';
 
     let totalTables = 0;
     let tablesQueue = [];
@@ -1383,31 +1446,40 @@ function handleSyncSubmit(e) {
     initData.append('preserve_superadmin', preserveSa ? '1' : '0');
 
     fetch('settings.php', { method: 'POST', body: initData })
-    .then(r => r.json())
-    .then(res => {
+    .then(r => r.text())
+    .then(rawText => {
+        let res;
+        try {
+            res = JSON.parse(rawText);
+        } catch (e) {
+            throw new Error('Invalid response from server: ' + rawText.substring(0, 250));
+        }
+
         if (!res.success) {
             document.getElementById('syncCurrentTableAlert').className = 'alert alert-danger d-flex align-items-center gap-2 py-2 px-3 rounded-3 mb-3';
             document.getElementById('syncCurrentTableTitle').innerText = 'Sync Initialization Failed';
             document.getElementById('syncCurrentTableDetail').innerText = res.message;
             document.getElementById('syncCurrentSpinner').style.display = 'none';
             document.getElementById('syncModalIcon').className = 'fa-solid fa-triangle-exclamation text-danger fs-3';
+            document.getElementById('btnSyncErrorClose').style.display = 'inline-block';
             return;
         }
 
         tablesQueue = res.tables;
         totalTables = res.total_tables;
-        document.getElementById('syncTableCountLabel').innerHTML = `<i class="fa-solid fa-table me-1"></i> Tables Processed: 0 / ${totalTables}`;
+        document.getElementById('syncTableCountLabel').innerHTML = `<i class="fa-solid fa-table me-1"></i> Tables Processed: 0 / ${totalTables} (0%)`;
+        document.getElementById('syncModalSubtitle').innerText = `Syncing ${totalTables} tables (~${(res.total_estimated_rows || 0).toLocaleString()} estimated records)...`;
 
         // Populate table list log
         const ul = document.getElementById('syncTableListUl');
         ul.innerHTML = tablesQueue.map((t, idx) => `
-            <li class="list-group-item d-flex justify-content-between align-items-center py-2 px-3" id="log_row_${t.name}">
+            <li class="list-group-item d-flex justify-content-between align-items-center py-2 px-3" id="log_row_${idx}">
                 <div class="d-flex align-items-center gap-2">
-                    <span id="log_icon_${t.name}" class="text-secondary"><i class="fa-regular fa-circle"></i></span>
+                    <span id="log_icon_${idx}" class="text-secondary"><i class="fa-regular fa-circle"></i></span>
                     <strong class="font-monospace text-dark">${t.name}</strong>
                     <span class="text-muted" style="font-size: 0.72rem;">(~${t.rows} rows)</span>
                 </div>
-                <span class="badge bg-light text-secondary border font-monospace" id="log_badge_${t.name}">Waiting</span>
+                <span class="badge bg-light text-secondary border font-monospace" id="log_badge_${idx}">Waiting</span>
             </li>
         `).join('');
 
@@ -1419,6 +1491,8 @@ function handleSyncSubmit(e) {
         document.getElementById('syncCurrentTableTitle').innerText = 'Network / Request Error';
         document.getElementById('syncCurrentTableDetail').innerText = err.message;
         document.getElementById('syncCurrentSpinner').style.display = 'none';
+        document.getElementById('syncModalIcon').className = 'fa-solid fa-triangle-exclamation text-danger fs-3';
+        document.getElementById('btnSyncErrorClose').style.display = 'inline-block';
     });
 
     // Helper: Process Table by Index
@@ -1431,15 +1505,14 @@ function handleSyncSubmit(e) {
 
         const tableItem = tablesQueue[tableIdx];
         const tableName = tableItem.name;
-        const estRows = tableItem.rows;
 
         // Update UI for active table
         document.getElementById('syncCurrentTableTitle').innerText = `Syncing table: ${tableName} (${tableIdx + 1} of ${totalTables})`;
         document.getElementById('syncCurrentTableDetail').innerText = `Transferring records in chunks...`;
         
-        const rowEl = document.getElementById(`log_row_${tableName}`);
-        const iconEl = document.getElementById(`log_icon_${tableName}`);
-        const badgeEl = document.getElementById(`log_badge_${tableName}`);
+        const rowEl = document.getElementById(`log_row_${tableIdx}`);
+        const iconEl = document.getElementById(`log_icon_${tableIdx}`);
+        const badgeEl = document.getElementById(`log_badge_${tableIdx}`);
 
         if (rowEl) rowEl.className = 'list-group-item d-flex justify-content-between align-items-center py-2 px-3 bg-primary-subtle';
         if (iconEl) iconEl.innerHTML = '<i class="fa-solid fa-arrows-rotate fa-spin text-primary"></i>';
@@ -1448,12 +1521,10 @@ function handleSyncSubmit(e) {
             badgeEl.innerText = 'Syncing...';
         }
 
-        // Scroll log item into view
         if (rowEl) rowEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
         // Chunked sync for this table
-        syncTableChunks(tableName, 0, 0, function(tableTotalSynced) {
-            // Table finished
+        syncTableChunks(tableName, tableIdx, 0, 0, function(tableTotalSynced) {
             completedTables++;
             grandTotalSyncedRows += tableTotalSynced;
 
@@ -1461,11 +1532,11 @@ function handleSyncSubmit(e) {
             if (iconEl) iconEl.innerHTML = '<i class="fa-solid fa-circle-check text-success"></i>';
             if (badgeEl) {
                 badgeEl.className = 'badge bg-success-subtle text-success border border-success-subtle font-monospace';
-                badgeEl.innerText = `${tableTotalSynced} rows ✔`;
+                badgeEl.innerText = `${tableTotalSynced.toLocaleString()} rows ✔`;
             }
 
             // Update Progress Bar
-            const percent = Math.round((completedTables / totalTables) * 100);
+            const percent = Math.min(100, Math.round((completedTables / totalTables) * 100));
             document.getElementById('syncPercentBadge').innerText = `${percent}%`;
             document.getElementById('syncProgressBar').style.width = `${percent}%`;
             document.getElementById('syncProgressBar').innerText = `${percent}%`;
@@ -1478,7 +1549,7 @@ function handleSyncSubmit(e) {
     }
 
     // Helper: Sync chunks for a single table
-    function syncTableChunks(tableName, offset, accumulatedRows, callback) {
+    function syncTableChunks(tableName, tableIdx, offset, accumulatedRows, callback) {
         const chunkData = new FormData();
         chunkData.append('ajax_action', 'sync_table');
         chunkData.append('remote_host', host);
@@ -1490,12 +1561,18 @@ function handleSyncSubmit(e) {
         chunkData.append('offset', offset);
 
         fetch('settings.php', { method: 'POST', body: chunkData })
-        .then(r => r.json())
-        .then(res => {
+        .then(r => r.text())
+        .then(rawText => {
+            let res;
+            try {
+                res = JSON.parse(rawText);
+            } catch (e) {
+                throw new Error('Invalid JSON: ' + rawText.substring(0, 150));
+            }
+
             if (!res.success) {
-                // Log warning and proceed so other tables aren't halted
                 console.warn(res.message);
-                const badgeEl = document.getElementById(`log_badge_${tableName}`);
+                const badgeEl = document.getElementById(`log_badge_${tableIdx}`);
                 if (badgeEl) {
                     badgeEl.className = 'badge bg-warning-subtle text-warning border border-warning-subtle font-monospace';
                     badgeEl.innerText = 'Warn / Skipped';
@@ -1506,11 +1583,20 @@ function handleSyncSubmit(e) {
 
             const currentTotal = accumulatedRows + res.synced_in_chunk;
             document.getElementById('syncCurrentTableDetail').innerText = `Transferred ${currentTotal.toLocaleString()} records...`;
+            
+            // Live row counter update during chunks
+            const liveTotalRows = grandTotalSyncedRows + currentTotal;
+            document.getElementById('syncRowsCountLabel').innerHTML = `<i class="fa-solid fa-database me-1"></i> Total Records Synced: ${liveTotalRows.toLocaleString()}`;
+
+            const badgeEl = document.getElementById(`log_badge_${tableIdx}`);
+            if (badgeEl) {
+                badgeEl.innerText = `${currentTotal.toLocaleString()} rows...`;
+            }
 
             if (res.is_done) {
                 callback(currentTotal);
             } else {
-                syncTableChunks(tableName, res.current_offset, currentTotal, callback);
+                syncTableChunks(tableName, tableIdx, res.current_offset, currentTotal, callback);
             }
         })
         .catch(err => {
@@ -1528,8 +1614,8 @@ function handleSyncSubmit(e) {
         finishData.append('ajax_action', 'sync_finish');
 
         fetch('settings.php', { method: 'POST', body: finishData })
-        .then(r => r.json())
-        .then(res => {
+        .then(r => r.text())
+        .then(rawText => {
             // 100% Complete UI
             document.getElementById('syncPercentBadge').innerText = '100%';
             document.getElementById('syncPercentBadge').className = 'badge bg-success px-3 py-1 fs-6 fw-bold';
@@ -1552,6 +1638,8 @@ function handleSyncSubmit(e) {
             document.getElementById('btnSyncCompletedDone').style.display = 'inline-block';
         });
     }
+
+    return false;
 }
 
 function handleRestoreSubmit(e) {
