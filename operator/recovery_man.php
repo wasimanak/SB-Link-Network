@@ -173,6 +173,23 @@ $members = $stmt->fetchAll();
                                   <span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25">Disabled</span>
                               <?php endif; ?>
                           </td>
+                        <td>
+                            <span class="fw-bold text-dark">Rs. <?= number_format($m['monthly_salary'] ?? 0, 0) ?></span>
+                        </td>
+                        <td>
+                            <?php $sBal = (int)($m['salary_balance'] ?? 0); ?>
+                            <?php if ($sBal < 0): ?>
+                                <span class="badge bg-danger-subtle text-danger border border-danger-subtle fw-bold" style="font-size: 0.8rem;">
+                                    - Rs. <?= number_format(abs($sBal), 0) ?> (Adv)
+                                </span>
+                            <?php elseif ($sBal > 0): ?>
+                                <span class="badge bg-success-subtle text-success border border-success-subtle fw-bold" style="font-size: 0.8rem;">
+                                    Rs. <?= number_format($sBal, 0) ?> (Due)
+                                </span>
+                            <?php else: ?>
+                                <span class="badge bg-light text-muted border" style="font-size: 0.8rem;">Rs. 0</span>
+                            <?php endif; ?>
+                        </td>
                           <td>
                             <div class="fw-bold <?= ($m['cash_in_hand']>0)?'text-success':'text-muted' ?>">
                                 Rs. <?= number_format($m['cash_in_hand'] ?? 0) ?>

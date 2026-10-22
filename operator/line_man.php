@@ -152,8 +152,10 @@ $members = $stmt->fetchAll();
                         <th>Password</th>
                         <th>City</th>
                         <th>Contact</th>
+                        <th>Access</th>
+                        <th>Monthly Salary</th>
+                        <th>Salary Balance</th>
                         <th>Created On</th>
-                        <th>Monthly Salary</th><th>Salary Balance</th><th>Access</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -168,7 +170,6 @@ $members = $stmt->fetchAll();
                             <div><i class="fa-solid fa-phone text-secondary small me-1"></i> <?= htmlspecialchars($m['phone'] ?: 'N/A') ?></div>
                             <div class="small text-muted"><i class="fa-solid fa-map-location-dot text-secondary small me-1"></i> <?= htmlspecialchars($m['address'] ?: 'N/A') ?></div>
                         </td>
-                        <td class="text-secondary small"><?= date('d M Y', strtotime($m['created_at'])) ?></td>
                         <td>
                             <div class="mb-1">
                             <?php if(isset($m['status']) && $m['status'] === 'active'): ?>
@@ -185,6 +186,24 @@ $members = $stmt->fetchAll();
                             <?php endif; ?>
                             </div>
                         </td>
+                        <td>
+                            <span class="fw-bold text-dark">Rs. <?= number_format($m['monthly_salary'] ?? 0, 0) ?></span>
+                        </td>
+                        <td>
+                            <?php $sBal = (int)($m['salary_balance'] ?? 0); ?>
+                            <?php if ($sBal < 0): ?>
+                                <span class="badge bg-danger-subtle text-danger border border-danger-subtle fw-bold" style="font-size: 0.8rem;">
+                                    - Rs. <?= number_format(abs($sBal), 0) ?> (Adv)
+                                </span>
+                            <?php elseif ($sBal > 0): ?>
+                                <span class="badge bg-success-subtle text-success border border-success-subtle fw-bold" style="font-size: 0.8rem;">
+                                    Rs. <?= number_format($sBal, 0) ?> (Due)
+                                </span>
+                            <?php else: ?>
+                                <span class="badge bg-light text-muted border" style="font-size: 0.8rem;">Rs. 0</span>
+                            <?php endif; ?>
+                        </td>
+                        <td class="text-secondary small"><?= date('d M Y', strtotime($m['created_at'])) ?></td>
                         <td>
                             <?php if (empty($_SESSION['is_manager'])): ?>
                             <a href="lineman_profile?id=<?= $m['id'] ?>" class="btn btn-sm btn-outline-secondary me-1" title="View Profile & Salary Ledger"><i class="fa-solid fa-eye"></i></a><button type="button" class="btn btn-sm btn-outline-primary me-1 btn-edit" 

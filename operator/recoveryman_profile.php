@@ -264,6 +264,18 @@ $submissions = $submissionStmt->fetchAll(PDO::FETCH_ASSOC);
     </div>
 </div>
 
+    <!-- Salary & Lifetime Advance Ledger Section -->
+    <div class="mb-4">
+        <?php
+        $staff_type = 'recoveryman';
+        $staff_id = (int)$rm['id'];
+        $staff_name = $rm['full_name'];
+        $monthly_sal = (int)($rm['monthly_salary'] ?? 0);
+        $joined_date = $rm['created_at'];
+        require __DIR__ . '/staff_salary_view.php';
+        ?>
+    </div>
+
 <!-- Statement Tabs -->
 <div class="card card-custom bg-white">
     <div class="card-header bg-transparent border-bottom-0 p-0 pt-2 px-3">
