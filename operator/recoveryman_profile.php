@@ -37,7 +37,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $pdo->prepare("UPDATE recovery_men SET cash_in_hand = cash_in_hand - ? WHERE id = ?")->execute([$amount, $rm_id]);
             
             // Log the activity
-            $log_msg = "Collected Cash Rs. " . number_format($amount, 2) . " from Recovery Man";
+            $log_msg = "Collected Cash Rs. " . number_format($amount, 0) . " from Recovery Man";
             $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, 'Operator', ?, 'RecoveryMan', ?)")
                 ->execute([$client_id, $operator_name, $rm['full_name'], $log_msg]);
                 
@@ -245,7 +245,7 @@ $submissions = $submissionStmt->fetchAll(PDO::FETCH_ASSOC);
             <div class="card-body p-4 d-flex flex-column justify-content-center align-items-center text-center">
                 <h6 class="fw-bold text-uppercase text-muted tracking-wider mb-2">Pending Cash in Hand</h6>
                 <h1 class="display-3 fw-bold <?= ($rm['cash_in_hand'] > 0) ? 'text-success' : 'text-dark' ?> mb-4">
-                    Rs. <?= number_format($rm['cash_in_hand'], 2) ?>
+                    Rs. <?= number_format($rm['cash_in_hand'], 0) ?>
                 </h1>
                 
                 <?php if($rm['cash_in_hand'] > 0): ?>
@@ -457,7 +457,7 @@ $submissions = $submissionStmt->fetchAll(PDO::FETCH_ASSOC);
                                         <div class="small text-muted"><i class="fa-regular fa-user me-1"></i> <?= htmlspecialchars($uc['sub_fullname']) ?></div>
                                     <?php endif; ?>
                                 </td>
-                                <td class="text-success fw-bold fs-6">Rs. <?= number_format($uc['amount'], 2) ?></td>
+                                <td class="text-success fw-bold fs-6">Rs. <?= number_format($uc['amount'], 0) ?></td>
                                 <td>
                                     <?php if (isset($uc['sub_balance']) && (float)$uc['sub_balance'] < 0): ?>
                                         <span class="badge bg-danger-subtle text-danger border border-danger-subtle fw-bold">
@@ -537,11 +537,11 @@ $submissions = $submissionStmt->fetchAll(PDO::FETCH_ASSOC);
         <input type="hidden" name="action" value="collect_cash">
         <div class="modal-body p-4 text-center">
             <h6 class="text-muted mb-1">Max Available to Collect</h6>
-            <h3 class="fw-bold text-success mb-4">Rs. <?= number_format($rm['cash_in_hand'], 2) ?></h3>
+            <h3 class="fw-bold text-success mb-4">Rs. <?= number_format($rm['cash_in_hand'], 0) ?></h3>
             
             <div class="mb-3 text-start">
                 <label class="form-label fw-bold small text-muted">Amount Received (Rs)</label>
-                <input type="number" step="0.01" max="<?= $rm['cash_in_hand'] ?>" name="amount" class="form-control form-control-lg bg-light fw-bold" placeholder="e.g. 5000" required>
+                <input type="number" step="1" max="<?= $rm['cash_in_hand'] ?>" name="amount" class="form-control form-control-lg bg-light fw-bold" placeholder="e.g. 5000" required>
             </div>
         </div>
         <div class="modal-footer border-top p-3 bg-light">

@@ -60,7 +60,7 @@ $logs = $stmt->fetchAll();
                             </span>
                         </td>
                         <td>
-                            <strong class="text-success">Rs <?= number_format($log['price'], 2) ?></strong>
+                            <strong class="text-success">Rs <?= number_format($log['price'], 0) ?></strong>
                         </td>
                         <td>
                             <?php if ($log['payment_method'] === 'bank_transfer'): ?>

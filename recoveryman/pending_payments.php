@@ -317,7 +317,7 @@ $pending_subscribers = $subStmt->fetchAll(PDO::FETCH_ASSOC);
                         <!-- Amount Pending Display -->
                         <div class="amount-badge w-100 text-center my-2">
                             <div class="small text-uppercase text-muted" style="font-size: 0.75rem; letter-spacing: 0.5px;">Pending Amount (Minus Balance)</div>
-                            <div class="fs-4 fw-black text-danger">Rs. <?= number_format($pending_due, 2) ?></div>
+                            <div class="fs-4 fw-black text-danger">Rs. <?= number_format($pending_due, 0) ?></div>
                         </div>
 
                         <!-- Details -->
@@ -400,7 +400,7 @@ $pending_subscribers = $subStmt->fetchAll(PDO::FETCH_ASSOC);
                                 <div class="modal-body p-4 text-start">
                                     <div class="alert alert-danger bg-opacity-10 text-danger border-danger border-opacity-25 py-2 mb-3">
                                         <div class="fw-bold fs-6"><?= htmlspecialchars($sub['full_name'] ?: $sub['username']) ?> (<?= htmlspecialchars($sub['username']) ?>)</div>
-                                        <div><strong>Total Pending Dues:</strong> Rs. <?= number_format($pending_due, 2) ?></div>
+                                        <div><strong>Total Pending Dues:</strong> Rs. <?= number_format($pending_due, 0) ?></div>
                                     </div>
                                     
                                     <div class="mb-3">
@@ -410,7 +410,7 @@ $pending_subscribers = $subStmt->fetchAll(PDO::FETCH_ASSOC);
 
                                     <div class="mb-3">
                                         <label class="form-label fw-bold small text-muted text-uppercase">Amount Received (Rs) <span class="text-danger">*</span></label>
-                                        <input type="number" step="0.01" name="amount" class="form-control form-control-lg fw-bold text-success text-center" 
+                                        <input type="number" step="1" name="amount" class="form-control form-control-lg fw-bold text-success text-center" 
                                                value="<?= $pending_due ?>" placeholder="e.g. <?= $pending_due ?>" required>
                                         <div class="form-text small text-muted">Prefilled with pending amount. You can edit if partial payment received.</div>
                                     </div>

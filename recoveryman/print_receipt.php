@@ -69,9 +69,9 @@ $wa_text .= "User: {$sub['username']}\n";
 if($sub['package_name']) {
     $wa_text .= "Package: {$sub['package_name']}\n";
 }
-$wa_text .= "Paid Amount: Rs. " . number_format($paid_amount, 2) . "\n";
+$wa_text .= "Paid Amount: Rs. " . number_format($paid_amount, 0) . "\n";
 if($due_amount > 0) {
-    $wa_text .= "Due Amount: Rs. " . number_format($due_amount, 2) . "\n";
+    $wa_text .= "Due Amount: Rs. " . number_format($due_amount, 0) . "\n";
 }
 $wa_text .= "------------------------\n";
 $wa_text .= "Please find the PDF attachment as well.";
@@ -213,12 +213,12 @@ $adv_amount = $sub['balance'] > 0 ? $sub['balance'] : 0;
         <?php if($type == 'renew' && $package_price > 0): ?>
         <tr>
             <td>Package Price:</td>
-            <td class="text-right">Rs. <?= number_format($package_price, 2) ?></td>
+            <td class="text-right">Rs. <?= number_format($package_price, 0) ?></td>
         </tr>
         <?php endif; ?>
         <tr>
             <td class="fw-bold" style="font-size:13px;">Paid Amount:</td>
-            <td class="text-right fw-bold" style="font-size:13px;">Rs. <?= number_format($paid_amount, 2) ?></td>
+            <td class="text-right fw-bold" style="font-size:13px;">Rs. <?= number_format($paid_amount, 0) ?></td>
         </tr>
     </table>
 
@@ -226,12 +226,12 @@ $adv_amount = $sub['balance'] > 0 ? $sub['balance'] : 0;
         <?php if($due_amount > 0): ?>
         <tr>
             <td class="fw-bold">Due Amount:</td>
-            <td class="text-right fw-bold">Rs. <?= number_format($due_amount, 2) ?></td>
+            <td class="text-right fw-bold">Rs. <?= number_format($due_amount, 0) ?></td>
         </tr>
         <?php elseif($adv_amount > 0): ?>
         <tr>
             <td>Adv Balance:</td>
-            <td class="text-right">Rs. <?= number_format($adv_amount, 2) ?></td>
+            <td class="text-right">Rs. <?= number_format($adv_amount, 0) ?></td>
         </tr>
         <?php else: ?>
         <tr>

@@ -129,7 +129,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 // Activity log
                 try {
-                    $act = "Added expense: {$title} (Rs. " . number_format($amount, 2) . ") in category '{$category}'";
+                    $act = "Added expense: {$title} (Rs. " . number_format($amount, 0) . ") in category '{$category}'";
                     $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, ?, 'Expense', 'Accounting', ?)")
                         ->execute([$client_id, $actor_name, $act]);
                 } catch (Exception $e) {}
@@ -202,7 +202,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 // Activity log
                 try {
-                    $act = "Updated expense #{$exp_id}: {$title} (Rs. " . number_format($amount, 2) . ")";
+                    $act = "Updated expense #{$exp_id}: {$title} (Rs. " . number_format($amount, 0) . ")";
                     $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, ?, 'Expense', 'Accounting', ?)")
                         ->execute([$client_id, $actor_name, $act]);
                 } catch (Exception $e) {}
@@ -230,7 +230,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->prepare("DELETE FROM expenses WHERE id = ? AND client_id = ?")->execute([$exp_id, $client_id]);
 
             try {
-                $act = "Deleted expense #{$exp_id}: {$existing['title']} (Rs. " . number_format((float)$existing['amount'], 2) . ")";
+                $act = "Deleted expense #{$exp_id}: {$existing['title']} (Rs. " . number_format((float)$existing['amount'], 0) . ")";
                 $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, ?, 'Expense', 'Accounting', ?)")
                     ->execute([$client_id, $actor_name, $act]);
             } catch (Exception $e) {}
@@ -618,7 +618,7 @@ require_once 'header.php';
                 <div class="flex-grow-1 overflow-hidden">
                     <div class="stat-pill-label">Filtered Expenses</div>
                     <div class="stat-pill-val text-danger text-truncate">
-                        Rs <?= number_format($filtered_total, 2) ?>
+                        Rs <?= number_format($filtered_total, 0) ?>
                     </div>
                     <div class="text-muted small" style="font-size: 0.72rem;">
                         <?= $filtered_count ?> transactions recorded
@@ -636,7 +636,7 @@ require_once 'header.php';
                 <div class="flex-grow-1 overflow-hidden">
                     <div class="stat-pill-label">Today's Expenses</div>
                     <div class="stat-pill-val text-dark text-truncate">
-                        Rs <?= number_format((float)$todayStat['total'], 2) ?>
+                        Rs <?= number_format((float)$todayStat['total'], 0) ?>
                     </div>
                     <div class="text-muted small" style="font-size: 0.72rem;">
                         <?= (int)$todayStat['cnt'] ?> entries today
@@ -654,7 +654,7 @@ require_once 'header.php';
                 <div class="flex-grow-1 overflow-hidden">
                     <div class="stat-pill-label">This Month Total</div>
                     <div class="stat-pill-val text-primary text-truncate">
-                        Rs <?= number_format((float)$monthStat['total'], 2) ?>
+                        Rs <?= number_format((float)$monthStat['total'], 0) ?>
                     </div>
                     <div class="text-muted small" style="font-size: 0.72rem;">
                         <?= (int)$monthStat['cnt'] ?> monthly entries
@@ -679,7 +679,7 @@ require_once 'header.php';
                         <?= htmlspecialchars($topCat) ?>
                     </div>
                     <div class="text-muted small" style="font-size: 0.72rem;">
-                        Rs <?= number_format($topCatAmt, 2) ?> spent
+                        Rs <?= number_format($topCatAmt, 0) ?> spent
                     </div>
                 </div>
             </div>
@@ -870,7 +870,7 @@ require_once 'header.php';
                                 </td>
                                 <td>
                                     <div class="fw-bold text-danger fs-6">
-                                        Rs <?= number_format((float)$row['amount'], 2) ?>
+                                        Rs <?= number_format((float)$row['amount'], 0) ?>
                                     </div>
                                 </td>
                                 <td>
@@ -956,7 +956,7 @@ require_once 'header.php';
                             </label>
                             <div class="input-group">
                                 <span class="input-group-text bg-light text-muted fw-bold">Rs</span>
-                                <input type="number" step="0.01" min="1" name="amount" class="form-control rounded-end-3" placeholder="0.00" required>
+                                <input type="number" step="1" min="1" name="amount" class="form-control rounded-end-3" placeholder="0" required>
                             </div>
                         </div>
 
@@ -1085,7 +1085,7 @@ require_once 'header.php';
                             </label>
                             <div class="input-group">
                                 <span class="input-group-text bg-light text-muted fw-bold">Rs</span>
-                                <input type="number" step="0.01" min="1" name="amount" id="edit_amount" class="form-control rounded-end-3" required>
+                                <input type="number" step="1" min="1" name="amount" id="edit_amount" class="form-control rounded-end-3" required>
                             </div>
                         </div>
 
@@ -1282,7 +1282,7 @@ require_once 'header.php';
         <div style="display: flex; justify-content: flex-end; margin-bottom: 40px;">
             <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 15px 25px; text-align: right;">
                 <div style="font-size: 13px; color: #dc2626; font-weight: bold;">TOTAL AMOUNT PAID</div>
-                <div style="font-size: 26px; font-weight: 800; color: #dc2626;" id="pv_amount">Rs 0.00</div>
+                <div style="font-size: 26px; font-weight: 800; color: #dc2626;" id="pv_amount">Rs 0</div>
             </div>
         </div>
 
@@ -1375,7 +1375,7 @@ function openEditModal(expId) {
                 const e = res.expense;
                 document.getElementById('edit_expense_id').value = e.id;
                 document.getElementById('edit_expense_date').value = e.expense_date;
-                document.getElementById('edit_amount').value = parseFloat(e.amount);
+                document.getElementById('edit_amount').value = Math.round(parseFloat(e.amount));
                 document.getElementById('edit_title').value = e.title;
                 document.getElementById('edit_payee').value = e.payee || '';
                 document.getElementById('edit_reference_no').value = e.reference_no || '';
@@ -1450,7 +1450,7 @@ function printExpenseVoucher(exp) {
     
     document.getElementById('pv_title').innerText = exp.title;
     document.getElementById('pv_notes').innerText = exp.notes || '';
-    document.getElementById('pv_amount').innerText = 'Rs ' + parseFloat(exp.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    document.getElementById('pv_amount').innerText = 'Rs ' + Math.round(parseFloat(exp.amount)).toLocaleString('en-US');
     document.getElementById('pv_recorded_by').innerText = 'Recorded By: ' + (exp.created_by || 'Operator');
 
     // Create hidden iframe to trigger clean print dialog

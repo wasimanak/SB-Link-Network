@@ -654,7 +654,7 @@ if (strtolower($user['status'] ?? '') === 'disabled') {
                     <div class="metric-icon bg-light-success"><i class="fa-regular fa-credit-card"></i></div>
                     <div class="metric-data">
                         <h6>Current Balance</h6>
-                        <h4><?= number_format($user['balance'], 2) ?></h4>
+                        <h4><?= number_format($user['balance'], 0) ?></h4>
                     </div>
                 </div>
             </div>
@@ -786,9 +786,9 @@ if (strtolower($user['status'] ?? '') === 'disabled') {
                                                 <td data-order="<?= date('Y-m-d H:i:s', strtotime($l['created_at'])) ?>"><?= date('d M Y, h:i A', strtotime($l['created_at'])) ?></td>
                                                 <td><?= htmlspecialchars($l['description']) ?></td>
                                                 <td class="<?= $l['type'] == 'credit' ? 'text-success' : 'text-danger' ?>">
-                                                    <?= $l['type'] == 'credit' ? '+' : '-' ?> Rs <?= number_format($l['amount'], 2) ?>
+                                                    <?= $l['type'] == 'credit' ? '+' : '-' ?> Rs <?= number_format($l['amount'], 0) ?>
                                                 </td>
-                                                <td class="fw-bold">Rs <?= number_format($l['balance_after'], 2) ?></td>
+                                                <td class="fw-bold">Rs <?= number_format($l['balance_after'], 0) ?></td>
                                             </tr>
                                         <?php endforeach; ?>
                                     </tbody>
@@ -817,7 +817,7 @@ if (strtolower($user['status'] ?? '') === 'disabled') {
         <div class="modal-body">
             <div class="mb-3">
                 <label class="form-label">Amount</label>
-                <input type="number" step="0.01" name="amount" class="form-control" required>
+                <input type="number" step="1" name="amount" class="form-control" required>
             </div>
         </div>
         <div class="modal-footer">

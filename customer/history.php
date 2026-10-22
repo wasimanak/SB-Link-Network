@@ -260,7 +260,7 @@ foreach ($fund_requests as $fr) {
             </div>
             <div>
                 <div class="stat-pill-lbl">Approved Recharges</div>
-                <div class="stat-pill-val">Rs <?= number_format($total_approved_funds, 2) ?></div>
+                <div class="stat-pill-val">Rs <?= number_format($total_approved_funds, 0) ?></div>
                 <div class="text-muted small" style="font-size: 0.75rem;"><?= $total_fund_recharges ?> total recharge requests</div>
             </div>
         </div>
@@ -460,7 +460,7 @@ foreach ($fund_requests as $fr) {
                                     <div class="text-muted" style="font-size: 0.75rem;"><?= date('h:i A', strtotime($fr['created_at'])) ?></div>
                                 </td>
                                 <td>
-                                    <span class="fw-bold text-success fs-6">Rs <?= number_format($fr['amount'], 2) ?></span>
+                                    <span class="fw-bold text-success fs-6">Rs <?= number_format($fr['amount'], 0) ?></span>
                                 </td>
                                 <td>
                                     <div class="d-inline-flex align-items-center gap-2 bg-light px-2 py-1 rounded-2 border">

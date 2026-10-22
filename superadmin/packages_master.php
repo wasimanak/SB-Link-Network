@@ -559,7 +559,7 @@ foreach ($packages as $p) {
 
                             <td>
                                 <div class="fw-bold text-success fs-6">
-                                    Rs <?= number_format($p['price'], 2) ?>
+                                    Rs <?= number_format($p['price'], 0) ?>
                                 </div>
                                 <?php if($p['data_limit_gb'] > 0): ?>
                                     <div class="text-muted" style="font-size: 0.72rem;"><?= $p['data_limit_gb'] ?> GB Quota</div>
@@ -647,7 +647,7 @@ foreach ($packages as $p) {
                                                     <label class="form-label fw-bold text-muted small text-uppercase mb-1">Price (Rs) <span class="text-danger">*</span></label>
                                                     <div class="input-group">
                                                         <span class="input-group-text bg-light text-muted fw-bold">Rs</span>
-                                                        <input type="number" step="0.01" name="price" class="form-control" value="<?= $p['price'] ?>" required>
+                                                        <input type="number" step="1" name="price" class="form-control" value="<?= $p['price'] ?>" required>
                                                     </div>
                                                 </div>
                                                 <div class="col-md-6">
@@ -811,7 +811,7 @@ foreach ($packages as $p) {
                     <label class="form-label fw-bold text-muted small text-uppercase mb-1">Price (Rs) <span class="text-danger">*</span></label>
                     <div class="input-group">
                         <span class="input-group-text bg-light text-muted fw-bold">Rs</span>
-                        <input type="number" step="0.01" name="price" class="form-control" placeholder="e.g. 1800" required>
+                        <input type="number" step="1" name="price" class="form-control" placeholder="e.g. 1800" required>
                     </div>
                 </div>
                 <div class="col-md-6">

@@ -470,7 +470,7 @@ function formatBytes($bytes) {
                             <div class="d-flex justify-content-between align-items-center bg-light p-2 rounded-3 border">
                                 <div>
                                     <span class="small fw-bold text-secondary">Current Balance</span><br>
-                                    <strong style="font-size:0.9rem;" class="<?= $u['balance'] < 0 ? 'text-danger' : 'text-success' ?>">Rs. <?= number_format($u['balance'], 2) ?></strong>
+                                    <strong style="font-size:0.9rem;" class="<?= $u['balance'] < 0 ? 'text-danger' : 'text-success' ?>">Rs. <?= number_format($u['balance'], 0) ?></strong>
                                 </div>
                                 <div class="text-end">
                                     <button class="btn btn-success btn-sm px-2 py-1 fw-bold shadow-sm mb-1 d-block w-100" data-bs-toggle="modal" data-bs-target="#collectModal<?= $u['id'] ?>">
@@ -498,7 +498,7 @@ function formatBytes($bytes) {
                                             <div class="modal-body p-4 text-start">
                                                 <div class="alert alert-success bg-opacity-10 text-success border-success border-opacity-25 py-2 mb-3">
                                                     <strong>User:</strong> <?= htmlspecialchars($u['username']) ?><br>
-                                                    <strong>Current Balance:</strong> Rs. <?= number_format($u['balance'], 2) ?>
+                                                    <strong>Current Balance:</strong> Rs. <?= number_format($u['balance'], 0) ?>
                                                 </div>
                                                 
                                                 <div class="mb-3">
@@ -508,7 +508,7 @@ function formatBytes($bytes) {
 
                                                 <div class="mb-3">
                                                     <label class="form-label fw-bold small text-muted text-uppercase">Collected Amount (Rs) <span class="text-danger">*</span></label>
-                                                    <input type="number" step="0.01" name="amount" class="form-control form-control-lg fw-bold text-success" placeholder="e.g. 1500" required>
+                                                    <input type="number" step="1" name="amount" class="form-control form-control-lg fw-bold text-success" placeholder="e.g. 1500" required>
                                                 </div>
 
                                                 <div class="mb-3">
@@ -611,7 +611,7 @@ function formatBytes($bytes) {
                             <div class="d-flex justify-content-between align-items-center bg-light p-2 rounded-3 border">
                                 <div>
                                     <span class="small fw-bold text-secondary">Current Balance</span><br>
-                                    <strong style="font-size:0.9rem;" class="<?= $u['balance'] < 0 ? 'text-danger' : 'text-success' ?>">Rs. <?= number_format($u['balance'], 2) ?></strong>
+                                    <strong style="font-size:0.9rem;" class="<?= $u['balance'] < 0 ? 'text-danger' : 'text-success' ?>">Rs. <?= number_format($u['balance'], 0) ?></strong>
                                 </div>
                                 <div class="text-end">
                                     <button class="btn btn-success btn-sm px-2 py-1 fw-bold shadow-sm mb-1 d-block w-100" data-bs-toggle="modal" data-bs-target="#collectModal<?= $u['id'] ?>">
@@ -639,7 +639,7 @@ function formatBytes($bytes) {
                                             <div class="modal-body p-4 text-start">
                                                 <div class="alert alert-success bg-opacity-10 text-success border-success border-opacity-25 py-2 mb-3">
                                                     <strong>User:</strong> <?= htmlspecialchars($u['username']) ?><br>
-                                                    <strong>Current Balance:</strong> Rs. <?= number_format($u['balance'], 2) ?>
+                                                    <strong>Current Balance:</strong> Rs. <?= number_format($u['balance'], 0) ?>
                                                 </div>
                                                 
                                                 <div class="mb-3">
@@ -649,7 +649,7 @@ function formatBytes($bytes) {
 
                                                 <div class="mb-3">
                                                     <label class="form-label fw-bold small text-muted text-uppercase">Collected Amount (Rs) <span class="text-danger">*</span></label>
-                                                    <input type="number" step="0.01" name="amount" class="form-control form-control-lg fw-bold text-success" placeholder="e.g. 1500" required>
+                                                    <input type="number" step="1" name="amount" class="form-control form-control-lg fw-bold text-success" placeholder="e.g. 1500" required>
                                                 </div>
 
                                                 <div class="mb-3">
@@ -726,7 +726,7 @@ function formatBytes($bytes) {
 
                     <div class="mb-3 text-start">
                         <label class="form-label fw-bold text-secondary small">Enter Amount Received (Rs) <span class="text-danger">*</span></label>
-                        <input type="number" step="0.01" name="amount" id="m_amount" class="form-control form-control-lg fw-bold text-success text-center" placeholder="e.g. 1500" required>
+                        <input type="number" step="1" name="amount" id="m_amount" class="form-control form-control-lg fw-bold text-success text-center" placeholder="e.g. 1500" required>
                         <div class="form-text text-muted text-center" style="font-size: 0.75rem;"><i class="fa-solid fa-circle-info"></i> Expiry will be extended automatically based on amount vs package price.</div>
                     </div>
                     <div class="mb-4">

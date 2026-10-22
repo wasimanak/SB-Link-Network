@@ -750,7 +750,7 @@ $count_offline = max(0, $count_all - $count_online);
                         <br><span class="badge bg-light text-secondary border px-2 py-1" style="font-size: 0.7rem;">Local</span>
                     </td>
                     <td>
-                        <span class="badge rounded-pill badge-soft-warning px-3 py-2 fw-bold">Rs. <?= number_format($s['balance'], 2) ?></span>
+                        <span class="badge rounded-pill badge-soft-warning px-3 py-2 fw-bold">Rs. <?= number_format($s['balance'], 0) ?></span>
                     </td>
                     <td>
                         <span class="badge rounded-pill badge-soft-secondary px-3 py-2 text-uppercase fw-bold" style="font-size: 0.78rem;">
@@ -804,7 +804,7 @@ $count_offline = max(0, $count_all - $count_online);
                     <td><small class="font-monospace text-muted"><?= $s['created_at'] ? date('Y-m-d', strtotime($s['created_at'])) : 'N/A' ?></small></td>
                     <td>
                         <div class="d-flex flex-column gap-1">
-                            <button type="button" class="btn btn-sm btn-outline-primary rounded-pill px-2 py-1 w-100 btn-payment fw-bold" style="font-size: 0.78rem;" data-id="<?= $s['id'] ?>" data-username="<?= htmlspecialchars($s['username']) ?>" data-balance="<?= number_format($s['balance'], 2) ?>">
+                            <button type="button" class="btn btn-sm btn-outline-primary rounded-pill px-2 py-1 w-100 btn-payment fw-bold" style="font-size: 0.78rem;" data-id="<?= $s['id'] ?>" data-username="<?= htmlspecialchars($s['username']) ?>" data-balance="<?= number_format($s['balance'], 0) ?>">
                                 <i class="fa-brands fa-paypal me-1"></i> Payment
                             </button>
                             <div class="d-flex gap-1">
@@ -1708,7 +1708,7 @@ $(document).ready(function() {
                     <p>Apply balance change to <strong id="massPaymentCount">0</strong> selected users.</p>
                     <div class="mb-3">
                         <label class="form-label">Amount (Rs.) <small class="text-muted">Use negative for deduction</small></label>
-                        <input type="number" step="0.01" name="amount" class="form-control" required>
+                        <input type="number" step="1" name="amount" class="form-control" required>
                     </div>
                 </div>
                 <div class="modal-footer">

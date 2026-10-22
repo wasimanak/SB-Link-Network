@@ -74,7 +74,7 @@ function renderPanel($title, $data) {
                 <div class="p-2 rounded h-100 d-flex flex-column justify-content-center" style="background-color: '.$c['bg'].';">
                     <div class="text-muted mb-1 text-nowrap" style="font-size: 0.7rem;"><i class="fa-regular fa-calendar me-1"></i> '.$c['label'].'</div>
                     <div class="d-flex align-items-baseline flex-wrap">
-                        <span class="fw-bold text-dark me-1" style="font-size: 1rem;">'.number_format($val, 2).'</span>
+                        <span class="fw-bold text-dark me-1" style="font-size: 1rem;">'.number_format($val, 0).'</span>
                         <span class="text-muted text-nowrap" style="font-size: 0.6rem;">'.$perc.'</span>
                     </div>
                 </div>
