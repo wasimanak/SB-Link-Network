@@ -63,7 +63,7 @@ $filter = $_GET['filter'] ?? '';
 // Menu Active States
 $isTeamMenu = in_array($p, ['dealers.php', 'dealer_view.php', 'recovery_man.php', 'line_man.php', 'managers.php', 'manager_view.php']);
 $isUserMenu = in_array($p, ['subscribers.php', 'live_sessions.php']);
-$isAccMenu = in_array($p, ['packages.php', 'fund_requests.php', 'invoices.php', 'expenses.php', 'expenses']);
+$isAccMenu = in_array($p, ['packages.php', 'fund_requests.php', 'invoices.php', 'expenses.php', 'expenses', 'net_worth.php', 'net_worth']);
 $isTicketMenu = in_array($p, ['requests.php', 'fund_requests.php', 'support_tickets.php', 'view_ticket.php']);
 
 // Fetch Pending Requests Count for Badges
@@ -370,6 +370,11 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
             <a href="subscribers?filter=expiring_2w" class="<?= $filter==='expiring_2w' ? 'active' : '' ?>">Expiring In 2 Weeks</a>
         </div>
 
+        <!-- Net Worth -->
+        <a href="net_worth" class="nav-link-main rounded-3 mb-1 <?= in_array($p, ['net_worth.php', 'net_worth']) ? 'active-parent' : '' ?>">
+            <i class="fa-solid fa-chart-line menu-icon"></i> <span class="menu-text">Net Worth</span>
+        </a>
+
         <!-- Expenses -->
         <a href="expenses" class="nav-link-main rounded-3 mb-1 <?= in_array($p, ['expenses.php', 'expenses']) ? 'active-parent' : '' ?>">
             <i class="fa-solid fa-receipt menu-icon"></i> <span class="menu-text">Expenses</span>
@@ -384,6 +389,7 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
             <a href="invoices" class="<?= in_array($p, ['invoices.php', 'invoices']) ? 'active' : '' ?>">Invoices / Receipts</a>
             <a href="fund_requests" class="<?= in_array($p, ['fund_requests.php', 'fund_requests']) ? 'active' : '' ?>">Payments / Fund Requests</a>
             <a href="expenses" class="<?= in_array($p, ['expenses.php', 'expenses']) ? 'active' : '' ?>">Daily Expenses</a>
+            <a href="net_worth" class="<?= in_array($p, ['net_worth.php', 'net_worth']) ? 'active' : '' ?>">Business Net Worth</a>
         </div>
 
         <!-- Logs & Reports -->

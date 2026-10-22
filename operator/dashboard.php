@@ -743,6 +743,14 @@ $map_subscribers = $pdo->query("
     </a>
     <?php endif; ?>
 
+    <!-- Net Worth -->
+    <a href="net_worth" class="quick-action-card">
+        <div class="quick-action-icon" style="background: linear-gradient(135deg, #10b981, #047857);">
+            <i class="fa-solid fa-chart-line"></i>
+        </div>
+        <div class="quick-action-text">Net Worth</div>
+    </a>
+
     <!-- Expenses -->
     <a href="expenses" class="quick-action-card">
         <div class="quick-action-icon" style="background: linear-gradient(135deg, #ef4444, #b91c1c);">
