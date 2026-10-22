@@ -105,6 +105,20 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'get_investment' && !empty($_GET['
 }
 
 // -------------------------------------------------------------
+// Helper for Bulletproof Redirection (Prevents White Screens)
+// -------------------------------------------------------------
+function safe_redirect_net_worth() {
+    $target = !empty($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : 'net_worth';
+    if (!headers_sent()) {
+        header('Location: ' . $target);
+        exit;
+    } else {
+        echo '<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url=' . htmlspecialchars($target, ENT_QUOTES) . '"><script>window.location.href=' . json_encode($target) . ';</script></head><body>Redirecting...</body></html>';
+        exit;
+    }
+}
+
+// -------------------------------------------------------------
 // Handle POST Actions (Add Multiple Investments, Edit, Delete)
 // -------------------------------------------------------------
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -168,8 +182,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['networth_flash'] = ['type' => 'danger', 'msg' => 'No valid item rows were submitted. Please check quantities and prices.'];
             }
         }
-        header("Location: net_worth");
-        exit;
+        safe_redirect_net_worth();
     }
 
     // 2. EDIT SINGLE INVESTMENT
@@ -210,8 +223,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['networth_flash'] = ['type' => 'danger', 'msg' => 'Error updating investment: ' . $e->getMessage()];
             }
         }
-        header("Location: net_worth");
-        exit;
+        safe_redirect_net_worth();
     }
 
     // 3. DELETE INVESTMENT
@@ -238,8 +250,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } catch (Exception $e) {
             $_SESSION['networth_flash'] = ['type' => 'danger', 'msg' => 'Error deleting investment: ' . $e->getMessage()];
         }
-        header("Location: net_worth");
-        exit;
+        safe_redirect_net_worth();
     }
 }
 
@@ -700,7 +711,7 @@ require_once 'header.php';
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             
-            <form method="POST" action="net_worth" id="formAddInvestments">
+            <form method="POST" id="formAddInvestments">
                 <input type="hidden" name="action" value="add_investments">
                 
                 <div class="modal-body p-4">
@@ -779,7 +790,7 @@ require_once 'header.php';
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             
-            <form method="POST" action="net_worth">
+            <form method="POST">
                 <input type="hidden" name="action" value="edit_investment">
                 <input type="hidden" name="investment_id" id="edit_inv_id">
                 
@@ -886,7 +897,7 @@ require_once 'header.php';
                 <p class="text-muted small mb-3">
                     Are you sure you want to remove <strong id="delete_inv_name_display" class="text-dark"></strong> from your business Net Worth?
                 </p>
-                <form method="POST" action="net_worth">
+                <form method="POST">
                     <input type="hidden" name="action" value="delete_investment">
                     <input type="hidden" name="investment_id" id="delete_inv_id_input">
                     <div class="d-flex justify-content-center gap-2">
@@ -916,6 +927,8 @@ require_once 'header.php';
 <!-- SuperAdmin Items Catalog JSON for Dynamic Rows -->
 <script>
 const superAdminItemsCatalog = <?= json_encode($superAdminItems) ?>;
+if (window.history.replaceState) { window.history.replaceState(null, null, window.location.href); }
+
 var netWorthDT;
 
 $(document).ready(function() {

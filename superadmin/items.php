@@ -60,6 +60,20 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'get_item' && !empty($_GET['id']))
 }
 
 // -------------------------------------------------------------
+// Helper for Bulletproof Redirection (Prevents White Screens)
+// -------------------------------------------------------------
+function redirect_items_page() {
+    $target = !empty($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : 'items';
+    if (!headers_sent()) {
+        header('Location: ' . $target);
+        exit;
+    } else {
+        echo '<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url=' . htmlspecialchars($target, ENT_QUOTES) . '"><script>window.location.href=' . json_encode($target) . ';</script></head><body>Redirecting...</body></html>';
+        exit;
+    }
+}
+
+// -------------------------------------------------------------
 // Handle POST Actions (Add, Edit, Delete)
 // (Runs BEFORE header.php so redirects succeed without headers-already-sent)
 // -------------------------------------------------------------
@@ -86,8 +100,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['item_flash'] = ['type' => 'danger', 'msg' => 'Error adding item: ' . $e->getMessage()];
             }
         }
-        header("Location: items");
-        exit;
+        redirect_items_page();
     }
 
     // 2. EDIT ITEM
@@ -111,8 +124,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['item_flash'] = ['type' => 'danger', 'msg' => 'Error updating item: ' . $e->getMessage()];
             }
         }
-        header("Location: items");
-        exit;
+        redirect_items_page();
     }
 
     // 3. DELETE ITEM
@@ -129,8 +141,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } catch (Exception $e) {
             $_SESSION['item_flash'] = ['type' => 'danger', 'msg' => 'Error deleting item: ' . $e->getMessage()];
         }
-        header("Location: items");
-        exit;
+        redirect_items_page();
     }
 }
 
@@ -561,7 +572,7 @@ $commonUnits = [
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             
-            <form method="POST" action="items">
+            <form method="POST">
                 <input type="hidden" name="action" value="add_item">
                 
                 <div class="modal-body p-4">
@@ -666,7 +677,7 @@ $commonUnits = [
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             
-            <form method="POST" action="items">
+            <form method="POST">
                 <input type="hidden" name="action" value="edit_item">
                 <input type="hidden" name="item_id" id="edit_item_id">
                 
@@ -774,7 +785,7 @@ $commonUnits = [
                 <p class="text-muted small mb-3">
                     Are you sure you want to delete <strong id="delete_item_name_display" class="text-dark"></strong> from the item catalog?
                 </p>
-                <form method="POST" action="items">
+                <form method="POST">
                     <input type="hidden" name="action" value="delete_item">
                     <input type="hidden" name="item_id" id="delete_item_id_input">
                     <div class="d-flex justify-content-center gap-2">
@@ -802,6 +813,8 @@ $commonUnits = [
 <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.print.min.js"></script>
 
 <script>
+if (window.history.replaceState) { window.history.replaceState(null, null, window.location.href); }
+
 var itemsDT;
 
 $(document).ready(function() {
