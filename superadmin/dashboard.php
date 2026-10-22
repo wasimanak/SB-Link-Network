@@ -402,12 +402,15 @@ try {
                         <i class="fa-solid fa-chevron-right text-muted fs-6"></i>
                     </a>
 
-                    <a href="security.php" class="quick-action-btn">
+                    <a href="<?= $isSecurityAuth ? 'security.php' : 'javascript:void(0)' ?>" onclick="<?= $isSecurityAuth ? '' : 'openSecurityPrompt()' ?>" class="quick-action-btn">
                         <div class="quick-action-icon" style="background: #fef2f2; color: #dc2626;">
                             <i class="fa-solid fa-shield-halved"></i>
                         </div>
                         <div class="flex-grow-1">
-                            <div>Security &amp; Passwords</div>
+                            <div class="d-flex align-items-center justify-content-between">
+                                <span>Security &amp; Passwords</span>
+                                <?php if(!$isSecurityAuth): ?><i class="fa-solid fa-lock text-muted" style="font-size: 0.72rem;"></i><?php endif; ?>
+                            </div>
                             <div class="text-muted small fw-normal" style="font-size: 0.74rem;">MariaDB, Admin &amp; DB credentials</div>
                         </div>
                         <i class="fa-solid fa-chevron-right text-muted fs-6"></i>
