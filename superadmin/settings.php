@@ -505,6 +505,139 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = "Failed to update database credentials: " . htmlspecialchars($e->getMessage());
         }
     }
+    elseif (isset($_POST['action']) && $_POST['action'] === 'change_mariadb_password') {
+        $current_pass = $_POST['current_mariadb_password'] ?? '';
+        $new_pass     = $_POST['new_mariadb_password'] ?? '';
+        $confirm_pass = $_POST['confirm_mariadb_password'] ?? '';
+
+        if (empty($new_pass)) {
+            $error = "New MariaDB password cannot be empty.";
+        } elseif ($new_pass !== $confirm_pass) {
+            $error = "New password and Confirm password do not match.";
+        } elseif (strlen($new_pass) < 4) {
+            $error = "New password must be at least 4 characters long.";
+        } else {
+            // Verify current password or authenticate
+            $currentExpected = $settings_raw['server_db_pass'] ?? ($pass ?? 'Wasi1234');
+            $authOk = false;
+
+            if ($current_pass === $currentExpected || $current_pass === $pass) {
+                $authOk = true;
+            } else {
+                // Also accept current logged-in SuperAdmin's account password
+                $saCheck = $pdo->prepare("SELECT password FROM super_admins WHERE id = ?");
+                $saCheck->execute([$admin_id]);
+                $saHash = $saCheck->fetchColumn();
+                if ($saHash && password_verify($current_pass, $saHash)) {
+                    $authOk = true;
+                }
+            }
+
+            if (!$authOk) {
+                $error = "Verification failed: The current MariaDB password or SuperAdmin password you entered is incorrect.";
+            } else {
+                try {
+                    $dbUser = $settings_raw['server_db_user'] ?? ($user ?? 'radius');
+                    
+                    // 1. Execute SQL to change password in MariaDB / MySQL
+                    $executed = false;
+                    $lastSqlError = '';
+
+                    // Method 1: ALTER USER CURRENT_USER()
+                    try {
+                        $pdo->exec("ALTER USER CURRENT_USER() IDENTIFIED BY " . $pdo->quote($new_pass));
+                        $executed = true;
+                    } catch (Exception $e1) {
+                        $lastSqlError = $e1->getMessage();
+                    }
+
+                    // Method 2: ALTER USER 'user'@'localhost' & 'user'@'%'
+                    if (!$executed) {
+                        try {
+                            $pdo->exec("ALTER USER '{$dbUser}'@'localhost' IDENTIFIED BY " . $pdo->quote($new_pass));
+                            try { $pdo->exec("ALTER USER '{$dbUser}'@'%' IDENTIFIED BY " . $pdo->quote($new_pass)); } catch(Exception $eIgnore) {}
+                            $executed = true;
+                        } catch (Exception $e2) {
+                            $lastSqlError = $e2->getMessage();
+                        }
+                    }
+
+                    // Method 3: SET PASSWORD = PASSWORD(...)
+                    if (!$executed) {
+                        try {
+                            $pdo->exec("SET PASSWORD = PASSWORD(" . $pdo->quote($new_pass) . ")");
+                            $executed = true;
+                        } catch (Exception $e3) {
+                            $lastSqlError = $e3->getMessage();
+                        }
+                    }
+
+                    if (!$executed) {
+                        throw new Exception("MariaDB rejected password update: " . $lastSqlError);
+                    }
+
+                    $pdo->exec("FLUSH PRIVILEGES;");
+
+                    // 2. Automatically update config/db.php on disk
+                    $dbConfigFile = __DIR__ . '/../config/db.php';
+                    $configUpdated = false;
+                    if (file_exists($dbConfigFile)) {
+                        $configContent = @file_get_contents($dbConfigFile);
+                        if ($configContent) {
+                            $pattern = '/(else\s*\{[^}]*?\$pass\s*=\s*)([\'"].*?[\'"])/s';
+                            if (preg_match($pattern, $configContent)) {
+                                $escapedPass = var_export($new_pass, true);
+                                $configContent = preg_replace($pattern, '${1}' . $escapedPass, $configContent);
+                                @file_put_contents($dbConfigFile, $configContent);
+                                $configUpdated = true;
+                            }
+                        }
+                    }
+
+                    // 3. Update restorebackup.php on disk if exists
+                    $restoreFile = __DIR__ . '/../restorebackup.php';
+                    if (file_exists($restoreFile)) {
+                        $rc = @file_get_contents($restoreFile);
+                        if ($rc) {
+                            $pattern = '/(\$default_pass\s*=\s*)([\'"].*?[\'"])/';
+                            if (preg_match($pattern, $rc)) {
+                                $rc = preg_replace($pattern, '${1}' . var_export($new_pass, true), $rc);
+                                @file_put_contents($restoreFile, $rc);
+                            }
+                        }
+                    }
+
+                    // 4. Update global_settings
+                    $upStmt = $pdo->prepare("INSERT INTO global_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = ?");
+                    $upStmt->execute(['server_db_pass', $new_pass, $new_pass]);
+
+                    // 5. Try updating FreeRADIUS sql config if accessible on Linux
+                    $frSqlPaths = [
+                        '/etc/freeradius/3.0/mods-available/sql',
+                        '/etc/freeradius/mods-available/sql',
+                        '/etc/raddb/mods-available/sql'
+                    ];
+                    $frUpdated = false;
+                    foreach ($frSqlPaths as $frPath) {
+                        if (file_exists($frPath) && is_writable($frPath)) {
+                            $frText = @file_get_contents($frPath);
+                            if ($frText) {
+                                $frText = preg_replace('/(\bpassword\s*=\s*)(["\'].*?["\'])/', '${1}"' . addslashes($new_pass) . '"', $frText);
+                                @file_put_contents($frPath, $frText);
+                                $frUpdated = true;
+                            }
+                        }
+                    }
+
+                    $success = "MariaDB password successfully changed and updated in database, <code>config/db.php</code>, and system settings!" . 
+                               ($frUpdated ? " FreeRADIUS SQL module configuration was also automatically updated." : "");
+
+                } catch (Exception $e) {
+                    $error = "Failed to update MariaDB password: " . htmlspecialchars($e->getMessage());
+                }
+            }
+        }
+    }
 }
 
 // Fetch settings
@@ -677,10 +810,13 @@ try {
                 <a href="#vps-sync-section" class="btn btn-primary rounded-pill px-3 py-2 fw-bold shadow-sm d-inline-flex align-items-center gap-1">
                     <i class="fa-solid fa-arrows-rotate"></i> Sync from Old VPS
                 </a>
+                <button type="button" class="btn btn-warning rounded-pill px-3 py-2 fw-bold shadow-sm text-dark d-inline-flex align-items-center gap-1" data-bs-toggle="modal" data-bs-target="#changeMariaDbModal">
+                    <i class="fa-solid fa-key"></i> MariaDB Password
+                </button>
                 <a href="download_backup.php" class="btn btn-success rounded-pill px-3 py-2 fw-bold shadow-sm d-inline-flex align-items-center gap-1">
                     <i class="fa-solid fa-cloud-arrow-down"></i> Download Backup (.sql)
                 </a>
-                <button type="button" class="btn btn-warning rounded-pill px-3 py-2 fw-bold shadow-sm text-dark d-inline-flex align-items-center gap-1" data-bs-toggle="modal" data-bs-target="#restoreBackupModal">
+                <button type="button" class="btn btn-outline-secondary rounded-pill px-3 py-2 fw-bold shadow-sm d-inline-flex align-items-center gap-1" data-bs-toggle="modal" data-bs-target="#restoreBackupModal">
                     <i class="fa-solid fa-rotate-left"></i> Restore Backup
                 </button>
             </div>
@@ -891,6 +1027,10 @@ try {
                                 <i class="fa-solid fa-eye" id="vault_btn_icon"></i>
                                 <span id="vault_btn_text">Reveal Credentials</span>
                             </button>
+                            <button type="button" id="btn_change_mariadb_pwd" class="btn btn-warning rounded-pill px-3 py-2 btn-sm fw-bold shadow-sm text-dark d-none align-items-center gap-1" data-bs-toggle="modal" data-bs-target="#changeMariaDbModal">
+                                <i class="fa-solid fa-key"></i>
+                                <span>Change MariaDB Password</span>
+                            </button>
                             <button type="button" id="btn_edit_credentials" class="btn btn-primary rounded-pill px-3 py-2 btn-sm fw-bold shadow-sm d-none align-items-center gap-1" data-bs-toggle="modal" data-bs-target="#editDbCredentialsModal">
                                 <i class="fa-solid fa-pen-to-square"></i>
                                 <span>Manage / Edit Credentials</span>
@@ -1000,6 +1140,9 @@ try {
                                     <div class="d-flex justify-content-between align-items-center mb-1">
                                         <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.68rem;">DB Password</span>
                                         <div class="d-flex align-items-center gap-1">
+                                            <button type="button" class="btn btn-link p-0 text-warning d-none vault-change-db-pwd" data-bs-toggle="modal" data-bs-target="#changeMariaDbModal" title="Change MariaDB Password">
+                                                <i class="fa-solid fa-key"></i>
+                                            </button>
                                             <button type="button" class="btn btn-link p-0 text-muted d-none vault-pwd-toggle" onclick="toggleVaultPasswordVisibility(this)" title="Show/Hide">
                                                 <i class="fa-regular fa-eye"></i>
                                             </button>
@@ -1642,6 +1785,91 @@ try {
     </div>
 </div>
 
+<!-- Modal: Change Live MariaDB Password -->
+<div class="modal fade" id="changeMariaDbModal" tabindex="-1" aria-labelledby="changeMariaDbModalLabel" aria-hidden="true" data-bs-backdrop="static">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header bg-warning text-dark py-3 px-4">
+                <div class="d-flex align-items-center gap-2">
+                    <i class="fa-solid fa-key fs-5"></i>
+                    <div>
+                        <h6 class="modal-title fw-bold mb-0" id="changeMariaDbModalLabel">Change Live MariaDB Password</h6>
+                        <span class="small text-muted" style="font-size: 0.73rem;">Updates MariaDB server, <code>config/db.php</code>, and FreeRADIUS</span>
+                    </div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            
+            <form method="POST" id="formChangeMariaDb" onsubmit="handleChangeDbPassSubmit(event)">
+                <input type="hidden" name="action" value="change_mariadb_password">
+
+                <div class="modal-body p-4">
+                    <div class="alert alert-warning border-0 rounded-3 p-3 small mb-3">
+                        <div class="d-flex gap-2">
+                            <i class="fa-solid fa-triangle-exclamation fs-5 flex-shrink-0 mt-1"></i>
+                            <div>
+                                <strong>System Notice:</strong> Yeh process MariaDB me user password update karega aur live <code>config/db.php</code> file aur FreeRADIUS SQL configuration ko automatically sync karega ta k system disconnect na ho.
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label text-dark fw-bold small mb-1">
+                            Current MariaDB Password or Super Admin Password <span class="text-danger">*</span>
+                        </label>
+                        <div class="input-group">
+                            <input type="password" name="current_mariadb_password" id="current_mariadb_password" class="form-control" placeholder="Enter current MySQL or SuperAdmin password" required autocomplete="current-password">
+                            <button class="btn btn-outline-secondary" type="button" onclick="const p = document.getElementById('current_mariadb_password'); p.type = p.type === 'password' ? 'text' : 'password';">
+                                <i class="fa-solid fa-eye"></i>
+                            </button>
+                        </div>
+                        <div class="form-text text-muted" style="font-size: 0.73rem;">
+                            Identity verification k liye mojooda MariaDB password ya apna Super Admin login password enter karein.
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label text-dark fw-bold small mb-1">
+                            New MariaDB Password <span class="text-danger">*</span>
+                        </label>
+                        <div class="input-group">
+                            <input type="password" name="new_mariadb_password" id="new_mariadb_password" class="form-control" placeholder="Enter new strong password" required autocomplete="new-password">
+                            <button class="btn btn-outline-secondary" type="button" onclick="const p = document.getElementById('new_mariadb_password'); p.type = p.type === 'password' ? 'text' : 'password';">
+                                <i class="fa-solid fa-eye"></i>
+                            </button>
+                        </div>
+                        <div class="form-text text-muted" style="font-size: 0.73rem;">
+                            Kam az kam 4 characters ka naya password darj karein.
+                        </div>
+                    </div>
+
+                    <div class="mb-2">
+                        <label class="form-label text-dark fw-bold small mb-1">
+                            Confirm New MariaDB Password <span class="text-danger">*</span>
+                        </label>
+                        <div class="input-group">
+                            <input type="password" name="confirm_mariadb_password" id="confirm_mariadb_password" class="form-control" placeholder="Re-type new password" required autocomplete="new-password">
+                            <button class="btn btn-outline-secondary" type="button" onclick="const p = document.getElementById('confirm_mariadb_password'); p.type = p.type === 'password' ? 'text' : 'password';">
+                                <i class="fa-solid fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer bg-light border-top border-light-subtle py-3 px-4 d-flex justify-content-between">
+                    <button type="button" class="btn btn-outline-secondary rounded-pill px-4 fw-semibold" data-bs-dismiss="modal">
+                        Cancel
+                    </button>
+                    <button type="submit" id="btn_submit_change_mariadb" class="btn btn-warning rounded-pill px-4 fw-bold shadow-sm d-inline-flex align-items-center gap-2 text-dark">
+                        <i class="fa-solid fa-rotate"></i>
+                        <span>Update &amp; Sync Password</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <script>
 let vaultUnlocked = false;
 let vaultData = null;
@@ -1746,6 +1974,10 @@ function unlockVaultUI(creds) {
     document.getElementById('btn_toggle_vault').className = 'btn btn-outline-secondary rounded-pill px-3 py-2 btn-sm fw-bold shadow-sm d-inline-flex align-items-center gap-1';
 
     // Show Edit and Copy buttons
+    if (document.getElementById('btn_change_mariadb_pwd')) {
+        document.getElementById('btn_change_mariadb_pwd').classList.remove('d-none');
+        document.getElementById('btn_change_mariadb_pwd').classList.add('d-inline-flex');
+    }
     document.getElementById('btn_edit_credentials').classList.remove('d-none');
     document.getElementById('btn_edit_credentials').classList.add('d-inline-flex');
     document.getElementById('btn_copy_all').classList.remove('d-none');
@@ -1753,7 +1985,7 @@ function unlockVaultUI(creds) {
     document.getElementById('vault_autofill_strip').classList.remove('d-none');
 
     // Show all copy buttons & eye toggles
-    document.querySelectorAll('.vault-copy-btn, .vault-pwd-toggle, .vault-remote-pwd-toggle, .vault-radius-pwd-toggle').forEach(el => el.classList.remove('d-none'));
+    document.querySelectorAll('.vault-copy-btn, .vault-pwd-toggle, .vault-remote-pwd-toggle, .vault-radius-pwd-toggle, .vault-change-db-pwd').forEach(el => el.classList.remove('d-none'));
 }
 
 function lockVault() {
@@ -1792,13 +2024,17 @@ function lockVault() {
     document.getElementById('vault_btn_text').innerText = 'Reveal Credentials';
     document.getElementById('btn_toggle_vault').className = 'btn btn-dark rounded-pill px-3 py-2 btn-sm fw-bold shadow-sm d-inline-flex align-items-center gap-1';
 
+    if (document.getElementById('btn_change_mariadb_pwd')) {
+        document.getElementById('btn_change_mariadb_pwd').classList.add('d-none');
+        document.getElementById('btn_change_mariadb_pwd').classList.remove('d-inline-flex');
+    }
     document.getElementById('btn_edit_credentials').classList.add('d-none');
     document.getElementById('btn_edit_credentials').classList.remove('d-inline-flex');
     document.getElementById('btn_copy_all').classList.add('d-none');
     document.getElementById('btn_copy_all').classList.remove('d-inline-flex');
     document.getElementById('vault_autofill_strip').classList.add('d-none');
 
-    document.querySelectorAll('.vault-copy-btn, .vault-pwd-toggle, .vault-remote-pwd-toggle, .vault-radius-pwd-toggle').forEach(el => el.classList.add('d-none'));
+    document.querySelectorAll('.vault-copy-btn, .vault-pwd-toggle, .vault-remote-pwd-toggle, .vault-radius-pwd-toggle, .vault-change-db-pwd').forEach(el => el.classList.add('d-none'));
 }
 
 function toggleVaultPasswordVisibility(btn) {
@@ -2053,6 +2289,44 @@ function handleRestoreSubmit(e) {
         btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span> Restoring Database...';
     }
 }
+
+function handleChangeDbPassSubmit(e) {
+    const p1 = document.getElementById('new_mariadb_password').value;
+    const p2 = document.getElementById('confirm_mariadb_password').value;
+    if (p1 !== p2) {
+        alert('New Password and Confirm Password do not match.');
+        e.preventDefault();
+        return false;
+    }
+    if (p1.length < 4) {
+        alert('New Password must be at least 4 characters long.');
+        e.preventDefault();
+        return false;
+    }
+    if (!confirm('Are you sure you want to change the MariaDB password?\n\nThis will update MariaDB and automatically synchronize config/db.php.')) {
+        e.preventDefault();
+        return false;
+    }
+    const btn = document.getElementById('btn_submit_change_mariadb');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span> Updating MariaDB & Config...';
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    const changeModalEl = document.getElementById('changeMariaDbModal');
+    if (changeModalEl) {
+        changeModalEl.addEventListener('show.bs.modal', function () {
+            if (vaultUnlocked && vaultData && vaultData.pass) {
+                const curField = document.getElementById('current_mariadb_password');
+                if (curField && !curField.value) {
+                    curField.value = vaultData.pass;
+                }
+            }
+        });
+    }
+});
 </script>
 
 <?php require_once 'footer.php'; ?>
