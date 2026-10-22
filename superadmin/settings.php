@@ -122,15 +122,42 @@ if (isset($_POST['ajax_action']) && $_POST['ajax_action'] === 'reveal_db_credent
     $db_user = $settings_raw['server_db_user'] ?? ($user ?? 'radius');
     $db_pass = $settings_raw['server_db_pass'] ?? ($pass ?? 'Wasi1234');
 
+    // Saved Remote Old VPS Sync Credentials
+    $saved_remote_host = $settings_raw['sync_remote_host'] ?? '';
+    $saved_remote_port = $settings_raw['sync_remote_port'] ?? '3306';
+    $saved_remote_db   = $settings_raw['sync_remote_db'] ?? 'radius';
+    $saved_remote_user = $settings_raw['sync_remote_user'] ?? '';
+    $saved_remote_pass = $settings_raw['sync_remote_pass'] ?? '';
+
+    // FreeRADIUS Credentials
+    $radius_secret    = $settings_raw['radius_secret'] ?? '123456';
+    $radius_auth_port = $settings_raw['radius_auth_port'] ?? '1812';
+    $radius_acct_port = $settings_raw['radius_acct_port'] ?? '1813';
+    $radius_coa_port  = $settings_raw['radius_coa_port'] ?? '3799';
+
     echo json_encode([
         'success' => true,
         'message' => 'Identity verified successfully!',
         'credentials' => [
+            // Current Server Live DB
             'host' => $vps_host,
             'port' => $db_port,
             'db'   => $db_name,
             'user' => $db_user,
             'pass' => $db_pass,
+
+            // Saved Remote Sync DB
+            'remote_host' => $saved_remote_host,
+            'remote_port' => $saved_remote_port,
+            'remote_db'   => $saved_remote_db,
+            'remote_user' => $saved_remote_user,
+            'remote_pass' => $saved_remote_pass,
+
+            // FreeRADIUS & MikroTik
+            'radius_secret'    => $radius_secret,
+            'radius_auth_port' => $radius_auth_port,
+            'radius_acct_port' => $radius_acct_port,
+            'radius_coa_port'  => $radius_coa_port,
         ]
     ]);
     exit;
@@ -314,7 +341,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'sync_remote_host' => $remote_host,
                     'sync_remote_port' => (string)$remote_port,
                     'sync_remote_db'   => $remote_db,
-                    'sync_remote_user' => $remote_user
+                    'sync_remote_user' => $remote_user,
+                    'sync_remote_pass' => $remote_pass,
                 ];
                 foreach ($saveSettings as $sk => $sv) {
                     $upStmt = $pdo->prepare("INSERT INTO global_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = ?");
@@ -447,6 +475,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     }
+    elseif (isset($_POST['action']) && $_POST['action'] === 'update_database_credentials') {
+        $allowed = [
+            'server_public_ip', 'server_db_port', 'server_db_name', 'server_db_user', 'server_db_pass',
+            'sync_remote_host', 'sync_remote_port', 'sync_remote_db', 'sync_remote_user', 'sync_remote_pass',
+            'radius_secret', 'radius_auth_port', 'radius_acct_port', 'radius_coa_port'
+        ];
+        try {
+            $pdo->beginTransaction();
+            foreach ($allowed as $k) {
+                if (isset($_POST[$k])) {
+                    $val = trim($_POST[$k]);
+                    $stmt = $pdo->prepare("INSERT INTO global_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = ?");
+                    $stmt->execute([$k, $val, $val]);
+                }
+            }
+
+            // If radius_secret updated and checkbox ticked, also update in nas table
+            if (!empty($_POST['radius_secret']) && isset($_POST['sync_nas_secret'])) {
+                $newSec = trim($_POST['radius_secret']);
+                $nasUpStmt = $pdo->prepare("UPDATE nas SET secret = ?");
+                $nasUpStmt->execute([$newSec]);
+            }
+
+            $pdo->commit();
+            $success = "All database and FreeRADIUS connection credentials updated successfully!";
+        } catch (Exception $e) {
+            $pdo->rollBack();
+            $error = "Failed to update database credentials: " . htmlspecialchars($e->getMessage());
+        }
+    }
 }
 
 // Fetch settings
@@ -458,17 +516,31 @@ $appName = $settings_raw['app_name'] ?? BRAND_NAME;
 $timezone = $settings_raw['timezone'] ?? ($settings_raw['system_timezone'] ?? 'Asia/Karachi');
 $currency = $settings_raw['currency'] ?? 'PKR';
 
-// Saved Remote VPS Sync Settings
+// 1. Current Live Server DB Credentials
+$currentServerHost = $settings_raw['server_public_ip'] ?? ($_SERVER['SERVER_ADDR'] ?? '187.126.127.237');
+if ($currentServerHost === '127.0.0.1' || $currentServerHost === '::1') {
+    $currentServerHost = '187.126.127.237';
+}
+$currentServerPort = $settings_raw['server_db_port'] ?? '3306';
+$currentServerDb   = $settings_raw['server_db_name'] ?? ($db ?? 'radius');
+$currentServerUser = $settings_raw['server_db_user'] ?? ($user ?? 'radius');
+$currentServerPass = $settings_raw['server_db_pass'] ?? ($pass ?? 'Wasi1234');
+
+// 2. Saved Remote VPS Sync Settings
 $savedSyncHost = $settings_raw['sync_remote_host'] ?? '';
 $savedSyncPort = $settings_raw['sync_remote_port'] ?? '3306';
 $savedSyncDb   = $settings_raw['sync_remote_db'] ?? 'radius';
 $savedSyncUser = $settings_raw['sync_remote_user'] ?? 'radius';
+$savedSyncPass = $settings_raw['sync_remote_pass'] ?? '';
 
-// Current Server IP for command generator
-$newServerIp = $_SERVER['SERVER_ADDR'] ?? '187.126.127.237';
-if ($newServerIp === '127.0.0.1' || $newServerIp === '::1') {
-    $newServerIp = '187.126.127.237';
-}
+// 3. FreeRADIUS Credentials
+$radiusSecret   = $settings_raw['radius_secret'] ?? '123456';
+$radiusAuthPort = $settings_raw['radius_auth_port'] ?? '1812';
+$radiusAcctPort = $settings_raw['radius_acct_port'] ?? '1813';
+$radiusCoaPort  = $settings_raw['radius_coa_port'] ?? '3799';
+
+// 4. Current Server IP for command generator
+$newServerIp = $currentServerHost;
 
 // Fetch current superadmin details
 $adminStmt = $pdo->prepare("SELECT name, username, email FROM super_admins WHERE id = ?");
@@ -476,7 +548,7 @@ $adminStmt->execute([$admin_id]);
 $currentAdmin = $adminStmt->fetch();
 
 // Database metrics
-$dbName = $db ?? 'radius';
+$dbName = $currentServerDb;
 try {
     $tblCountStmt = $pdo->query("SHOW TABLES");
     $allTables = $tblCountStmt->fetchAll(PDO::FETCH_COLUMN);
@@ -484,6 +556,27 @@ try {
 } catch (Exception $e) {
     $totalTables = 0;
 }
+
+$dbMetrics = [
+    'subscribers_count' => 0,
+    'nas_count' => 0,
+    'db_size_mb' => '0.00',
+    'mysql_version' => ''
+];
+try {
+    $dbMetrics['subscribers_count'] = (int)$pdo->query("SELECT COUNT(*) FROM subscribers")->fetchColumn();
+} catch (Exception $e) {}
+try {
+    $dbMetrics['nas_count'] = (int)$pdo->query("SELECT COUNT(*) FROM nas")->fetchColumn();
+} catch (Exception $e) {}
+try {
+    $verStmt = $pdo->query("SELECT VERSION()");
+    $dbMetrics['mysql_version'] = $verStmt->fetchColumn() ?: '';
+} catch (Exception $e) {}
+try {
+    $sizeStmt = $pdo->query("SELECT ROUND(SUM(data_length + index_length) / 1024 / 1024, 2) FROM information_schema.TABLES WHERE table_schema = " . $pdo->quote($currentServerDb));
+    $dbMetrics['db_size_mb'] = $sizeStmt->fetchColumn() ?: '0.00';
+} catch (Exception $e) {}
 ?>
 
 <style>
@@ -771,30 +864,36 @@ try {
                 </div>
 
                 <!-- ======================================================= -->
-                <!-- THIS SERVER'S DATABASE SYNC PROFILE (PROTECTED VAULT)   -->
+                <!-- DATABASE & RADIUS CREDENTIALS CONTROL CENTER            -->
                 <!-- ======================================================= -->
                 <div class="p-3 mb-4 rounded-4 border" style="background: linear-gradient(135deg, #f8fafc, #f1f5f9); border-color: #e2e8f0 !important;">
+                    
+                    <!-- Header -->
                     <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-3">
                         <div class="d-flex align-items-center gap-3">
-                            <div class="rounded-circle bg-dark text-white d-flex align-items-center justify-content-center shadow-sm" style="width: 42px; height: 42px; flex-shrink: 0;">
-                                <i class="fa-solid fa-server"></i>
+                            <div class="rounded-circle bg-dark text-white d-flex align-items-center justify-content-center shadow-sm" style="width: 44px; height: 44px; flex-shrink: 0;">
+                                <i class="fa-solid fa-database"></i>
                             </div>
                             <div>
                                 <div class="d-flex align-items-center gap-2 flex-wrap">
-                                    <h6 class="fw-bold text-dark mb-0">This Server's Database Connection Credentials (Sync Profile)</h6>
+                                    <h6 class="fw-bold text-dark mb-0">Database &amp; RADIUS Credentials Control Center</h6>
                                     <span id="vault_badge" class="badge bg-secondary-subtle text-secondary border border-secondary-subtle rounded-pill px-3 py-1">
                                         <i class="fa-solid fa-lock me-1"></i> Hidden &amp; Locked
                                     </span>
                                 </div>
                                 <span class="text-muted small">
-                                    Agar aap is VPS ka data kisi aur server me sync karna chahein, to doosri machine me ye credentials use karein.
+                                    Tamam saved database connection parameters, remote VPS sync profiles, aur FreeRADIUS secrets aik hi jagah se manage karein.
                                 </span>
                             </div>
                         </div>
-                        <div class="d-flex gap-2">
+                        <div class="d-flex flex-wrap gap-2">
                             <button type="button" id="btn_toggle_vault" class="btn btn-dark rounded-pill px-3 py-2 btn-sm fw-bold shadow-sm d-inline-flex align-items-center gap-1" onclick="handleVaultToggle()">
                                 <i class="fa-solid fa-eye" id="vault_btn_icon"></i>
                                 <span id="vault_btn_text">Reveal Credentials</span>
+                            </button>
+                            <button type="button" id="btn_edit_credentials" class="btn btn-primary rounded-pill px-3 py-2 btn-sm fw-bold shadow-sm d-none align-items-center gap-1" data-bs-toggle="modal" data-bs-target="#editDbCredentialsModal">
+                                <i class="fa-solid fa-pen-to-square"></i>
+                                <span>Manage / Edit Credentials</span>
                             </button>
                             <button type="button" id="btn_copy_all" class="btn btn-outline-primary rounded-pill px-3 py-2 btn-sm fw-bold d-none align-items-center gap-1" onclick="copyAllVaultCredentials()">
                                 <i class="fa-solid fa-copy"></i>
@@ -803,85 +902,255 @@ try {
                         </div>
                     </div>
 
-                    <!-- 5 Credential Cards Grid -->
-                    <div class="row g-2" id="vault_credentials_grid">
-                        <!-- 1. Host/IP -->
-                        <div class="col-md-3 col-sm-6">
-                            <div class="bg-white p-3 rounded-3 border border-light-subtle shadow-xs h-100">
-                                <div class="d-flex justify-content-between align-items-center mb-1">
-                                    <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.7rem;">Old VPS IP / Host</span>
-                                    <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_host', this)" title="Copy Host/IP">
-                                        <i class="fa-regular fa-copy"></i>
-                                    </button>
+                    <!-- Database Health & Engine Metrics Strip -->
+                    <div class="row g-2 mb-3">
+                        <div class="col-md-3 col-6">
+                            <div class="bg-white px-3 py-2 rounded-3 border border-light-subtle d-flex align-items-center gap-2">
+                                <i class="fa-solid fa-microchip text-primary fs-5"></i>
+                                <div class="overflow-hidden">
+                                    <span class="text-muted small d-block" style="font-size: 0.68rem; text-transform: uppercase;">DB Engine</span>
+                                    <strong class="text-dark small text-truncate d-block" title="<?= htmlspecialchars($dbMetrics['mysql_version'] ?: 'MySQL/MariaDB') ?>">
+                                        <?= htmlspecialchars(explode('-', $dbMetrics['mysql_version'])[0] ?: 'MySQL Ready') ?>
+                                    </strong>
                                 </div>
-                                <div class="fw-bold text-dark font-monospace fs-6" id="vault_host">••••••••••••••</div>
                             </div>
                         </div>
-
-                        <!-- 2. Port -->
-                        <div class="col-md-2 col-sm-6">
-                            <div class="bg-white p-3 rounded-3 border border-light-subtle shadow-xs h-100">
-                                <div class="d-flex justify-content-between align-items-center mb-1">
-                                    <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.7rem;">MySQL Port</span>
-                                    <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_port', this)" title="Copy Port">
-                                        <i class="fa-regular fa-copy"></i>
-                                    </button>
+                        <div class="col-md-3 col-6">
+                            <div class="bg-white px-3 py-2 rounded-3 border border-light-subtle d-flex align-items-center gap-2">
+                                <i class="fa-solid fa-hard-drive text-success fs-5"></i>
+                                <div>
+                                    <span class="text-muted small d-block" style="font-size: 0.68rem; text-transform: uppercase;">DB Storage Size</span>
+                                    <strong class="text-dark small"><?= htmlspecialchars($dbMetrics['db_size_mb']) ?> MB (<?= $totalTables ?> Tables)</strong>
                                 </div>
-                                <div class="fw-bold text-dark font-monospace fs-6" id="vault_port">••••</div>
                             </div>
                         </div>
-
-                        <!-- 3. DB Name -->
-                        <div class="col-md-2 col-sm-6">
-                            <div class="bg-white p-3 rounded-3 border border-light-subtle shadow-xs h-100">
-                                <div class="d-flex justify-content-between align-items-center mb-1">
-                                    <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.7rem;">DB Name</span>
-                                    <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_db', this)" title="Copy DB Name">
-                                        <i class="fa-regular fa-copy"></i>
-                                    </button>
+                        <div class="col-md-3 col-6">
+                            <div class="bg-white px-3 py-2 rounded-3 border border-light-subtle d-flex align-items-center gap-2">
+                                <i class="fa-solid fa-users text-info fs-5"></i>
+                                <div>
+                                    <span class="text-muted small d-block" style="font-size: 0.68rem; text-transform: uppercase;">Total Subscribers</span>
+                                    <strong class="text-dark small"><?= number_format($dbMetrics['subscribers_count']) ?> Accounts</strong>
                                 </div>
-                                <div class="fw-bold text-dark font-monospace fs-6" id="vault_db">••••••</div>
                             </div>
                         </div>
-
-                        <!-- 4. DB User -->
-                        <div class="col-md-2 col-sm-6">
-                            <div class="bg-white p-3 rounded-3 border border-light-subtle shadow-xs h-100">
-                                <div class="d-flex justify-content-between align-items-center mb-1">
-                                    <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.7rem;">DB Username</span>
-                                    <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_user', this)" title="Copy Username">
-                                        <i class="fa-regular fa-copy"></i>
-                                    </button>
+                        <div class="col-md-3 col-6">
+                            <div class="bg-white px-3 py-2 rounded-3 border border-light-subtle d-flex align-items-center gap-2">
+                                <i class="fa-solid fa-network-wired text-warning fs-5"></i>
+                                <div>
+                                    <span class="text-muted small d-block" style="font-size: 0.68rem; text-transform: uppercase;">Connected Routers</span>
+                                    <strong class="text-dark small"><?= number_format($dbMetrics['nas_count']) ?> NAS Routers</strong>
                                 </div>
-                                <div class="fw-bold text-dark font-monospace fs-6" id="vault_user">••••••</div>
-                            </div>
-                        </div>
-
-                        <!-- 5. DB Password -->
-                        <div class="col-md-3 col-sm-12">
-                            <div class="bg-white p-3 rounded-3 border border-light-subtle shadow-xs h-100">
-                                <div class="d-flex justify-content-between align-items-center mb-1">
-                                    <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.7rem;">DB Password</span>
-                                    <div class="d-flex align-items-center gap-1">
-                                        <button type="button" class="btn btn-link p-0 text-muted d-none vault-pwd-toggle" onclick="toggleVaultPasswordVisibility(this)" title="Show/Hide Password">
-                                            <i class="fa-regular fa-eye"></i>
-                                        </button>
-                                        <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_pass_plain', this)" title="Copy Password">
-                                            <i class="fa-regular fa-copy"></i>
-                                        </button>
-                                    </div>
-                                </div>
-                                <div class="fw-bold text-dark font-monospace fs-6" id="vault_pass">••••••••••••</div>
-                                <input type="hidden" id="vault_pass_plain" value="">
                             </div>
                         </div>
                     </div>
 
-                    <!-- Auto Fill Button for Convenience -->
-                    <div id="vault_autofill_strip" class="d-none mt-2 pt-2 border-top border-light-subtle d-flex justify-content-between align-items-center small text-muted">
-                        <span><i class="fa-solid fa-circle-check text-success me-1"></i> Credentials unlocked and ready.</span>
+                    <!-- 1. Current Live Server DB Credentials -->
+                    <div class="mb-3">
+                        <div class="d-flex align-items-center gap-2 mb-2">
+                            <span class="badge bg-primary text-white rounded-pill px-2 py-1" style="font-size: 0.7rem;">Active Profile</span>
+                            <strong class="text-dark small">This Server Live MySQL Database (Outgoing Sync Profile)</strong>
+                        </div>
+                        <div class="row g-2">
+                            <div class="col-md-3 col-sm-6">
+                                <div class="bg-white p-2 px-3 rounded-3 border border-light-subtle shadow-xs h-100">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.68rem;">Server IP / Host</span>
+                                        <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_host', this)" title="Copy Host">
+                                            <i class="fa-regular fa-copy"></i>
+                                        </button>
+                                    </div>
+                                    <div class="fw-bold text-dark font-monospace small" id="vault_host">••••••••••••••</div>
+                                </div>
+                            </div>
+                            <div class="col-md-2 col-sm-6">
+                                <div class="bg-white p-2 px-3 rounded-3 border border-light-subtle shadow-xs h-100">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.68rem;">MySQL Port</span>
+                                        <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_port', this)" title="Copy Port">
+                                            <i class="fa-regular fa-copy"></i>
+                                        </button>
+                                    </div>
+                                    <div class="fw-bold text-dark font-monospace small" id="vault_port">••••</div>
+                                </div>
+                            </div>
+                            <div class="col-md-2 col-sm-6">
+                                <div class="bg-white p-2 px-3 rounded-3 border border-light-subtle shadow-xs h-100">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.68rem;">Database Name</span>
+                                        <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_db', this)" title="Copy DB">
+                                            <i class="fa-regular fa-copy"></i>
+                                        </button>
+                                    </div>
+                                    <div class="fw-bold text-dark font-monospace small" id="vault_db">••••••</div>
+                                </div>
+                            </div>
+                            <div class="col-md-2 col-sm-6">
+                                <div class="bg-white p-2 px-3 rounded-3 border border-light-subtle shadow-xs h-100">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.68rem;">DB Username</span>
+                                        <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_user', this)" title="Copy User">
+                                            <i class="fa-regular fa-copy"></i>
+                                        </button>
+                                    </div>
+                                    <div class="fw-bold text-dark font-monospace small" id="vault_user">••••••</div>
+                                </div>
+                            </div>
+                            <div class="col-md-3 col-sm-12">
+                                <div class="bg-white p-2 px-3 rounded-3 border border-light-subtle shadow-xs h-100">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.68rem;">DB Password</span>
+                                        <div class="d-flex align-items-center gap-1">
+                                            <button type="button" class="btn btn-link p-0 text-muted d-none vault-pwd-toggle" onclick="toggleVaultPasswordVisibility(this)" title="Show/Hide">
+                                                <i class="fa-regular fa-eye"></i>
+                                            </button>
+                                            <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_pass_plain', this)" title="Copy Password">
+                                                <i class="fa-regular fa-copy"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="fw-bold text-dark font-monospace small" id="vault_pass">••••••••••••</div>
+                                    <input type="hidden" id="vault_pass_plain" value="">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 2. Saved Remote Old VPS Credentials -->
+                    <div class="mb-3">
+                        <div class="d-flex align-items-center gap-2 mb-2">
+                            <span class="badge bg-secondary text-white rounded-pill px-2 py-1" style="font-size: 0.7rem;">Saved Target</span>
+                            <strong class="text-dark small">Saved Remote (Old VPS) Sync Credentials</strong>
+                        </div>
+                        <div class="row g-2">
+                            <div class="col-md-3 col-sm-6">
+                                <div class="bg-white p-2 px-3 rounded-3 border border-light-subtle shadow-xs h-100">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.68rem;">Remote Host / IP</span>
+                                        <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_remote_host', this)" title="Copy Remote IP">
+                                            <i class="fa-regular fa-copy"></i>
+                                        </button>
+                                    </div>
+                                    <div class="fw-bold text-dark font-monospace small" id="vault_remote_host">••••••••••••••</div>
+                                </div>
+                            </div>
+                            <div class="col-md-2 col-sm-6">
+                                <div class="bg-white p-2 px-3 rounded-3 border border-light-subtle shadow-xs h-100">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.68rem;">Remote Port</span>
+                                        <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_remote_port', this)" title="Copy Remote Port">
+                                            <i class="fa-regular fa-copy"></i>
+                                        </button>
+                                    </div>
+                                    <div class="fw-bold text-dark font-monospace small" id="vault_remote_port">••••</div>
+                                </div>
+                            </div>
+                            <div class="col-md-2 col-sm-6">
+                                <div class="bg-white p-2 px-3 rounded-3 border border-light-subtle shadow-xs h-100">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.68rem;">Remote DB</span>
+                                        <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_remote_db', this)" title="Copy Remote DB">
+                                            <i class="fa-regular fa-copy"></i>
+                                        </button>
+                                    </div>
+                                    <div class="fw-bold text-dark font-monospace small" id="vault_remote_db">••••••</div>
+                                </div>
+                            </div>
+                            <div class="col-md-2 col-sm-6">
+                                <div class="bg-white p-2 px-3 rounded-3 border border-light-subtle shadow-xs h-100">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.68rem;">Remote User</span>
+                                        <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_remote_user', this)" title="Copy Remote User">
+                                            <i class="fa-regular fa-copy"></i>
+                                        </button>
+                                    </div>
+                                    <div class="fw-bold text-dark font-monospace small" id="vault_remote_user">••••••</div>
+                                </div>
+                            </div>
+                            <div class="col-md-3 col-sm-12">
+                                <div class="bg-white p-2 px-3 rounded-3 border border-light-subtle shadow-xs h-100">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.68rem;">Remote Password</span>
+                                        <div class="d-flex align-items-center gap-1">
+                                            <button type="button" class="btn btn-link p-0 text-muted d-none vault-remote-pwd-toggle" onclick="toggleVaultRemotePasswordVisibility(this)" title="Show/Hide">
+                                                <i class="fa-regular fa-eye"></i>
+                                            </button>
+                                            <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_remote_pass_plain', this)" title="Copy Remote Password">
+                                                <i class="fa-regular fa-copy"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="fw-bold text-dark font-monospace small" id="vault_remote_pass">••••••••••••</div>
+                                    <input type="hidden" id="vault_remote_pass_plain" value="">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 3. FreeRADIUS & MikroTik Shared Secret -->
+                    <div>
+                        <div class="d-flex align-items-center gap-2 mb-2">
+                            <span class="badge bg-warning text-dark rounded-pill px-2 py-1" style="font-size: 0.7rem;">FreeRADIUS AAA</span>
+                            <strong class="text-dark small">FreeRADIUS &amp; MikroTik Shared Secret &amp; Ports</strong>
+                        </div>
+                        <div class="row g-2">
+                            <div class="col-md-3 col-sm-6">
+                                <div class="bg-white p-2 px-3 rounded-3 border border-light-subtle shadow-xs h-100">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.68rem;">RADIUS Secret</span>
+                                        <div class="d-flex align-items-center gap-1">
+                                            <button type="button" class="btn btn-link p-0 text-muted d-none vault-radius-pwd-toggle" onclick="toggleVaultRadiusSecretVisibility(this)" title="Show/Hide">
+                                                <i class="fa-regular fa-eye"></i>
+                                            </button>
+                                            <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_radius_secret_plain', this)" title="Copy Secret">
+                                                <i class="fa-regular fa-copy"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="fw-bold text-dark font-monospace small" id="vault_radius_secret">••••••••</div>
+                                    <input type="hidden" id="vault_radius_secret_plain" value="">
+                                </div>
+                            </div>
+                            <div class="col-md-3 col-sm-6">
+                                <div class="bg-white p-2 px-3 rounded-3 border border-light-subtle shadow-xs h-100">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.68rem;">Auth Port (UDP)</span>
+                                        <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_radius_auth', this)" title="Copy Auth Port">
+                                            <i class="fa-regular fa-copy"></i>
+                                        </button>
+                                    </div>
+                                    <div class="fw-bold text-dark font-monospace small" id="vault_radius_auth">••••</div>
+                                </div>
+                            </div>
+                            <div class="col-md-3 col-sm-6">
+                                <div class="bg-white p-2 px-3 rounded-3 border border-light-subtle shadow-xs h-100">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.68rem;">Acct Port (UDP)</span>
+                                        <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_radius_acct', this)" title="Copy Acct Port">
+                                            <i class="fa-regular fa-copy"></i>
+                                        </button>
+                                    </div>
+                                    <div class="fw-bold text-dark font-monospace small" id="vault_radius_acct">••••</div>
+                                </div>
+                            </div>
+                            <div class="col-md-3 col-sm-6">
+                                <div class="bg-white p-2 px-3 rounded-3 border border-light-subtle shadow-xs h-100">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.68rem;">CoA Port (UDP)</span>
+                                        <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_radius_coa', this)" title="Copy CoA Port">
+                                            <i class="fa-regular fa-copy"></i>
+                                        </button>
+                                    </div>
+                                    <div class="fw-bold text-dark font-monospace small" id="vault_radius_coa">••••</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Auto Fill Strip -->
+                    <div id="vault_autofill_strip" class="d-none mt-3 pt-2 border-top border-light-subtle d-flex justify-content-between align-items-center small text-muted">
+                        <span><i class="fa-solid fa-circle-check text-success me-1"></i> Tamam database credentials unlocked hain. Aap inhein edit bhi kar saktay hain.</span>
                         <button type="button" class="btn btn-link btn-sm text-primary text-decoration-none p-0 fw-semibold" onclick="autoFillInboundSyncForm()">
-                            <i class="fa-solid fa-arrow-down me-1"></i> Fill into Sync Form below
+                            <i class="fa-solid fa-arrow-down me-1"></i> Fill Saved Remote into Sync Form below
                         </button>
                     </div>
                 </div>
@@ -1217,10 +1486,168 @@ try {
     </div>
 </div>
 
+<!-- Modal: Edit / Manage All Database Credentials -->
+<div class="modal fade" id="editDbCredentialsModal" tabindex="-1" aria-labelledby="editDbCredentialsModalLabel" aria-hidden="true" data-bs-backdrop="static">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header bg-primary text-white py-3 px-4">
+                <div class="d-flex align-items-center gap-2">
+                    <i class="fa-solid fa-database fs-5"></i>
+                    <div>
+                        <h6 class="modal-title fw-bold mb-0" id="editDbCredentialsModalLabel">Manage Database &amp; RADIUS Credentials</h6>
+                        <span class="text-white-50 small" style="font-size: 0.73rem;">Update connection parameters and saved sync profiles</span>
+                    </div>
+                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            
+            <form method="POST">
+                <input type="hidden" name="action" value="update_database_credentials">
+
+                <div class="modal-body p-4">
+                    <!-- Tab navigation -->
+                    <ul class="nav nav-pills mb-3 gap-2" id="editDbTabs" role="tablist">
+                        <li class="nav-item">
+                            <button class="nav-link active rounded-pill px-3 py-1 small fw-bold" id="tab-server-btn" data-bs-toggle="pill" data-bs-target="#tab-server" type="button">
+                                <i class="fa-solid fa-server me-1"></i> Live Server MySQL
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link rounded-pill px-3 py-1 small fw-bold" id="tab-remote-btn" data-bs-toggle="pill" data-bs-target="#tab-remote" type="button">
+                                <i class="fa-solid fa-arrows-rotate me-1"></i> Remote Old VPS Sync
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link rounded-pill px-3 py-1 small fw-bold" id="tab-radius-btn" data-bs-toggle="pill" data-bs-target="#tab-radius" type="button">
+                                <i class="fa-solid fa-key me-1"></i> FreeRADIUS &amp; Secrets
+                            </button>
+                        </li>
+                    </ul>
+
+                    <div class="tab-content pt-2">
+                        <!-- Tab 1: Live Server MySQL -->
+                        <div class="tab-pane fade show active" id="tab-server" role="tabpanel">
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label text-dark fw-bold small mb-1">Server Public IP / Host</label>
+                                    <input type="text" name="server_public_ip" class="form-control" value="<?= htmlspecialchars($currentServerHost) ?>" required>
+                                    <div class="form-text text-muted" style="font-size: 0.73rem;">Public IP address of this VPS server.</div>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label text-dark fw-bold small mb-1">MySQL Port</label>
+                                    <input type="number" name="server_db_port" class="form-control" value="<?= htmlspecialchars($currentServerPort) ?>" required>
+                                    <div class="form-text text-muted" style="font-size: 0.73rem;">Default MySQL listening port (3306).</div>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label text-dark fw-bold small mb-1">Database Name</label>
+                                    <input type="text" name="server_db_name" class="form-control" value="<?= htmlspecialchars($currentServerDb) ?>" required>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label text-dark fw-bold small mb-1">DB Username</label>
+                                    <input type="text" name="server_db_user" class="form-control" value="<?= htmlspecialchars($currentServerUser) ?>" required>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label text-dark fw-bold small mb-1">DB Password</label>
+                                    <div class="input-group">
+                                        <input type="password" name="server_db_pass" id="modal_server_pass" class="form-control" value="<?= htmlspecialchars($currentServerPass) ?>">
+                                        <button class="btn btn-outline-secondary" type="button" onclick="const p = document.getElementById('modal_server_pass'); p.type = p.type === 'password' ? 'text' : 'password';">
+                                            <i class="fa-solid fa-eye"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Tab 2: Saved Remote Old VPS Sync -->
+                        <div class="tab-pane fade" id="tab-remote" role="tabpanel">
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label text-dark fw-bold small mb-1">Old VPS IP / Host</label>
+                                    <input type="text" name="sync_remote_host" class="form-control" value="<?= htmlspecialchars($savedSyncHost) ?>" placeholder="e.g. 123.45.67.89">
+                                    <div class="form-text text-muted" style="font-size: 0.73rem;">IP address of your Old VPS.</div>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label text-dark fw-bold small mb-1">Remote MySQL Port</label>
+                                    <input type="number" name="sync_remote_port" class="form-control" value="<?= htmlspecialchars($savedSyncPort) ?>">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label text-dark fw-bold small mb-1">Remote DB Name</label>
+                                    <input type="text" name="sync_remote_db" class="form-control" value="<?= htmlspecialchars($savedSyncDb) ?>">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label text-dark fw-bold small mb-1">Remote DB Username</label>
+                                    <input type="text" name="sync_remote_user" class="form-control" value="<?= htmlspecialchars($savedSyncUser) ?>">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label text-dark fw-bold small mb-1">Remote DB Password</label>
+                                    <div class="input-group">
+                                        <input type="password" name="sync_remote_pass" id="modal_remote_pass" class="form-control" value="<?= htmlspecialchars($savedSyncPass) ?>">
+                                        <button class="btn btn-outline-secondary" type="button" onclick="const p = document.getElementById('modal_remote_pass'); p.type = p.type === 'password' ? 'text' : 'password';">
+                                            <i class="fa-solid fa-eye"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Tab 3: FreeRADIUS & Secrets -->
+                        <div class="tab-pane fade" id="tab-radius" role="tabpanel">
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label text-dark fw-bold small mb-1">FreeRADIUS Shared Secret</label>
+                                    <div class="input-group">
+                                        <input type="password" name="radius_secret" id="modal_radius_secret" class="form-control" value="<?= htmlspecialchars($radiusSecret) ?>" required>
+                                        <button class="btn btn-outline-secondary" type="button" onclick="const p = document.getElementById('modal_radius_secret'); p.type = p.type === 'password' ? 'text' : 'password';">
+                                            <i class="fa-solid fa-eye"></i>
+                                        </button>
+                                    </div>
+                                    <div class="form-text text-muted" style="font-size: 0.73rem;">Secret used by MikroTik routers to authenticate with FreeRADIUS.</div>
+                                </div>
+                                <div class="col-md-6 d-flex align-items-center">
+                                    <div class="form-check bg-light p-3 rounded-3 border border-light-subtle w-100 mt-md-3">
+                                        <input class="form-check-input ms-0 me-2" type="checkbox" name="sync_nas_secret" id="sync_nas_secret" value="1" checked>
+                                        <label class="form-check-label text-dark small fw-bold" for="sync_nas_secret">
+                                            Apply this secret to all connected Mikrotik NAS routers (nas table)
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label text-dark fw-bold small mb-1">Authentication Port (UDP)</label>
+                                    <input type="number" name="radius_auth_port" class="form-control" value="<?= htmlspecialchars($radiusAuthPort) ?>">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label text-dark fw-bold small mb-1">Accounting Port (UDP)</label>
+                                    <input type="number" name="radius_acct_port" class="form-control" value="<?= htmlspecialchars($radiusAcctPort) ?>">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label text-dark fw-bold small mb-1">CoA / Disconnect Port (UDP)</label>
+                                    <input type="number" name="radius_coa_port" class="form-control" value="<?= htmlspecialchars($radiusCoaPort) ?>">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer bg-light border-top border-light-subtle py-3 px-4 d-flex justify-content-between">
+                    <button type="button" class="btn btn-outline-secondary rounded-pill px-4 fw-semibold" data-bs-dismiss="modal">
+                        Cancel
+                    </button>
+                    <button type="submit" class="btn btn-primary rounded-pill px-4 fw-bold shadow-sm d-inline-flex align-items-center gap-2">
+                        <i class="fa-solid fa-floppy-disk"></i>
+                        <span>Save All Credentials</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <script>
 let vaultUnlocked = false;
 let vaultData = null;
 let vaultPwdVisible = false;
+let vaultRemotePwdVisible = false;
+let vaultRadiusSecretVisible = false;
 
 function handleVaultToggle() {
     if (vaultUnlocked) {
@@ -1282,13 +1709,32 @@ function handleVaultUnlockSubmit(e) {
 }
 
 function unlockVaultUI(creds) {
+    // 1. Live Server DB
     document.getElementById('vault_host').innerText = creds.host;
     document.getElementById('vault_port').innerText = creds.port;
     document.getElementById('vault_db').innerText = creds.db;
     document.getElementById('vault_user').innerText = creds.user;
     document.getElementById('vault_pass').innerText = '••••••••••••';
     document.getElementById('vault_pass_plain').value = creds.pass;
+
+    // 2. Saved Remote Sync DB
+    document.getElementById('vault_remote_host').innerText = creds.remote_host || 'Not configured';
+    document.getElementById('vault_remote_port').innerText = creds.remote_port || '3306';
+    document.getElementById('vault_remote_db').innerText = creds.remote_db || 'radius';
+    document.getElementById('vault_remote_user').innerText = creds.remote_user || 'Not configured';
+    document.getElementById('vault_remote_pass').innerText = creds.remote_pass ? '••••••••••••' : 'Not set';
+    document.getElementById('vault_remote_pass_plain').value = creds.remote_pass || '';
+
+    // 3. FreeRADIUS Credentials
+    document.getElementById('vault_radius_secret').innerText = '••••••••';
+    document.getElementById('vault_radius_secret_plain').value = creds.radius_secret || '123456';
+    document.getElementById('vault_radius_auth').innerText = creds.radius_auth_port || '1812';
+    document.getElementById('vault_radius_acct').innerText = creds.radius_acct_port || '1813';
+    document.getElementById('vault_radius_coa').innerText = creds.radius_coa_port || '3799';
+
     vaultPwdVisible = false;
+    vaultRemotePwdVisible = false;
+    vaultRadiusSecretVisible = false;
 
     // Badges & Buttons
     const badge = document.getElementById('vault_badge');
@@ -1299,25 +1745,44 @@ function unlockVaultUI(creds) {
     document.getElementById('vault_btn_text').innerText = 'Hide Credentials';
     document.getElementById('btn_toggle_vault').className = 'btn btn-outline-secondary rounded-pill px-3 py-2 btn-sm fw-bold shadow-sm d-inline-flex align-items-center gap-1';
 
+    // Show Edit and Copy buttons
+    document.getElementById('btn_edit_credentials').classList.remove('d-none');
+    document.getElementById('btn_edit_credentials').classList.add('d-inline-flex');
     document.getElementById('btn_copy_all').classList.remove('d-none');
     document.getElementById('btn_copy_all').classList.add('d-inline-flex');
     document.getElementById('vault_autofill_strip').classList.remove('d-none');
 
-    // Show copy buttons
-    document.querySelectorAll('.vault-copy-btn, .vault-pwd-toggle').forEach(el => el.classList.remove('d-none'));
+    // Show all copy buttons & eye toggles
+    document.querySelectorAll('.vault-copy-btn, .vault-pwd-toggle, .vault-remote-pwd-toggle, .vault-radius-pwd-toggle').forEach(el => el.classList.remove('d-none'));
 }
 
 function lockVault() {
     vaultUnlocked = false;
     vaultData = null;
     vaultPwdVisible = false;
+    vaultRemotePwdVisible = false;
+    vaultRadiusSecretVisible = false;
 
+    // Reset all displays to masked
     document.getElementById('vault_host').innerText = '••••••••••••••';
     document.getElementById('vault_port').innerText = '••••';
     document.getElementById('vault_db').innerText = '••••••';
     document.getElementById('vault_user').innerText = '••••••';
     document.getElementById('vault_pass').innerText = '••••••••••••';
     document.getElementById('vault_pass_plain').value = '';
+
+    document.getElementById('vault_remote_host').innerText = '••••••••••••••';
+    document.getElementById('vault_remote_port').innerText = '••••';
+    document.getElementById('vault_remote_db').innerText = '••••••';
+    document.getElementById('vault_remote_user').innerText = '••••••';
+    document.getElementById('vault_remote_pass').innerText = '••••••••••••';
+    document.getElementById('vault_remote_pass_plain').value = '';
+
+    document.getElementById('vault_radius_secret').innerText = '••••••••';
+    document.getElementById('vault_radius_secret_plain').value = '';
+    document.getElementById('vault_radius_auth').innerText = '••••';
+    document.getElementById('vault_radius_acct').innerText = '••••';
+    document.getElementById('vault_radius_coa').innerText = '••••';
 
     const badge = document.getElementById('vault_badge');
     badge.className = 'badge bg-secondary-subtle text-secondary border border-secondary-subtle rounded-pill px-3 py-1';
@@ -1327,11 +1792,13 @@ function lockVault() {
     document.getElementById('vault_btn_text').innerText = 'Reveal Credentials';
     document.getElementById('btn_toggle_vault').className = 'btn btn-dark rounded-pill px-3 py-2 btn-sm fw-bold shadow-sm d-inline-flex align-items-center gap-1';
 
+    document.getElementById('btn_edit_credentials').classList.add('d-none');
+    document.getElementById('btn_edit_credentials').classList.remove('d-inline-flex');
     document.getElementById('btn_copy_all').classList.add('d-none');
     document.getElementById('btn_copy_all').classList.remove('d-inline-flex');
     document.getElementById('vault_autofill_strip').classList.add('d-none');
 
-    document.querySelectorAll('.vault-copy-btn, .vault-pwd-toggle').forEach(el => el.classList.add('d-none'));
+    document.querySelectorAll('.vault-copy-btn, .vault-pwd-toggle, .vault-remote-pwd-toggle, .vault-radius-pwd-toggle').forEach(el => el.classList.add('d-none'));
 }
 
 function toggleVaultPasswordVisibility(btn) {
@@ -1347,6 +1814,32 @@ function toggleVaultPasswordVisibility(btn) {
     }
 }
 
+function toggleVaultRemotePasswordVisibility(btn) {
+    if (!vaultUnlocked || !vaultData) return;
+    vaultRemotePwdVisible = !vaultRemotePwdVisible;
+    const passDisplay = document.getElementById('vault_remote_pass');
+    if (vaultRemotePwdVisible) {
+        passDisplay.innerText = vaultData.remote_pass || 'Empty';
+        btn.innerHTML = '<i class="fa-solid fa-eye-slash"></i>';
+    } else {
+        passDisplay.innerText = '••••••••••••';
+        btn.innerHTML = '<i class="fa-regular fa-eye"></i>';
+    }
+}
+
+function toggleVaultRadiusSecretVisibility(btn) {
+    if (!vaultUnlocked || !vaultData) return;
+    vaultRadiusSecretVisible = !vaultRadiusSecretVisible;
+    const secDisplay = document.getElementById('vault_radius_secret');
+    if (vaultRadiusSecretVisible) {
+        secDisplay.innerText = vaultData.radius_secret || 'Empty';
+        btn.innerHTML = '<i class="fa-solid fa-eye-slash"></i>';
+    } else {
+        secDisplay.innerText = '••••••••';
+        btn.innerHTML = '<i class="fa-regular fa-eye"></i>';
+    }
+}
+
 function copyVaultValue(elementId, btn) {
     let val = '';
     const el = document.getElementById(elementId);
@@ -1356,7 +1849,7 @@ function copyVaultValue(elementId, btn) {
     } else {
         val = el.innerText.trim();
     }
-    if (!val || val.includes('••')) return;
+    if (!val || val.includes('••') || val === 'Not set' || val === 'Not configured') return;
 
     navigator.clipboard.writeText(val).then(() => {
         const origHtml = btn.innerHTML;
@@ -1367,22 +1860,45 @@ function copyVaultValue(elementId, btn) {
 
 function copyAllVaultCredentials() {
     if (!vaultData) return;
-    const text = `Old VPS IP / Host: ${vaultData.host}\nMySQL Port: ${vaultData.port}\nDB Name: ${vaultData.db}\nDB Username: ${vaultData.user}\nDB Password: ${vaultData.pass}`;
+    const text = `--- [This Server Live MySQL DB] ---\n` +
+                 `Server IP / Host: ${vaultData.host}\n` +
+                 `MySQL Port: ${vaultData.port}\n` +
+                 `DB Name: ${vaultData.db}\n` +
+                 `DB Username: ${vaultData.user}\n` +
+                 `DB Password: ${vaultData.pass}\n\n` +
+                 `--- [Saved Remote Old VPS Sync] ---\n` +
+                 `Old VPS IP / Host: ${vaultData.remote_host}\n` +
+                 `Remote Port: ${vaultData.remote_port}\n` +
+                 `Remote DB Name: ${vaultData.remote_db}\n` +
+                 `Remote Username: ${vaultData.remote_user}\n` +
+                 `Remote Password: ${vaultData.remote_pass}\n\n` +
+                 `--- [FreeRADIUS Configuration] ---\n` +
+                 `RADIUS Secret: ${vaultData.radius_secret}\n` +
+                 `Auth Port: ${vaultData.radius_auth_port}\n` +
+                 `Acct Port: ${vaultData.radius_acct_port}\n` +
+                 `CoA Port: ${vaultData.radius_coa_port}`;
+
     navigator.clipboard.writeText(text).then(() => {
         const btn = document.getElementById('btn_copy_all');
         const origText = btn.innerHTML;
-        btn.innerHTML = '<i class="fa-solid fa-check text-success me-1"></i> Copied!';
+        btn.innerHTML = '<i class="fa-solid fa-check text-success me-1"></i> Copied All!';
         setTimeout(() => { btn.innerHTML = origText; }, 2000);
     });
 }
 
 function autoFillInboundSyncForm() {
     if (!vaultData) return;
-    document.getElementById('remote_host').value = vaultData.host;
-    document.getElementById('remote_port').value = vaultData.port;
-    document.getElementById('remote_db').value = vaultData.db;
-    document.getElementById('remote_user').value = vaultData.user;
-    document.getElementById('remote_pass').value = vaultData.pass;
+    if (vaultData.remote_host && vaultData.remote_host !== 'Not configured' && vaultData.remote_host !== 'Not set') {
+        document.getElementById('remote_host').value = vaultData.remote_host;
+    }
+    if (vaultData.remote_port) document.getElementById('remote_port').value = vaultData.remote_port;
+    if (vaultData.remote_db) document.getElementById('remote_db').value = vaultData.remote_db;
+    if (vaultData.remote_user && vaultData.remote_user !== 'Not configured' && vaultData.remote_user !== 'Not set') {
+        document.getElementById('remote_user').value = vaultData.remote_user;
+    }
+    if (vaultData.remote_pass && vaultData.remote_pass !== '••••••••' && vaultData.remote_pass !== 'Not set') {
+        document.getElementById('remote_pass').value = vaultData.remote_pass;
+    }
 }
 function testRemoteConnection() {
     const host = document.getElementById('remote_host').value.trim();
