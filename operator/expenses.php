@@ -70,6 +70,20 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'get_expense' && !empty($_GET['id'
 }
 
 // -------------------------------------------------------------
+// Helper for Bulletproof Redirection (Prevents White Screens)
+// -------------------------------------------------------------
+function safe_redirect_expenses() {
+    $target = !empty($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : 'expenses';
+    if (!headers_sent()) {
+        header('Location: ' . $target);
+        exit;
+    } else {
+        echo '<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url=' . htmlspecialchars($target, ENT_QUOTES) . '"><script>window.location.href=' . json_encode($target) . ';</script></head><body>Redirecting...</body></html>';
+        exit;
+    }
+}
+
+// -------------------------------------------------------------
 // Handle POST Actions (Add, Edit, Delete)
 // -------------------------------------------------------------
 $flash = null;
@@ -922,7 +936,7 @@ require_once 'header.php';
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             
-            <form method="POST" action="expenses" enctype="multipart/form-data">
+            <form method="POST" enctype="multipart/form-data">
                 <input type="hidden" name="action" value="add_expense">
                 
                 <div class="modal-body p-4">
@@ -1045,7 +1059,7 @@ require_once 'header.php';
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             
-            <form method="POST" action="expenses" enctype="multipart/form-data">
+            <form method="POST" enctype="multipart/form-data">
                 <input type="hidden" name="action" value="edit_expense">
                 <input type="hidden" name="expense_id" id="edit_expense_id">
                 
@@ -1188,7 +1202,7 @@ require_once 'header.php';
                 <p class="text-muted small mb-3">
                     Are you sure you want to delete <strong id="delete_expense_title" class="text-dark"></strong>? This action cannot be undone.
                 </p>
-                <form method="POST" action="expenses">
+                <form method="POST">
                     <input type="hidden" name="action" value="delete_expense">
                     <input type="hidden" name="expense_id" id="delete_expense_id">
                     <div class="d-flex justify-content-center gap-2">
@@ -1298,6 +1312,8 @@ require_once 'header.php';
 <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.print.min.js"></script>
 
 <script>
+if (window.history.replaceState) { window.history.replaceState(null, null, window.location.href); }
+
 var expensesDT;
 
 $(document).ready(function() {
