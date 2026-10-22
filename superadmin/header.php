@@ -83,6 +83,7 @@ require_once '../config/db.php';
         <a href="billing" class="<?= in_array($page, ['billing.php', 'billing']) ? 'active' : '' ?>"><i class="fa-solid fa-file-invoice-dollar menu-icon"></i> Subscriptions</a>
         <a href="support_admin" class="<?= strpos($page, 'support') !== false ? 'active' : '' ?>"><i class="fa-solid fa-headset menu-icon"></i> Support Tickets</a>
         <a href="logs" class="<?= in_array($page, ['logs.php', 'logs']) ? 'active' : '' ?>"><i class="fa-solid fa-file-shield menu-icon"></i> System Logs</a>
+        <a href="security" class="<?= in_array($page, ['security.php', 'security']) ? 'active' : '' ?>"><i class="fa-solid fa-shield-halved menu-icon"></i> Security</a>
         <a href="settings" class="<?= in_array($page, ['settings.php', 'settings']) ? 'active' : '' ?>"><i class="fa-solid fa-sliders menu-icon"></i> Global Settings</a>
         
         <hr class="text-muted opacity-25 mx-3 mt-4 mb-3">

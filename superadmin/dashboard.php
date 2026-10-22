@@ -401,6 +401,17 @@ try {
                         </div>
                         <i class="fa-solid fa-chevron-right text-muted fs-6"></i>
                     </a>
+
+                    <a href="security.php" class="quick-action-btn">
+                        <div class="quick-action-icon" style="background: #fef2f2; color: #dc2626;">
+                            <i class="fa-solid fa-shield-halved"></i>
+                        </div>
+                        <div class="flex-grow-1">
+                            <div>Security &amp; Passwords</div>
+                            <div class="text-muted small fw-normal" style="font-size: 0.74rem;">MariaDB, Admin &amp; DB credentials</div>
+                        </div>
+                        <i class="fa-solid fa-chevron-right text-muted fs-6"></i>
+                    </a>
                 </div>
             </div>
 

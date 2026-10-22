@@ -810,9 +810,9 @@ try {
                 <a href="#vps-sync-section" class="btn btn-primary rounded-pill px-3 py-2 fw-bold shadow-sm d-inline-flex align-items-center gap-1">
                     <i class="fa-solid fa-arrows-rotate"></i> Sync from Old VPS
                 </a>
-                <button type="button" class="btn btn-warning rounded-pill px-3 py-2 fw-bold shadow-sm text-dark d-inline-flex align-items-center gap-1" data-bs-toggle="modal" data-bs-target="#changeMariaDbModal">
-                    <i class="fa-solid fa-key"></i> MariaDB Password
-                </button>
+                <a href="security" class="btn btn-dark rounded-pill px-3 py-2 fw-bold shadow-sm d-inline-flex align-items-center gap-1">
+                    <i class="fa-solid fa-shield-halved"></i> Security &amp; Passwords
+                </a>
                 <a href="download_backup.php" class="btn btn-success rounded-pill px-3 py-2 fw-bold shadow-sm d-inline-flex align-items-center gap-1">
                     <i class="fa-solid fa-cloud-arrow-down"></i> Download Backup (.sql)
                 </a>
@@ -920,55 +920,54 @@ try {
             </div>
         </div>
 
-        <!-- 2. Super Admin Credentials -->
+        <!-- 2. Security & Passwords Quick Card -->
         <div class="col-lg-6">
             <div class="card-ui p-4 h-100 d-flex flex-column">
                 <div class="d-flex align-items-center gap-2 mb-3 pb-2 border-bottom border-light-subtle">
-                    <div class="rounded-circle bg-danger-subtle text-danger d-flex align-items-center justify-content-center" style="width: 36px; height: 36px;">
-                        <i class="fa-solid fa-user-shield"></i>
+                    <div class="rounded-circle bg-danger-subtle text-danger d-flex align-items-center justify-content-center shadow-sm" style="width: 38px; height: 38px;">
+                        <i class="fa-solid fa-shield-halved fs-5"></i>
                     </div>
                     <div>
-                        <h5 class="fw-bold text-dark mb-0 fs-6">Super Admin Credentials</h5>
-                        <span class="text-muted small">Update your name, login username, email, and password</span>
+                        <h5 class="fw-bold text-dark mb-0 fs-6">Security &amp; Passwords Management</h5>
+                        <span class="text-muted small">Passwords and database credentials are managed in Security</span>
                     </div>
                 </div>
 
-                <form method="POST" class="flex-grow-1 d-flex flex-column">
-                    <input type="hidden" name="action" value="update_credentials">
-                    
-                    <div class="row g-3 mb-3">
-                        <div class="col-md-6">
-                            <label class="form-label text-dark fw-bold small mb-1">Full Name <span class="text-danger">*</span></label>
-                            <input type="text" name="name" class="form-control" value="<?= htmlspecialchars($currentAdmin['name']) ?>" required>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label text-dark fw-bold small mb-1">Login Username <span class="text-danger">*</span></label>
-                            <input type="text" name="username" class="form-control" value="<?= htmlspecialchars($currentAdmin['username']) ?>" required autocomplete="off">
+                <div class="flex-grow-1">
+                    <div class="alert alert-light border border-light-subtle rounded-3 p-3 mb-3">
+                        <div class="d-flex align-items-start gap-2">
+                            <i class="fa-solid fa-lock text-danger mt-1 fs-5 flex-shrink-0"></i>
+                            <div>
+                                <strong class="text-dark d-block">Dedicated Security Hub Active</strong>
+                                <span class="small text-muted">
+                                    Tamam passwords (Super Admin account login, Live MariaDB root password, Remote VPS sync credentials, aur FreeRADIUS secrets) ko ab naye <strong><a href="security" class="text-decoration-underline text-dark fw-bold">Security</a></strong> menu me shift kar diya gaya hai.
+                                </span>
+                            </div>
                         </div>
                     </div>
 
-                    <div class="mb-3">
-                        <label class="form-label text-dark fw-bold small mb-1">Email Address <span class="text-danger">*</span></label>
-                        <input type="email" name="email" class="form-control" value="<?= htmlspecialchars($currentAdmin['email']) ?>" required autocomplete="off">
+                    <div class="list-group list-group-flush border rounded-3 mb-3">
+                        <a href="security" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center py-2 px-3">
+                            <span class="small fw-semibold text-dark"><i class="fa-solid fa-user-shield text-danger me-2"></i> Super Admin Account Credentials &amp; Password</span>
+                            <i class="fa-solid fa-chevron-right text-muted small"></i>
+                        </a>
+                        <a href="security" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center py-2 px-3">
+                            <span class="small fw-semibold text-dark"><i class="fa-solid fa-key text-warning me-2"></i> Live MariaDB / MySQL Server Password</span>
+                            <i class="fa-solid fa-chevron-right text-muted small"></i>
+                        </a>
+                        <a href="security" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center py-2 px-3">
+                            <span class="small fw-semibold text-dark"><i class="fa-solid fa-database text-primary me-2"></i> Database &amp; RADIUS Credentials Vault</span>
+                            <i class="fa-solid fa-chevron-right text-muted small"></i>
+                        </a>
                     </div>
+                </div>
 
-                    <div class="mb-4">
-                        <label class="form-label text-dark fw-bold small mb-1">Change Password</label>
-                        <div class="input-group">
-                            <input type="password" name="password" id="admin_password" class="form-control" placeholder="Leave empty to retain current password" autocomplete="new-password">
-                            <button class="btn btn-outline-secondary" type="button" onclick="const p = document.getElementById('admin_password'); p.type = p.type === 'password' ? 'text' : 'password';">
-                                <i class="fa-solid fa-eye"></i>
-                            </button>
-                        </div>
-                        <div class="form-text text-muted" style="font-size: 0.74rem;">Leave blank if you do not want to change your current password.</div>
-                    </div>
-
-                    <div class="mt-auto pt-3 border-top border-light-subtle text-end">
-                        <button type="submit" class="btn btn-danger px-4 rounded-pill fw-bold shadow-sm">
-                            <i class="fa-solid fa-shield-halved me-1"></i> Update Credentials
-                        </button>
-                    </div>
-                </form>
+                <div class="mt-auto pt-3 border-top border-light-subtle text-end">
+                    <a href="security" class="btn btn-danger px-4 rounded-pill fw-bold shadow-sm d-inline-flex align-items-center gap-2">
+                        <i class="fa-solid fa-shield-halved"></i>
+                        <span>Open Security &amp; Passwords</span>
+                    </a>
+                </div>
             </div>
         </div>
 
@@ -999,302 +998,23 @@ try {
                     </div>
                 </div>
 
-                <!-- ======================================================= -->
-                <!-- DATABASE & RADIUS CREDENTIALS CONTROL CENTER            -->
-                <!-- ======================================================= -->
-                <div class="p-3 mb-4 rounded-4 border" style="background: linear-gradient(135deg, #f8fafc, #f1f5f9); border-color: #e2e8f0 !important;">
-                    
-                    <!-- Header -->
-                    <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-3">
-                        <div class="d-flex align-items-center gap-3">
-                            <div class="rounded-circle bg-dark text-white d-flex align-items-center justify-content-center shadow-sm" style="width: 44px; height: 44px; flex-shrink: 0;">
-                                <i class="fa-solid fa-database"></i>
-                            </div>
-                            <div>
-                                <div class="d-flex align-items-center gap-2 flex-wrap">
-                                    <h6 class="fw-bold text-dark mb-0">Database &amp; RADIUS Credentials Control Center</h6>
-                                    <span id="vault_badge" class="badge bg-secondary-subtle text-secondary border border-secondary-subtle rounded-pill px-3 py-1">
-                                        <i class="fa-solid fa-lock me-1"></i> Hidden &amp; Locked
-                                    </span>
-                                </div>
-                                <span class="text-muted small">
-                                    Tamam saved database connection parameters, remote VPS sync profiles, aur FreeRADIUS secrets aik hi jagah se manage karein.
-                                </span>
-                            </div>
+                <!-- Security Center Cross-Link Banner -->
+                <div class="alert alert-secondary border-0 rounded-4 p-3 mb-4 d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3" style="background: #f1f5f9; border: 1px solid #e2e8f0 !important;">
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="rounded-circle bg-dark text-white d-flex align-items-center justify-content-center shadow-sm" style="width: 40px; height: 40px; flex-shrink: 0;">
+                            <i class="fa-solid fa-shield-halved"></i>
                         </div>
-                        <div class="d-flex flex-wrap gap-2">
-                            <button type="button" id="btn_toggle_vault" class="btn btn-dark rounded-pill px-3 py-2 btn-sm fw-bold shadow-sm d-inline-flex align-items-center gap-1" onclick="handleVaultToggle()">
-                                <i class="fa-solid fa-eye" id="vault_btn_icon"></i>
-                                <span id="vault_btn_text">Reveal Credentials</span>
-                            </button>
-                            <button type="button" id="btn_change_mariadb_pwd" class="btn btn-warning rounded-pill px-3 py-2 btn-sm fw-bold shadow-sm text-dark d-none align-items-center gap-1" data-bs-toggle="modal" data-bs-target="#changeMariaDbModal">
-                                <i class="fa-solid fa-key"></i>
-                                <span>Change MariaDB Password</span>
-                            </button>
-                            <button type="button" id="btn_edit_credentials" class="btn btn-primary rounded-pill px-3 py-2 btn-sm fw-bold shadow-sm d-none align-items-center gap-1" data-bs-toggle="modal" data-bs-target="#editDbCredentialsModal">
-                                <i class="fa-solid fa-pen-to-square"></i>
-                                <span>Manage / Edit Credentials</span>
-                            </button>
-                            <button type="button" id="btn_copy_all" class="btn btn-outline-primary rounded-pill px-3 py-2 btn-sm fw-bold d-none align-items-center gap-1" onclick="copyAllVaultCredentials()">
-                                <i class="fa-solid fa-copy"></i>
-                                <span>Copy All</span>
-                            </button>
+                        <div>
+                            <div class="fw-bold text-dark small mb-0">Database &amp; RADIUS Credentials Vault Moved to Security</div>
+                            <span class="text-muted small" style="font-size: 0.8rem;">
+                                Tamam database passwords, MariaDB root credentials, aur remote sync profiles ab <strong><a href="security" class="text-dark fw-bold">Security</a></strong> menu me shift ho gaye hain.
+                            </span>
                         </div>
                     </div>
-
-                    <!-- Database Health & Engine Metrics Strip -->
-                    <div class="row g-2 mb-3">
-                        <div class="col-md-3 col-6">
-                            <div class="bg-white px-3 py-2 rounded-3 border border-light-subtle d-flex align-items-center gap-2">
-                                <i class="fa-solid fa-microchip text-primary fs-5"></i>
-                                <div class="overflow-hidden">
-                                    <span class="text-muted small d-block" style="font-size: 0.68rem; text-transform: uppercase;">DB Engine</span>
-                                    <strong class="text-dark small text-truncate d-block" title="<?= htmlspecialchars($dbMetrics['mysql_version'] ?: 'MySQL/MariaDB') ?>">
-                                        <?= htmlspecialchars(explode('-', $dbMetrics['mysql_version'])[0] ?: 'MySQL Ready') ?>
-                                    </strong>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-md-3 col-6">
-                            <div class="bg-white px-3 py-2 rounded-3 border border-light-subtle d-flex align-items-center gap-2">
-                                <i class="fa-solid fa-hard-drive text-success fs-5"></i>
-                                <div>
-                                    <span class="text-muted small d-block" style="font-size: 0.68rem; text-transform: uppercase;">DB Storage Size</span>
-                                    <strong class="text-dark small"><?= htmlspecialchars($dbMetrics['db_size_mb']) ?> MB (<?= $totalTables ?> Tables)</strong>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-md-3 col-6">
-                            <div class="bg-white px-3 py-2 rounded-3 border border-light-subtle d-flex align-items-center gap-2">
-                                <i class="fa-solid fa-users text-info fs-5"></i>
-                                <div>
-                                    <span class="text-muted small d-block" style="font-size: 0.68rem; text-transform: uppercase;">Total Subscribers</span>
-                                    <strong class="text-dark small"><?= number_format($dbMetrics['subscribers_count']) ?> Accounts</strong>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-md-3 col-6">
-                            <div class="bg-white px-3 py-2 rounded-3 border border-light-subtle d-flex align-items-center gap-2">
-                                <i class="fa-solid fa-network-wired text-warning fs-5"></i>
-                                <div>
-                                    <span class="text-muted small d-block" style="font-size: 0.68rem; text-transform: uppercase;">Connected Routers</span>
-                                    <strong class="text-dark small"><?= number_format($dbMetrics['nas_count']) ?> NAS Routers</strong>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 1. Current Live Server DB Credentials -->
-                    <div class="mb-3">
-                        <div class="d-flex align-items-center gap-2 mb-2">
-                            <span class="badge bg-primary text-white rounded-pill px-2 py-1" style="font-size: 0.7rem;">Active Profile</span>
-                            <strong class="text-dark small">This Server Live MySQL Database (Outgoing Sync Profile)</strong>
-                        </div>
-                        <div class="row g-2">
-                            <div class="col-md-3 col-sm-6">
-                                <div class="bg-white p-2 px-3 rounded-3 border border-light-subtle shadow-xs h-100">
-                                    <div class="d-flex justify-content-between align-items-center mb-1">
-                                        <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.68rem;">Server IP / Host</span>
-                                        <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_host', this)" title="Copy Host">
-                                            <i class="fa-regular fa-copy"></i>
-                                        </button>
-                                    </div>
-                                    <div class="fw-bold text-dark font-monospace small" id="vault_host">••••••••••••••</div>
-                                </div>
-                            </div>
-                            <div class="col-md-2 col-sm-6">
-                                <div class="bg-white p-2 px-3 rounded-3 border border-light-subtle shadow-xs h-100">
-                                    <div class="d-flex justify-content-between align-items-center mb-1">
-                                        <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.68rem;">MySQL Port</span>
-                                        <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_port', this)" title="Copy Port">
-                                            <i class="fa-regular fa-copy"></i>
-                                        </button>
-                                    </div>
-                                    <div class="fw-bold text-dark font-monospace small" id="vault_port">••••</div>
-                                </div>
-                            </div>
-                            <div class="col-md-2 col-sm-6">
-                                <div class="bg-white p-2 px-3 rounded-3 border border-light-subtle shadow-xs h-100">
-                                    <div class="d-flex justify-content-between align-items-center mb-1">
-                                        <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.68rem;">Database Name</span>
-                                        <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_db', this)" title="Copy DB">
-                                            <i class="fa-regular fa-copy"></i>
-                                        </button>
-                                    </div>
-                                    <div class="fw-bold text-dark font-monospace small" id="vault_db">••••••</div>
-                                </div>
-                            </div>
-                            <div class="col-md-2 col-sm-6">
-                                <div class="bg-white p-2 px-3 rounded-3 border border-light-subtle shadow-xs h-100">
-                                    <div class="d-flex justify-content-between align-items-center mb-1">
-                                        <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.68rem;">DB Username</span>
-                                        <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_user', this)" title="Copy User">
-                                            <i class="fa-regular fa-copy"></i>
-                                        </button>
-                                    </div>
-                                    <div class="fw-bold text-dark font-monospace small" id="vault_user">••••••</div>
-                                </div>
-                            </div>
-                            <div class="col-md-3 col-sm-12">
-                                <div class="bg-white p-2 px-3 rounded-3 border border-light-subtle shadow-xs h-100">
-                                    <div class="d-flex justify-content-between align-items-center mb-1">
-                                        <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.68rem;">DB Password</span>
-                                        <div class="d-flex align-items-center gap-1">
-                                            <button type="button" class="btn btn-link p-0 text-warning d-none vault-change-db-pwd" data-bs-toggle="modal" data-bs-target="#changeMariaDbModal" title="Change MariaDB Password">
-                                                <i class="fa-solid fa-key"></i>
-                                            </button>
-                                            <button type="button" class="btn btn-link p-0 text-muted d-none vault-pwd-toggle" onclick="toggleVaultPasswordVisibility(this)" title="Show/Hide">
-                                                <i class="fa-regular fa-eye"></i>
-                                            </button>
-                                            <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_pass_plain', this)" title="Copy Password">
-                                                <i class="fa-regular fa-copy"></i>
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <div class="fw-bold text-dark font-monospace small" id="vault_pass">••••••••••••</div>
-                                    <input type="hidden" id="vault_pass_plain" value="">
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 2. Saved Remote Old VPS Credentials -->
-                    <div class="mb-3">
-                        <div class="d-flex align-items-center gap-2 mb-2">
-                            <span class="badge bg-secondary text-white rounded-pill px-2 py-1" style="font-size: 0.7rem;">Saved Target</span>
-                            <strong class="text-dark small">Saved Remote (Old VPS) Sync Credentials</strong>
-                        </div>
-                        <div class="row g-2">
-                            <div class="col-md-3 col-sm-6">
-                                <div class="bg-white p-2 px-3 rounded-3 border border-light-subtle shadow-xs h-100">
-                                    <div class="d-flex justify-content-between align-items-center mb-1">
-                                        <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.68rem;">Remote Host / IP</span>
-                                        <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_remote_host', this)" title="Copy Remote IP">
-                                            <i class="fa-regular fa-copy"></i>
-                                        </button>
-                                    </div>
-                                    <div class="fw-bold text-dark font-monospace small" id="vault_remote_host">••••••••••••••</div>
-                                </div>
-                            </div>
-                            <div class="col-md-2 col-sm-6">
-                                <div class="bg-white p-2 px-3 rounded-3 border border-light-subtle shadow-xs h-100">
-                                    <div class="d-flex justify-content-between align-items-center mb-1">
-                                        <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.68rem;">Remote Port</span>
-                                        <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_remote_port', this)" title="Copy Remote Port">
-                                            <i class="fa-regular fa-copy"></i>
-                                        </button>
-                                    </div>
-                                    <div class="fw-bold text-dark font-monospace small" id="vault_remote_port">••••</div>
-                                </div>
-                            </div>
-                            <div class="col-md-2 col-sm-6">
-                                <div class="bg-white p-2 px-3 rounded-3 border border-light-subtle shadow-xs h-100">
-                                    <div class="d-flex justify-content-between align-items-center mb-1">
-                                        <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.68rem;">Remote DB</span>
-                                        <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_remote_db', this)" title="Copy Remote DB">
-                                            <i class="fa-regular fa-copy"></i>
-                                        </button>
-                                    </div>
-                                    <div class="fw-bold text-dark font-monospace small" id="vault_remote_db">••••••</div>
-                                </div>
-                            </div>
-                            <div class="col-md-2 col-sm-6">
-                                <div class="bg-white p-2 px-3 rounded-3 border border-light-subtle shadow-xs h-100">
-                                    <div class="d-flex justify-content-between align-items-center mb-1">
-                                        <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.68rem;">Remote User</span>
-                                        <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_remote_user', this)" title="Copy Remote User">
-                                            <i class="fa-regular fa-copy"></i>
-                                        </button>
-                                    </div>
-                                    <div class="fw-bold text-dark font-monospace small" id="vault_remote_user">••••••</div>
-                                </div>
-                            </div>
-                            <div class="col-md-3 col-sm-12">
-                                <div class="bg-white p-2 px-3 rounded-3 border border-light-subtle shadow-xs h-100">
-                                    <div class="d-flex justify-content-between align-items-center mb-1">
-                                        <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.68rem;">Remote Password</span>
-                                        <div class="d-flex align-items-center gap-1">
-                                            <button type="button" class="btn btn-link p-0 text-muted d-none vault-remote-pwd-toggle" onclick="toggleVaultRemotePasswordVisibility(this)" title="Show/Hide">
-                                                <i class="fa-regular fa-eye"></i>
-                                            </button>
-                                            <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_remote_pass_plain', this)" title="Copy Remote Password">
-                                                <i class="fa-regular fa-copy"></i>
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <div class="fw-bold text-dark font-monospace small" id="vault_remote_pass">••••••••••••</div>
-                                    <input type="hidden" id="vault_remote_pass_plain" value="">
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 3. FreeRADIUS & MikroTik Shared Secret -->
-                    <div>
-                        <div class="d-flex align-items-center gap-2 mb-2">
-                            <span class="badge bg-warning text-dark rounded-pill px-2 py-1" style="font-size: 0.7rem;">FreeRADIUS AAA</span>
-                            <strong class="text-dark small">FreeRADIUS &amp; MikroTik Shared Secret &amp; Ports</strong>
-                        </div>
-                        <div class="row g-2">
-                            <div class="col-md-3 col-sm-6">
-                                <div class="bg-white p-2 px-3 rounded-3 border border-light-subtle shadow-xs h-100">
-                                    <div class="d-flex justify-content-between align-items-center mb-1">
-                                        <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.68rem;">RADIUS Secret</span>
-                                        <div class="d-flex align-items-center gap-1">
-                                            <button type="button" class="btn btn-link p-0 text-muted d-none vault-radius-pwd-toggle" onclick="toggleVaultRadiusSecretVisibility(this)" title="Show/Hide">
-                                                <i class="fa-regular fa-eye"></i>
-                                            </button>
-                                            <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_radius_secret_plain', this)" title="Copy Secret">
-                                                <i class="fa-regular fa-copy"></i>
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <div class="fw-bold text-dark font-monospace small" id="vault_radius_secret">••••••••</div>
-                                    <input type="hidden" id="vault_radius_secret_plain" value="">
-                                </div>
-                            </div>
-                            <div class="col-md-3 col-sm-6">
-                                <div class="bg-white p-2 px-3 rounded-3 border border-light-subtle shadow-xs h-100">
-                                    <div class="d-flex justify-content-between align-items-center mb-1">
-                                        <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.68rem;">Auth Port (UDP)</span>
-                                        <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_radius_auth', this)" title="Copy Auth Port">
-                                            <i class="fa-regular fa-copy"></i>
-                                        </button>
-                                    </div>
-                                    <div class="fw-bold text-dark font-monospace small" id="vault_radius_auth">••••</div>
-                                </div>
-                            </div>
-                            <div class="col-md-3 col-sm-6">
-                                <div class="bg-white p-2 px-3 rounded-3 border border-light-subtle shadow-xs h-100">
-                                    <div class="d-flex justify-content-between align-items-center mb-1">
-                                        <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.68rem;">Acct Port (UDP)</span>
-                                        <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_radius_acct', this)" title="Copy Acct Port">
-                                            <i class="fa-regular fa-copy"></i>
-                                        </button>
-                                    </div>
-                                    <div class="fw-bold text-dark font-monospace small" id="vault_radius_acct">••••</div>
-                                </div>
-                            </div>
-                            <div class="col-md-3 col-sm-6">
-                                <div class="bg-white p-2 px-3 rounded-3 border border-light-subtle shadow-xs h-100">
-                                    <div class="d-flex justify-content-between align-items-center mb-1">
-                                        <span class="text-muted small fw-bold text-uppercase" style="font-size: 0.68rem;">CoA Port (UDP)</span>
-                                        <button type="button" class="btn btn-link p-0 text-muted d-none vault-copy-btn" onclick="copyVaultValue('vault_radius_coa', this)" title="Copy CoA Port">
-                                            <i class="fa-regular fa-copy"></i>
-                                        </button>
-                                    </div>
-                                    <div class="fw-bold text-dark font-monospace small" id="vault_radius_coa">••••</div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Auto Fill Strip -->
-                    <div id="vault_autofill_strip" class="d-none mt-3 pt-2 border-top border-light-subtle d-flex justify-content-between align-items-center small text-muted">
-                        <span><i class="fa-solid fa-circle-check text-success me-1"></i> Tamam database credentials unlocked hain. Aap inhein edit bhi kar saktay hain.</span>
-                        <button type="button" class="btn btn-link btn-sm text-primary text-decoration-none p-0 fw-semibold" onclick="autoFillInboundSyncForm()">
-                            <i class="fa-solid fa-arrow-down me-1"></i> Fill Saved Remote into Sync Form below
-                        </button>
+                    <div class="d-flex gap-2 flex-shrink-0">
+                        <a href="security" class="btn btn-dark rounded-pill px-3 py-1 btn-sm fw-bold shadow-sm d-inline-flex align-items-center gap-1">
+                            <i class="fa-solid fa-lock me-1"></i> Open Security Center
+                        </a>
                     </div>
                 </div>
 
@@ -1591,551 +1311,7 @@ try {
     </div>
 </div>
 
-<!-- Security Verification Modal for Revealing DB Credentials -->
-<div class="modal fade" id="unlockVaultModal" tabindex="-1" aria-labelledby="unlockVaultModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered" style="max-width: 420px;">
-        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
-            <div class="modal-header bg-dark text-white py-3 px-4">
-                <div class="d-flex align-items-center gap-2">
-                    <i class="fa-solid fa-shield-halved text-warning fs-5"></i>
-                    <h6 class="modal-title fw-bold mb-0" id="unlockVaultModalLabel">Security Verification</h6>
-                </div>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <form onsubmit="handleVaultUnlockSubmit(event)">
-                <div class="modal-body p-4">
-                    <p class="text-muted small mb-3">
-                        Enter your <strong>Super Admin Password</strong> or <strong>VPS Password</strong> to reveal this server's live database credentials.
-                    </p>
-                    <div class="mb-2">
-                        <label class="form-label text-dark fw-bold small mb-1">Password <span class="text-danger">*</span></label>
-                        <div class="input-group">
-                            <input type="password" id="vault_verify_input" class="form-control" placeholder="Enter password" required autocomplete="current-password">
-                            <button class="btn btn-outline-secondary" type="button" onclick="const p = document.getElementById('vault_verify_input'); p.type = p.type === 'password' ? 'text' : 'password';">
-                                <i class="fa-solid fa-eye"></i>
-                            </button>
-                        </div>
-                    </div>
-                    <div id="vault_error_msg" class="text-danger small mt-2 d-none"></div>
-                </div>
-                <div class="modal-footer bg-light border-top border-light-subtle py-2 px-3 d-flex justify-content-between">
-                    <button type="button" class="btn btn-outline-secondary rounded-pill btn-sm px-3" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" id="btn_verify_vault_submit" class="btn btn-primary rounded-pill btn-sm px-4 fw-bold shadow-sm">
-                        <i class="fa-solid fa-lock-open me-1"></i> Verify &amp; Reveal
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
-<!-- Modal: Edit / Manage All Database Credentials -->
-<div class="modal fade" id="editDbCredentialsModal" tabindex="-1" aria-labelledby="editDbCredentialsModalLabel" aria-hidden="true" data-bs-backdrop="static">
-    <div class="modal-dialog modal-dialog-centered modal-lg">
-        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
-            <div class="modal-header bg-primary text-white py-3 px-4">
-                <div class="d-flex align-items-center gap-2">
-                    <i class="fa-solid fa-database fs-5"></i>
-                    <div>
-                        <h6 class="modal-title fw-bold mb-0" id="editDbCredentialsModalLabel">Manage Database &amp; RADIUS Credentials</h6>
-                        <span class="text-white-50 small" style="font-size: 0.73rem;">Update connection parameters and saved sync profiles</span>
-                    </div>
-                </div>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            
-            <form method="POST">
-                <input type="hidden" name="action" value="update_database_credentials">
-
-                <div class="modal-body p-4">
-                    <!-- Tab navigation -->
-                    <ul class="nav nav-pills mb-3 gap-2" id="editDbTabs" role="tablist">
-                        <li class="nav-item">
-                            <button class="nav-link active rounded-pill px-3 py-1 small fw-bold" id="tab-server-btn" data-bs-toggle="pill" data-bs-target="#tab-server" type="button">
-                                <i class="fa-solid fa-server me-1"></i> Live Server MySQL
-                            </button>
-                        </li>
-                        <li class="nav-item">
-                            <button class="nav-link rounded-pill px-3 py-1 small fw-bold" id="tab-remote-btn" data-bs-toggle="pill" data-bs-target="#tab-remote" type="button">
-                                <i class="fa-solid fa-arrows-rotate me-1"></i> Remote Old VPS Sync
-                            </button>
-                        </li>
-                        <li class="nav-item">
-                            <button class="nav-link rounded-pill px-3 py-1 small fw-bold" id="tab-radius-btn" data-bs-toggle="pill" data-bs-target="#tab-radius" type="button">
-                                <i class="fa-solid fa-key me-1"></i> FreeRADIUS &amp; Secrets
-                            </button>
-                        </li>
-                    </ul>
-
-                    <div class="tab-content pt-2">
-                        <!-- Tab 1: Live Server MySQL -->
-                        <div class="tab-pane fade show active" id="tab-server" role="tabpanel">
-                            <div class="row g-3">
-                                <div class="col-md-6">
-                                    <label class="form-label text-dark fw-bold small mb-1">Server Public IP / Host</label>
-                                    <input type="text" name="server_public_ip" class="form-control" value="<?= htmlspecialchars($currentServerHost) ?>" required>
-                                    <div class="form-text text-muted" style="font-size: 0.73rem;">Public IP address of this VPS server.</div>
-                                </div>
-                                <div class="col-md-6">
-                                    <label class="form-label text-dark fw-bold small mb-1">MySQL Port</label>
-                                    <input type="number" name="server_db_port" class="form-control" value="<?= htmlspecialchars($currentServerPort) ?>" required>
-                                    <div class="form-text text-muted" style="font-size: 0.73rem;">Default MySQL listening port (3306).</div>
-                                </div>
-                                <div class="col-md-4">
-                                    <label class="form-label text-dark fw-bold small mb-1">Database Name</label>
-                                    <input type="text" name="server_db_name" class="form-control" value="<?= htmlspecialchars($currentServerDb) ?>" required>
-                                </div>
-                                <div class="col-md-4">
-                                    <label class="form-label text-dark fw-bold small mb-1">DB Username</label>
-                                    <input type="text" name="server_db_user" class="form-control" value="<?= htmlspecialchars($currentServerUser) ?>" required>
-                                </div>
-                                <div class="col-md-4">
-                                    <label class="form-label text-dark fw-bold small mb-1">DB Password</label>
-                                    <div class="input-group">
-                                        <input type="password" name="server_db_pass" id="modal_server_pass" class="form-control" value="<?= htmlspecialchars($currentServerPass) ?>">
-                                        <button class="btn btn-outline-secondary" type="button" onclick="const p = document.getElementById('modal_server_pass'); p.type = p.type === 'password' ? 'text' : 'password';">
-                                            <i class="fa-solid fa-eye"></i>
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Tab 2: Saved Remote Old VPS Sync -->
-                        <div class="tab-pane fade" id="tab-remote" role="tabpanel">
-                            <div class="row g-3">
-                                <div class="col-md-6">
-                                    <label class="form-label text-dark fw-bold small mb-1">Old VPS IP / Host</label>
-                                    <input type="text" name="sync_remote_host" class="form-control" value="<?= htmlspecialchars($savedSyncHost) ?>" placeholder="e.g. 123.45.67.89">
-                                    <div class="form-text text-muted" style="font-size: 0.73rem;">IP address of your Old VPS.</div>
-                                </div>
-                                <div class="col-md-6">
-                                    <label class="form-label text-dark fw-bold small mb-1">Remote MySQL Port</label>
-                                    <input type="number" name="sync_remote_port" class="form-control" value="<?= htmlspecialchars($savedSyncPort) ?>">
-                                </div>
-                                <div class="col-md-4">
-                                    <label class="form-label text-dark fw-bold small mb-1">Remote DB Name</label>
-                                    <input type="text" name="sync_remote_db" class="form-control" value="<?= htmlspecialchars($savedSyncDb) ?>">
-                                </div>
-                                <div class="col-md-4">
-                                    <label class="form-label text-dark fw-bold small mb-1">Remote DB Username</label>
-                                    <input type="text" name="sync_remote_user" class="form-control" value="<?= htmlspecialchars($savedSyncUser) ?>">
-                                </div>
-                                <div class="col-md-4">
-                                    <label class="form-label text-dark fw-bold small mb-1">Remote DB Password</label>
-                                    <div class="input-group">
-                                        <input type="password" name="sync_remote_pass" id="modal_remote_pass" class="form-control" value="<?= htmlspecialchars($savedSyncPass) ?>">
-                                        <button class="btn btn-outline-secondary" type="button" onclick="const p = document.getElementById('modal_remote_pass'); p.type = p.type === 'password' ? 'text' : 'password';">
-                                            <i class="fa-solid fa-eye"></i>
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Tab 3: FreeRADIUS & Secrets -->
-                        <div class="tab-pane fade" id="tab-radius" role="tabpanel">
-                            <div class="row g-3">
-                                <div class="col-md-6">
-                                    <label class="form-label text-dark fw-bold small mb-1">FreeRADIUS Shared Secret</label>
-                                    <div class="input-group">
-                                        <input type="password" name="radius_secret" id="modal_radius_secret" class="form-control" value="<?= htmlspecialchars($radiusSecret) ?>" required>
-                                        <button class="btn btn-outline-secondary" type="button" onclick="const p = document.getElementById('modal_radius_secret'); p.type = p.type === 'password' ? 'text' : 'password';">
-                                            <i class="fa-solid fa-eye"></i>
-                                        </button>
-                                    </div>
-                                    <div class="form-text text-muted" style="font-size: 0.73rem;">Secret used by MikroTik routers to authenticate with FreeRADIUS.</div>
-                                </div>
-                                <div class="col-md-6 d-flex align-items-center">
-                                    <div class="form-check bg-light p-3 rounded-3 border border-light-subtle w-100 mt-md-3">
-                                        <input class="form-check-input ms-0 me-2" type="checkbox" name="sync_nas_secret" id="sync_nas_secret" value="1" checked>
-                                        <label class="form-check-label text-dark small fw-bold" for="sync_nas_secret">
-                                            Apply this secret to all connected Mikrotik NAS routers (nas table)
-                                        </label>
-                                    </div>
-                                </div>
-                                <div class="col-md-4">
-                                    <label class="form-label text-dark fw-bold small mb-1">Authentication Port (UDP)</label>
-                                    <input type="number" name="radius_auth_port" class="form-control" value="<?= htmlspecialchars($radiusAuthPort) ?>">
-                                </div>
-                                <div class="col-md-4">
-                                    <label class="form-label text-dark fw-bold small mb-1">Accounting Port (UDP)</label>
-                                    <input type="number" name="radius_acct_port" class="form-control" value="<?= htmlspecialchars($radiusAcctPort) ?>">
-                                </div>
-                                <div class="col-md-4">
-                                    <label class="form-label text-dark fw-bold small mb-1">CoA / Disconnect Port (UDP)</label>
-                                    <input type="number" name="radius_coa_port" class="form-control" value="<?= htmlspecialchars($radiusCoaPort) ?>">
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="modal-footer bg-light border-top border-light-subtle py-3 px-4 d-flex justify-content-between">
-                    <button type="button" class="btn btn-outline-secondary rounded-pill px-4 fw-semibold" data-bs-dismiss="modal">
-                        Cancel
-                    </button>
-                    <button type="submit" class="btn btn-primary rounded-pill px-4 fw-bold shadow-sm d-inline-flex align-items-center gap-2">
-                        <i class="fa-solid fa-floppy-disk"></i>
-                        <span>Save All Credentials</span>
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
-<!-- Modal: Change Live MariaDB Password -->
-<div class="modal fade" id="changeMariaDbModal" tabindex="-1" aria-labelledby="changeMariaDbModalLabel" aria-hidden="true" data-bs-backdrop="static">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
-            <div class="modal-header bg-warning text-dark py-3 px-4">
-                <div class="d-flex align-items-center gap-2">
-                    <i class="fa-solid fa-key fs-5"></i>
-                    <div>
-                        <h6 class="modal-title fw-bold mb-0" id="changeMariaDbModalLabel">Change Live MariaDB Password</h6>
-                        <span class="small text-muted" style="font-size: 0.73rem;">Updates MariaDB server, <code>config/db.php</code>, and FreeRADIUS</span>
-                    </div>
-                </div>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            
-            <form method="POST" id="formChangeMariaDb" onsubmit="handleChangeDbPassSubmit(event)">
-                <input type="hidden" name="action" value="change_mariadb_password">
-
-                <div class="modal-body p-4">
-                    <div class="alert alert-warning border-0 rounded-3 p-3 small mb-3">
-                        <div class="d-flex gap-2">
-                            <i class="fa-solid fa-triangle-exclamation fs-5 flex-shrink-0 mt-1"></i>
-                            <div>
-                                <strong>System Notice:</strong> Yeh process MariaDB me user password update karega aur live <code>config/db.php</code> file aur FreeRADIUS SQL configuration ko automatically sync karega ta k system disconnect na ho.
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label text-dark fw-bold small mb-1">
-                            Current MariaDB Password or Super Admin Password <span class="text-danger">*</span>
-                        </label>
-                        <div class="input-group">
-                            <input type="password" name="current_mariadb_password" id="current_mariadb_password" class="form-control" placeholder="Enter current MySQL or SuperAdmin password" required autocomplete="current-password">
-                            <button class="btn btn-outline-secondary" type="button" onclick="const p = document.getElementById('current_mariadb_password'); p.type = p.type === 'password' ? 'text' : 'password';">
-                                <i class="fa-solid fa-eye"></i>
-                            </button>
-                        </div>
-                        <div class="form-text text-muted" style="font-size: 0.73rem;">
-                            Identity verification k liye mojooda MariaDB password ya apna Super Admin login password enter karein.
-                        </div>
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label text-dark fw-bold small mb-1">
-                            New MariaDB Password <span class="text-danger">*</span>
-                        </label>
-                        <div class="input-group">
-                            <input type="password" name="new_mariadb_password" id="new_mariadb_password" class="form-control" placeholder="Enter new strong password" required autocomplete="new-password">
-                            <button class="btn btn-outline-secondary" type="button" onclick="const p = document.getElementById('new_mariadb_password'); p.type = p.type === 'password' ? 'text' : 'password';">
-                                <i class="fa-solid fa-eye"></i>
-                            </button>
-                        </div>
-                        <div class="form-text text-muted" style="font-size: 0.73rem;">
-                            Kam az kam 4 characters ka naya password darj karein.
-                        </div>
-                    </div>
-
-                    <div class="mb-2">
-                        <label class="form-label text-dark fw-bold small mb-1">
-                            Confirm New MariaDB Password <span class="text-danger">*</span>
-                        </label>
-                        <div class="input-group">
-                            <input type="password" name="confirm_mariadb_password" id="confirm_mariadb_password" class="form-control" placeholder="Re-type new password" required autocomplete="new-password">
-                            <button class="btn btn-outline-secondary" type="button" onclick="const p = document.getElementById('confirm_mariadb_password'); p.type = p.type === 'password' ? 'text' : 'password';">
-                                <i class="fa-solid fa-eye"></i>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="modal-footer bg-light border-top border-light-subtle py-3 px-4 d-flex justify-content-between">
-                    <button type="button" class="btn btn-outline-secondary rounded-pill px-4 fw-semibold" data-bs-dismiss="modal">
-                        Cancel
-                    </button>
-                    <button type="submit" id="btn_submit_change_mariadb" class="btn btn-warning rounded-pill px-4 fw-bold shadow-sm d-inline-flex align-items-center gap-2 text-dark">
-                        <i class="fa-solid fa-rotate"></i>
-                        <span>Update &amp; Sync Password</span>
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
 <script>
-let vaultUnlocked = false;
-let vaultData = null;
-let vaultPwdVisible = false;
-let vaultRemotePwdVisible = false;
-let vaultRadiusSecretVisible = false;
-
-function handleVaultToggle() {
-    if (vaultUnlocked) {
-        lockVault();
-    } else {
-        document.getElementById('vault_verify_input').value = '';
-        document.getElementById('vault_error_msg').classList.add('d-none');
-        document.getElementById('vault_error_msg').innerText = '';
-        const modal = new bootstrap.Modal(document.getElementById('unlockVaultModal'));
-        modal.show();
-        setTimeout(() => {
-            document.getElementById('vault_verify_input').focus();
-        }, 400);
-    }
-}
-
-function handleVaultUnlockSubmit(e) {
-    e.preventDefault();
-    const pwd = document.getElementById('vault_verify_input').value;
-    const btn = document.getElementById('btn_verify_vault_submit');
-    const errDiv = document.getElementById('vault_error_msg');
-
-    if (!pwd) return;
-
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Verifying...';
-    errDiv.classList.add('d-none');
-
-    const formData = new FormData();
-    formData.append('ajax_action', 'reveal_db_credentials');
-    formData.append('verify_password', pwd);
-
-    fetch('settings.php', {
-        method: 'POST',
-        body: formData
-    })
-    .then(r => r.json())
-    .then(data => {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fa-solid fa-lock-open me-1"></i> Verify &amp; Reveal';
-        if (data.success) {
-            vaultUnlocked = true;
-            vaultData = data.credentials;
-            unlockVaultUI(data.credentials);
-            const modalEl = document.getElementById('unlockVaultModal');
-            const modalInstance = bootstrap.Modal.getInstance(modalEl);
-            if (modalInstance) modalInstance.hide();
-        } else {
-            errDiv.innerText = data.message || 'Verification failed.';
-            errDiv.classList.remove('d-none');
-        }
-    })
-    .catch(err => {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fa-solid fa-lock-open me-1"></i> Verify &amp; Reveal';
-        errDiv.innerText = 'Network error: ' + err.message;
-        errDiv.classList.remove('d-none');
-    });
-}
-
-function unlockVaultUI(creds) {
-    // 1. Live Server DB
-    document.getElementById('vault_host').innerText = creds.host;
-    document.getElementById('vault_port').innerText = creds.port;
-    document.getElementById('vault_db').innerText = creds.db;
-    document.getElementById('vault_user').innerText = creds.user;
-    document.getElementById('vault_pass').innerText = '••••••••••••';
-    document.getElementById('vault_pass_plain').value = creds.pass;
-
-    // 2. Saved Remote Sync DB
-    document.getElementById('vault_remote_host').innerText = creds.remote_host || 'Not configured';
-    document.getElementById('vault_remote_port').innerText = creds.remote_port || '3306';
-    document.getElementById('vault_remote_db').innerText = creds.remote_db || 'radius';
-    document.getElementById('vault_remote_user').innerText = creds.remote_user || 'Not configured';
-    document.getElementById('vault_remote_pass').innerText = creds.remote_pass ? '••••••••••••' : 'Not set';
-    document.getElementById('vault_remote_pass_plain').value = creds.remote_pass || '';
-
-    // 3. FreeRADIUS Credentials
-    document.getElementById('vault_radius_secret').innerText = '••••••••';
-    document.getElementById('vault_radius_secret_plain').value = creds.radius_secret || '123456';
-    document.getElementById('vault_radius_auth').innerText = creds.radius_auth_port || '1812';
-    document.getElementById('vault_radius_acct').innerText = creds.radius_acct_port || '1813';
-    document.getElementById('vault_radius_coa').innerText = creds.radius_coa_port || '3799';
-
-    vaultPwdVisible = false;
-    vaultRemotePwdVisible = false;
-    vaultRadiusSecretVisible = false;
-
-    // Badges & Buttons
-    const badge = document.getElementById('vault_badge');
-    badge.className = 'badge bg-success-subtle text-success border border-success-subtle rounded-pill px-3 py-1';
-    badge.innerHTML = '<i class="fa-solid fa-circle-check me-1"></i> Unlocked';
-
-    document.getElementById('vault_btn_icon').className = 'fa-solid fa-eye-slash';
-    document.getElementById('vault_btn_text').innerText = 'Hide Credentials';
-    document.getElementById('btn_toggle_vault').className = 'btn btn-outline-secondary rounded-pill px-3 py-2 btn-sm fw-bold shadow-sm d-inline-flex align-items-center gap-1';
-
-    // Show Edit and Copy buttons
-    if (document.getElementById('btn_change_mariadb_pwd')) {
-        document.getElementById('btn_change_mariadb_pwd').classList.remove('d-none');
-        document.getElementById('btn_change_mariadb_pwd').classList.add('d-inline-flex');
-    }
-    document.getElementById('btn_edit_credentials').classList.remove('d-none');
-    document.getElementById('btn_edit_credentials').classList.add('d-inline-flex');
-    document.getElementById('btn_copy_all').classList.remove('d-none');
-    document.getElementById('btn_copy_all').classList.add('d-inline-flex');
-    document.getElementById('vault_autofill_strip').classList.remove('d-none');
-
-    // Show all copy buttons & eye toggles
-    document.querySelectorAll('.vault-copy-btn, .vault-pwd-toggle, .vault-remote-pwd-toggle, .vault-radius-pwd-toggle, .vault-change-db-pwd').forEach(el => el.classList.remove('d-none'));
-}
-
-function lockVault() {
-    vaultUnlocked = false;
-    vaultData = null;
-    vaultPwdVisible = false;
-    vaultRemotePwdVisible = false;
-    vaultRadiusSecretVisible = false;
-
-    // Reset all displays to masked
-    document.getElementById('vault_host').innerText = '••••••••••••••';
-    document.getElementById('vault_port').innerText = '••••';
-    document.getElementById('vault_db').innerText = '••••••';
-    document.getElementById('vault_user').innerText = '••••••';
-    document.getElementById('vault_pass').innerText = '••••••••••••';
-    document.getElementById('vault_pass_plain').value = '';
-
-    document.getElementById('vault_remote_host').innerText = '••••••••••••••';
-    document.getElementById('vault_remote_port').innerText = '••••';
-    document.getElementById('vault_remote_db').innerText = '••••••';
-    document.getElementById('vault_remote_user').innerText = '••••••';
-    document.getElementById('vault_remote_pass').innerText = '••••••••••••';
-    document.getElementById('vault_remote_pass_plain').value = '';
-
-    document.getElementById('vault_radius_secret').innerText = '••••••••';
-    document.getElementById('vault_radius_secret_plain').value = '';
-    document.getElementById('vault_radius_auth').innerText = '••••';
-    document.getElementById('vault_radius_acct').innerText = '••••';
-    document.getElementById('vault_radius_coa').innerText = '••••';
-
-    const badge = document.getElementById('vault_badge');
-    badge.className = 'badge bg-secondary-subtle text-secondary border border-secondary-subtle rounded-pill px-3 py-1';
-    badge.innerHTML = '<i class="fa-solid fa-lock me-1"></i> Hidden &amp; Locked';
-
-    document.getElementById('vault_btn_icon').className = 'fa-solid fa-eye';
-    document.getElementById('vault_btn_text').innerText = 'Reveal Credentials';
-    document.getElementById('btn_toggle_vault').className = 'btn btn-dark rounded-pill px-3 py-2 btn-sm fw-bold shadow-sm d-inline-flex align-items-center gap-1';
-
-    if (document.getElementById('btn_change_mariadb_pwd')) {
-        document.getElementById('btn_change_mariadb_pwd').classList.add('d-none');
-        document.getElementById('btn_change_mariadb_pwd').classList.remove('d-inline-flex');
-    }
-    document.getElementById('btn_edit_credentials').classList.add('d-none');
-    document.getElementById('btn_edit_credentials').classList.remove('d-inline-flex');
-    document.getElementById('btn_copy_all').classList.add('d-none');
-    document.getElementById('btn_copy_all').classList.remove('d-inline-flex');
-    document.getElementById('vault_autofill_strip').classList.add('d-none');
-
-    document.querySelectorAll('.vault-copy-btn, .vault-pwd-toggle, .vault-remote-pwd-toggle, .vault-radius-pwd-toggle, .vault-change-db-pwd').forEach(el => el.classList.add('d-none'));
-}
-
-function toggleVaultPasswordVisibility(btn) {
-    if (!vaultUnlocked || !vaultData) return;
-    vaultPwdVisible = !vaultPwdVisible;
-    const passDisplay = document.getElementById('vault_pass');
-    if (vaultPwdVisible) {
-        passDisplay.innerText = vaultData.pass;
-        btn.innerHTML = '<i class="fa-solid fa-eye-slash"></i>';
-    } else {
-        passDisplay.innerText = '••••••••••••';
-        btn.innerHTML = '<i class="fa-regular fa-eye"></i>';
-    }
-}
-
-function toggleVaultRemotePasswordVisibility(btn) {
-    if (!vaultUnlocked || !vaultData) return;
-    vaultRemotePwdVisible = !vaultRemotePwdVisible;
-    const passDisplay = document.getElementById('vault_remote_pass');
-    if (vaultRemotePwdVisible) {
-        passDisplay.innerText = vaultData.remote_pass || 'Empty';
-        btn.innerHTML = '<i class="fa-solid fa-eye-slash"></i>';
-    } else {
-        passDisplay.innerText = '••••••••••••';
-        btn.innerHTML = '<i class="fa-regular fa-eye"></i>';
-    }
-}
-
-function toggleVaultRadiusSecretVisibility(btn) {
-    if (!vaultUnlocked || !vaultData) return;
-    vaultRadiusSecretVisible = !vaultRadiusSecretVisible;
-    const secDisplay = document.getElementById('vault_radius_secret');
-    if (vaultRadiusSecretVisible) {
-        secDisplay.innerText = vaultData.radius_secret || 'Empty';
-        btn.innerHTML = '<i class="fa-solid fa-eye-slash"></i>';
-    } else {
-        secDisplay.innerText = '••••••••';
-        btn.innerHTML = '<i class="fa-regular fa-eye"></i>';
-    }
-}
-
-function copyVaultValue(elementId, btn) {
-    let val = '';
-    const el = document.getElementById(elementId);
-    if (!el) return;
-    if (el.tagName === 'INPUT') {
-        val = el.value;
-    } else {
-        val = el.innerText.trim();
-    }
-    if (!val || val.includes('••') || val === 'Not set' || val === 'Not configured') return;
-
-    navigator.clipboard.writeText(val).then(() => {
-        const origHtml = btn.innerHTML;
-        btn.innerHTML = '<i class="fa-solid fa-check text-success"></i>';
-        setTimeout(() => { btn.innerHTML = origHtml; }, 1500);
-    });
-}
-
-function copyAllVaultCredentials() {
-    if (!vaultData) return;
-    const text = `--- [This Server Live MySQL DB] ---\n` +
-                 `Server IP / Host: ${vaultData.host}\n` +
-                 `MySQL Port: ${vaultData.port}\n` +
-                 `DB Name: ${vaultData.db}\n` +
-                 `DB Username: ${vaultData.user}\n` +
-                 `DB Password: ${vaultData.pass}\n\n` +
-                 `--- [Saved Remote Old VPS Sync] ---\n` +
-                 `Old VPS IP / Host: ${vaultData.remote_host}\n` +
-                 `Remote Port: ${vaultData.remote_port}\n` +
-                 `Remote DB Name: ${vaultData.remote_db}\n` +
-                 `Remote Username: ${vaultData.remote_user}\n` +
-                 `Remote Password: ${vaultData.remote_pass}\n\n` +
-                 `--- [FreeRADIUS Configuration] ---\n` +
-                 `RADIUS Secret: ${vaultData.radius_secret}\n` +
-                 `Auth Port: ${vaultData.radius_auth_port}\n` +
-                 `Acct Port: ${vaultData.radius_acct_port}\n` +
-                 `CoA Port: ${vaultData.radius_coa_port}`;
-
-    navigator.clipboard.writeText(text).then(() => {
-        const btn = document.getElementById('btn_copy_all');
-        const origText = btn.innerHTML;
-        btn.innerHTML = '<i class="fa-solid fa-check text-success me-1"></i> Copied All!';
-        setTimeout(() => { btn.innerHTML = origText; }, 2000);
-    });
-}
-
-function autoFillInboundSyncForm() {
-    if (!vaultData) return;
-    if (vaultData.remote_host && vaultData.remote_host !== 'Not configured' && vaultData.remote_host !== 'Not set') {
-        document.getElementById('remote_host').value = vaultData.remote_host;
-    }
-    if (vaultData.remote_port) document.getElementById('remote_port').value = vaultData.remote_port;
-    if (vaultData.remote_db) document.getElementById('remote_db').value = vaultData.remote_db;
-    if (vaultData.remote_user && vaultData.remote_user !== 'Not configured' && vaultData.remote_user !== 'Not set') {
-        document.getElementById('remote_user').value = vaultData.remote_user;
-    }
-    if (vaultData.remote_pass && vaultData.remote_pass !== '••••••••' && vaultData.remote_pass !== 'Not set') {
-        document.getElementById('remote_pass').value = vaultData.remote_pass;
-    }
-}
 function testRemoteConnection() {
     const host = document.getElementById('remote_host').value.trim();
     const port = document.getElementById('remote_port').value.trim() || '3306';
@@ -2289,44 +1465,6 @@ function handleRestoreSubmit(e) {
         btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span> Restoring Database...';
     }
 }
-
-function handleChangeDbPassSubmit(e) {
-    const p1 = document.getElementById('new_mariadb_password').value;
-    const p2 = document.getElementById('confirm_mariadb_password').value;
-    if (p1 !== p2) {
-        alert('New Password and Confirm Password do not match.');
-        e.preventDefault();
-        return false;
-    }
-    if (p1.length < 4) {
-        alert('New Password must be at least 4 characters long.');
-        e.preventDefault();
-        return false;
-    }
-    if (!confirm('Are you sure you want to change the MariaDB password?\n\nThis will update MariaDB and automatically synchronize config/db.php.')) {
-        e.preventDefault();
-        return false;
-    }
-    const btn = document.getElementById('btn_submit_change_mariadb');
-    if (btn) {
-        btn.disabled = true;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span> Updating MariaDB & Config...';
-    }
-}
-
-document.addEventListener('DOMContentLoaded', function() {
-    const changeModalEl = document.getElementById('changeMariaDbModal');
-    if (changeModalEl) {
-        changeModalEl.addEventListener('show.bs.modal', function () {
-            if (vaultUnlocked && vaultData && vaultData.pass) {
-                const curField = document.getElementById('current_mariadb_password');
-                if (curField && !curField.value) {
-                    curField.value = vaultData.pass;
-                }
-            }
-        });
-    }
-});
 </script>
 
 <?php require_once 'footer.php'; ?>
