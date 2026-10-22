@@ -1,5 +1,7 @@
 <?php
 require_once 'header.php';
+require_once __DIR__ . '/staff_salary_helper.php';
+init_staff_salary_schema($pdo);
 $client_id = $_SESSION['operator_id'];
 
 
@@ -69,8 +71,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $status = $_POST['status'] ?? 'active';
         $can_create_user = $_POST['can_create_user'] ?? 'yes';
             $can_create_user = $_POST['can_create_user'] ?? 'yes';
-            $stmt = $pdo->prepare("INSERT INTO recovery_men (client_id, full_name, username, password, phone, address, city, status, can_create_user) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$client_id, $full_name, $username, $password, $phone, $address, $city, $status, $can_create_user]);
+            $monthly_salary = (int)($_POST['monthly_salary'] ?? 0);
+            $stmt = $pdo->prepare("INSERT INTO recovery_men (client_id, full_name, username, password, phone, address, city, status, can_create_user, monthly_salary) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$client_id, $full_name, $username, $password, $phone, $address, $city, $status, $can_create_user, $monthly_salary]);
             echo "<script>alert('Recovery Man created successfully!'); window.location='$_SERVER[PHP_SELF]';</script>";
             exit;
         } catch (PDOException $e) {
@@ -92,8 +95,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $can_create_user = $_POST['can_create_user'] ?? 'yes';
         
         try {
-            $stmt = $pdo->prepare("UPDATE recovery_men SET full_name=?, password=?, phone=?, address=?, city=?, status=?, can_create_user=? WHERE id=? AND client_id=?");
-            $stmt->execute([$full_name, $password, $phone, $address, $city, $status, $can_create_user, $id, $client_id]);
+            $monthly_salary = (int)($_POST['monthly_salary'] ?? 0);
+            $stmt = $pdo->prepare("UPDATE recovery_men SET full_name=?, password=?, phone=?, address=?, city=?, status=?, can_create_user=?, monthly_salary=? WHERE id=? AND client_id=?");
+            $stmt->execute([$full_name, $password, $phone, $address, $city, $status, $can_create_user, $monthly_salary, $id, $client_id]);
             echo "<script>alert('Recovery Man updated successfully!'); window.location='$_SERVER[PHP_SELF]';</script>";
             exit;
         } catch (PDOException $e) {
@@ -110,7 +114,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // Fetch Members
-$stmt = $pdo->prepare("SELECT * FROM recovery_men WHERE client_id = ? ORDER BY id DESC");
+$stmt = $pdo->prepare("SELECT r.*, COALESCE((SELECT balance_after FROM staff_salary_ledger WHERE client_id = r.client_id AND staff_type = 'recoveryman' AND staff_id = r.id ORDER BY trans_date DESC, id DESC LIMIT 1), 0) AS salary_balance FROM recovery_men r WHERE r.client_id = ? ORDER BY r.id DESC");
 $stmt->execute([$client_id]);
 $members = $stmt->fetchAll();
 ?>
@@ -146,7 +150,7 @@ $members = $stmt->fetchAll();
                         <th>City</th>
                         <th>Contact</th>
                         <th>Access Control</th>
-                          <th>Cash in Hand</th>
+                          <th>Monthly Salary</th><th>Salary Balance</th><th>Cash in Hand</th>
                         <th>Created On</th>
                         <th>Actions</th>
                     </tr>
@@ -188,7 +192,7 @@ $members = $stmt->fetchAll();
                                   data-phone="<?= htmlspecialchars($m['phone']) ?>"
                                   data-city="<?= htmlspecialchars($m['city']) ?>"
                                   data-address="<?= htmlspecialchars($m['address']) ?>"
-                                  data-status="<?= $m['status'] ?? 'active' ?>" data-can_create="<?= $m['can_create_user'] ?? 'yes' ?>">
+                                  data-status="<?= $m['status'] ?? 'active' ?>" data-can_create="<?= $m['can_create_user'] ?? 'yes' ?>" data-salary="<?= (int)($m['monthly_salary'] ?? 0) ?>">
                                   <i class="fa-solid fa-pen"></i>
                               </button>
                               <form method="POST" onsubmit="return confirm('Are you sure you want to delete this Recovery Man?');" class="d-inline">
@@ -238,6 +242,13 @@ $members = $stmt->fetchAll();
                 <div class="col-md-6 mb-3">
                     <label class="form-label small fw-bold text-secondary">City</label>
                     <input type="text" name="city" class="form-control" placeholder="e.g. Lahore">
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label small fw-bold text-secondary">Monthly Salary (Rs)</label>
+                    <div class="input-group">
+                        <span class="input-group-text bg-light text-muted fw-bold">Rs</span>
+                        <input type="number" step="1" min="0" name="monthly_salary" class="form-control" placeholder="e.g. 25000" value="0">
+                    </div>
                 </div>
                 <div class="col-md-12 mb-3">
                     <label class="form-label small fw-bold text-secondary">Complete Address</label>
@@ -317,6 +328,13 @@ $(document).ready(function() {
                     <input type="text" name="city" id="edit_city" class="form-control bg-light">
                 </div>
                 <div class="col-md-6 mb-3">
+                    <label class="form-label fw-bold small text-muted">Monthly Salary (Rs)</label>
+                    <div class="input-group">
+                        <span class="input-group-text bg-light text-muted fw-bold">Rs</span>
+                        <input type="number" step="1" min="0" name="monthly_salary" id="edit_monthly_salary" class="form-control bg-light" placeholder="e.g. 25000">
+                    </div>
+                </div>
+                <div class="col-md-6 mb-3">
                     <label class="form-label fw-bold small text-muted">Status</label>
                     <select name="status" class="form-select bg-light" required>
                         <option value="active">Active</option>
@@ -356,6 +374,7 @@ $(document).ready(function() {
         $("#edit_password").val($(this).attr("data-password"));
         $("#edit_phone").val($(this).attr("data-phone"));
         $("#edit_city").val($(this).attr("data-city"));
+        $("#edit_monthly_salary").val($(this).attr("data-salary") || 0);
         $("#edit_address").val($(this).attr("data-address"));
         $("#edit_status").val($(this).attr("data-status"));
         $("#edit_can_create_user").val($(this).attr("data-can_create"));

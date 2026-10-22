@@ -1,5 +1,7 @@
 <?php
 require_once 'header.php';
+require_once __DIR__ . '/staff_salary_helper.php';
+init_staff_salary_schema($pdo);
 
 // Access Control: Only Operator can manage managers (Managers cannot access this page)
 if (!empty($_SESSION['is_manager'])) {
@@ -501,6 +503,13 @@ foreach ($managers as $m) {
                         <div class="col-md-6">
                             <label class="form-label fw-semibold text-secondary small">City</label>
                             <input type="text" name="city" class="form-control" placeholder="e.g. Lahore">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label small fw-bold text-secondary">Monthly Salary (Rs)</label>
+                            <div class="input-group">
+                                <span class="input-group-text bg-light text-muted fw-bold">Rs</span>
+                                <input type="number" step="1" min="0" name="monthly_salary" class="form-control" placeholder="e.g. 35000" value="0">
+                            </div>
                         </div>
                         <div class="col-12">
                             <label class="form-label fw-semibold text-secondary small">Office / Physical Address</label>

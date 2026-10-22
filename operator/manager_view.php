@@ -361,6 +361,18 @@ foreach ($activities as $act) {
         </div>
     </div>
 
+    <!-- Manager Salary & Lifetime Advance Ledger Section -->
+    <div class="mb-4">
+        <?php
+        $staff_type = 'manager';
+        $staff_id = (int)$mgr['id'];
+        $staff_name = $mgr['full_name'];
+        $monthly_sal = (int)($mgr['monthly_salary'] ?? 0);
+        $joined_date = $mgr['created_at'];
+        require __DIR__ . '/staff_salary_view.php';
+        ?>
+    </div>
+
     <!-- 30-Day Activity Audit Table -->
     <div class="card border-0 shadow-sm rounded-4 p-3 p-md-4" id="activityLogs">
         <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">

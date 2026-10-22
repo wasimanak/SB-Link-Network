@@ -1,5 +1,7 @@
 <?php
 require_once 'header.php';
+require_once __DIR__ . '/staff_salary_helper.php';
+init_staff_salary_schema($pdo);
 $client_id = $_SESSION['operator_id'];
 
 
@@ -73,8 +75,9 @@ try { $pdo->exec("ALTER TABLE `linemen` ADD COLUMN `can_create_users` TINYINT(1)
 try {
             $status = $_POST['status'] ?? 'active';
             $can_create = isset($_POST['can_create_users']) ? (int)$_POST['can_create_users'] : 1;
-            $stmt = $pdo->prepare("INSERT INTO linemen (client_id, full_name, username, password, phone, address, city, status, can_create_users) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$client_id, $full_name, $username, $password, $phone, $address, $city, $status, $can_create]);
+            $monthly_salary = (int)($_POST['monthly_salary'] ?? 0);
+            $stmt = $pdo->prepare("INSERT INTO linemen (client_id, full_name, username, password, phone, address, city, status, can_create_users, monthly_salary) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$client_id, $full_name, $username, $password, $phone, $address, $city, $status, $can_create, $monthly_salary]);
             echo "<script>alert('Line Man created successfully!'); window.location='$_SERVER[PHP_SELF]';</script>";
             exit;
         } catch (PDOException $e) {
@@ -95,8 +98,9 @@ try {
         $can_create = isset($_POST['can_create_users']) ? (int)$_POST['can_create_users'] : 1;
         
         try {
-            $stmt = $pdo->prepare("UPDATE linemen SET full_name=?, password=?, phone=?, address=?, city=?, status=?, can_create_users=? WHERE id=? AND client_id=?");
-            $stmt->execute([$full_name, $password, $phone, $address, $city, $status, $can_create, $id, $client_id]);
+            $monthly_salary = (int)($_POST['monthly_salary'] ?? 0);
+            $stmt = $pdo->prepare("UPDATE linemen SET full_name=?, password=?, phone=?, address=?, city=?, status=?, can_create_users=?, monthly_salary=? WHERE id=? AND client_id=?");
+            $stmt->execute([$full_name, $password, $phone, $address, $city, $status, $can_create, $monthly_salary, $id, $client_id]);
             echo "<script>alert('Line Man updated successfully!'); window.location='$_SERVER[PHP_SELF]';</script>";
             exit;
         } catch (PDOException $e) {
@@ -113,7 +117,7 @@ try {
 }
 
 // Fetch Members
-$stmt = $pdo->prepare("SELECT * FROM linemen WHERE client_id = ? ORDER BY id DESC");
+$stmt = $pdo->prepare("SELECT l.*, COALESCE((SELECT balance_after FROM staff_salary_ledger WHERE client_id = l.client_id AND staff_type = 'lineman' AND staff_id = l.id ORDER BY trans_date DESC, id DESC LIMIT 1), 0) AS salary_balance FROM linemen l WHERE l.client_id = ? ORDER BY l.id DESC");
 $stmt->execute([$client_id]);
 $members = $stmt->fetchAll();
 ?>
@@ -149,14 +153,14 @@ $members = $stmt->fetchAll();
                         <th>City</th>
                         <th>Contact</th>
                         <th>Created On</th>
-                        <th>Access</th>
+                        <th>Monthly Salary</th><th>Salary Balance</th><th>Access</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php foreach($members as $m): ?>
                     <tr>
-                        <td class="fw-bold text-dark"><?= htmlspecialchars($m['full_name']) ?></td>
+                        <td class="fw-bold text-dark"><a href="lineman_profile?id=<?= $m['id'] ?>" class="text-primary text-decoration-none fw-bold"><i class="fa-solid fa-user-circle me-1"></i> <?= htmlspecialchars($m['full_name']) ?></a></td>
                         <td><span class="badge bg-primary fs-6"><?= htmlspecialchars($m['username']) ?></span></td>
                         <td class="font-monospace text-muted"><?= htmlspecialchars($m['password']) ?></td>
                         <td><?= htmlspecialchars($m['city'] ?: 'N/A') ?></td>
@@ -183,7 +187,7 @@ $members = $stmt->fetchAll();
                         </td>
                         <td>
                             <?php if (empty($_SESSION['is_manager'])): ?>
-                            <button type="button" class="btn btn-sm btn-outline-primary me-1 btn-edit" 
+                            <a href="lineman_profile?id=<?= $m['id'] ?>" class="btn btn-sm btn-outline-secondary me-1" title="View Profile & Salary Ledger"><i class="fa-solid fa-eye"></i></a><button type="button" class="btn btn-sm btn-outline-primary me-1 btn-edit" 
                                 data-id="<?= $m['id'] ?>"
                                 data-fullname="<?= htmlspecialchars($m['full_name']) ?>"
                                 data-username="<?= htmlspecialchars($m['username']) ?>"
@@ -192,7 +196,7 @@ $members = $stmt->fetchAll();
                                 data-city="<?= htmlspecialchars($m['city']) ?>"
                                 data-address="<?= htmlspecialchars($m['address']) ?>"
                                 data-status="<?= $m['status'] ?? 'active' ?>"
-                                data-create="<?= $m['can_create_users'] ?? 1 ?>">
+                                data-create="<?= $m['can_create_users'] ?? 1 ?>" data-salary="<?= (int)($m['monthly_salary'] ?? 0) ?>">
                                 <i class="fa-solid fa-pen"></i>
                             </button>
                             <form method="POST" onsubmit="return confirm('Are you sure you want to delete this Line Man?');" class="d-inline">
@@ -247,6 +251,13 @@ $members = $stmt->fetchAll();
                     <label class="form-label small fw-bold text-secondary">City</label>
                     <input type="text" name="city" class="form-control" placeholder="e.g. Lahore">
                 </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label small fw-bold text-secondary">Monthly Salary (Rs)</label>
+                    <div class="input-group">
+                        <span class="input-group-text bg-light text-muted fw-bold">Rs</span>
+                        <input type="number" step="1" min="0" name="monthly_salary" class="form-control" placeholder="e.g. 25000" value="0">
+                    </div>
+                </div>
                 <div class="col-md-12 mb-3">
                     <label class="form-label small fw-bold text-secondary">Complete Address</label>
                     <input type="text" name="address" class="form-control" placeholder="Optional">
@@ -280,6 +291,7 @@ $(document).ready(function() {
         $("#edit_password").val($(this).attr("data-password"));
         $("#edit_phone").val($(this).attr("data-phone"));
         $("#edit_city").val($(this).attr("data-city"));
+        $("#edit_monthly_salary").val($(this).attr("data-salary") || 0);
         $("#edit_address").val($(this).attr("data-address"));
         $("#edit_status").val($(this).attr("data-status"));
         $("#edit_can_create").val($(this).attr("data-create"));
@@ -326,6 +338,13 @@ $(document).ready(function() {
                 <div class="col-md-6 mb-3">
                     <label class="form-label fw-bold small text-muted">City</label>
                     <input type="text" name="city" id="edit_city" class="form-control bg-light">
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label fw-bold small text-muted">Monthly Salary (Rs)</label>
+                    <div class="input-group">
+                        <span class="input-group-text bg-light text-muted fw-bold">Rs</span>
+                        <input type="number" step="1" min="0" name="monthly_salary" id="edit_monthly_salary" class="form-control bg-light" placeholder="e.g. 25000">
+                    </div>
                 </div>
                 <div class="col-md-6 mb-3">
                     <label class="form-label fw-bold small text-muted">Status</label>
