@@ -33,23 +33,7 @@ try {
         INDEX `idx_item_unit` (`unit`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
 
-    // Pre-seed items if table is empty
-    $itemCount = $pdo->query("SELECT COUNT(*) FROM items")->fetchColumn();
-    if ($itemCount == 0) {
-        $sampleItems = [
-            ['Mikrotik CCR2116', 'Nos.', 'Routers & Networking', 'CCR2116-12G-4S+', '16 Core High-performance Router with 10G SFP+'],
-            ['Fibre 8 Core', 'Km', 'Fiber & Optical Cable', '8-Core Single Mode', 'Outdoor armored fiber optic cable'],
-            ['ONU (EPON/GPON)', 'Nos.', 'ONUs & Modems', 'XPON-V2801', 'Gigabit Dual-mode Optical Network Unit'],
-            ['Drop Wire 2 Core', 'Mtr', 'Fiber & Optical Cable', 'FTTH-2C', 'FTTH Self-supporting bow-type drop cable'],
-            ['Patch Cord 3m SC/UPC', 'Nos.', 'Patch Cords & Adapters', 'SC-SC-3M', 'Single Mode Simplex Fiber Patch Cord'],
-            ['Joint Enclosure 24F', 'Nos.', 'Joint Closures & Enclosures', 'GJS-24F', 'Waterproof dome fiber splice closure'],
-            ['Splitter 1x8 PLC', 'Nos.', 'Splitters & Couplers', 'PLC-1x8-SC', 'Planar Lightwave Circuit Optical Splitter with SC/UPC connectors']
-        ];
-        $seedStmt = $pdo->prepare("INSERT INTO items (name, unit, category, model_code, description) VALUES (?, ?, ?, ?, ?)");
-        foreach ($sampleItems as $s) {
-            $seedStmt->execute($s);
-        }
-    }
+    
 
     // 2. Ensure operator_investments table exists
     $pdo->exec("CREATE TABLE IF NOT EXISTS `operator_investments` (
@@ -737,6 +721,13 @@ require_once 'header.php';
                             <input type="text" name="notes" class="form-control rounded-3" placeholder="e.g. For Phase 2 Network Expansion">
                         </div>
                     </div>
+
+                    <?php if (empty($superAdminItems)): ?>
+                    <div class="alert alert-warning rounded-3 small py-2 px-3 mb-3 d-flex align-items-center gap-2">
+                        <i class="fa-solid fa-triangle-exclamation text-warning fs-5"></i>
+                        <div>Catalog empty: SuperAdmin has not defined any hardware items yet. Please add items in <strong>SuperAdmin &gt; Items</strong> catalog first.</div>
+                    </div>
+                    <?php endif; ?>
 
                     <!-- Items Container -->
                     <div class="d-flex justify-content-between align-items-center mb-2">

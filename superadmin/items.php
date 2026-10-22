@@ -20,24 +20,7 @@ try {
         INDEX `idx_item_unit` (`unit`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
 
-    // Pre-seed initial standard ISP items if table is brand new
-    $chkCount = $pdo->query("SELECT COUNT(*) FROM items")->fetchColumn();
-    if ($chkCount == 0) {
-        $sampleItems = [
-            ['Mikrotik CCR2116', 'Nos.', 'Routers & Networking', 'CCR2116-12G-4S+', '16 Core High-performance Router with 10G SFP+'],
-            ['Fibre 8 Core', 'Km', 'Fiber & Optical Cable', '8-Core Single Mode', 'Outdoor armored fiber optic cable'],
-            ['ONU (EPON/GPON)', 'Nos.', 'ONUs & Modems', 'XPON-V2801', 'Gigabit Dual-mode Optical Network Unit'],
-            ['Drop Wire 2 Core', 'Mtr', 'Fiber & Optical Cable', 'FTTH-2C', 'FTTH Self-supporting bow-type drop cable'],
-            ['Patch Cord 3m SC/UPC', 'Nos.', 'Patch Cords & Adapters', 'SC-SC-3M', 'Single Mode Simplex Fiber Patch Cord'],
-            ['Joint Enclosure 24F', 'Nos.', 'Joint Closures & Enclosures', 'GJS-24F', 'Waterproof dome fiber splice closure'],
-            ['Splitter 1x8 PLC', 'Nos.', 'Splitters & Couplers', 'PLC-1x8-SC', 'Planar Lightwave Circuit Optical Splitter with SC/UPC connectors']
-        ];
-        $seedStmt = $pdo->prepare("INSERT INTO items (name, unit, category, model_code, description) VALUES (?, ?, ?, ?, ?)");
-        foreach ($sampleItems as $s) {
-            $seedStmt->execute($s);
-        }
-    }
-} catch (Exception $e) {
+    } catch (Exception $e) {
     // Fallback gracefully
 }
 
