@@ -185,6 +185,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         fclose($handle);
                     }
 
+                    $pdo->exec("SET UNIQUE_CHECKS = 1;");
                     $pdo->exec("SET FOREIGN_KEY_CHECKS = 1;");
 
                     $success = "Database restored successfully! Processed <strong>{$queryCount}</strong> SQL statements. <strong>{$tableCount}</strong> tables created/updated.";
@@ -269,6 +270,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // 4. Begin local synchronization
                 $pdo->exec("SET NAMES utf8mb4;");
                 $pdo->exec("SET FOREIGN_KEY_CHECKS = 0;");
+                $pdo->exec("SET UNIQUE_CHECKS = 0;");
                 $pdo->exec("SET SQL_MODE = 'NO_AUTO_VALUE_ON_ZERO';");
 
                 $syncedTablesCount = 0;
@@ -293,14 +295,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
                     }
 
+                    // Detect primary key for deterministic chunking
+                    $pkCol = null;
+                    try {
+                        $pkStmt = $remote_pdo->query("SHOW KEYS FROM `{$table}` WHERE Key_name = 'PRIMARY'");
+                        $pkRow = $pkStmt->fetch(PDO::FETCH_ASSOC);
+                        if (!empty($pkRow['Column_name'])) {
+                            $pkCol = "`" . str_replace("`", "``", $pkRow['Column_name']) . "`";
+                        }
+                    } catch (Exception $e) {}
+                    $orderClause = $pkCol ? "ORDER BY {$pkCol} ASC" : "";
+
                     // Count rows on remote
                     $rowCount = (int)$remote_pdo->query("SELECT COUNT(*) FROM `{$table}`")->fetchColumn();
                     $syncedRowsForTable = 0;
 
                     if ($rowCount > 0) {
-                        $batchSize = 250;
+                        $batchSize = 500;
                         for ($offset = 0; $offset < $rowCount; $offset += $batchSize) {
-                            $rowsStmt = $remote_pdo->query("SELECT * FROM `{$table}` LIMIT {$batchSize} OFFSET {$offset}");
+                            $rowsStmt = $remote_pdo->query("SELECT * FROM `{$table}` {$orderClause} LIMIT {$batchSize} OFFSET {$offset}");
                             $rows = $rowsStmt->fetchAll(PDO::FETCH_ASSOC);
 
                             if (!empty($rows)) {
@@ -321,7 +334,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     $insertRows[] = "(" . implode(", ", $values) . ")";
                                 }
 
-                                $pdo->exec("INSERT INTO `{$table}` ({$colsSql}) VALUES\n" . implode(",\n", $insertRows) . ";");
+                                // Use REPLACE INTO to gracefully handle duplicate keys or shifting offsets without breaking sync
+                                $pdo->exec("REPLACE INTO `{$table}` ({$colsSql}) VALUES\n" . implode(",\n", $insertRows) . ";");
                                 $syncedRowsForTable += count($rows);
                             }
                         }
@@ -346,6 +360,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
 
+                $pdo->exec("SET UNIQUE_CHECKS = 1;");
                 $pdo->exec("SET FOREIGN_KEY_CHECKS = 1;");
 
                 $summarySnippet = implode(', ', array_slice($tableSummary, 0, 8));
@@ -356,6 +371,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $success = "Database synchronized successfully from Old VPS (<strong>" . htmlspecialchars($remote_host) . "</strong>)! Transferred <strong>{$syncedTablesCount}</strong> tables and <strong>{$totalRowsCount}</strong> total records.<br><small class='text-muted'>Synced Tables: {$summarySnippet}" . ($preserve_sa ? " | <em>Your active SuperAdmin account was preserved safely.</em>" : "") . "</small>";
 
             } catch (Exception $e) {
+                try { $pdo->exec("SET UNIQUE_CHECKS = 1;"); } catch (Exception $ignored) {}
                 try { $pdo->exec("SET FOREIGN_KEY_CHECKS = 1;"); } catch (Exception $ignored) {}
                 $error = "Database synchronization failed: " . htmlspecialchars($e->getMessage());
             }
