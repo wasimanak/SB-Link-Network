@@ -402,6 +402,17 @@ try {
                         <i class="fa-solid fa-chevron-right text-muted fs-6"></i>
                     </a>
 
+                    <a href="items.php" class="quick-action-btn">
+                        <div class="quick-action-icon" style="background: #e0f2fe; color: #0284c7;">
+                            <i class="fa-solid fa-boxes-stacked"></i>
+                        </div>
+                        <div class="flex-grow-1">
+                            <div>Hardware &amp; Inventory Items</div>
+                            <div class="text-muted small fw-normal" style="font-size: 0.74rem;">MikroTik, Fiber, ONU &amp; Units</div>
+                        </div>
+                        <i class="fa-solid fa-chevron-right text-muted fs-6"></i>
+                    </a>
+
                     <a href="<?= $isSecurityAuth ? 'security.php' : 'javascript:void(0)' ?>" onclick="<?= $isSecurityAuth ? '' : 'openSecurityPrompt()' ?>" class="quick-action-btn">
                         <div class="quick-action-icon" style="background: #fef2f2; color: #dc2626;">
                             <i class="fa-solid fa-shield-halved"></i>

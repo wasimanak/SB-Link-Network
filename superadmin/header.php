@@ -81,6 +81,7 @@ require_once '../config/db.php';
         <a href="routers" class="<?= strpos($page, 'router') !== false ? 'active' : '' ?>"><i class="fa-solid fa-server menu-icon"></i> Global NAS/Routers</a>
         <a href="live_routers" class="<?= in_array($page, ['live_routers.php', 'live_routers']) ? 'active' : '' ?>"><i class="fa-solid fa-network-wired menu-icon"></i> Live Routers & Users</a>
         <a href="packages_master" class="<?= in_array($page, ['packages_master.php', 'packages_master']) ? 'active' : '' ?>"><i class="fa-solid fa-box-open menu-icon"></i> Master Packages</a>
+        <a href="items" class="<?= in_array($page, ['items.php', 'items']) ? 'active' : '' ?>"><i class="fa-solid fa-boxes-stacked menu-icon"></i> Items</a>
         
         <div class="px-4 mt-4 mb-2 text-muted fw-bold" style="font-size: 0.65rem; text-transform: uppercase; letter-spacing: 1px;">System & Finance</div>
         <a href="billing" class="<?= in_array($page, ['billing.php', 'billing']) ? 'active' : '' ?>"><i class="fa-solid fa-file-invoice-dollar menu-icon"></i> Subscriptions</a>
