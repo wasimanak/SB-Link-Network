@@ -53,8 +53,11 @@ if (isset($_POST['ajax_action']) && $_POST['ajax_action'] === 'test_remote_db') 
 
         if (str_contains($msg, 'Connection refused') || str_contains($msg, 'timed out') || str_contains($msg, '2002')) {
             $tip = "Old VPS par MySQL port {$port} block hai ya MySQL sirf 127.0.0.1 par bind hai. Setup Guide me diye gaye 3 commands Old VPS terminal me run karein.";
-        } elseif (str_contains($msg, 'Access denied') || str_contains($msg, '1045')) {
-            $tip = "MySQL Username ya Password ghalat hai, ya user ko remote IP se connect karne ki permission nahi hai.";
+        } elseif (str_contains($msg, 'Access denied') || str_contains($msg, '1045') || str_contains($msg, '1698')) {
+            $safeUser = htmlspecialchars($user, ENT_QUOTES);
+            $safePass = htmlspecialchars($pass, ENT_QUOTES);
+            $safeDb = htmlspecialchars($db_name, ENT_QUOTES);
+            $tip = "Old VPS par user '{$safeUser}' ko remote access ki permission nahi hai. Old VPS terminal me ye command run karein:<br><code class='d-block bg-dark text-white p-2 rounded mt-1 text-break' style='font-size:0.75rem;'>sudo mysql -e \"CREATE USER IF NOT EXISTS '{$safeUser}'@'%' IDENTIFIED BY '{$safePass}'; ALTER USER '{$safeUser}'@'%' IDENTIFIED BY '{$safePass}'; GRANT ALL PRIVILEGES ON {$safeDb}.* TO '{$safeUser}'@'%'; FLUSH PRIVILEGES;\"</code>";
         } elseif (str_contains($msg, 'Unknown database') || str_contains($msg, '1049')) {
             $tip = "Database '{$db_name}' Old VPS par mojood nahi hai. Sahi database naam check karein (e.g. radius).";
         }
@@ -710,9 +713,9 @@ try {
                             <div class="col-md-4">
                                 <div class="bg-white p-3 rounded-3 border border-info-subtle h-100">
                                     <strong class="text-dark d-block mb-1">Step 2: Remote User Permission</strong>
-                                    <span class="text-muted d-block mb-2">Old VPS MySQL me New VPS IP (<code><?= htmlspecialchars($newServerIp) ?></code>) ko allow karein:</span>
+                                    <span class="text-muted d-block mb-2">Old VPS MySQL me Remote connection ko allow karein:</span>
                                     <div class="bg-dark text-white p-2 rounded small" style="font-size: 0.73rem; word-break: break-all;">
-                                        sudo mysql -e "GRANT ALL PRIVILEGES ON radius.* TO 'radius'@'<?= htmlspecialchars($newServerIp) ?>' IDENTIFIED BY 'Wasi1234'; FLUSH PRIVILEGES;"
+                                        sudo mysql -e "CREATE USER IF NOT EXISTS 'radius'@'%' IDENTIFIED BY 'Wasi1234'; ALTER USER 'radius'@'%' IDENTIFIED BY 'Wasi1234'; GRANT ALL PRIVILEGES ON radius.* TO 'radius'@'%'; FLUSH PRIVILEGES;"
                                     </div>
                                 </div>
                             </div>
