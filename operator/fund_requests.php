@@ -310,7 +310,7 @@ foreach ($requests as $r) {
             </div>
             <div>
                 <div class="stat-pill-label">Total Approved Funds</div>
-                <div class="stat-pill-val text-success">Rs. <?= number_format($total_approved_amount, 2) ?></div>
+                <div class="stat-pill-val text-success">Rs. <?= number_format($total_approved_amount, 0) ?></div>
             </div>
         </div>
     </div>
@@ -404,7 +404,7 @@ foreach ($requests as $r) {
                         <?php endif; ?>
                     </td>
                     <td>
-                        <strong class="text-success" style="font-size: 1rem;">Rs. <?= number_format($r['amount'], 2) ?></strong>
+                        <strong class="text-success" style="font-size: 1rem;">Rs. <?= number_format($r['amount'], 0) ?></strong>
                     </td>
                     <td>
                         <span class="badge rounded-pill bg-light text-secondary border font-monospace px-3 py-1">
@@ -430,7 +430,7 @@ foreach ($requests as $r) {
                         <?php if($r['status'] == 'pending'): ?>
                             <form method="POST" class="d-inline">
                                 <input type="hidden" name="request_id" value="<?= $r['id'] ?>">
-                                <button type="submit" name="status" value="approved" class="btn btn-sm btn-success rounded-pill px-3 py-1 fw-bold shadow-sm" onclick="return confirm('Approve request and add Rs. <?= number_format($r['amount'], 2) ?> to balance?')">
+                                <button type="submit" name="status" value="approved" class="btn btn-sm btn-success rounded-pill px-3 py-1 fw-bold shadow-sm" onclick="return confirm('Approve request and add Rs. <?= number_format($r['amount'], 0) ?> to balance?')">
                                     <i class="fa-solid fa-check me-1"></i> Approve
                                 </button>
                                 <button type="submit" name="status" value="rejected" class="btn btn-sm btn-outline-danger rounded-pill px-3 py-1 fw-bold ms-1" onclick="return confirm('Reject this fund request?')">

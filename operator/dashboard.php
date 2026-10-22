@@ -294,7 +294,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, description, balance_after) VALUES (?, ?, ?, ?, ?, ?)")
                     ->execute([$client_id, $sub_user, $type, $absAmount, $desc, $finalBal]);
                 
-                $actStr = $final_amount > 0 ? "Added Balance: Rs. " . number_format($absAmount, 2) . " ($desc)" : "Deducted Balance: Rs. " . number_format($absAmount, 2) . " ($desc)";
+                $actStr = $final_amount > 0 ? "Added Balance: Rs. " . number_format($absAmount, 0) . " ($desc)" : "Deducted Balance: Rs. " . number_format($absAmount, 0) . " ($desc)";
                 $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, 'Admin', ?, 'User', ?)")
                     ->execute([$client_id, $sub_user, $actStr]);
                 
@@ -1349,7 +1349,7 @@ $map_subscribers = $pdo->query("
                             data-fullname="<?= htmlspecialchars($pu['full_name'] ?: 'N/A') ?>"
                             data-balance="<?= (float)$pu['balance'] ?>"
                             data-status="<?= htmlspecialchars($pu['status']) ?>">
-                      <?= htmlspecialchars($pu['username']) ?> - <?= htmlspecialchars($pu['full_name'] ?: 'No Name') ?> (Bal: Rs. <?= number_format($pu['balance'], 2) ?>) [<?= $pu['status'] ?>]
+                      <?= htmlspecialchars($pu['username']) ?> - <?= htmlspecialchars($pu['full_name'] ?: 'No Name') ?> (Bal: Rs. <?= number_format($pu['balance'], 0) ?>) [<?= $pu['status'] ?>]
                     </option>
                   <?php endforeach; ?>
                 </select>
@@ -1399,7 +1399,7 @@ $map_subscribers = $pdo->query("
                 </label>
                 <div class="input-group input-group-lg">
                   <span class="input-group-text bg-light fw-bold text-dark" id="amount_currency_tag">Rs.</span>
-                  <input type="number" step="0.01" min="1" name="amount" id="payment_amount_input" class="form-control fw-bold" placeholder="0.00" required oninput="calculateProjectedBalance()">
+                  <input type="number" step="1" min="1" name="amount" id="payment_amount_input" class="form-control fw-bold" placeholder="0" required oninput="calculateProjectedBalance()">
                 </div>
                 
                 <!-- Quick Amount Chips -->
@@ -1436,7 +1436,7 @@ $map_subscribers = $pdo->query("
               <i class="fa-solid fa-wallet fs-4 me-3 text-info"></i>
               <div>
                 <span class="small text-muted d-block">Total Operator Balance</span>
-                <strong class="fs-5 text-dark">Rs. <?= number_format($total_balance_all, 2) ?></strong>
+                <strong class="fs-5 text-dark">Rs. <?= number_format($total_balance_all, 0) ?></strong>
               </div>
             </div>
 
@@ -1466,7 +1466,7 @@ $map_subscribers = $pdo->query("
                       <?php endif; ?>
                     </td>
                     <td class="fw-bold <?= $s['balance'] < 0 ? 'text-danger' : 'text-success' ?>">
-                      Rs. <?= number_format($s['balance'], 2) ?>
+                      Rs. <?= number_format($s['balance'], 0) ?>
                     </td>
                     <td>
                       <button type="button" class="btn btn-sm btn-outline-primary w-100 fw-semibold" onclick="selectUserForPayment(<?= $s['id'] ?>)">
@@ -2598,7 +2598,7 @@ function onPaymentUserSelected() {
     document.getElementById('disp_user_username').innerText = username;
     
     var balEl = document.getElementById('disp_user_balance');
-    balEl.innerText = 'Rs. ' + bal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    balEl.innerText = 'Rs. ' + Math.round(bal).toLocaleString('en-US');
     balEl.className = 'fs-4 fw-bold ' + (bal < 0 ? 'text-danger' : 'text-success');
 
     var badgeHtml = '';
@@ -2640,7 +2640,7 @@ function calculateProjectedBalance() {
     
     var newBal = isDeduct ? (currentSelectedBalance - amt) : (currentSelectedBalance + amt);
     var colorClass = newBal < 0 ? 'text-danger' : 'text-success';
-    projEl.innerHTML = 'Projected After: <strong class="' + colorClass + '">Rs. ' + newBal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + '</strong>';
+    projEl.innerHTML = 'Projected After: <strong class="' + colorClass + '">Rs. ' + Math.round(newBal).toLocaleString('en-US') + '</strong>';
 }
 
 function setQuickAmount(val) {

@@ -153,14 +153,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($addedCount > 0) {
                 // Log activity
                 try {
-                    $act = "Added {$addedCount} material items to Net Worth investment (Total: Rs. " . number_format($totalBatchAmount, 2) . ")";
+                    $act = "Added {$addedCount} material items to Net Worth investment (Total: Rs. " . number_format($totalBatchAmount, 0) . ")";
                     $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, ?, 'Net Worth', 'Inventory', ?)")
                         ->execute([$client_id, $actor_name, $act]);
                 } catch (Exception $e) {}
 
                 $_SESSION['networth_flash'] = [
                     'type' => 'success',
-                    'msg' => "Successfully recorded {$addedCount} items! Total investment added: Rs. " . number_format($totalBatchAmount, 2)
+                    'msg' => "Successfully recorded {$addedCount} items! Total investment added: Rs. " . number_format($totalBatchAmount, 0)
                 ];
             } else {
                 $_SESSION['networth_flash'] = ['type' => 'danger', 'msg' => 'No valid item rows were submitted. Please check quantities and prices.'];
@@ -222,7 +222,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->prepare("DELETE FROM operator_investments WHERE id = ? AND client_id = ?")->execute([$inv_id, $client_id]);
                 
                 try {
-                    $act = "Deleted Net Worth investment item: {$existing['item_name']} (Rs. " . number_format((float)$existing['total_amount'], 2) . ")";
+                    $act = "Deleted Net Worth investment item: {$existing['item_name']} (Rs. " . number_format((float)$existing['total_amount'], 0) . ")";
                     $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, ?, 'Net Worth', 'Inventory', ?)")
                         ->execute([$client_id, $actor_name, $act]);
                 } catch (Exception $e) {}
@@ -478,7 +478,7 @@ require_once 'header.php';
                 <div class="flex-grow-1 overflow-hidden">
                     <div class="stat-pill-label">Total Net Worth / Assets</div>
                     <div class="stat-pill-val text-success text-truncate">
-                        Rs <?= number_format($total_net_worth, 2) ?>
+                        Rs <?= number_format($total_net_worth, 0) ?>
                     </div>
                     <div class="text-muted small" style="font-size: 0.72rem;">
                         <?= count($investments) ?> total material entries
@@ -514,7 +514,7 @@ require_once 'header.php';
                 <div class="flex-grow-1 overflow-hidden">
                     <div class="stat-pill-label">Fiber Infrastructure</div>
                     <div class="stat-pill-val text-purple text-truncate">
-                        <?= number_format($total_cables_km, 2) ?> <span style="font-size: 0.95rem;">Km</span>
+                        <?= number_format($total_cables_km, 0) ?> <span style="font-size: 0.95rem;">Km</span>
                     </div>
                     <div class="text-muted small" style="font-size: 0.72rem;">
                         Plus <?= number_format($total_cables_mtr, 0) ?> Mtr Drop wire
@@ -539,7 +539,7 @@ require_once 'header.php';
                         <?= htmlspecialchars($topCat) ?>
                     </div>
                     <div class="text-muted small" style="font-size: 0.72rem;">
-                        Rs <?= number_format($topCatAmt, 2) ?>
+                        Rs <?= number_format($topCatAmt, 0) ?>
                     </div>
                 </div>
             </div>
@@ -629,16 +629,16 @@ require_once 'header.php';
                                 </span>
                             </td>
                             <td>
-                                <span class="fw-bold text-dark me-1"><?= number_format((float)$inv['quantity'], 2) ?></span>
+                                <span class="fw-bold text-dark me-1"><?= number_format((float)$inv['quantity'], 0) ?></span>
                                 <span class="badge rounded-pill px-2 py-1 <?= $badgeClass ?>"><?= htmlspecialchars($inv['unit']) ?></span>
                             </td>
                             <td>
-                                <span class="fw-semibold text-muted">Rs <?= number_format((float)$inv['unit_price'], 2) ?></span>
+                                <span class="fw-semibold text-muted">Rs <?= number_format((float)$inv['unit_price'], 0) ?></span>
                                 <span class="text-muted small" style="font-size: 0.7rem;">/ <?= htmlspecialchars($inv['unit']) ?></span>
                             </td>
                             <td>
                                 <div class="fw-bold text-success fs-6">
-                                    Rs <?= number_format((float)$inv['total_amount'], 2) ?>
+                                    Rs <?= number_format((float)$inv['total_amount'], 0) ?>
                                 </div>
                             </td>
                             <td>
@@ -813,7 +813,7 @@ require_once 'header.php';
                                 Quantity <span class="text-danger">*</span>
                             </label>
                             <div class="input-group">
-                                <input type="number" step="0.01" min="0.01" name="quantity" id="edit_quantity" class="form-control" required oninput="calcEditSubtotal()">
+                                <input type="number" step="1" min="1" name="quantity" id="edit_quantity" class="form-control" required oninput="calcEditSubtotal()">
                                 <span class="input-group-text bg-light fw-bold text-primary" id="edit_unit_display">Nos.</span>
                             </div>
                         </div>
@@ -825,7 +825,7 @@ require_once 'header.php';
                             </label>
                             <div class="input-group">
                                 <span class="input-group-text bg-light text-muted fw-bold">Rs</span>
-                                <input type="number" step="0.01" min="0" name="unit_price" id="edit_unit_price" class="form-control" required oninput="calcEditSubtotal()">
+                                <input type="number" step="1" min="0" name="unit_price" id="edit_unit_price" class="form-control" required oninput="calcEditSubtotal()">
                             </div>
                         </div>
 
@@ -984,7 +984,7 @@ function addMaterialRow() {
                     Quantity <span class="text-danger">*</span>
                 </label>
                 <div class="input-group">
-                    <input type="number" step="0.01" min="0.01" name="quantity[]" class="form-control rounded-start-3 qty-input" placeholder="Qty" required oninput="calcRowTotal(${rowIndex})">
+                    <input type="number" step="1" min="1" name="quantity[]" class="form-control rounded-start-3 qty-input" placeholder="Qty" required oninput="calcRowTotal(${rowIndex})">
                     <span class="input-group-text bg-light text-primary fw-bold unit-badge" id="unit_badge_${rowIndex}" style="font-size: 0.75rem;">Nos.</span>
                 </div>
             </div>
@@ -996,7 +996,7 @@ function addMaterialRow() {
                 </label>
                 <div class="input-group">
                     <span class="input-group-text bg-light text-muted fw-bold" style="font-size: 0.75rem;">Rs</span>
-                    <input type="number" step="0.01" min="0" name="unit_price[]" class="form-control rounded-end-3 price-input" placeholder="Price" required oninput="calcRowTotal(${rowIndex})">
+                    <input type="number" step="1" min="0" name="unit_price[]" class="form-control rounded-end-3 price-input" placeholder="Price" required oninput="calcRowTotal(${rowIndex})">
                 </div>
             </div>
 
@@ -1041,7 +1041,7 @@ function calcRowTotal(rId) {
 
     const subDisplay = document.getElementById(`subtotal_${rId}`);
     if (subDisplay) {
-        subDisplay.innerText = 'Rs ' + sub.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        subDisplay.innerText = 'Rs ' + Math.round(sub).toLocaleString('en-US');
     }
     updateGrandTotal();
 }
@@ -1069,7 +1069,7 @@ function updateGrandTotal() {
 
     const display = document.getElementById('batchGrandTotal');
     if (display) {
-        display.innerText = 'Rs ' + grand.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        display.innerText = 'Rs ' + Math.round(grand).toLocaleString('en-US');
     }
 }
 
@@ -1091,8 +1091,8 @@ function openEditInvestmentModal(invId) {
                 const inv = res.investment;
                 document.getElementById('edit_inv_id').value = inv.id;
                 document.getElementById('edit_item_id').value = inv.item_id;
-                document.getElementById('edit_quantity').value = parseFloat(inv.quantity);
-                document.getElementById('edit_unit_price').value = parseFloat(inv.unit_price);
+                document.getElementById('edit_quantity').value = Math.round(parseFloat(inv.quantity));
+                document.getElementById('edit_unit_price').value = Math.round(parseFloat(inv.unit_price));
                 document.getElementById('edit_unit_display').innerText = inv.unit || 'Nos.';
                 document.getElementById('edit_investment_date').value = inv.investment_date;
                 document.getElementById('edit_vendor').value = inv.vendor || '';
@@ -1126,7 +1126,7 @@ function calcEditSubtotal() {
     const qty = parseFloat(document.getElementById('edit_quantity').value) || 0;
     const prc = parseFloat(document.getElementById('edit_unit_price').value) || 0;
     const sub = (qty * prc);
-    document.getElementById('edit_total_calc').innerText = 'Rs ' + sub.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    document.getElementById('edit_total_calc').innerText = 'Rs ' + Math.round(sub).toLocaleString('en-US');
 }
 
 // -------------------------------------------------------------

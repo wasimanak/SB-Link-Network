@@ -254,7 +254,7 @@ foreach($invoices as $inv) {
             </div>
             <div>
                 <div class="stat-pill-label">Recharge / Payments</div>
-                <div class="stat-pill-val text-success">Rs. <?= number_format($total_credits, 2) ?></div>
+                <div class="stat-pill-val text-success">Rs. <?= number_format($total_credits, 0) ?></div>
             </div>
         </div>
     </div>
@@ -265,7 +265,7 @@ foreach($invoices as $inv) {
             </div>
             <div>
                 <div class="stat-pill-label">Billing / Deductions</div>
-                <div class="stat-pill-val text-danger">Rs. <?= number_format($total_debits, 2) ?></div>
+                <div class="stat-pill-val text-danger">Rs. <?= number_format($total_debits, 0) ?></div>
             </div>
         </div>
     </div>
@@ -345,7 +345,7 @@ foreach($invoices as $inv) {
                     </td>
                     <td>
                         <span class="fw-bold <?= $inv['type'] == 'credit' ? 'text-success' : 'text-danger' ?>" style="font-size: 1rem;">
-                            Rs. <?= number_format($inv['amount'], 2) ?>
+                            Rs. <?= number_format($inv['amount'], 0) ?>
                         </span>
                     </td>
                     <td class="text-end">

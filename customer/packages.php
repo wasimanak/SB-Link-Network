@@ -29,7 +29,7 @@ $has_pending = $reqStmt->fetchColumn() > 0;
                 <div class="badge bg-primary position-absolute top-0 end-0 mt-3 me-3">Current Plan</div>
             <?php endif; ?>
             <h4 class="fw-bold mt-3"><?= htmlspecialchars($p['name']) ?></h4>
-            <h2 class="text-accent my-3">Rs <?= number_format($p['price'], 2) ?></h2>
+            <h2 class="text-accent my-3">Rs <?= number_format($p['price'], 0) ?></h2>
             
             <ul class="list-unstyled text-secondary my-4">
                 <li class="mb-2"><i class="fa-solid fa-gauge me-2"></i> <?= htmlspecialchars($p['rate_limit'] ?: 'Unlimited Speed') ?></li>

@@ -653,7 +653,7 @@ body { background-color: #f1f5f9; }
                     <div class="stat-icon"><i class="fa-solid fa-users"></i></div>
                     <div>
                         <div class="stat-title">Total Users</div>
-                        <div class="stat-value"><?= number_format($dealer['user_count'], 2) ?></div>
+                        <div class="stat-value"><?= number_format($dealer['user_count'], 0) ?></div>
                     </div>
                 </div>
             </div>
@@ -671,7 +671,7 @@ body { background-color: #f1f5f9; }
                     <div class="stat-icon balance-icon"><i class="fa-regular fa-credit-card"></i></div>
                     <div>
                         <div class="stat-title">Current Balance</div>
-                        <div class="stat-value"><?= number_format($dealer['balance'], 2) ?></div>
+                        <div class="stat-value"><?= number_format($dealer['balance'], 0) ?></div>
                     </div>
                 </div>
             </div>
@@ -708,8 +708,8 @@ body { background-color: #f1f5f9; }
                                         <i class="fa-solid fa-box text-success me-2" style="font-size: 1.1rem; vertical-align: middle;"></i> 
                                         <span class="text-secondary fw-bold" style="font-size: 0.9rem;"><?= htmlspecialchars($ap['name']) ?></span>
                                     </td>
-                                    <td class="py-3 fw-bold text-dark">Rs. <?= number_format($ap['dealer_price'], 2) ?></td>
-                                    <td class="py-3 fw-bold text-success">Rs. <?= number_format($ap['dealer_profit'], 2) ?></td>
+                                    <td class="py-3 fw-bold text-dark">Rs. <?= number_format($ap['dealer_price'], 0) ?></td>
+                                    <td class="py-3 fw-bold text-success">Rs. <?= number_format($ap['dealer_profit'], 0) ?></td>
                                     <td class="py-3 text-end pe-3">
                                         <button class="btn btn-sm btn-light text-primary me-1" onclick="editPackage(<?= $ap['package_id'] ?>, <?= $ap['dealer_price'] ?>, <?= $ap['dealer_profit'] ?>)" title="Edit"><i class="fa-solid fa-pen-to-square"></i></button>
                                         <form method="POST" class="d-inline" onsubmit="return confirm('Are you sure you want to remove this package from the dealer?');">
@@ -912,7 +912,7 @@ body { background-color: #f1f5f9; }
                     <label class="mb-0 fw-bold" style="color: #475569; font-size: 0.9rem;">Dealer Price <span class="text-danger">*</span></label>
                 </div>
                 <div class="col-sm-8">
-                    <input type="number" step="0.01" name="dealer_price" class="form-control" placeholder="Enter Package Price" required>
+                    <input type="number" step="1" name="dealer_price" class="form-control" placeholder="Enter Package Price" required>
                 </div>
             </div>
             
@@ -921,7 +921,7 @@ body { background-color: #f1f5f9; }
                     <label class="mb-0 fw-bold" style="color: #475569; font-size: 0.9rem;">Dealer Profit <span class="text-danger">*</span></label>
                 </div>
                 <div class="col-sm-8">
-                    <input type="number" step="0.01" name="dealer_profit" class="form-control" placeholder="Enter Package Profit" required>
+                    <input type="number" step="1" name="dealer_profit" class="form-control" placeholder="Enter Package Profit" required>
                 </div>
             </div>
 
@@ -1018,7 +1018,7 @@ body { background-color: #f1f5f9; }
             </div>
             <div class="mb-3">
                 <label class="form-label">Amount</label>
-                <input type="number" step="0.01" name="amount" class="form-control" required>
+                <input type="number" step="1" name="amount" class="form-control" required>
             </div>
         </div>
         <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button><button type="submit" class="btn btn-primary">Confirm</button></div>

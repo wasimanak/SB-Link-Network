@@ -375,7 +375,7 @@ $webhook_url = $current_protocol . $_SERVER['HTTP_HOST'] . '/safepay_webhook.php
                                 <div class="fw-semibold text-dark"><?= htmlspecialchars($tx['username'] ?? 'User #' . $tx['subscriber_id']) ?></div>
                                 <div class="text-muted" style="font-size: 0.72rem;"><?= htmlspecialchars($tx['full_name'] ?? '') ?></div>
                             </td>
-                            <td class="fw-bold text-success">Rs. <?= number_format($tx['amount'], 2) ?></td>
+                            <td class="fw-bold text-success">Rs. <?= number_format($tx['amount'], 0) ?></td>
                             <td>
                                 <?php if ($tx['purpose'] === 'package_renew'): ?>
                                     <span class="badge bg-primary-subtle text-primary border border-primary-subtle">Renew: <?= htmlspecialchars($tx['package_name'] ?? 'Package') ?></span>

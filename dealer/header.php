@@ -165,7 +165,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
     
     <div class="px-4 py-3 mb-2 border-bottom border-secondary border-opacity-25">
         <div class="text-dark fw-bold"><?= htmlspecialchars($current_dealer['franchise'] ?: $current_dealer['full_name']) ?></div>
-        <div class="small text-muted"><i class="fa-solid fa-wallet text-success me-1"></i> Rs. <?= number_format($current_dealer['balance'], 2) ?></div>
+        <div class="small text-muted"><i class="fa-solid fa-wallet text-success me-1"></i> Rs. <?= number_format($current_dealer['balance'], 0) ?></div>
     </div>
 
     <ul class="nav flex-column mt-3">

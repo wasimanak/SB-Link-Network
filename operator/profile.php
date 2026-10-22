@@ -309,7 +309,7 @@ $routers = $nasStmt->fetchAll(PDO::FETCH_ASSOC);
                     <div class="metric-icon-sm bg-light-grey" style="background:#f1f5f9; color:#475569;"><i class="fa-regular fa-credit-card"></i></div>
                     <div class="metric-data-sm">
                         <h6 class="text-dark">Total Recharge (LifeTime)</h6>
-                        <h4 class="<?= $total_advance < 0 ? 'text-danger' : 'text-success' ?>">Rs. <?= number_format($total_advance, 2) ?></h4>
+                        <h4 class="<?= $total_advance < 0 ? 'text-danger' : 'text-success' ?>">Rs. <?= number_format($total_advance, 0) ?></h4>
                         <small class="text-muted"><i class="fa-solid fa-arrow-up-right-from-square"></i> View Statement</small>
                     </div>
                 </div>
@@ -345,7 +345,7 @@ $routers = $nasStmt->fetchAll(PDO::FETCH_ASSOC);
                                         <tr>
                                             <td><span class="badge rounded-pill bg-light text-dark border"><?= htmlspecialchars($p['name']) ?></span></td>
                                             <td><?= htmlspecialchars($p['rate_limit'] ?: 'N/A') ?></td>
-                                            <td><span class="text-success fw-bold"><?= number_format($p['price'], 2) ?></span></td>
+                                            <td><span class="text-success fw-bold"><?= number_format($p['price'], 0) ?></span></td>
                                         </tr>
                                         <?php endforeach; ?>
                                     </tbody>

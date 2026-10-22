@@ -14,7 +14,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $pdo->beginTransaction();
             $pdo->prepare("UPDATE clients SET balance = balance + ? WHERE id = ?")->execute([$amount, $client_id]);
             $pdo->commit();
-            $success = "Balance of Rs " . number_format($amount, 2) . " successfully added to operator wallet.";
+            $success = "Balance of Rs " . number_format($amount, 0) . " successfully added to operator wallet.";
         } catch (Exception $e) {
             $pdo->rollBack();
             $error = "Error adding balance: " . htmlspecialchars($e->getMessage());
@@ -243,7 +243,7 @@ foreach ($operators as $op) {
                 </div>
                 <div>
                     <div class="stat-pill-lbl">Total Operator Balances</div>
-                    <div class="stat-pill-val">Rs <?= number_format($totalBalanceHeld, 2) ?></div>
+                    <div class="stat-pill-val">Rs <?= number_format($totalBalanceHeld, 0) ?></div>
                     <div class="text-success small fw-semibold" style="font-size: 0.74rem;"><i class="fa-solid fa-circle-check"></i> Aggregate Pre-paid Funds</div>
                 </div>
             </div>
@@ -350,7 +350,7 @@ foreach ($operators as $op) {
 
                             <td>
                                 <div class="fw-bold text-primary fs-6">
-                                    Rs <?= number_format($op['balance'], 2) ?>
+                                    Rs <?= number_format($op['balance'], 0) ?>
                                 </div>
                                 <div class="text-muted" style="font-size: 0.72rem;">Pre-paid balance</div>
                             </td>
@@ -392,7 +392,7 @@ foreach ($operators as $op) {
                                                 <label class="form-label text-dark fw-bold small mb-1">Credit Amount (Rs) <span class="text-danger">*</span></label>
                                                 <div class="input-group">
                                                     <span class="input-group-text bg-light text-muted fw-bold">Rs</span>
-                                                    <input type="number" step="0.01" name="amount" class="form-control" placeholder="e.g. 5000" required>
+                                                    <input type="number" step="1" name="amount" class="form-control" placeholder="e.g. 5000" required>
                                                 </div>
                                             </div>
 

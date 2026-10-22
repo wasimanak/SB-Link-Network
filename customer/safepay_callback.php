@@ -135,7 +135,7 @@ if (empty($tracker)) {
                 </div>
                 <div class="d-flex justify-content-between mb-2 pb-2 border-bottom">
                     <span class="text-muted">Amount Paid:</span>
-                    <span class="fw-bold text-success fs-6">Rs. <?= number_format($order_data['amount'], 2) ?></span>
+                    <span class="fw-bold text-success fs-6">Rs. <?= number_format($order_data['amount'], 0) ?></span>
                 </div>
                 <div class="d-flex justify-content-between">
                     <span class="text-muted">Payment Type:</span>
@@ -150,7 +150,7 @@ if (empty($tracker)) {
             </div>
             <?php else: ?>
             <div class="alert alert-success border-0 small text-success-emphasis bg-success-subtle rounded-3 py-2">
-                <i class="fa-solid fa-wallet text-success me-1"></i> Your account balance has been credited with <strong>Rs. <?= number_format($order_data['amount'] ?? 0, 2) ?></strong>!
+                <i class="fa-solid fa-wallet text-success me-1"></i> Your account balance has been credited with <strong>Rs. <?= number_format($order_data['amount'] ?? 0, 0) ?></strong>!
             </div>
             <?php endif; ?>
 

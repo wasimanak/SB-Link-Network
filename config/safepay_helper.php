@@ -261,7 +261,7 @@ function process_successful_payment($order_ref, $pdo, $method_label = 'Safepay')
 
             // Activity Log
             $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, 'System', ?, 'User', ?)")
-                ->execute([$client_id, $username, "Online Wallet Recharge: Rs. " . number_format($amount, 2) . " via {$method_label}"]);
+                ->execute([$client_id, $username, "Online Wallet Recharge: Rs. " . number_format($amount, 0) . " via {$method_label}"]);
 
             // Auto-Renew if subscriber was expired and newly added balance is sufficient
             $is_expired = ($sub['status'] === 'expired' || strtotime($sub['expiry_date'] ?? '1970-01-01') <= time());

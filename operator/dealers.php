@@ -128,7 +128,7 @@ $dealers = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 <td><?= htmlspecialchars($d['franchise'] ?? 'N/A') ?></td>
                 <td><?= $d['last_login'] ?: 'Never' ?></td>
                 <td><?= htmlspecialchars($d['area'] ?? 'N/A') ?></td>
-                <td class="fw-bold text-dark"><?= number_format($d['balance'], 2) ?></td>
+                <td class="fw-bold text-dark"><?= number_format($d['balance'], 0) ?></td>
                 <td class="fw-bold text-dark"><?= $d['user_count'] ?></td>
                 <td>
                     <button class="btn btn-sm text-primary fw-bold px-3 py-1 me-2" style="background-color: #e0e7ff; border-radius: 20px; font-size: 0.75rem;"><i class="fa-brands fa-paypal me-1"></i> Payment</button>

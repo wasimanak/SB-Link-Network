@@ -418,7 +418,7 @@ if (empty($gateway_display_name)) {
             <h6 class="fw-bold mb-1 text-success-emphasis">Online Payment Verified & Activated!</h6>
             <div class="small text-success-emphasis">
                 <?php foreach ($synced_payments as $sp): ?>
-                    Your payment of <strong>Rs. <?= number_format($sp['amount'], 2) ?></strong> (Order #<?= htmlspecialchars($sp['order_id']) ?>) was confirmed with Safepay. 
+                    Your payment of <strong>Rs. <?= number_format($sp['amount'], 0) ?></strong> (Order #<?= htmlspecialchars($sp['order_id']) ?>) was confirmed with Safepay. 
                     <?= !empty($sp['package_renewed']) ? 'Your internet package (<strong>' . htmlspecialchars($sp['package_name']) . '</strong>) has been renewed and connection re-activated!' : 'Your wallet balance has been credited!' ?>
                 <?php endforeach; ?>
             </div>
@@ -454,7 +454,7 @@ if (empty($gateway_display_name)) {
                     <i class="fa-solid fa-wallet text-white-50"></i>
                 </div>
                 <div class="fw-bold text-white mb-3" style="font-size: 1.9rem; line-height: 1;">
-                    Rs <?= number_format($current_user['balance'], 2) ?>
+                    Rs <?= number_format($current_user['balance'], 0) ?>
                 </div>
                 <div class="d-flex gap-2">
                     <button type="button" data-bs-toggle="modal" data-bs-target="#addFundsModal" class="btn btn-light btn-sm rounded-pill px-3 fw-bold shadow-sm flex-grow-1 text-primary">
@@ -923,7 +923,7 @@ if (empty($gateway_display_name)) {
                         <input class="form-check-input mt-0 me-3" type="radio" name="payment_method" id="pay_balance" value="balance" <?= !$has_safepay ? 'checked' : '' ?> onchange="togglePaymentUI()">
                         <div>
                             <div class="fw-bold text-dark" style="font-size: 0.92rem;"><i class="fa-solid fa-wallet text-success me-1"></i> Available Wallet Balance</div>
-                            <div class="text-muted small">Available Funds: <strong class="text-success">Rs <?= number_format($current_user['balance'], 2) ?></strong></div>
+                            <div class="text-muted small">Available Funds: <strong class="text-success">Rs <?= number_format($current_user['balance'], 0) ?></strong></div>
                         </div>
                     </div>
                 </label>
