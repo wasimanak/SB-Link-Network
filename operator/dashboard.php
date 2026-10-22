@@ -742,6 +742,14 @@ $map_subscribers = $pdo->query("
         <div class="quick-action-text">IP Pool</div>
     </a>
     <?php endif; ?>
+
+    <!-- Expenses -->
+    <a href="expenses" class="quick-action-card">
+        <div class="quick-action-icon" style="background: linear-gradient(135deg, #ef4444, #b91c1c);">
+            <i class="fa-solid fa-receipt"></i>
+        </div>
+        <div class="quick-action-text">Expenses</div>
+    </a>
 </div>
 
 <!-- Reports & Statistics Card -->

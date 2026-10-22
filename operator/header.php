@@ -63,7 +63,7 @@ $filter = $_GET['filter'] ?? '';
 // Menu Active States
 $isTeamMenu = in_array($p, ['dealers.php', 'dealer_view.php', 'recovery_man.php', 'line_man.php', 'managers.php', 'manager_view.php']);
 $isUserMenu = in_array($p, ['subscribers.php', 'live_sessions.php']);
-$isAccMenu = in_array($p, ['packages.php', 'fund_requests.php', 'invoices.php']);
+$isAccMenu = in_array($p, ['packages.php', 'fund_requests.php', 'invoices.php', 'expenses.php', 'expenses']);
 $isTicketMenu = in_array($p, ['requests.php', 'fund_requests.php', 'support_tickets.php', 'view_ticket.php']);
 
 // Fetch Pending Requests Count for Badges
@@ -370,6 +370,11 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
             <a href="subscribers?filter=expiring_2w" class="<?= $filter==='expiring_2w' ? 'active' : '' ?>">Expiring In 2 Weeks</a>
         </div>
 
+        <!-- Expenses -->
+        <a href="expenses" class="nav-link-main rounded-3 mb-1 <?= in_array($p, ['expenses.php', 'expenses']) ? 'active-parent' : '' ?>">
+            <i class="fa-solid fa-receipt menu-icon"></i> <span class="menu-text">Expenses</span>
+        </a>
+
         <!-- Accounting -->
         <a href="#accountingMenu" data-bs-toggle="collapse" class="nav-link-main has-submenu <?= $isAccMenu ? 'active-parent' : 'collapsed' ?>" aria-expanded="<?= $isAccMenu ? 'true' : 'false' ?>">
             <i class="fa-solid fa-dollar-sign menu-icon"></i> <span class="menu-text">Accounting</span>
@@ -378,6 +383,7 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
             
             <a href="invoices" class="<?= in_array($p, ['invoices.php', 'invoices']) ? 'active' : '' ?>">Invoices / Receipts</a>
             <a href="fund_requests" class="<?= in_array($p, ['fund_requests.php', 'fund_requests']) ? 'active' : '' ?>">Payments / Fund Requests</a>
+            <a href="expenses" class="<?= in_array($p, ['expenses.php', 'expenses']) ? 'active' : '' ?>">Daily Expenses</a>
         </div>
 
         <!-- Logs & Reports -->
