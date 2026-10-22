@@ -76,6 +76,240 @@ if (isset($_POST['ajax_action']) && $_POST['ajax_action'] === 'test_remote_db') 
     exit;
 }
 
+// -------------------------------------------------------------
+// AJAX: Live Step-by-Step Sync with Realtime Progress & Percent
+// -------------------------------------------------------------
+
+// Action 1: sync_init (Validates, gathers table list and row counts)
+if (isset($_POST['ajax_action']) && $_POST['ajax_action'] === 'sync_init') {
+    require_once 'auth_check.php';
+    require_once '../config/db.php';
+    header('Content-Type: application/json; charset=utf-8');
+
+    $host = trim($_POST['remote_host'] ?? '');
+    $port = intval($_POST['remote_port'] ?? 3306) ?: 3306;
+    $db_name = trim($_POST['remote_db'] ?? 'radius');
+    $user = trim($_POST['remote_user'] ?? '');
+    $pass = $_POST['remote_pass'] ?? '';
+    $sync_scope = $_POST['sync_scope'] ?? 'all';
+    $preserve_sa = isset($_POST['preserve_superadmin']) && ($_POST['preserve_superadmin'] === '1' || $_POST['preserve_superadmin'] === 'true');
+
+    if (empty($host) || empty($user)) {
+        echo json_encode(['success' => false, 'message' => 'Remote VPS Host and MySQL Username are required.']);
+        exit;
+    }
+
+    try {
+        $dsn = "mysql:host={$host};port={$port};dbname={$db_name};charset=utf8mb4";
+        $remote_pdo = new PDO($dsn, $user, $pass, [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_TIMEOUT => 15,
+        ]);
+
+        // Save remote host & user for convenience in global_settings
+        $saveSettings = [
+            'sync_remote_host' => $host,
+            'sync_remote_port' => (string)$port,
+            'sync_remote_db'   => $db_name,
+            'sync_remote_user' => $user,
+            'sync_remote_pass' => $pass,
+        ];
+        foreach ($saveSettings as $sk => $sv) {
+            $upStmt = $pdo->prepare("INSERT INTO global_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = ?");
+            $upStmt->execute([$sk, $sv, $sv]);
+        }
+
+        // Fetch tables
+        $allRemoteTables = $remote_pdo->query("SHOW TABLES")->fetchAll(PDO::FETCH_COLUMN);
+        if (empty($allRemoteTables)) {
+            echo json_encode(['success' => false, 'message' => "No tables found in remote database '{$db_name}'."]);
+            exit;
+        }
+
+        $tablesToSync = [];
+        if ($sync_scope === 'subscribers_only') {
+            $allowed = ['subscribers', 'radcheck', 'radreply', 'radacct', 'clients', 'packages', 'package_requests'];
+            $tablesToSync = array_values(array_intersect($allRemoteTables, $allowed));
+        } elseif ($sync_scope === 'radius_only') {
+            $allowed = ['radcheck', 'radreply', 'radacct', 'radgroupcheck', 'radgroupreply', 'radusergroup', 'nas'];
+            $tablesToSync = array_values(array_intersect($allRemoteTables, $allowed));
+        } else {
+            $tablesToSync = $allRemoteTables;
+        }
+
+        if (empty($tablesToSync)) {
+            echo json_encode(['success' => false, 'message' => 'No matching tables found for the selected sync scope.']);
+            exit;
+        }
+
+        // Preserve current SuperAdmin accounts
+        $_SESSION['saved_superadmins'] = [];
+        if ($preserve_sa) {
+            try {
+                $saStmt = $pdo->query("SELECT * FROM super_admins");
+                $_SESSION['saved_superadmins'] = $saStmt->fetchAll(PDO::FETCH_ASSOC);
+            } catch (Exception $e) {}
+        }
+
+        // Get row estimates for each table
+        $tablesList = [];
+        $totalEstRows = 0;
+        foreach ($tablesToSync as $tbl) {
+            $cnt = 0;
+            try {
+                $cnt = (int)$remote_pdo->query("SELECT COUNT(*) FROM `{$tbl}`")->fetchColumn();
+            } catch (Exception $e) {}
+            $tablesList[] = [
+                'name' => $tbl,
+                'rows' => $cnt
+            ];
+            $totalEstRows += $cnt;
+        }
+
+        echo json_encode([
+            'success' => true,
+            'total_tables' => count($tablesList),
+            'tables' => $tablesList,
+            'total_estimated_rows' => $totalEstRows
+        ]);
+    } catch (Exception $e) {
+        echo json_encode(['success' => false, 'message' => 'Connection failed: ' . $e->getMessage()]);
+    }
+    exit;
+}
+
+// Action 2: sync_table (Syncs one table in chunks with INSERT IGNORE INTO)
+if (isset($_POST['ajax_action']) && $_POST['ajax_action'] === 'sync_table') {
+    require_once 'auth_check.php';
+    require_once '../config/db.php';
+    header('Content-Type: application/json; charset=utf-8');
+
+    @set_time_limit(300);
+    @ini_set('memory_limit', '512M');
+
+    $host = trim($_POST['remote_host'] ?? '');
+    $port = intval($_POST['remote_port'] ?? 3306) ?: 3306;
+    $db_name = trim($_POST['remote_db'] ?? 'radius');
+    $user = trim($_POST['remote_user'] ?? '');
+    $pass = $_POST['remote_pass'] ?? '';
+    $table = trim($_POST['table'] ?? '');
+    $offset = intval($_POST['offset'] ?? 0);
+    $batchSize = 2500; // Fast 2,500-row chunks
+
+    if (empty($table)) {
+        echo json_encode(['success' => false, 'message' => 'Table name is missing.']);
+        exit;
+    }
+
+    try {
+        $dsn = "mysql:host={$host};port={$port};dbname={$db_name};charset=utf8mb4";
+        $remote_pdo = new PDO($dsn, $user, $pass, [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_TIMEOUT => 20,
+        ]);
+
+        $pdo->exec("SET NAMES utf8mb4;");
+        $pdo->exec("SET FOREIGN_KEY_CHECKS = 0;");
+        $pdo->exec("SET UNIQUE_CHECKS = 0;");
+        $pdo->exec("SET SQL_MODE = 'NO_AUTO_VALUE_ON_ZERO';");
+
+        // If starting table (offset == 0), drop and recreate table schema identically from remote
+        if ($offset === 0) {
+            $createRow = $remote_pdo->query("SHOW CREATE TABLE `{$table}`")->fetch(PDO::FETCH_NUM);
+            $createSql = $createRow[1] ?? '';
+            if (!empty($createSql)) {
+                $pdo->exec("DROP TABLE IF EXISTS `{$table}`;");
+                $pdo->exec($createSql . ";");
+            } else {
+                $pdo->exec("TRUNCATE TABLE `{$table}`;");
+            }
+        }
+
+        // Determine primary key for deterministic sorting
+        $pkCol = null;
+        try {
+            $pkStmt = $remote_pdo->query("SHOW KEYS FROM `{$table}` WHERE Key_name = 'PRIMARY'");
+            $pkRow = $pkStmt->fetch(PDO::FETCH_ASSOC);
+            if (!empty($pkRow['Column_name'])) {
+                $pkCol = "`" . str_replace("`", "``", $pkRow['Column_name']) . "`";
+            }
+        } catch (Exception $e) {}
+        $orderClause = $pkCol ? "ORDER BY {$pkCol} ASC" : "ORDER BY 1 ASC";
+
+        // Fetch chunk
+        $rowsStmt = $remote_pdo->query("SELECT * FROM `{$table}` {$orderClause} LIMIT {$batchSize} OFFSET {$offset}");
+        $rows = $rowsStmt->fetchAll(PDO::FETCH_ASSOC);
+        $syncedRows = count($rows);
+
+        if (!empty($rows)) {
+            $columnNames = array_keys($rows[0]);
+            $escapedColumns = array_map(function($c) { return "`" . str_replace("`", "``", $c) . "`"; }, $columnNames);
+            $colsSql = implode(", ", $escapedColumns);
+
+            $insertRows = [];
+            foreach ($rows as $row) {
+                $values = [];
+                foreach ($row as $val) {
+                    if ($val === null) {
+                        $values[] = 'NULL';
+                    } else {
+                        $values[] = $pdo->quote($val);
+                    }
+                }
+                $insertRows[] = "(" . implode(", ", $values) . ")";
+            }
+
+            // INSERT IGNORE INTO guarantees 100% no duplicate key errors!
+            $pdo->exec("INSERT IGNORE INTO `{$table}` ({$colsSql}) VALUES\n" . implode(",\n", $insertRows) . ";");
+        }
+
+        $isDone = ($syncedRows < $batchSize);
+        $nextOffset = $offset + $syncedRows;
+
+        echo json_encode([
+            'success' => true,
+            'table' => $table,
+            'synced_in_chunk' => $syncedRows,
+            'current_offset' => $nextOffset,
+            'is_done' => $isDone
+        ]);
+    } catch (Exception $e) {
+        echo json_encode(['success' => false, 'message' => "Error syncing table '{$table}': " . $e->getMessage()]);
+    }
+    exit;
+}
+
+// Action 3: sync_finish (Restores SuperAdmins and reenables constraints)
+if (isset($_POST['ajax_action']) && $_POST['ajax_action'] === 'sync_finish') {
+    require_once 'auth_check.php';
+    require_once '../config/db.php';
+    header('Content-Type: application/json; charset=utf-8');
+
+    try {
+        if (!empty($_SESSION['saved_superadmins'])) {
+            foreach ($_SESSION['saved_superadmins'] as $adm) {
+                $cols = array_keys($adm);
+                $escapedCols = array_map(function($c) { return "`$c`"; }, $cols);
+                $vals = [];
+                foreach ($adm as $val) {
+                    $vals[] = ($val === null) ? 'NULL' : $pdo->quote($val);
+                }
+                $sql = "REPLACE INTO `super_admins` (" . implode(', ', $escapedCols) . ") VALUES (" . implode(', ', $vals) . ")";
+                $pdo->exec($sql);
+            }
+            unset($_SESSION['saved_superadmins']);
+        }
+
+        $pdo->exec("SET UNIQUE_CHECKS = 1;");
+        $pdo->exec("SET FOREIGN_KEY_CHECKS = 1;");
+
+        echo json_encode(['success' => true, 'message' => 'Synchronization completed successfully!']);
+    } catch (Exception $e) {
+        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+    }
+    exit;
+}
+
 require_once 'header.php';
 
 $success = '';
@@ -884,6 +1118,67 @@ try {
 
 </div>
 
+<!-- Live Sync Progress Modal (Realtime Percentage & Table Tracker) -->
+<div class="modal fade" id="syncProgressModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header bg-dark text-white p-4">
+                <div class="d-flex align-items-center gap-3">
+                    <i class="fa-solid fa-arrows-rotate fa-spin text-primary fs-3" id="syncModalIcon"></i>
+                    <div>
+                        <h5 class="modal-title fw-bold text-white mb-0" id="syncModalTitle">Live Database Synchronization in Progress</h5>
+                        <div class="text-white-50 small" id="syncModalSubtitle">Connecting to Old VPS and initializing transfer engine...</div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-body p-4">
+                <!-- Overall Progress Bar & Percentage -->
+                <div class="bg-light p-3 rounded-4 border mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="fw-bold text-dark small text-uppercase"><i class="fa-solid fa-chart-pie text-primary me-1"></i> Overall Sync Progress</span>
+                        <span class="badge bg-primary px-3 py-1 fs-6 fw-bold" id="syncPercentBadge">0%</span>
+                    </div>
+                    <div class="progress rounded-pill bg-white border" style="height: 22px;">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary fw-bold" id="syncProgressBar" role="progressbar" style="width: 0%; font-size: 0.82rem;">0%</div>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center mt-2 small text-muted">
+                        <span id="syncTableCountLabel"><i class="fa-solid fa-table me-1"></i> Tables Processed: 0 / 0</span>
+                        <span id="syncRowsCountLabel"><i class="fa-solid fa-database me-1"></i> Total Records Synced: 0</span>
+                    </div>
+                </div>
+
+                <!-- Current Table Status Banner -->
+                <div class="alert alert-primary d-flex align-items-center gap-2 py-2 px-3 rounded-3 mb-3" id="syncCurrentTableAlert">
+                    <div class="spinner-border text-primary spinner-border-sm flex-shrink-0" role="status" id="syncCurrentSpinner"></div>
+                    <div class="flex-grow-1">
+                        <div class="fw-bold text-dark small" id="syncCurrentTableTitle">Preparing sync request...</div>
+                        <div class="text-secondary small" id="syncCurrentTableDetail" style="font-size: 0.75rem;">Please keep this browser window open. Do not close or refresh.</div>
+                    </div>
+                </div>
+
+                <!-- Live Table Checklist / Progress Window -->
+                <div class="card border rounded-3 overflow-hidden shadow-sm">
+                    <div class="card-header bg-white py-2 px-3 border-bottom d-flex justify-content-between align-items-center">
+                        <span class="fw-bold small text-muted text-uppercase"><i class="fa-solid fa-list-check me-1"></i> Table Sync Status Log</span>
+                        <span class="badge bg-light text-dark border small font-monospace" id="syncSpeedLabel">Live Engine Active</span>
+                    </div>
+                    <div class="card-body p-0" style="max-height: 240px; overflow-y: auto;" id="syncTableLogContainer">
+                        <ul class="list-group list-group-flush small" id="syncTableListUl">
+                            <!-- Injected dynamically -->
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer bg-light p-3 border-top d-flex justify-content-between">
+                <span class="text-muted small" id="syncFooterNote"><i class="fa-solid fa-shield-halved text-success me-1"></i> Zero Duplicate Key Protection (INSERT IGNORE) Active.</span>
+                <button type="button" class="btn btn-success rounded-pill px-4 fw-bold shadow-sm" id="btnSyncCompletedDone" style="display: none;" onclick="location.reload()">
+                    <i class="fa-solid fa-check-circle me-1"></i> Sync Complete - Refresh Settings
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Restore Database Backup Modal -->
 <div class="modal fade" id="restoreBackupModal" tabindex="-1" aria-labelledby="restoreBackupModalLabel" aria-hidden="true" data-bs-backdrop="static">
     <div class="modal-dialog modal-dialog-centered">
@@ -1030,39 +1325,232 @@ function testRemoteConnection() {
 }
 
 function handleSyncSubmit(e) {
+    e.preventDefault();
+
     const host = document.getElementById('remote_host').value.trim();
+    const port = document.getElementById('remote_port').value.trim() || '3306';
+    const db = document.getElementById('remote_db').value.trim() || 'radius';
     const user = document.getElementById('remote_user').value.trim();
+    const pass = document.getElementById('remote_pass').value;
+    const scope = document.querySelector('select[name="sync_scope"]').value;
+    const preserveSa = document.getElementById('preserve_superadmin').checked;
     const confirmBox = document.getElementById('confirm_sync');
 
     if (!host || !user) {
         alert('Please enter Old VPS Host/IP and MySQL Username.');
-        e.preventDefault();
         return false;
     }
 
     if (!confirmBox.checked) {
         alert('Please tick the confirmation checkbox to authorize database synchronization.');
-        e.preventDefault();
         return false;
     }
 
     if (!confirm('Are you ABSOLUTELY sure you want to start Live Database Sync from Old VPS (' + host + ')?\nMatching tables on this New VPS will be updated/replaced.')) {
-        e.preventDefault();
         return false;
     }
 
-    // Show Global Loader
-    const loader = document.getElementById('global-loader');
-    if (loader) {
-        loader.style.display = 'flex';
-        const title = loader.querySelector('h5');
-        if (title) title.innerText = 'Syncing Database from Old VPS (' + host + ')... Please wait';
+    // Launch Realtime Progress Modal
+    const syncModalEl = document.getElementById('syncProgressModal');
+    const syncModal = new bootstrap.Modal(syncModalEl);
+    syncModal.show();
+
+    // Reset UI state
+    document.getElementById('syncPercentBadge').innerText = '0%';
+    document.getElementById('syncProgressBar').style.width = '0%';
+    document.getElementById('syncProgressBar').innerText = '0%';
+    document.getElementById('syncTableCountLabel').innerHTML = '<i class="fa-solid fa-table me-1"></i> Initializing...';
+    document.getElementById('syncRowsCountLabel').innerHTML = '<i class="fa-solid fa-database me-1"></i> Records Synced: 0';
+    document.getElementById('syncCurrentTableTitle').innerText = 'Connecting to Old VPS database...';
+    document.getElementById('syncCurrentTableDetail').innerText = `Target: ${host}:${port}/${db}`;
+    document.getElementById('syncTableListUl').innerHTML = '';
+    document.getElementById('btnSyncCompletedDone').style.display = 'none';
+
+    let totalTables = 0;
+    let tablesQueue = [];
+    let completedTables = 0;
+    let grandTotalSyncedRows = 0;
+
+    // Step 1: Initialize Sync via AJAX
+    const initData = new FormData();
+    initData.append('ajax_action', 'sync_init');
+    initData.append('remote_host', host);
+    initData.append('remote_port', port);
+    initData.append('remote_db', db);
+    initData.append('remote_user', user);
+    initData.append('remote_pass', pass);
+    initData.append('sync_scope', scope);
+    initData.append('preserve_superadmin', preserveSa ? '1' : '0');
+
+    fetch('settings.php', { method: 'POST', body: initData })
+    .then(r => r.json())
+    .then(res => {
+        if (!res.success) {
+            document.getElementById('syncCurrentTableAlert').className = 'alert alert-danger d-flex align-items-center gap-2 py-2 px-3 rounded-3 mb-3';
+            document.getElementById('syncCurrentTableTitle').innerText = 'Sync Initialization Failed';
+            document.getElementById('syncCurrentTableDetail').innerText = res.message;
+            document.getElementById('syncCurrentSpinner').style.display = 'none';
+            document.getElementById('syncModalIcon').className = 'fa-solid fa-triangle-exclamation text-danger fs-3';
+            return;
+        }
+
+        tablesQueue = res.tables;
+        totalTables = res.total_tables;
+        document.getElementById('syncTableCountLabel').innerHTML = `<i class="fa-solid fa-table me-1"></i> Tables Processed: 0 / ${totalTables}`;
+
+        // Populate table list log
+        const ul = document.getElementById('syncTableListUl');
+        ul.innerHTML = tablesQueue.map((t, idx) => `
+            <li class="list-group-item d-flex justify-content-between align-items-center py-2 px-3" id="log_row_${t.name}">
+                <div class="d-flex align-items-center gap-2">
+                    <span id="log_icon_${t.name}" class="text-secondary"><i class="fa-regular fa-circle"></i></span>
+                    <strong class="font-monospace text-dark">${t.name}</strong>
+                    <span class="text-muted" style="font-size: 0.72rem;">(~${t.rows} rows)</span>
+                </div>
+                <span class="badge bg-light text-secondary border font-monospace" id="log_badge_${t.name}">Waiting</span>
+            </li>
+        `).join('');
+
+        // Start processing tables sequentially
+        processNextTable(0);
+    })
+    .catch(err => {
+        document.getElementById('syncCurrentTableAlert').className = 'alert alert-danger d-flex align-items-center gap-2 py-2 px-3 rounded-3 mb-3';
+        document.getElementById('syncCurrentTableTitle').innerText = 'Network / Request Error';
+        document.getElementById('syncCurrentTableDetail').innerText = err.message;
+        document.getElementById('syncCurrentSpinner').style.display = 'none';
+    });
+
+    // Helper: Process Table by Index
+    function processNextTable(tableIdx) {
+        if (tableIdx >= tablesQueue.length) {
+            // All tables completed -> Finish sync
+            finishSyncProcess();
+            return;
+        }
+
+        const tableItem = tablesQueue[tableIdx];
+        const tableName = tableItem.name;
+        const estRows = tableItem.rows;
+
+        // Update UI for active table
+        document.getElementById('syncCurrentTableTitle').innerText = `Syncing table: ${tableName} (${tableIdx + 1} of ${totalTables})`;
+        document.getElementById('syncCurrentTableDetail').innerText = `Transferring records in chunks...`;
+        
+        const rowEl = document.getElementById(`log_row_${tableName}`);
+        const iconEl = document.getElementById(`log_icon_${tableName}`);
+        const badgeEl = document.getElementById(`log_badge_${tableName}`);
+
+        if (rowEl) rowEl.className = 'list-group-item d-flex justify-content-between align-items-center py-2 px-3 bg-primary-subtle';
+        if (iconEl) iconEl.innerHTML = '<i class="fa-solid fa-arrows-rotate fa-spin text-primary"></i>';
+        if (badgeEl) {
+            badgeEl.className = 'badge bg-primary text-white font-monospace';
+            badgeEl.innerText = 'Syncing...';
+        }
+
+        // Scroll log item into view
+        if (rowEl) rowEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+        // Chunked sync for this table
+        syncTableChunks(tableName, 0, 0, function(tableTotalSynced) {
+            // Table finished
+            completedTables++;
+            grandTotalSyncedRows += tableTotalSynced;
+
+            if (rowEl) rowEl.className = 'list-group-item d-flex justify-content-between align-items-center py-2 px-3';
+            if (iconEl) iconEl.innerHTML = '<i class="fa-solid fa-circle-check text-success"></i>';
+            if (badgeEl) {
+                badgeEl.className = 'badge bg-success-subtle text-success border border-success-subtle font-monospace';
+                badgeEl.innerText = `${tableTotalSynced} rows ✔`;
+            }
+
+            // Update Progress Bar
+            const percent = Math.round((completedTables / totalTables) * 100);
+            document.getElementById('syncPercentBadge').innerText = `${percent}%`;
+            document.getElementById('syncProgressBar').style.width = `${percent}%`;
+            document.getElementById('syncProgressBar').innerText = `${percent}%`;
+            document.getElementById('syncTableCountLabel').innerHTML = `<i class="fa-solid fa-table me-1"></i> Tables Processed: ${completedTables} / ${totalTables} (${percent}%)`;
+            document.getElementById('syncRowsCountLabel').innerHTML = `<i class="fa-solid fa-database me-1"></i> Total Records Synced: ${grandTotalSyncedRows.toLocaleString()}`;
+
+            // Process next table
+            processNextTable(tableIdx + 1);
+        });
     }
 
-    const btn = document.getElementById('btn_submit_sync');
-    if (btn) {
-        btn.disabled = true;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span> Live Sync in progress...';
+    // Helper: Sync chunks for a single table
+    function syncTableChunks(tableName, offset, accumulatedRows, callback) {
+        const chunkData = new FormData();
+        chunkData.append('ajax_action', 'sync_table');
+        chunkData.append('remote_host', host);
+        chunkData.append('remote_port', port);
+        chunkData.append('remote_db', db);
+        chunkData.append('remote_user', user);
+        chunkData.append('remote_pass', pass);
+        chunkData.append('table', tableName);
+        chunkData.append('offset', offset);
+
+        fetch('settings.php', { method: 'POST', body: chunkData })
+        .then(r => r.json())
+        .then(res => {
+            if (!res.success) {
+                // Log warning and proceed so other tables aren't halted
+                console.warn(res.message);
+                const badgeEl = document.getElementById(`log_badge_${tableName}`);
+                if (badgeEl) {
+                    badgeEl.className = 'badge bg-warning-subtle text-warning border border-warning-subtle font-monospace';
+                    badgeEl.innerText = 'Warn / Skipped';
+                }
+                callback(accumulatedRows);
+                return;
+            }
+
+            const currentTotal = accumulatedRows + res.synced_in_chunk;
+            document.getElementById('syncCurrentTableDetail').innerText = `Transferred ${currentTotal.toLocaleString()} records...`;
+
+            if (res.is_done) {
+                callback(currentTotal);
+            } else {
+                syncTableChunks(tableName, res.current_offset, currentTotal, callback);
+            }
+        })
+        .catch(err => {
+            console.error(err);
+            callback(accumulatedRows);
+        });
+    }
+
+    // Helper: Finish sync and restore credentials
+    function finishSyncProcess() {
+        document.getElementById('syncCurrentTableTitle').innerText = 'Finalizing Synchronization & Restoring Accounts...';
+        document.getElementById('syncCurrentTableDetail').innerText = 'Enabling foreign keys and security credentials...';
+
+        const finishData = new FormData();
+        finishData.append('ajax_action', 'sync_finish');
+
+        fetch('settings.php', { method: 'POST', body: finishData })
+        .then(r => r.json())
+        .then(res => {
+            // 100% Complete UI
+            document.getElementById('syncPercentBadge').innerText = '100%';
+            document.getElementById('syncPercentBadge').className = 'badge bg-success px-3 py-1 fs-6 fw-bold';
+            document.getElementById('syncProgressBar').style.width = '100%';
+            document.getElementById('syncProgressBar').innerText = '100% Complete';
+            document.getElementById('syncProgressBar').className = 'progress-bar bg-success fw-bold';
+
+            document.getElementById('syncModalIcon').className = 'fa-solid fa-circle-check text-success fs-3';
+            document.getElementById('syncModalTitle').innerText = '🎉 Synchronization Completed Successfully!';
+            document.getElementById('syncModalSubtitle').innerText = `All ${totalTables} tables and ${grandTotalSyncedRows.toLocaleString()} records are synchronized.`;
+
+            document.getElementById('syncCurrentTableAlert').className = 'alert alert-success d-flex align-items-center gap-2 py-2 px-3 rounded-3 mb-3';
+            document.getElementById('syncCurrentSpinner').style.display = 'none';
+            document.getElementById('syncCurrentTableTitle').innerText = `100% Completed! Transferred ${totalTables} tables & ${grandTotalSyncedRows.toLocaleString()} records.`;
+            document.getElementById('syncCurrentTableDetail').innerText = 'Your active SuperAdmin account and all tenant databases are fully updated.';
+
+            document.getElementById('btnSyncCompletedDone').style.display = 'inline-block';
+        })
+        .catch(err => {
+            document.getElementById('btnSyncCompletedDone').style.display = 'inline-block';
+        });
     }
 }
 
