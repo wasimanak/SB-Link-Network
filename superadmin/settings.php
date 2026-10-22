@@ -73,96 +73,6 @@ if (isset($_POST['ajax_action']) && $_POST['ajax_action'] === 'test_remote_db') 
     exit;
 }
 
-if (isset($_POST['ajax_action']) && $_POST['ajax_action'] === 'reveal_db_credentials') {
-    require_once 'auth_check.php';
-    require_once '../config/db.php';
-    header('Content-Type: application/json; charset=utf-8');
-
-    $admin_id = $_SESSION['superadmin_id'] ?? 0;
-    $verify_password = $_POST['verify_password'] ?? '';
-
-    if (empty($verify_password)) {
-        echo json_encode(['success' => false, 'message' => 'Please enter password to verify identity.']);
-        exit;
-    }
-
-    $is_valid = false;
-
-    // Check SuperAdmin password
-    try {
-        $stmt = $pdo->prepare("SELECT password FROM super_admins WHERE id = ?");
-        $stmt->execute([$admin_id]);
-        $hash = $stmt->fetchColumn();
-        if ($hash && password_verify($verify_password, $hash)) {
-            $is_valid = true;
-        }
-    } catch (Exception $e) {}
-
-    // Also check against VPS DB password (e.g. Wasi1234)
-    if (!$is_valid && !empty($pass) && $verify_password === $pass) {
-        $is_valid = true;
-    }
-
-    if (!$is_valid) {
-        echo json_encode(['success' => false, 'message' => 'Incorrect password. Verification failed.']);
-        exit;
-    }
-
-    // Fetch settings for any custom overrides
-    $setStmt = $pdo->query("SELECT setting_key, setting_value FROM global_settings");
-    $settings_raw = $setStmt->fetchAll(PDO::FETCH_KEY_PAIR);
-
-    $vps_host = $settings_raw['server_public_ip'] ?? ($_SERVER['SERVER_ADDR'] ?? '187.126.127.237');
-    if ($vps_host === '127.0.0.1' || $vps_host === '::1') {
-        $vps_host = '187.126.127.237';
-    }
-
-    $db_port = $settings_raw['server_db_port'] ?? '3306';
-    $db_name = $settings_raw['server_db_name'] ?? ($db ?? 'radius');
-    $db_user = $settings_raw['server_db_user'] ?? ($user ?? 'radius');
-    $db_pass = $settings_raw['server_db_pass'] ?? ($pass ?? 'Wasi1234');
-
-    // Saved Remote Old VPS Sync Credentials
-    $saved_remote_host = $settings_raw['sync_remote_host'] ?? '';
-    $saved_remote_port = $settings_raw['sync_remote_port'] ?? '3306';
-    $saved_remote_db   = $settings_raw['sync_remote_db'] ?? 'radius';
-    $saved_remote_user = $settings_raw['sync_remote_user'] ?? '';
-    $saved_remote_pass = $settings_raw['sync_remote_pass'] ?? '';
-
-    // FreeRADIUS Credentials
-    $radius_secret    = $settings_raw['radius_secret'] ?? '123456';
-    $radius_auth_port = $settings_raw['radius_auth_port'] ?? '1812';
-    $radius_acct_port = $settings_raw['radius_acct_port'] ?? '1813';
-    $radius_coa_port  = $settings_raw['radius_coa_port'] ?? '3799';
-
-    echo json_encode([
-        'success' => true,
-        'message' => 'Identity verified successfully!',
-        'credentials' => [
-            // Current Server Live DB
-            'host' => $vps_host,
-            'port' => $db_port,
-            'db'   => $db_name,
-            'user' => $db_user,
-            'pass' => $db_pass,
-
-            // Saved Remote Sync DB
-            'remote_host' => $saved_remote_host,
-            'remote_port' => $saved_remote_port,
-            'remote_db'   => $saved_remote_db,
-            'remote_user' => $saved_remote_user,
-            'remote_pass' => $saved_remote_pass,
-
-            // FreeRADIUS & MikroTik
-            'radius_secret'    => $radius_secret,
-            'radius_auth_port' => $radius_auth_port,
-            'radius_acct_port' => $radius_acct_port,
-            'radius_coa_port'  => $radius_coa_port,
-        ]
-    ]);
-    exit;
-}
-
 require_once 'header.php';
 
 $success = '';
@@ -184,33 +94,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = "Error updating settings: " . htmlspecialchars($e->getMessage());
         }
     } 
-    elseif (isset($_POST['action']) && $_POST['action'] === 'update_credentials') {
-        $name = trim($_POST['name']);
-        $username = trim($_POST['username']);
-        $email = trim($_POST['email']);
-        $password = $_POST['password'];
-
-        if (empty($name) || empty($username) || empty($email)) {
-            $error = "Name, Username, and Email are required.";
-        } else {
-            $check = $pdo->prepare("SELECT id FROM super_admins WHERE (username = ? OR email = ?) AND id != ?");
-            $check->execute([$username, $email, $admin_id]);
-            if ($check->rowCount() > 0) {
-                $error = "Username or Email already belongs to another account.";
-            } else {
-                if (!empty($password)) {
-                    $hash = password_hash($password, PASSWORD_DEFAULT);
-                    $stmt = $pdo->prepare("UPDATE super_admins SET name = ?, username = ?, email = ?, password = ? WHERE id = ?");
-                    $stmt->execute([$name, $username, $email, $hash, $admin_id]);
-                } else {
-                    $stmt = $pdo->prepare("UPDATE super_admins SET name = ?, username = ?, email = ? WHERE id = ?");
-                    $stmt->execute([$name, $username, $email, $admin_id]);
-                }
-                $_SESSION['superadmin_name'] = $name;
-                $success = "Super Admin credentials updated successfully.";
-            }
-        }
-    }
     elseif (isset($_POST['action']) && $_POST['action'] === 'restore_backup') {
         if (!isset($_POST['confirm_restore'])) {
             $error = "Please confirm database restoration by ticking the confirmation checkbox.";
@@ -475,169 +358,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     }
-    elseif (isset($_POST['action']) && $_POST['action'] === 'update_database_credentials') {
-        $allowed = [
-            'server_public_ip', 'server_db_port', 'server_db_name', 'server_db_user', 'server_db_pass',
-            'sync_remote_host', 'sync_remote_port', 'sync_remote_db', 'sync_remote_user', 'sync_remote_pass',
-            'radius_secret', 'radius_auth_port', 'radius_acct_port', 'radius_coa_port'
-        ];
-        try {
-            $pdo->beginTransaction();
-            foreach ($allowed as $k) {
-                if (isset($_POST[$k])) {
-                    $val = trim($_POST[$k]);
-                    $stmt = $pdo->prepare("INSERT INTO global_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = ?");
-                    $stmt->execute([$k, $val, $val]);
-                }
-            }
-
-            // If radius_secret updated and checkbox ticked, also update in nas table
-            if (!empty($_POST['radius_secret']) && isset($_POST['sync_nas_secret'])) {
-                $newSec = trim($_POST['radius_secret']);
-                $nasUpStmt = $pdo->prepare("UPDATE nas SET secret = ?");
-                $nasUpStmt->execute([$newSec]);
-            }
-
-            $pdo->commit();
-            $success = "All database and FreeRADIUS connection credentials updated successfully!";
-        } catch (Exception $e) {
-            $pdo->rollBack();
-            $error = "Failed to update database credentials: " . htmlspecialchars($e->getMessage());
-        }
-    }
-    elseif (isset($_POST['action']) && $_POST['action'] === 'change_mariadb_password') {
-        $current_pass = $_POST['current_mariadb_password'] ?? '';
-        $new_pass     = $_POST['new_mariadb_password'] ?? '';
-        $confirm_pass = $_POST['confirm_mariadb_password'] ?? '';
-
-        if (empty($new_pass)) {
-            $error = "New MariaDB password cannot be empty.";
-        } elseif ($new_pass !== $confirm_pass) {
-            $error = "New password and Confirm password do not match.";
-        } elseif (strlen($new_pass) < 4) {
-            $error = "New password must be at least 4 characters long.";
-        } else {
-            // Verify current password or authenticate
-            $currentExpected = $settings_raw['server_db_pass'] ?? ($pass ?? 'Wasi1234');
-            $authOk = false;
-
-            if ($current_pass === $currentExpected || $current_pass === $pass) {
-                $authOk = true;
-            } else {
-                // Also accept current logged-in SuperAdmin's account password
-                $saCheck = $pdo->prepare("SELECT password FROM super_admins WHERE id = ?");
-                $saCheck->execute([$admin_id]);
-                $saHash = $saCheck->fetchColumn();
-                if ($saHash && password_verify($current_pass, $saHash)) {
-                    $authOk = true;
-                }
-            }
-
-            if (!$authOk) {
-                $error = "Verification failed: The current MariaDB password or SuperAdmin password you entered is incorrect.";
-            } else {
-                try {
-                    $dbUser = $settings_raw['server_db_user'] ?? ($user ?? 'radius');
-                    
-                    // 1. Execute SQL to change password in MariaDB / MySQL
-                    $executed = false;
-                    $lastSqlError = '';
-
-                    // Method 1: ALTER USER CURRENT_USER()
-                    try {
-                        $pdo->exec("ALTER USER CURRENT_USER() IDENTIFIED BY " . $pdo->quote($new_pass));
-                        $executed = true;
-                    } catch (Exception $e1) {
-                        $lastSqlError = $e1->getMessage();
-                    }
-
-                    // Method 2: ALTER USER 'user'@'localhost' & 'user'@'%'
-                    if (!$executed) {
-                        try {
-                            $pdo->exec("ALTER USER '{$dbUser}'@'localhost' IDENTIFIED BY " . $pdo->quote($new_pass));
-                            try { $pdo->exec("ALTER USER '{$dbUser}'@'%' IDENTIFIED BY " . $pdo->quote($new_pass)); } catch(Exception $eIgnore) {}
-                            $executed = true;
-                        } catch (Exception $e2) {
-                            $lastSqlError = $e2->getMessage();
-                        }
-                    }
-
-                    // Method 3: SET PASSWORD = PASSWORD(...)
-                    if (!$executed) {
-                        try {
-                            $pdo->exec("SET PASSWORD = PASSWORD(" . $pdo->quote($new_pass) . ")");
-                            $executed = true;
-                        } catch (Exception $e3) {
-                            $lastSqlError = $e3->getMessage();
-                        }
-                    }
-
-                    if (!$executed) {
-                        throw new Exception("MariaDB rejected password update: " . $lastSqlError);
-                    }
-
-                    $pdo->exec("FLUSH PRIVILEGES;");
-
-                    // 2. Automatically update config/db.php on disk
-                    $dbConfigFile = __DIR__ . '/../config/db.php';
-                    $configUpdated = false;
-                    if (file_exists($dbConfigFile)) {
-                        $configContent = @file_get_contents($dbConfigFile);
-                        if ($configContent) {
-                            $pattern = '/(else\s*\{[^}]*?\$pass\s*=\s*)([\'"].*?[\'"])/s';
-                            if (preg_match($pattern, $configContent)) {
-                                $escapedPass = var_export($new_pass, true);
-                                $configContent = preg_replace($pattern, '${1}' . $escapedPass, $configContent);
-                                @file_put_contents($dbConfigFile, $configContent);
-                                $configUpdated = true;
-                            }
-                        }
-                    }
-
-                    // 3. Update restorebackup.php on disk if exists
-                    $restoreFile = __DIR__ . '/../restorebackup.php';
-                    if (file_exists($restoreFile)) {
-                        $rc = @file_get_contents($restoreFile);
-                        if ($rc) {
-                            $pattern = '/(\$default_pass\s*=\s*)([\'"].*?[\'"])/';
-                            if (preg_match($pattern, $rc)) {
-                                $rc = preg_replace($pattern, '${1}' . var_export($new_pass, true), $rc);
-                                @file_put_contents($restoreFile, $rc);
-                            }
-                        }
-                    }
-
-                    // 4. Update global_settings
-                    $upStmt = $pdo->prepare("INSERT INTO global_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = ?");
-                    $upStmt->execute(['server_db_pass', $new_pass, $new_pass]);
-
-                    // 5. Try updating FreeRADIUS sql config if accessible on Linux
-                    $frSqlPaths = [
-                        '/etc/freeradius/3.0/mods-available/sql',
-                        '/etc/freeradius/mods-available/sql',
-                        '/etc/raddb/mods-available/sql'
-                    ];
-                    $frUpdated = false;
-                    foreach ($frSqlPaths as $frPath) {
-                        if (file_exists($frPath) && is_writable($frPath)) {
-                            $frText = @file_get_contents($frPath);
-                            if ($frText) {
-                                $frText = preg_replace('/(\bpassword\s*=\s*)(["\'].*?["\'])/', '${1}"' . addslashes($new_pass) . '"', $frText);
-                                @file_put_contents($frPath, $frText);
-                                $frUpdated = true;
-                            }
-                        }
-                    }
-
-                    $success = "MariaDB password successfully changed and updated in database, <code>config/db.php</code>, and system settings!" . 
-                               ($frUpdated ? " FreeRADIUS SQL module configuration was also automatically updated." : "");
-
-                } catch (Exception $e) {
-                    $error = "Failed to update MariaDB password: " . htmlspecialchars($e->getMessage());
-                }
-            }
-        }
-    }
 }
 
 // Fetch settings
@@ -666,13 +386,7 @@ $savedSyncDb   = $settings_raw['sync_remote_db'] ?? 'radius';
 $savedSyncUser = $settings_raw['sync_remote_user'] ?? 'radius';
 $savedSyncPass = $settings_raw['sync_remote_pass'] ?? '';
 
-// 3. FreeRADIUS Credentials
-$radiusSecret   = $settings_raw['radius_secret'] ?? '123456';
-$radiusAuthPort = $settings_raw['radius_auth_port'] ?? '1812';
-$radiusAcctPort = $settings_raw['radius_acct_port'] ?? '1813';
-$radiusCoaPort  = $settings_raw['radius_coa_port'] ?? '3799';
-
-// 4. Current Server IP for command generator
+// 3. Current Server IP for command generator
 $newServerIp = $currentServerHost;
 
 // Fetch current superadmin details
@@ -689,27 +403,6 @@ try {
 } catch (Exception $e) {
     $totalTables = 0;
 }
-
-$dbMetrics = [
-    'subscribers_count' => 0,
-    'nas_count' => 0,
-    'db_size_mb' => '0.00',
-    'mysql_version' => ''
-];
-try {
-    $dbMetrics['subscribers_count'] = (int)$pdo->query("SELECT COUNT(*) FROM subscribers")->fetchColumn();
-} catch (Exception $e) {}
-try {
-    $dbMetrics['nas_count'] = (int)$pdo->query("SELECT COUNT(*) FROM nas")->fetchColumn();
-} catch (Exception $e) {}
-try {
-    $verStmt = $pdo->query("SELECT VERSION()");
-    $dbMetrics['mysql_version'] = $verStmt->fetchColumn() ?: '';
-} catch (Exception $e) {}
-try {
-    $sizeStmt = $pdo->query("SELECT ROUND(SUM(data_length + index_length) / 1024 / 1024, 2) FROM information_schema.TABLES WHERE table_schema = " . $pdo->quote($currentServerDb));
-    $dbMetrics['db_size_mb'] = $sizeStmt->fetchColumn() ?: '0.00';
-} catch (Exception $e) {}
 ?>
 
 <style>
@@ -801,7 +494,7 @@ try {
                     <i class="fa-solid fa-gears"></i> Platform Preferences & Profile
                 </div>
                 <h3 class="fw-bold text-dark mb-1">Global System Settings</h3>
-                <p class="text-muted small mb-0">Configure system parameters, update super admin credentials, and generate instant database disaster recovery dumps.</p>
+                <p class="text-muted small mb-0">Configure system parameters, application branding, and generate instant database disaster recovery dumps.</p>
             </div>
             <div class="d-flex flex-wrap gap-2">
                 <a href="dashboard.php" class="btn btn-outline-secondary rounded-pill px-3 py-2 fw-semibold">
@@ -809,9 +502,6 @@ try {
                 </a>
                 <a href="#vps-sync-section" class="btn btn-primary rounded-pill px-3 py-2 fw-bold shadow-sm d-inline-flex align-items-center gap-1">
                     <i class="fa-solid fa-arrows-rotate"></i> Sync from Old VPS
-                </a>
-                <a href="security" class="btn btn-dark rounded-pill px-3 py-2 fw-bold shadow-sm d-inline-flex align-items-center gap-1">
-                    <i class="fa-solid fa-shield-halved"></i> Security &amp; Passwords
                 </a>
                 <a href="download_backup.php" class="btn btn-success rounded-pill px-3 py-2 fw-bold shadow-sm d-inline-flex align-items-center gap-1">
                     <i class="fa-solid fa-cloud-arrow-down"></i> Download Backup (.sql)
@@ -920,53 +610,50 @@ try {
             </div>
         </div>
 
-        <!-- 2. Security & Passwords Quick Card -->
+        <!-- 2. Database Backup & Disaster Recovery -->
         <div class="col-lg-6">
             <div class="card-ui p-4 h-100 d-flex flex-column">
                 <div class="d-flex align-items-center gap-2 mb-3 pb-2 border-bottom border-light-subtle">
-                    <div class="rounded-circle bg-danger-subtle text-danger d-flex align-items-center justify-content-center shadow-sm" style="width: 38px; height: 38px;">
-                        <i class="fa-solid fa-shield-halved fs-5"></i>
+                    <div class="rounded-circle bg-success-subtle text-success d-flex align-items-center justify-content-center shadow-sm" style="width: 38px; height: 38px;">
+                        <i class="fa-solid fa-database fs-5"></i>
                     </div>
                     <div>
-                        <h5 class="fw-bold text-dark mb-0 fs-6">Security &amp; Passwords Management</h5>
-                        <span class="text-muted small">Passwords and database credentials are managed in Security</span>
+                        <h5 class="fw-bold text-dark mb-0 fs-6">Full Database Backup &amp; Recovery</h5>
+                        <span class="text-muted small">Download instant .sql backup or restore from file</span>
                     </div>
                 </div>
 
                 <div class="flex-grow-1">
-                    <div class="alert alert-light border border-light-subtle rounded-3 p-3 mb-3">
-                        <div class="d-flex align-items-start gap-2">
-                            <i class="fa-solid fa-lock text-danger mt-1 fs-5 flex-shrink-0"></i>
-                            <div>
-                                <strong class="text-dark d-block">Dedicated Security Hub Active</strong>
-                                <span class="small text-muted">
-                                    Tamam passwords (Super Admin account login, Live MariaDB root password, Remote VPS sync credentials, aur FreeRADIUS secrets) ko ab naye <strong><a href="security" class="text-decoration-underline text-dark fw-bold">Security</a></strong> menu me shift kar diya gaya hai.
-                                </span>
-                            </div>
-                        </div>
+                    <p class="text-muted small mb-3">
+                        Generates a complete native SQL dump of all FreeRADIUS tables (`radcheck`, `radreply`, `radacct`, `nas`), tenant profiles, subscribers, packages, ledgers, and configurations.
+                    </p>
+
+                    <div class="d-flex flex-column gap-2 mb-3">
+                        <a href="download_backup.php" class="btn btn-success rounded-pill px-4 py-2 fw-bold shadow-sm d-flex align-items-center justify-content-center gap-2">
+                            <i class="fa-solid fa-cloud-arrow-down fs-5"></i>
+                            <span>Download Full Backup (.SQL)</span>
+                        </a>
+                        <button type="button" class="btn btn-outline-warning rounded-pill px-4 py-2 fw-bold shadow-sm d-flex align-items-center justify-content-center gap-2 text-dark" data-bs-toggle="modal" data-bs-target="#restoreBackupModal">
+                            <i class="fa-solid fa-rotate-left fs-5 text-warning"></i>
+                            <span>Restore Database from File (.SQL / .GZ)</span>
+                        </button>
                     </div>
 
-                    <div class="list-group list-group-flush border rounded-3 mb-3">
-                        <a href="security" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center py-2 px-3">
-                            <span class="small fw-semibold text-dark"><i class="fa-solid fa-user-shield text-danger me-2"></i> Super Admin Account Credentials &amp; Password</span>
-                            <i class="fa-solid fa-chevron-right text-muted small"></i>
-                        </a>
-                        <a href="security" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center py-2 px-3">
-                            <span class="small fw-semibold text-dark"><i class="fa-solid fa-key text-warning me-2"></i> Live MariaDB / MySQL Server Password</span>
-                            <i class="fa-solid fa-chevron-right text-muted small"></i>
-                        </a>
-                        <a href="security" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center py-2 px-3">
-                            <span class="small fw-semibold text-dark"><i class="fa-solid fa-database text-primary me-2"></i> Database &amp; RADIUS Credentials Vault</span>
-                            <i class="fa-solid fa-chevron-right text-muted small"></i>
-                        </a>
+                    <div class="bg-light p-3 rounded-3 border border-light-subtle">
+                        <div class="d-flex align-items-center gap-2 text-muted small mb-1">
+                            <i class="fa-solid fa-check text-success"></i>
+                            <span>Includes complete table structures &amp; data records</span>
+                        </div>
+                        <div class="d-flex align-items-center gap-2 text-muted small">
+                            <i class="fa-solid fa-bolt text-warning"></i>
+                            <span>Pure PHP Native Exporter &amp; Importer (zero mysqldump dependency)</span>
+                        </div>
                     </div>
                 </div>
 
-                <div class="mt-auto pt-3 border-top border-light-subtle text-end">
-                    <a href="security" class="btn btn-danger px-4 rounded-pill fw-bold shadow-sm d-inline-flex align-items-center gap-2">
-                        <i class="fa-solid fa-shield-halved"></i>
-                        <span>Open Security &amp; Passwords</span>
-                    </a>
+                <div class="mt-auto pt-3 border-top border-light-subtle d-flex justify-content-between align-items-center">
+                    <span class="text-muted small"><i class="fa-solid fa-shield-virus text-primary me-1"></i> Disaster Recovery Ready</span>
+                    <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2 py-1 small">Safe &amp; Encrypted</span>
                 </div>
             </div>
         </div>
@@ -995,26 +682,6 @@ try {
                         <button type="button" class="btn btn-outline-info rounded-pill px-3 py-2 btn-sm fw-bold" data-bs-toggle="collapse" data-bs-target="#syncHelpGuide">
                             <i class="fa-solid fa-circle-question me-1"></i> Setup Guide (Urdu)
                         </button>
-                    </div>
-                </div>
-
-                <!-- Security Center Cross-Link Banner -->
-                <div class="alert alert-secondary border-0 rounded-4 p-3 mb-4 d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3" style="background: #f1f5f9; border: 1px solid #e2e8f0 !important;">
-                    <div class="d-flex align-items-center gap-3">
-                        <div class="rounded-circle bg-dark text-white d-flex align-items-center justify-content-center shadow-sm" style="width: 40px; height: 40px; flex-shrink: 0;">
-                            <i class="fa-solid fa-shield-halved"></i>
-                        </div>
-                        <div>
-                            <div class="fw-bold text-dark small mb-0">Database &amp; RADIUS Credentials Vault Moved to Security</div>
-                            <span class="text-muted small" style="font-size: 0.8rem;">
-                                Tamam database passwords, MariaDB root credentials, aur remote sync profiles ab <strong><a href="security" class="text-dark fw-bold">Security</a></strong> menu me shift ho gaye hain.
-                            </span>
-                        </div>
-                    </div>
-                    <div class="d-flex gap-2 flex-shrink-0">
-                        <a href="security" class="btn btn-dark rounded-pill px-3 py-1 btn-sm fw-bold shadow-sm d-inline-flex align-items-center gap-1">
-                            <i class="fa-solid fa-lock me-1"></i> Open Security Center
-                        </a>
                     </div>
                 </div>
 
@@ -1191,56 +858,6 @@ try {
                         </button>
                     </div>
                 </form>
-            </div>
-        </div>
-
-        <!-- 4. Database Disaster Recovery & Backup Card -->
-        <div class="col-12">
-            <div class="card-ui p-4">
-                <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3">
-                    <div class="d-flex align-items-start gap-3">
-                        <div class="rounded-circle bg-success-subtle text-success d-flex align-items-center justify-content-center shadow-sm" style="width: 48px; height: 48px; flex-shrink: 0;">
-                            <i class="fa-solid fa-database fs-4"></i>
-                        </div>
-                        <div>
-                            <h5 class="fw-bold text-dark mb-1">Full Database Backup & Disaster Recovery</h5>
-                            <p class="text-muted small mb-0" style="max-width: 750px;">
-                                Generates and streams a complete <strong>.SQL</strong> dump of all FreeRADIUS tables (`radcheck`, `radreply`, `radacct`, `nas`), tenant profiles, subscribers, packages, ledgers, and configurations directly to your local computer.
-                            </p>
-                        </div>
-                    </div>
-                    <div class="d-flex flex-wrap gap-2">
-                        <a href="download_backup.php" class="btn btn-success rounded-pill px-4 py-2 fw-bold shadow-sm d-inline-flex align-items-center gap-2">
-                            <i class="fa-solid fa-cloud-arrow-down fs-5"></i>
-                            <span>Download Full Backup (.SQL)</span>
-                        </a>
-                        <button type="button" class="btn btn-warning rounded-pill px-4 py-2 fw-bold shadow-sm d-inline-flex align-items-center gap-2 text-dark" data-bs-toggle="modal" data-bs-target="#restoreBackupModal">
-                            <i class="fa-solid fa-rotate-left fs-5"></i>
-                            <span>Restore Database Backup (.SQL)</span>
-                        </button>
-                    </div>
-                </div>
-
-                <div class="row g-3 mt-3 pt-3 border-top border-light-subtle">
-                    <div class="col-md-4">
-                        <div class="d-flex align-items-center gap-2 text-muted small">
-                            <i class="fa-solid fa-check-double text-success"></i>
-                            <span>Pure PHP Native Exporter & Importer</span>
-                        </div>
-                    </div>
-                    <div class="col-md-4">
-                        <div class="d-flex align-items-center gap-2 text-muted small">
-                            <i class="fa-solid fa-shield-virus text-primary"></i>
-                            <span>Includes complete table structures & data records</span>
-                        </div>
-                    </div>
-                    <div class="col-md-4">
-                        <div class="d-flex align-items-center gap-2 text-muted small">
-                            <i class="fa-solid fa-bolt text-warning"></i>
-                            <span>Supports both .sql and .sql.gz backup formats</span>
-                        </div>
-                    </div>
-                </div>
             </div>
         </div>
 
