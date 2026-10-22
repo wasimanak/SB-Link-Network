@@ -1,52 +1,79 @@
 <?php
 session_start();
 require_once '../config/db.php';
+require_once '../config/security.php';
 
 if (isset($_SESSION['customer_logged_in']) && $_SESSION['customer_logged_in'] === true) {
-    header("Location: dashboard.php");
+    header("Location: dashboard");
     exit;
 }
 
-// Fetch all active/suspended operators for the dropdown
-$opStmt = $pdo->query("SELECT id, company_name, subarea FROM clients WHERE status != 'expired' ORDER BY company_name ASC");
-$operators = $opStmt->fetchAll();
-
 $error = '';
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $client_id = (int)($_POST['client_id'] ?? 0);
-    $username = trim($_POST['username']);
-    $password = trim($_POST['password']);
 
-    if ($client_id === 0) {
-        $error = "Please select your provider/city.";
+// Rate Limiting Protection (10 failed attempts max, 15 minutes lockout)
+list($is_blocked, $remaining_sec) = check_rate_limit($pdo, 'customer', 10, 15);
+
+if ($is_blocked) {
+    $min = ceil($remaining_sec / 60);
+    $error = "Too many failed login attempts. For security, access is temporarily locked for {$min} minute(s).";
+} elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $username = trim($_POST['username'] ?? '');
+    $password = trim($_POST['password'] ?? '');
+
+    if (empty($username) || empty($password)) {
+        $error = "Please enter your username and password.";
     } else {
-        // Must match BOTH username and client_id
-        $stmt = $pdo->prepare("SELECT id, client_id, password, status FROM subscribers WHERE username = ? AND client_id = ?");
-        $stmt->execute([$username, $client_id]);
-        $user = $stmt->fetch();
+        // Query subscribers by username (unique)
+        $stmt = $pdo->prepare("SELECT id, client_id, password, status FROM subscribers WHERE username = ?");
+        $stmt->execute([$username]);
+        $users = $stmt->fetchAll();
 
-        if ($user && $user['password'] === $password) {
-            if ($user['status'] === 'disabled') {
-                $error = "Your account is disabled. Please contact support.";
-            } else {
-                // Check operator status
-                $opCheckStmt = $pdo->prepare("SELECT status FROM clients WHERE id = ?");
-                $opCheckStmt->execute([$user['client_id']]);
-                $op_status = $opCheckStmt->fetchColumn();
-
-                if ($op_status === 'suspended' || $op_status === 'expired') {
-                    $error = "Service temporarily unavailable (Provider Suspended).";
-                } else {
-                    $_SESSION['customer_logged_in'] = true;
-                    $_SESSION['customer_id'] = $user['id'];
-                    $_SESSION['customer_client_id'] = $user['client_id'];
-                    $_SESSION['customer_username'] = $username;
-                    header("Location: dashboard.php");
-                    exit;
+        $user = null;
+        if (count($users) === 1) {
+            $user = $users[0];
+        } elseif (count($users) > 1) {
+            // If duplicate username exists across operators, match by password
+            foreach ($users as $u) {
+                if ($u['password'] === $password) {
+                    $user = $u;
+                    break;
                 }
             }
+            if (!$user) {
+                $user = $users[0];
+            }
+        }
+
+        if ($user) {
+            if ($user['password'] === $password) {
+                if ($user['status'] === 'disabled') {
+                    $error = "Your account is disabled. Please contact your internet provider.";
+                } else {
+                    // Check operator status
+                    $opCheckStmt = $pdo->prepare("SELECT status FROM clients WHERE id = ?");
+                    $opCheckStmt->execute([$user['client_id']]);
+                    $op_status = $opCheckStmt->fetchColumn();
+
+                    if ($op_status === 'suspended' || $op_status === 'expired') {
+                        $error = "Service temporarily unavailable (Provider account suspended).";
+                    } else {
+                        clear_failed_attempts($pdo, 'customer');
+                        session_regenerate_id(true);
+                        $_SESSION['customer_logged_in'] = true;
+                        $_SESSION['customer_id'] = $user['id'];
+                        $_SESSION['customer_client_id'] = $user['client_id'];
+                        $_SESSION['customer_username'] = $username;
+                        header("Location: dashboard");
+                        exit;
+                    }
+                }
+            } else {
+                record_failed_attempt($pdo, 'customer', $username);
+                $error = "Invalid username or password.";
+            }
         } else {
-            $error = "Invalid username, password, or provider selected.";
+            record_failed_attempt($pdo, 'customer', $username);
+            $error = "Invalid username or password.";
         }
     }
 }
@@ -55,86 +82,181 @@ if (isset($_GET['error'])) {
     if ($_GET['error'] == 'operator_suspended') $error = "Service temporarily unavailable.";
     if ($_GET['error'] == 'account_disabled') $error = "Your account is disabled.";
 }
+
+$is_expired_notice = (isset($_GET['msg']) && $_GET['msg'] === 'expired') || isset($_GET['expired']);
 ?>
 <!DOCTYPE html>
-<html lang="en" data-bs-theme="dark">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Customer Login - SB Link Network</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <title>Customer Login - <?= BRAND_NAME ?></title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" rel="stylesheet">
     <style>
         body { 
-            background-color: #0b1120; 
-            font-family: 'Inter', system-ui, sans-serif;
-            display: flex; align-items: center; justify-content: center; min-height: 100vh; 
-            background-image: radial-gradient(circle at 50% -20%, #1e293b, #0b1120);
+            background-color: #f8fafc; 
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(37, 99, 235, 0.08) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(59, 130, 246, 0.05) 0px, transparent 50%);
         }
+
         .login-card { 
-            background: linear-gradient(145deg, #1e293b, #0f172a); 
-            border-radius: 16px; 
-            border: 1px solid rgba(255, 255, 255, 0.05); 
-            box-shadow: 0 20px 40px -10px rgba(0,0,0,0.7); 
-            width: 100%; max-width: 420px; padding: 2.5rem 2rem; 
+            background: #ffffff; 
+            border-radius: 24px; 
+            border: 1px solid #eef2f6; 
+            box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.07); 
+            width: 100%; 
+            max-width: 440px; 
+            padding: 2.75rem 2.25rem;
+            position: relative;
         }
-        .text-accent { color: #38bdf8; }
-        .btn-accent { 
-            background: linear-gradient(135deg, #38bdf8, #0284c7); 
-            color: #fff; font-weight: 600; border: none; border-radius: 10px; 
-            padding: 12px 20px; transition: 0.3s; 
-            box-shadow: 0 4px 15px rgba(2, 132, 199, 0.4); 
+
+        .brand-icon-box {
+            width: 58px;
+            height: 58px;
+            border-radius: 18px;
+            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #ffffff;
+            font-size: 1.5rem;
+            margin: 0 auto 16px auto;
+            box-shadow: 0 8px 20px rgba(37, 99, 235, 0.25);
         }
-        .btn-accent:hover { 
-            background: linear-gradient(135deg, #0284c7, #0369a1); 
-            color: #fff; transform: translateY(-2px); 
-            box-shadow: 0 6px 20px rgba(2, 132, 199, 0.6); 
-        }
+
         .form-control, .form-select {
-            background-color: rgba(15, 23, 42, 0.6) !important;
-            border: 1px solid rgba(255, 255, 255, 0.1) !important;
-            color: #f8fafc !important;
-            border-radius: 8px;
-            padding: 10px 15px;
+            background-color: #ffffff !important;
+            border: 1.5px solid #e2e8f0 !important;
+            color: #0f172a !important;
+            border-radius: 12px;
+            padding: 11px 16px;
+            font-size: 0.95rem;
+            transition: all 0.2s ease;
         }
+
         .form-control:focus, .form-select:focus {
-            box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2);
-            border-color: #38bdf8 !important;
+            box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12) !important;
+            border-color: #2563eb !important;
+        }
+
+        .btn-login { 
+            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); 
+            color: #ffffff; 
+            font-weight: 700; 
+            border: none; 
+            border-radius: 12px; 
+            padding: 13px 20px; 
+            transition: all 0.25s ease;
+            box-shadow: 0 4px 15px rgba(37, 99, 235, 0.3); 
+        }
+
+        .btn-login:hover { 
+            background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%); 
+            color: #ffffff; 
+            transform: translateY(-2px); 
+            box-shadow: 0 6px 20px rgba(37, 99, 235, 0.45); 
+        }
+
+        .toggle-pwd-btn {
+            background: transparent;
+            border: none;
+            color: #64748b;
+            padding: 0 14px;
+            cursor: pointer;
+        }
+        .toggle-pwd-btn:hover {
+            color: #0f172a;
         }
     </style>
 </head>
 <body>
-    <div class="login-card text-center">
-        <h2 class="text-accent fw-bold mb-3"><i class="fa-solid fa-wifi"></i> SB Link</h2>
-        <h6 class="mb-4 text-secondary">Customer Portal Login</h6>
+
+    <div class="login-card">
         
+        <!-- Brand Header -->
+        <div class="text-center mb-4">
+            <div class="brand-icon-box">
+                <i class="fa-solid fa-wifi"></i>
+            </div>
+            <h4 class="fw-bold text-dark mb-1" style="letter-spacing: -0.5px;"><?= BRAND_NAME ?></h4>
+            <div class="text-muted small">Customer Self-Service Portal</div>
+        </div>
+        
+        <!-- Expired Notice Banner -->
+        <?php if($is_expired_notice): ?>
+            <div class="alert alert-warning border-0 rounded-4 small p-3 mb-4 bg-warning-subtle text-dark shadow-sm">
+                <div class="d-flex align-items-center gap-2 mb-2">
+                    <i class="fa-solid fa-triangle-exclamation fs-4 text-warning"></i>
+                    <strong class="fs-6 text-dark">Aap Ka Internet Package Expire Ho Chuka Hai!</strong>
+                </div>
+                <div class="small text-secondary mb-2">
+                    Barah-e-karam apna bill ada karein ya wallet balance recharge karein taake aap ka internet foran bahaal (activate) ho sakay.
+                </div>
+                <div class="small fw-bold text-primary">
+                    <i class="fa-solid fa-arrow-down me-1"></i> Neeche login karein aur apna package renew karein:
+                </div>
+            </div>
+        <?php endif; ?>
+
+        <!-- Error Alert -->
         <?php if($error): ?>
-            <div class="alert alert-danger text-start small p-2 rounded"><i class="fa-solid fa-triangle-exclamation me-1"></i> <?= htmlspecialchars($error) ?></div>
+            <div class="alert alert-danger border-0 rounded-4 small p-3 mb-4 d-flex align-items-center gap-2 bg-danger-subtle text-danger-emphasis">
+                <i class="fa-solid fa-circle-exclamation fs-5 flex-shrink-0"></i>
+                <div><?= htmlspecialchars($error) ?></div>
+            </div>
         <?php endif; ?>
         
+        <!-- Login Form -->
         <form method="POST">
-            <div class="mb-3 text-start">
-                <label class="form-label text-secondary small fw-bold">Select Area / Provider <span class="text-danger">*</span></label>
-                <select name="client_id" class="form-select" required>
-                    <option value="">-- Choose your provider/city --</option>
-                    <?php foreach($operators as $op): ?>
-                        <option value="<?= $op['id'] ?>">
-                            <?= htmlspecialchars($op['company_name']) ?> <?= !empty($op['subarea']) ? ' - ' . htmlspecialchars($op['subarea']) : '' ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
+            
+            <!-- Username -->
+            <div class="mb-3">
+                <label class="form-label text-dark small fw-bold mb-1">
+                    <i class="fa-solid fa-user text-primary me-1"></i> Subscriber Username <span class="text-danger">*</span>
+                </label>
+                <input type="text" name="username" class="form-control" required placeholder="e.g. your_username" autocomplete="username">
             </div>
-            <div class="mb-3 text-start">
-                <label class="form-label text-secondary small fw-bold">Username</label>
-                <input type="text" name="username" class="form-control" required placeholder="Enter PPPoE / Hotspot Username">
+
+            <!-- Password -->
+            <div class="mb-4">
+                <label class="form-label text-dark small fw-bold mb-1">
+                    <i class="fa-solid fa-lock text-primary me-1"></i> Password <span class="text-danger">*</span>
+                </label>
+                <div class="input-group">
+                    <input type="password" name="password" id="user_password" class="form-control" required placeholder="Enter your password" autocomplete="current-password">
+                    <button class="btn btn-outline-secondary border-start-0 toggle-pwd-btn" type="button" onclick="const p = document.getElementById('user_password'); p.type = p.type === 'password' ? 'text' : 'password';">
+                        <i class="fa-regular fa-eye"></i>
+                    </button>
+                </div>
             </div>
-            <div class="mb-4 text-start">
-                <label class="form-label text-secondary small fw-bold">Password</label>
-                <input type="password" name="password" class="form-control" required placeholder="Enter Password">
+
+            <!-- Submit Button -->
+            <button type="submit" class="btn btn-login w-100 mb-3">
+                <i class="fa-solid fa-right-to-bracket me-2"></i> Sign In to Dashboard
+            </button>
+
+            <div class="text-center text-muted small mt-4" style="font-size: 0.76rem;">
+                Need help with your internet connection? Contact your local ISP operator.
             </div>
-            <button type="submit" class="btn btn-accent w-100"><i class="fa-solid fa-shield-halved me-2"></i> Secure Login</button>
         </form>
+
     </div>
+
+    <style>
+        body { -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; }
+        input, textarea, select, [contenteditable="true"] { -webkit-user-select: text !important; -moz-user-select: text !important; -ms-user-select: text !important; user-select: text !important; }
+    </style>
+    <script src="/security-shield.js?v=2.1"></script>
 </body>
 </html>

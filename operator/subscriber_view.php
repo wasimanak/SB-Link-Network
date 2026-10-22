@@ -99,10 +99,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $mobile = trim($_POST['mobile']);
             $phone = trim($_POST['phone']);
             $email = trim($_POST['email']);
-            $subarea = trim($_POST['subarea']);
-            $city = trim($_POST['city']);
-            $gps_lat = trim($_POST['gps_lat']);
-            $gps_lng = trim($_POST['gps_lng']);
+            $address = trim($_POST['address'] ?? '');
+            $subarea = trim($_POST['subarea'] ?? '');
+            $city = trim($_POST['city'] ?? '');
+            $latitude = !empty($_POST['latitude']) ? trim($_POST['latitude']) : (!empty($_POST['gps_lat']) ? trim($_POST['gps_lat']) : null);
+            $longitude = !empty($_POST['longitude']) ? trim($_POST['longitude']) : (!empty($_POST['gps_lng']) ? trim($_POST['gps_lng']) : null);
             
             // Check if username is being changed and if it already exists
             if ($new_username !== $u) {
@@ -120,10 +121,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->prepare("UPDATE subscribers SET 
                 full_name=?, national_id=?, username=?, password=?, service_type=?, 
                 package_id=?, dealer_id=?, expiry_date=?, mobile=?, phone=?, email=?, 
-                subarea=?, city=?, gps_lat=?, gps_lng=? WHERE id=?")
+                address=?, subarea=?, city=?, latitude=?, longitude=?, gps_lat=?, gps_lng=? WHERE id=?")
                 ->execute([$full_name, $national_id, $new_username, $password, $service_type, 
                            $package_id, $dealer_id, $expiry, $mobile, $phone, $email, 
-                           $subarea, $city, $gps_lat, $gps_lng, $id]);
+                           $address, $subarea, $city, $latitude, $longitude, $latitude, $longitude, $id]);
             
             // Update RADIUS Cleartext-Password & Username
             if ($new_username !== $u) {
@@ -250,7 +251,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $package_id = (int)$_POST['package_id'];
             $expiry_date = $_POST['expiry_date'];
             
-            $p = $pdo->prepare("SELECT name, rate_limit, price FROM packages WHERE id = ? AND client_id = ?");
+            $p = $pdo->prepare("SELECT p.name, p.rate_limit, p.price, p.pool_id, pl.pool_name FROM packages p LEFT JOIN ip_pools pl ON p.pool_id = pl.id WHERE p.id = ? AND p.client_id = ?");
             $p->execute([$package_id, $client_id]);
             $pkg = $p->fetch();
 
@@ -267,6 +268,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Rate-Limit'")->execute([$u]);
                 if (!empty($pkg['rate_limit']) && $pkg['rate_limit'] !== 'No Limit') {
                     $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Rate-Limit', '=', ?)")->execute([$u, $pkg['rate_limit']]);
+                }
+
+                // NEVER inject Mikrotik-Address-List (prevents 700 dynamic entries and WAN hijacking)
+                $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute IN ('Mikrotik-Address-List', 'Framed-Pool')")->execute([$u]);
+                $target_profile = !empty($pkg['pool_name']) ? $pkg['pool_name'] : '';
+                if (empty($target_profile) || $target_profile === 'PPPoE Pool') {
+                    if (preg_match('/(\d+)\s*(?:M|MB|Mbps)/i', $pkg['name'], $m_prof)) {
+                        $target_profile = $m_prof[1] . 'Mbps';
+                    }
+                }
+                if (!empty($target_profile)) {
+                    $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Group'")->execute([$u]);
+                    $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Group', '=', ?)")->execute([$u, $target_profile]);
                 }
                 $formatted_expiry = date('d M Y H:i:s', strtotime($expiry_date));
                 $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute IN ('Expiration', 'Auth-Type')")->execute([$u]);
@@ -327,7 +341,7 @@ if ($total_bytes >= 1073741824) {
 }
 
 // Check if currently online
-$onStmt = $pdo->prepare("SELECT acctstarttime FROM radacct WHERE username = ? AND acctstoptime IS NULL ORDER BY radacctid DESC LIMIT 1");
+$onStmt = $pdo->prepare("SELECT * FROM radacct WHERE username = ? AND acctstoptime IS NULL ORDER BY radacctid DESC LIMIT 1");
 $onStmt->execute([$user['username']]);
 $online = $onStmt->fetch();
 
@@ -393,9 +407,49 @@ $ledgerStmt = $pdo->prepare("SELECT * FROM user_ledger WHERE client_id = ? AND u
 $ledgerStmt->execute([$client_id, $user['username']]);
 $ledger_history = $ledgerStmt->fetchAll();
 
+// PROFILE STATUS LOGIC
+$is_expired = false;
+if (!empty($user['expiry_date']) && strtotime($user['expiry_date']) < time()) {
+    $is_expired = true;
+}
+if (strtolower($user['status'] ?? '') === 'expired') {
+    $is_expired = true;
+}
+
+$profile_status = 'Offline';
+$status_color = 'secondary';
+$header_badge_class = 'offline';
+
+if (strtolower($user['status'] ?? '') === 'disabled') {
+    $profile_status = 'Disabled';
+    $status_color = 'danger';
+    $header_badge_class = 'disabled';
+} elseif ($is_expired) {
+    if ($online) {
+        $profile_status = 'Expired (Online)';
+        $status_color = 'warning text-dark';
+        $header_badge_class = 'expired';
+    } else {
+        $profile_status = 'Expired (Offline)';
+        $status_color = 'danger';
+        $header_badge_class = 'offline';
+    }
+} elseif ($online) {
+    $profile_status = 'Online';
+    $status_color = 'success';
+    $header_badge_class = '';
+} else {
+    $profile_status = 'Offline';
+    $status_color = 'secondary';
+    $header_badge_class = 'offline';
+}
+
+
 ?>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<!-- Leaflet Map CSS -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <!-- DataTables & Buttons CSS -->
 <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
 <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.2/css/buttons.bootstrap5.min.css">
@@ -422,6 +476,7 @@ $ledger_history = $ledgerStmt->fetchAll();
     .status-badge { display: inline-block; background: rgba(16, 185, 129, 0.15); color: #10b981; padding: 2px 12px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; margin-top: 5px; border: 1px solid rgba(16, 185, 129, 0.2); }
     .status-badge.offline { background: rgba(148, 163, 184, 0.15); color: #64748b; border-color: rgba(148, 163, 184, 0.2); }
     .status-badge.disabled { background: rgba(239, 68, 68, 0.15); color: #ef4444; border-color: rgba(239, 68, 68, 0.2); }
+    .status-badge.expired { background: rgba(245, 158, 11, 0.15); color: #d97706; border-color: rgba(245, 158, 11, 0.2); }
     
     .profile-list { list-style: none; padding: 0; margin: 0; }
     .profile-list li { padding: 12px 20px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #f8fafc; color: #475569; font-size: 0.9rem; }
@@ -466,14 +521,21 @@ $ledger_history = $ledgerStmt->fetchAll();
                 <?php endif; ?>
                 <div class="profile-info">
                     <h5><?= htmlspecialchars($user['full_name'] ?: 'Unknown Name') ?></h5>
-                    <p><?= htmlspecialchars($user['username']) ?></p>
-                    <?php if($user['status'] === 'disabled'): ?>
-                        <span class="status-badge disabled">Disabled</span>
-                    <?php else: ?>
-                        <span class="status-badge <?= $online ? '' : 'offline' ?>">
-                            <?= $online ? 'Active' : 'Offline' ?>
-                        </span>
-                    <?php endif; ?>
+                    <p class="mb-1"><?= htmlspecialchars($user['username']) ?></p>
+                    <div class="d-flex align-items-center gap-2 flex-wrap mt-1">
+                        <span class="status-badge <?= $header_badge_class ?>"><?= $profile_status ?></span>
+                        <?php if ($online): ?>
+                            <span class="badge rounded-pill bg-success text-white px-2 py-1 shadow-sm d-inline-flex align-items-center gap-1" style="font-size: 0.72rem; letter-spacing: 0.3px;">
+                                <span class="spinner-grow spinner-grow-sm text-white" style="width: 6px; height: 6px;" role="status"></span>
+                                <span>ONLINE</span>
+                            </span>
+                        <?php else: ?>
+                            <span class="badge rounded-pill bg-secondary text-white px-2 py-1 d-inline-flex align-items-center gap-1" style="font-size: 0.72rem; letter-spacing: 0.3px;">
+                                <i class="fa-solid fa-circle text-white-50" style="font-size: 0.45rem;"></i>
+                                <span>OFFLINE</span>
+                            </span>
+                        <?php endif; ?>
+                    </div>
                 </div>
             </div>
             <ul class="profile-list">
@@ -481,7 +543,13 @@ $ledger_history = $ledgerStmt->fetchAll();
                 <li><i class="fa-solid fa-user-shield"></i> Admin</li>
                 <li><i class="fa-solid fa-id-card"></i> <?= htmlspecialchars($user['national_id'] ?: 'N/A') ?></li>
                 <li><i class="fa-solid fa-phone"></i> <?= htmlspecialchars($user['mobile'] ?: ($user['phone'] ?: 'N/A')) ?></li>
-                <li><i class="fa-solid fa-location-dot"></i> <?= htmlspecialchars($user['address'] ?: 'N/A') ?></li>
+                <li><i class="fa-solid fa-location-dot"></i> <?= htmlspecialchars($user['address'] ?: 'N/A') ?>
+                    <?php if (!empty($user['latitude']) && !empty($user['longitude']) && (float)$user['latitude'] != 0): ?>
+                        <a href="https://www.google.com/maps?q=<?= $user['latitude'] ?>,<?= $user['longitude'] ?>" target="_blank" class="badge bg-primary text-white text-decoration-none ms-1 px-2 py-1" style="font-size: 0.7rem;" title="View exact house location on Google Maps">
+                            <i class="fa-solid fa-map-location-dot me-1"></i> Maps
+                        </a>
+                    <?php endif; ?>
+                </li>
                 <li><i class="fa-solid fa-calendar-alt"></i> <?= $user['expiry_date'] ? date('Y-m-d H:i:s', strtotime($user['expiry_date'])) : 'N/A' ?></li>
             </ul>
             <div class="action-grid">
@@ -548,10 +616,18 @@ $ledger_history = $ledgerStmt->fetchAll();
         <div class="row mb-4">
             <div class="col-xl-3 col-sm-6 mb-3 mb-xl-0">
                 <div class="view-card metric-card mb-0 h-100">
-                    <div class="metric-icon bg-light-info"><i class="fa-regular fa-clock"></i></div>
+                    <div class="metric-icon <?= $online ? 'bg-light-success text-success' : 'bg-light-secondary text-secondary' ?>"><i class="fa-solid fa-wifi"></i></div>
                     <div class="metric-data">
-                        <h6>Online Uptime</h6>
-                        <h4 id="live_uptime"><?= $uptime_str ?></h4>
+                        <h6>Connection Status</h6>
+                        <div class="d-flex align-items-center gap-2 mt-1">
+                            <?php if ($online): ?>
+                                <span class="badge bg-success rounded-pill px-2 py-1" style="font-size: 0.75rem;">Online</span>
+                                <h5 class="mb-0 fw-bold text-dark font-monospace" id="live_uptime" style="font-size: 0.95rem;"><?= $uptime_str ?></h5>
+                            <?php else: ?>
+                                <span class="badge bg-secondary rounded-pill px-2 py-1" style="font-size: 0.75rem;">Offline</span>
+                                <span class="text-muted small" id="live_uptime">Disconnected</span>
+                            <?php endif; ?>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -613,7 +689,30 @@ $ledger_history = $ledgerStmt->fetchAll();
                     <div class="accordion-body text-secondary p-3">
                         <table class="table table-sm table-borderless text-secondary mb-0" style="font-size: 0.9rem;">
                             <tbody>
-                                <tr><td class="fw-bold w-50">Profile Status</td><td><span class="badge bg-<?= $user['status'] == 'active' ? 'success' : 'danger' ?>"><?= ucfirst($user['status']) ?></span></td></tr>
+                                <tr>
+                                    <td class="fw-bold w-50">Profile Status</td>
+                                    <td>
+                                        <?php if (strtolower($user['status'] ?? '') === 'disabled'): ?>
+                                            <span class="badge bg-danger">Disabled</span>
+                                        <?php elseif ($is_expired): ?>
+                                            <span class="badge bg-warning text-dark">Expired</span>
+                                        <?php else: ?>
+                                            <span class="badge bg-success">Active</span>
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td class="fw-bold">Connection State</td>
+                                    <td>
+                                        <?php if ($online): ?>
+                                            <span class="badge bg-success"><i class="fa-solid fa-wifi me-1"></i>Online</span>
+                                            <span class="text-success small fw-semibold ms-2">(Connected - Uptime: <span id="svc_uptime_display"><?= $uptime_str ?></span>)</span>
+                                        <?php else: ?>
+                                            <span class="badge bg-secondary"><i class="fa-solid fa-power-off me-1"></i>Offline</span>
+                                            <span class="text-muted small ms-2">(Disconnected)</span>
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
                                 <tr><td class="fw-bold">Connection Type</td><td>Radius <?= strtoupper($user['service_type']) ?></td></tr>
                                 <tr><td class="fw-bold">Package</td><td><?= htmlspecialchars($user['pkg_name'] ?? 'N/A') ?></td></tr>
                                 <tr><td class="fw-bold">Package Duration</td><td><?= $user['validity_days'] ? $user['validity_days'] . ' Days' : 'N/A' ?></td></tr>
@@ -863,6 +962,87 @@ $ledger_history = $ledgerStmt->fetchAll();
                             <label class="col-form-label">Street Address</label>
                             <input type="text" name="address" class="form-control" value="<?= htmlspecialchars($user['address']) ?>">
                         </div>
+
+                        <div class="col-md-12 mb-3">
+                            <label class="col-form-label text-secondary small fw-bold d-flex justify-content-between align-items-center">
+                                <span><i class="fa-solid fa-map-location-dot text-primary me-1"></i> Customer Location (Map Pin & GPS)</span>
+                                <button type="button" class="btn btn-link btn-sm text-decoration-none p-0 text-muted" onclick="toggleEditManualCoords()" style="font-size: 0.75rem;">
+                                    <i class="fa-solid fa-keyboard me-1"></i> Manual Enter
+                                </button>
+                            </label>
+                            
+                            <!-- Action controls: GPS Button + Map Search Box + Satellite/Map toggle -->
+                            <div class="row g-2 mb-2">
+                                <div class="col-md-5">
+                                    <button type="button" class="btn btn-outline-primary btn-sm fw-bold w-100 py-2 shadow-sm" id="btn_edit_capture_location" onclick="captureEditUserLocation()">
+                                        <i class="fa-solid fa-crosshairs me-1 text-danger"></i> Get Current GPS (10m)
+                                    </button>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="input-group input-group-sm">
+                                        <input type="text" class="form-control" id="edit_map_search_input" placeholder="Search area, colony..." onkeydown="if(event.key==='Enter'){event.preventDefault();searchEditLocationOnMap();}">
+                                        <button class="btn btn-primary" type="button" id="btn_edit_map_search" onclick="searchEditLocationOnMap()" title="Search Area on Map">
+                                            <i class="fa-solid fa-magnifying-glass"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="btn-group btn-group-sm w-100 shadow-sm" role="group">
+                                        <button type="button" class="btn btn-primary btn-sm fw-bold" id="btnEditMapHybrid" onclick="switchEditMapLayer('hybrid')" title="Satellite View with Streets"><i class="fa-solid fa-satellite me-1"></i>Sat</button>
+                                        <button type="button" class="btn btn-outline-secondary btn-sm fw-bold" id="btnEditMapStreets" onclick="switchEditMapLayer('streets')" title="Streets Map View"><i class="fa-solid fa-road me-1"></i>Map</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Interactive Leaflet Map Container -->
+                            <div class="position-relative rounded border overflow-hidden shadow-sm" style="height: 280px;">
+                                <div id="edit_user_map_picker" style="height: 100%; width: 100%; z-index: 1;"></div>
+                                <div class="position-absolute bottom-0 start-0 m-2 px-2 py-1 rounded bg-dark bg-opacity-75 text-white small" style="z-index: 1000; font-size: 0.75rem; pointer-events: none;">
+                                    <i class="fa-solid fa-hand-pointer text-warning me-1"></i> Map par click karein ya pin ko drag kar ke customer ki location par set karein
+                                </div>
+                            </div>
+
+                            <!-- Actual inputs sent to DB -->
+                            <?php 
+                                $user_lat = !empty($user['latitude']) ? $user['latitude'] : (!empty($user['gps_lat']) ? $user['gps_lat'] : '');
+                                $user_lng = !empty($user['longitude']) ? $user['longitude'] : (!empty($user['gps_lng']) ? $user['gps_lng'] : '');
+                            ?>
+                            <input type="hidden" name="latitude" id="edit_user_latitude" value="<?= htmlspecialchars($user_lat) ?>">
+                            <input type="hidden" name="longitude" id="edit_user_longitude" value="<?= htmlspecialchars($user_lng) ?>">
+                            <input type="hidden" name="gps_lat" id="edit_user_gps_lat" value="<?= htmlspecialchars($user_lat) ?>">
+                            <input type="hidden" name="gps_lng" id="edit_user_gps_lng" value="<?= htmlspecialchars($user_lng) ?>">
+
+                            <!-- Live Pinned / Captured Status Card -->
+                            <div id="edit_location_status_box" class="mt-2">
+                                <div class="d-flex align-items-center justify-content-between p-2 rounded bg-light border small">
+                                    <div>
+                                        <span class="text-secondary fw-semibold"><i class="fa-solid fa-location-dot text-danger me-1"></i> Pinned Coordinates:</span>
+                                        <span class="font-monospace text-dark fw-bold ms-1" id="edit_pinned_coords_text">
+                                            <?= ($user_lat && $user_lng) ? htmlspecialchars($user_lat . ', ' . $user_lng) : 'Not set (Click map or drag pin)' ?>
+                                        </span>
+                                    </div>
+                                    <div id="edit_location_accuracy_badge">
+                                        <?php if ($user_lat && $user_lng): ?>
+                                            <span class="badge bg-success-subtle text-success border border-success-subtle"><i class="fa-solid fa-map-pin me-1"></i> Pinned on Map</span>
+                                        <?php else: ?>
+                                            <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">Draggable Pin</span>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Collapsible Manual Inputs -->
+                            <div id="edit_manual_coords_container" class="row mt-2 d-none">
+                                <div class="col-6">
+                                    <label class="small text-muted fw-bold">Latitude</label>
+                                    <input type="text" class="form-control form-control-sm font-monospace" id="edit_manual_lat" value="<?= htmlspecialchars($user_lat) ?>" placeholder="e.g. 31.520371" oninput="syncEditManualCoords()">
+                                </div>
+                                <div class="col-6">
+                                    <label class="small text-muted fw-bold">Longitude</label>
+                                    <input type="text" class="form-control form-control-sm font-monospace" id="edit_manual_lng" value="<?= htmlspecialchars($user_lng) ?>" placeholder="e.g. 74.358747" oninput="syncEditManualCoords()">
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -926,6 +1106,8 @@ $ledger_history = $ledgerStmt->fetchAll();
 
 <!-- jQuery & DataTables JS -->
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<!-- Leaflet Map JS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
 <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
 <!-- DataTables Buttons JS -->
@@ -1017,7 +1199,10 @@ function fetchLiveBandwidth() {
         .then(data => {
             if(data.bytes_in !== undefined && data.bytes_out !== undefined) {
                 if(data.uptime !== undefined) {
-                    document.getElementById('live_uptime').innerText = data.uptime;
+                    let uEl = document.getElementById('live_uptime');
+                    if (uEl) uEl.innerText = data.uptime;
+                    let svcU = document.getElementById('svc_uptime_display');
+                    if (svcU) svcU.innerText = data.uptime;
                 }
                 
                 // Update Used Volume LIVE
@@ -1098,6 +1283,320 @@ function fetchLiveBandwidth() {
 setInterval(fetchLiveBandwidth, 3000);
 fetchLiveBandwidth(); // initial call
 
+// --- Edit Profile GPS & Interactive Leaflet Map Logic ---
+let editGeoWatchId = null;
+let editBestPosition = null;
+let editUserMap = null;
+let editUserMarker = null;
+let editHybridLayer = null;
+let editStreetsLayer = null;
+const defaultMapLat = 31.5204;
+const defaultMapLng = 74.3587; // Central Pakistan default
+
+function initEditUserMapPicker() {
+    if (editUserMap !== null) {
+        setTimeout(function() {
+            if (editUserMap) editUserMap.invalidateSize();
+        }, 150);
+        return;
+    }
+    
+    var container = document.getElementById('edit_user_map_picker');
+    if (!container) return;
+    
+    var curLat = parseFloat(document.getElementById('edit_user_latitude').value);
+    var curLng = parseFloat(document.getElementById('edit_user_longitude').value);
+    var hasExisting = !isNaN(curLat) && curLat !== 0 && !isNaN(curLng) && curLng !== 0;
+    var startLat = hasExisting ? curLat : defaultMapLat;
+    var startLng = hasExisting ? curLng : defaultMapLng;
+
+    editHybridLayer = L.tileLayer('https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+        maxZoom: 22,
+        subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+        attribution: '&copy; Google Maps'
+    });
+
+    editStreetsLayer = L.tileLayer('https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+        maxZoom: 22,
+        subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+        attribution: '&copy; Google Maps'
+    });
+
+    var editEsri = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 19,
+        attribution: 'Tiles &copy; Esri'
+    });
+
+    var editOsm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap'
+    });
+
+    var editBaseMaps = {
+        "🛰️ Google Satellite (Hybrid)": editHybridLayer,
+        "🗺️ Google Streets": editStreetsLayer,
+        "🌍 Esri Satellite": editEsri,
+        "📍 OpenStreetMap": editOsm
+    };
+
+    editUserMap = L.map('edit_user_map_picker', {
+        center: [startLat, startLng],
+        zoom: hasExisting ? 18 : 14,
+        maxZoom: 22,
+        zoomControl: true,
+        layers: [editHybridLayer]
+    });
+
+    L.control.layers(editBaseMaps, null, { position: 'topright' }).addTo(editUserMap);
+
+    var pinIcon = L.icon({
+        iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+        iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+        shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+        iconSize: [25, 41],
+        iconAnchor: [12, 41],
+        popupAnchor: [1, -34],
+        shadowSize: [41, 41]
+    });
+
+    editUserMarker = L.marker([startLat, startLng], {
+        draggable: true,
+        icon: pinIcon
+    }).addTo(editUserMap);
+
+    editUserMarker.bindTooltip("Drag me or click map", { permanent: false, direction: 'top' });
+
+    if (hasExisting) {
+        updateEditCoordsFromMap(startLat, startLng, false);
+    }
+
+    editUserMarker.on('dragend', function () {
+        var pos = editUserMarker.getLatLng();
+        updateEditCoordsFromMap(pos.lat, pos.lng);
+    });
+
+    editUserMap.on('click', function (e) {
+        editUserMarker.setLatLng(e.latlng);
+        updateEditCoordsFromMap(e.latlng.lat, e.latlng.lng);
+    });
+
+    setTimeout(function() {
+        if (editUserMap) editUserMap.invalidateSize();
+    }, 200);
+}
+
+function switchEditMapLayer(type) {
+    if (!editUserMap || !editHybridLayer || !editStreetsLayer) return;
+    var btnHybrid = document.getElementById('btnEditMapHybrid');
+    var btnStreets = document.getElementById('btnEditMapStreets');
+    if (type === 'hybrid') {
+        editUserMap.removeLayer(editStreetsLayer);
+        editUserMap.addLayer(editHybridLayer);
+        if (btnHybrid) { btnHybrid.className = 'btn btn-primary btn-sm fw-bold'; }
+        if (btnStreets) { btnStreets.className = 'btn btn-outline-secondary btn-sm fw-bold'; }
+    } else if (type === 'streets') {
+        editUserMap.removeLayer(editHybridLayer);
+        editUserMap.addLayer(editStreetsLayer);
+        if (btnStreets) { btnStreets.className = 'btn btn-primary btn-sm fw-bold'; }
+        if (btnHybrid) { btnHybrid.className = 'btn btn-outline-secondary btn-sm fw-bold'; }
+    }
+}
+
+function updateEditCoordsFromMap(lat, lng, panTo) {
+    var fixedLat = parseFloat(lat).toFixed(7);
+    var fixedLng = parseFloat(lng).toFixed(7);
+    
+    document.getElementById('edit_user_latitude').value = fixedLat;
+    document.getElementById('edit_user_longitude').value = fixedLng;
+    var latGps = document.getElementById('edit_user_gps_lat');
+    var lngGps = document.getElementById('edit_user_gps_lng');
+    if (latGps) latGps.value = fixedLat;
+    if (lngGps) lngGps.value = fixedLng;
+    
+    var manLat = document.getElementById('edit_manual_lat');
+    var manLng = document.getElementById('edit_manual_lng');
+    if (manLat) manLat.value = fixedLat;
+    if (manLng) manLng.value = fixedLng;
+    
+    var textEl = document.getElementById('edit_pinned_coords_text');
+    if (textEl) {
+        textEl.innerHTML = `<span class="text-primary">${fixedLat}</span>, <span class="text-primary">${fixedLng}</span>`;
+    }
+    
+    var badgeEl = document.getElementById('edit_location_accuracy_badge');
+    if (badgeEl) {
+        badgeEl.innerHTML = '<span class="badge bg-primary-subtle text-primary border border-primary-subtle"><i class="fa-solid fa-map-pin me-1"></i> Pinned on Map</span>';
+    }
+    
+    if (panTo && editUserMap) {
+        editUserMap.panTo([fixedLat, fixedLng]);
+    }
+}
+
+function searchEditLocationOnMap() {
+    var query = document.getElementById('edit_map_search_input').value.trim();
+    if (!query) return;
+    var btn = document.getElementById('btn_edit_map_search');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+    
+    fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`)
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-magnifying-glass"></i>';
+            if (data && data.length > 0) {
+                var lat = parseFloat(data[0].lat);
+                var lon = parseFloat(data[0].lon);
+                if (editUserMap && editUserMarker) {
+                    editUserMap.setView([lat, lon], 17);
+                    editUserMarker.setLatLng([lat, lon]);
+                }
+                updateEditCoordsFromMap(lat, lon);
+            } else {
+                alert('Area/location not found. Please try another search term or drag the map manually.');
+            }
+        })
+        .catch(function() {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-magnifying-glass"></i>';
+        });
+}
+
+function toggleEditManualCoords() {
+    var cont = document.getElementById('edit_manual_coords_container');
+    if (!cont) return;
+    if (cont.classList.contains('d-none')) {
+        cont.classList.remove('d-none');
+        document.getElementById('edit_manual_lat').value = document.getElementById('edit_user_latitude').value;
+        document.getElementById('edit_manual_lng').value = document.getElementById('edit_user_longitude').value;
+    } else {
+        cont.classList.add('d-none');
+    }
+}
+
+function syncEditManualCoords() {
+    var lat = parseFloat(document.getElementById('edit_manual_lat').value.trim());
+    var lng = parseFloat(document.getElementById('edit_manual_lng').value.trim());
+    
+    if (!isNaN(lat) && !isNaN(lng)) {
+        if (editUserMap && editUserMarker) {
+            editUserMarker.setLatLng([lat, lng]);
+            editUserMap.setView([lat, lng], 18);
+        }
+        updateEditCoordsFromMap(lat, lng);
+    }
+}
+
+function captureEditUserLocation() {
+    if (!navigator.geolocation) {
+        alert("Geolocation is not supported by your browser/device.");
+        return;
+    }
+    
+    const btn = document.getElementById('btn_edit_capture_location');
+    const statusEl = document.getElementById('edit_location_accuracy_badge');
+    
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin me-1"></i> Locking GPS (&le;10m)...';
+    if (statusEl) {
+        statusEl.innerHTML = '<span class="badge bg-info-subtle text-info border border-info-subtle"><i class="fa-solid fa-satellite-dish fa-spin me-1"></i> Locking GPS...</span>';
+    }
+    
+    if (editGeoWatchId !== null) {
+        navigator.geolocation.clearWatch(editGeoWatchId);
+        editGeoWatchId = null;
+    }
+    editBestPosition = null;
+
+    const finishCapture = (pos) => {
+        if (editGeoWatchId !== null) {
+            navigator.geolocation.clearWatch(editGeoWatchId);
+            editGeoWatchId = null;
+        }
+        btn.disabled = false;
+        btn.className = 'btn btn-outline-success btn-sm fw-bold w-100 py-2 shadow-sm';
+        btn.innerHTML = '<i class="fa-solid fa-arrows-rotate me-1"></i> Re-capture GPS';
+        
+        const lat = pos.coords.latitude.toFixed(7);
+        const lng = pos.coords.longitude.toFixed(7);
+        const acc = Math.round(pos.coords.accuracy);
+        
+        if (editUserMap && editUserMarker) {
+            editUserMap.setView([lat, lng], 18);
+            editUserMarker.setLatLng([lat, lng]);
+        }
+        
+        updateEditCoordsFromMap(lat, lng);
+        
+        let accBadge = acc <= 10 
+            ? `<span class="badge bg-success text-white px-2 py-1"><i class="fa-solid fa-bullseye me-1"></i> High GPS: ±${acc}m (&le;10m)</span>`
+            : `<span class="badge bg-warning text-dark px-2 py-1"><i class="fa-solid fa-satellite me-1"></i> GPS: ±${acc}m</span>`;
+            
+        if (statusEl) statusEl.innerHTML = accBadge;
+    };
+
+    const timeoutTimer = setTimeout(() => {
+        if (editBestPosition) {
+            finishCapture(editBestPosition);
+        } else {
+            if (editGeoWatchId !== null) {
+                navigator.geolocation.clearWatch(editGeoWatchId);
+                editGeoWatchId = null;
+            }
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-crosshairs me-1 text-danger"></i> Get Current GPS (10m)';
+            if (statusEl) statusEl.innerHTML = '<span class="badge bg-warning text-dark">GPS Timeout</span>';
+            alert("GPS request timed out. Make sure Location/GPS is turned ON, or use the interactive map to pin the location!");
+        }
+    }, 12000);
+
+    try {
+        editGeoWatchId = navigator.geolocation.watchPosition(
+            (pos) => {
+                const acc = pos.coords.accuracy;
+                if (!editBestPosition || acc < editBestPosition.coords.accuracy) {
+                    editBestPosition = pos;
+                }
+                
+                if (statusEl) {
+                    statusEl.innerHTML = `<span class="badge bg-info-subtle text-info">GPS reading: ±${Math.round(acc)}m</span>`;
+                }
+                
+                if (acc <= 10) {
+                    clearTimeout(timeoutTimer);
+                    finishCapture(pos);
+                }
+            },
+            (err) => {
+                clearTimeout(timeoutTimer);
+                if (editGeoWatchId !== null) {
+                    navigator.geolocation.clearWatch(editGeoWatchId);
+                    editGeoWatchId = null;
+                }
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-crosshairs me-1 text-danger"></i> Get Current GPS (10m)';
+                if (statusEl) statusEl.innerHTML = '<span class="badge bg-danger-subtle text-danger">Location Denied</span>';
+                alert("Location access denied or unavailable. You can click on the map directly or enter coordinates manually.");
+            },
+            {
+                enableHighAccuracy: true,
+                timeout: 10000,
+                maximumAge: 0
+            }
+        );
+    } catch(e) {
+        clearTimeout(timeoutTimer);
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-crosshairs me-1 text-danger"></i> Get Current GPS (10m)';
+        alert("Geolocation error: " + e.message);
+    }
+}
+
+// Initialize map whenever editProfileModal is opened
+$('#editProfileModal').on('shown.bs.modal', function () {
+    initEditUserMapPicker();
+});
 </script>
 
 

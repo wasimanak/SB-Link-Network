@@ -2,6 +2,13 @@
 require_once 'header.php';
 $client_id = $_SESSION['operator_id'];
 
+// Auto-Sync & Block Expired Users (runs once every 30 seconds)
+if (!isset($_SESSION['last_expiry_sync']) || (time() - $_SESSION['last_expiry_sync']) > 30) {
+    require_once __DIR__ . '/../config/radius_kick_helper.php';
+    sync_expired_subscribers($pdo, $client_id, true);
+    $_SESSION['last_expiry_sync'] = time();
+}
+
 function formatMikroTikUptime($seconds) {
     $d = floor($seconds / 86400);
     $h = floor(($seconds % 86400) / 3600);
@@ -16,7 +23,7 @@ function formatMikroTikUptime($seconds) {
 
 
 // Get Live Sessions mapped to this operator
-$sql = "SELECT r.*, s.package_id, p.name as package_name 
+$sql = "SELECT r.*, s.package_id, p.name as package_name, s.expiry_date, s.status as sub_status 
         FROM radacct r 
         JOIN subscribers s ON r.username = s.username 
         LEFT JOIN packages p ON s.package_id = p.id
@@ -26,7 +33,7 @@ $sql = "SELECT r.*, s.package_id, p.name as package_name
             WHERE acctstoptime IS NULL 
             GROUP BY username
         ) as latest ON r.radacctid = latest.max_id
-        WHERE s.client_id = ?" . (isset($_GET['filter']) && $_GET['filter'] === 'expired_online' ? " AND s.expiry_date < CURDATE()" : "") . "
+          WHERE s.client_id = ?" . (isset($_GET['filter']) && $_GET['filter'] === 'expired_online' ? " AND (s.expiry_date <= NOW() OR s.status = 'expired')" : "") . "
         ORDER BY r.acctstarttime DESC";
 $stmt = $pdo->prepare($sql);
 $stmt->execute([$client_id]);
@@ -78,6 +85,12 @@ $total_live = count($sessions);
                 <div class="fs-4 fw-bold text-dark lh-1"><?= $total_live ?></div>
             </div>
         </div>
+        <form action="subscriber_action.php" method="POST" onsubmit="return confirm('Disconnect and kick all expired active sessions from MikroTik and block in FreeRADIUS?');" class="m-0">
+            <input type="hidden" name="action" value="kick_all_expired">
+            <button type="submit" class="btn btn-outline-danger shadow-sm h-100 px-3 fw-bold" title="Kick all expired users and block them">
+                <i class="fa-solid fa-power-off me-1"></i> Kick Expired
+            </button>
+        </form>
         <button class="btn btn-primary shadow-sm h-100 px-4" onclick="location.reload()">
             <i class="fa-solid fa-rotate-right me-1"></i> Refresh
         </button>
@@ -90,79 +103,69 @@ $total_live = count($sessions);
             <div class="text-muted fs-5"><i class="fa-solid fa-ghost fs-1 mb-3 text-secondary opacity-50"></i><br>No active sessions found.</div>
         </div>
     <?php endif; ?>
+  <?php foreach($sessions as $sess): 
+    $start_time = is_numeric($sess['acctstarttime']) ? $sess['acctstarttime'] : strtotime($sess['acctstarttime']);
+    $upTime = time() - $start_time;
+    $dl = round($sess['acctoutputoctets'] / 1048576, 2) . " MB";
+    $ul = round($sess['acctinputoctets'] / 1048576, 2) . " MB";
+    
+    $colors = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4'];
+    $color = $colors[crc32($sess['username']) % count($colors)];
+?>
+<div class="col-12 session-card-container mb-2" data-username="<?= htmlspecialchars($sess['username']) ?>">
+    <div class="card border-0 shadow-sm live-card" style="border-radius: 8px;">
+        <div class="card-body p-2 p-md-3">
+            <div class="row align-items-center g-3">
+                <div class="col-12 col-xl-4 col-md-5 d-flex align-items-center gap-3">
+                    <div class="text-white fw-bold d-flex align-items-center justify-content-center shadow-sm flex-shrink-0" style="width: 45px; height: 45px; border-radius: 10px; background-color: <?= $color ?>; font-size: 1.2rem;">
+                        <?= strtoupper(substr($sess['username'], 0, 1)) ?>
+                    </div>
+                    <div style="min-width: 0;">
+                        <div class="fw-bold text-dark lh-1 mb-1 text-truncate" style="font-size: 1.1rem;"><?= htmlspecialchars($sess['username']) ?></div>
+                        <div class="text-muted small text-truncate"><i class="fa-solid fa-box text-secondary"></i> <?= htmlspecialchars($sess['package_name'] ?? 'Custom Package') ?></div>
+                    </div>
+                </div>
+                <div class="col-12 col-xl-2 col-md-3">
+                    <div class="text-dark fw-bold font-monospace small mb-1"><i class="fa-solid fa-server text-muted me-1"></i><?= htmlspecialchars($sess['framedipaddress'] ?? 'N/A') ?></div>
+                    <div class="text-secondary font-monospace small"><i class="fa-solid fa-microchip text-muted me-1"></i><?= htmlspecialchars($sess['callingstationid'] ?? 'N/A') ?></div>
 
-    <?php foreach($sessions as $sess): 
-        $start_time = is_numeric($sess['acctstarttime']) ? $sess['acctstarttime'] : strtotime($sess['acctstarttime']);
-        $upTime = time() - $start_time;
-        $hrs = floor($upTime / 3600);
-        $mins = floor(($upTime % 3600) / 60);
-        $dl = round($sess['acctoutputoctets'] / 1048576, 2) . " MB";
-        $ul = round($sess['acctinputoctets'] / 1048576, 2) . " MB";
-        
-        // Random avatar color based on username
-        $colors = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4'];
-        $color = $colors[crc32($sess['username']) % count($colors)];
-    ?>
-    <div class="col-xl-4 col-lg-6 col-md-6 session-card-container" data-username="<?= htmlspecialchars($sess['username']) ?>">
-        <div class="card border-0 shadow-sm h-100 live-card" style="border-radius: 12px; transition: all 0.2s;">
-            <div class="card-body p-4">
-                <div class="d-flex justify-content-between align-items-start mb-3">
-                    <div class="d-flex align-items-center gap-3">
-                        <div class="text-white fw-bold d-flex align-items-center justify-content-center shadow-sm" style="width: 45px; height: 45px; border-radius: 12px; background-color: <?= $color ?>; font-size: 1.3rem;">
-                            <?= strtoupper(substr($sess['username'], 0, 1)) ?>
+                </div>
+                <div class="col-12 col-xl-4 col-md-4">
+                    <div class="row g-2 text-center">
+                        <div class="col-4">
+                            <div class="p-1 rounded h-100 d-flex flex-column justify-content-center" style="background: #eff6ff; border: 1px solid #bfdbfe;">
+                                <div class="text-primary fw-bold" style="font-size:0.65rem; letter-spacing:0.5px;">UPTIME</div>
+                                <div class="fw-bold text-dark" style="font-size: 0.85rem;"><?= formatMikroTikUptime($upTime) ?></div>
+                            </div>
                         </div>
-                        <div>
-                            <div class="fw-bold fs-5 text-dark lh-1 mb-1"><?= htmlspecialchars($sess['username']) ?></div>
-                            <div class="text-muted" style="font-size: 0.8rem;"><i class="fa-solid fa-box text-secondary me-1"></i> <?= htmlspecialchars($sess['package_name'] ?? 'Custom Package') ?></div>
+                        <div class="col-4">
+                            <div class="p-1 rounded h-100 d-flex flex-column justify-content-center" style="background: #ecfeff; border: 1px solid #a5f3fc;">
+                                <div class="text-info fw-bold" style="font-size:0.65rem; letter-spacing:0.5px;">DOWN</div>
+                                <div class="fw-bold text-dark" style="font-size: 0.85rem;"><?= $dl ?></div>
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <div class="p-1 rounded h-100 d-flex flex-column justify-content-center" style="background: #fffbeb; border: 1px solid #fde68a;">
+                                <div class="text-warning fw-bold" style="font-size:0.65rem; letter-spacing:0.5px;">UP</div>
+                                <div class="fw-bold text-dark" style="font-size: 0.85rem;"><?= $ul ?></div>
+                            </div>
                         </div>
                     </div>
-                    <form action="subscriber_action.php" method="POST" onsubmit="return confirm('Are you sure you want to kick this user from the router?');">
+                </div>
+                <div class="col-12 col-xl-2 col-md-12 text-xl-end text-center mt-3 mt-xl-0">
+                    <form action="subscriber_action.php" method="POST" onsubmit="return confirm('Are you sure you want to kick this user?');">
                         <input type="hidden" name="action" value="kick">
                         <input type="hidden" name="username" value="<?= htmlspecialchars($sess['username']) ?>">
-                        <button class="btn btn-light btn-sm text-danger border shadow-sm rounded-circle d-flex align-items-center justify-content-center" style="width: 35px; height: 35px;" title="Kick User">
-                            <i class="fa-solid fa-power-off"></i>
-                        </button>
+                        <button class="btn btn-danger btn-sm fw-bold shadow-sm w-100 py-2"><i class="fa-solid fa-power-off me-1"></i> Kick</button>
                     </form>
                 </div>
-                
-                <div class="mb-3 bg-light rounded p-2 border">
-                    <div class="d-flex justify-content-between border-bottom pb-1 mb-1">
-                        <span class="text-muted" style="font-size: 0.8rem;"><i class="fa-solid fa-server me-1"></i> IP Address</span>
-                        <span class="fw-bold font-monospace text-dark" style="font-size: 0.85rem;"><?= htmlspecialchars($sess['framedipaddress'] ?? 'N/A') ?></span>
-                    </div>
-                    <div class="d-flex justify-content-between pt-1">
-                        <span class="text-muted" style="font-size: 0.8rem;"><i class="fa-solid fa-microchip me-1"></i> MAC Address</span>
-                        <span class="fw-bold font-monospace text-secondary" style="font-size: 0.8rem;"><?= htmlspecialchars($sess['callingstationid'] ?? 'N/A') ?></span>
-                    </div>
-                </div>
-
-                <div class="row g-2">
-                    <div class="col-4">
-                        <div class="stat-box border-primary" style="background: #eff6ff;">
-                            <div class="title"><i class="fa-regular fa-clock me-1 text-primary"></i>Uptime</div>
-                            <div class="value text-primary mt-1"><?= formatMikroTikUptime($upTime) ?></div>
-                        </div>
-                    </div>
-                    <div class="col-4">
-                        <div class="stat-box border-info" style="background: #ecfeff;">
-                            <div class="title"><i class="fa-solid fa-arrow-down me-1 text-info"></i>Down</div>
-                            <div class="value text-info mt-1"><?= $dl ?></div>
-                        </div>
-                    </div>
-                    <div class="col-4">
-                        <div class="stat-box border-warning" style="background: #fffbeb;">
-                            <div class="title"><i class="fa-solid fa-arrow-up me-1 text-warning"></i>Up</div>
-                            <div class="value text-warning mt-1"><?= $ul ?></div>
-                        </div>
-                    </div>
-                </div>
-
             </div>
         </div>
     </div>
-    <?php endforeach; ?>
 </div>
+<?php endforeach; ?>
 
+</div>
 
 <script>
 document.getElementById('searchInput').addEventListener('keyup', function() {

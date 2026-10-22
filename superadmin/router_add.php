@@ -31,7 +31,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'apiu' => $api_user,
                 'apipass' => $api_password
             ]);
-            $success = "Router successfully mapped to Operator!";
+
+            // Auto-provision network defaults & sync pools from router
+            require_once '../config/mikrotik_sync_helper.php';
+            init_operator_network_defaults($pdo, $client_id);
+            if (!empty($api_user)) {
+                sync_operator_mikrotik_pools($pdo, $client_id);
+            }
+
+            $success = "Router successfully mapped to Operator! Pools and WANs auto-synchronized.";
         } catch (PDOException $e) {
             $error = "Database Error: " . $e->getMessage();
         }
@@ -49,7 +57,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
     <div class="card-body">
         <?php if($error): ?><div class="alert alert-danger"><?= htmlspecialchars($error) ?></div><?php endif; ?>
-        <?php if($success): ?><div class="alert alert-success"><?= htmlspecialchars($success) ?></div><?php endif; ?>
+                <?php if($success): ?>
+        <div class="alert alert-success"><?= htmlspecialchars($success) ?></div>
+        <div class="alert alert-danger shadow-sm border-danger border-2">
+            <strong><i class="fa-solid fa-triangle-exclamation"></i> CRITICAL REQUIRED STEP:</strong><br>
+            FreeRADIUS caches router IPs in its memory. It will <b>IGNORE</b> this new router and give <b>"Radius Timeout"</b> to users unless you restart the FreeRADIUS service.<br><br>
+            <i>Please go to your VPS Hosting Panel and <b>Restart/Reboot</b> the server right now!</i>
+        </div>
+        <?php endif; ?>
 
         <form method="POST">
             <div class="row mb-3">

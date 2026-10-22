@@ -1,4 +1,7 @@
 <?php
+require_once __DIR__ . '/security.php';
+guard_maintenance_script('Database Sync Utility');
+
 // Script to copy DB structure and data from Windows to Ubuntu
 $local_dsn = 'mysql:host=127.0.0.1;dbname=radius_admin;charset=utf8mb4';
 $ubuntu_dsn = 'mysql:host=192.168.137.169;dbname=radius_admin;charset=utf8mb4';

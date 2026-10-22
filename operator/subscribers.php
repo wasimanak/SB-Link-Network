@@ -49,8 +49,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $sub_id = (int)$id;
                 $uStmt = $pdo->prepare("SELECT username FROM subscribers WHERE id = ? AND client_id = ?");
                 $uStmt->execute([$sub_id, $client_id]);
-                if ($uStmt->fetchColumn()) {
-                    $pdo->prepare("UPDATE subscribers SET expiry_date = ? WHERE id = ?")->execute([$expiry_date, $sub_id]);
+                $u = $uStmt->fetchColumn();
+                if ($u) {
+                    $pdo->prepare("UPDATE subscribers SET expiry_date = ?, status = 'active' WHERE id = ?")->execute([$expiry_date, $sub_id]);
+                    $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute = 'Auth-Type'")->execute([$u]);
                 }
             }
             echo "<script>alert('Mass Expiry updated successfully!'); window.location='subscribers.php';</script>";
@@ -100,7 +102,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $u = $uStmt->fetchColumn();
 
         if ($u) {
-            $p = $pdo->prepare("SELECT rate_limit FROM packages WHERE id = ? AND client_id = ?");
+            $p = $pdo->prepare("SELECT p.name, p.rate_limit, p.price, p.pool_id, pl.pool_name FROM packages p LEFT JOIN ip_pools pl ON p.pool_id = pl.id WHERE p.id = ? AND p.client_id = ?");
             $p->execute([$package_id, $client_id]);
             $pkg = $p->fetch();
 
@@ -169,6 +171,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if (!empty($pkg['rate_limit']) && $pkg['rate_limit'] !== 'No Limit') {
                         $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Rate-Limit', '=', ?)")->execute([$u, $pkg['rate_limit']]);
                     }
+                    
+                    // NEVER inject Mikrotik-Address-List (prevents 700 dynamic entries and WAN hijacking)
+                    $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute IN ('Mikrotik-Address-List', 'Framed-Pool')")->execute([$u]);
+                    $target_profile = !empty($pkg['pool_name']) ? $pkg['pool_name'] : '';
+                    if (empty($target_profile) || $target_profile === 'PPPoE Pool') {
+                        if (preg_match('/(\d+)\s*(?:M|MB|Mbps)/i', $pkg['name'], $m_prof)) {
+                            $target_profile = $m_prof[1] . 'Mbps';
+                        }
+                    }
+                    if (!empty($target_profile)) {
+                        $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Group'")->execute([$u]);
+                        $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Group', '=', ?)")->execute([$u, $target_profile]);
+                    }
                     $formatted_expiry = date('d M Y H:i:s', strtotime($expiry_date));
                     $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute IN ('Expiration', 'Auth-Type')")->execute([$u]);
                     $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Expiration', ':=', ?)")->execute([$u, $formatted_expiry]);
@@ -213,7 +228,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($curStmt->fetchColumn() >= $max_sub) {
             echo "<script>alert('Subscriber Quota Exceeded!');</script>";
         } else {
-            $p = $pdo->prepare("SELECT rate_limit FROM packages WHERE id = ? AND client_id = ?");
+            $p = $pdo->prepare("SELECT p.name, p.rate_limit, p.price, p.pool_id, pl.pool_name FROM packages p LEFT JOIN ip_pools pl ON p.pool_id = pl.id WHERE p.id = ? AND p.client_id = ?");
             $p->execute([$package_id, $client_id]);
             $pkg = $p->fetch();
 
@@ -258,6 +273,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if (!empty($pkg['rate_limit']) && $pkg['rate_limit'] !== 'No Limit') {
                         $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Rate-Limit', '=', ?)")
                             ->execute([$username, $pkg['rate_limit']]);
+                    }
+
+                    // NEVER inject Mikrotik-Address-List (prevents 700 dynamic entries and WAN hijacking)
+                    $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute IN ('Mikrotik-Address-List', 'Framed-Pool')")->execute([$username]);
+                    $target_profile = !empty($pkg['pool_name']) ? $pkg['pool_name'] : '';
+                    if (empty($target_profile) || $target_profile === 'PPPoE Pool') {
+                        if (preg_match('/(\d+)\s*(?:M|MB|Mbps)/i', $pkg['name'], $m_prof)) {
+                            $target_profile = $m_prof[1] . 'Mbps';
+                        }
+                    }
+                    if (!empty($target_profile)) {
+                        $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Group'")->execute([$username]);
+                        $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Group', '=', ?)")->execute([$username, $target_profile]);
                     }
                     
                     $act_dealer_id = ($dealer_id > 0) ? $dealer_id : null;
@@ -332,134 +360,344 @@ function formatUptime($seconds) {
     $s = $seconds % 60;
     return sprintf("%dd %02dh %02dm %02ds", $d, $h, $m, $s);
 }
-?>
 
+// Stats for quick filter capsules
+$count_all = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id")->fetchColumn() ?: 0;
+$count_online = $pdo->query("SELECT COUNT(DISTINCT username) FROM radacct WHERE acctstoptime IS NULL AND username IN (SELECT username FROM subscribers WHERE client_id = $client_id)")->fetchColumn() ?: 0;
+$count_expired = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND expiry_date < NOW() AND expiry_date > '2000-01-01'")->fetchColumn() ?: 0;
+$count_offline = max(0, $count_all - $count_online);
+?>
 <!-- DataTables & Buttons CSS -->
 <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
 <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.2/css/buttons.bootstrap5.min.css">
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<!-- Leaflet Map CSS -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 
 <style>
-    /* Light Theme Button UI */
-    .action-bar-top .btn {
-        background-color: #334155;
-        border: none;
-        color: #fff;
-        margin-right: 5px;
-        margin-bottom: 10px;
-        border-radius: 6px;
-        padding: 8px 16px;
-        font-weight: 500;
-    }
-    .action-bar-top .btn:hover { background-color: #1e293b; color: #fff; }
+    body { background-color: #f8fafc; font-family: 'Inter', system-ui, -apple-system, sans-serif; }
     
-    .dt-buttons .btn {
-        background-color: #475569;
-        border: none;
-        color: #fff;
+    .select2-container .select2-selection--single { height: 31px; border: 1px solid #dee2e6; }
+    .select2-container--default .select2-selection--single .select2-selection__rendered { line-height: 29px; color: #475569; font-size: 0.875rem; }
+    .select2-container--default .select2-selection--single .select2-selection__arrow { height: 29px; }
+    .select2-dropdown { border: 1px solid #dee2e6; z-index: 9999 !important; }
+    
+    .card-ui { 
+        background: #ffffff; 
+        border-radius: 20px; 
+        box-shadow: 0 4px 20px rgba(0,0,0,0.03); 
+        border: 1px solid #eef2f6; 
+    }
+
+    /* Filter Pills */
+    .filter-pill-btn {
+        border-radius: 50px;
+        padding: 7px 18px;
+        font-weight: 600;
+        font-size: 0.86rem;
+        border: 1px solid #e2e8f0;
+        transition: all 0.2s ease;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: #ffffff;
+        color: #64748b;
+    }
+    .filter-pill-btn:hover {
+        background: #f1f5f9;
+        color: #1e293b;
+        border-color: #cbd5e1;
+    }
+    .filter-pill-btn.active {
+        background: #2563eb !important;
+        color: #ffffff !important;
+        border-color: #2563eb !important;
+        box-shadow: 0 4px 12px rgba(37,99,235,0.22);
+    }
+    .filter-pill-btn .pill-count {
+        background: rgba(0,0,0,0.06);
+        padding: 2px 7px;
         border-radius: 20px;
-        padding: 4px 14px;
-        font-size: 0.85rem;
-        margin-right: 4px;
+        font-size: 0.75rem;
     }
-    .dt-buttons .btn:hover { background-color: #334155; }
+    .filter-pill-btn.active .pill-count {
+        background: rgba(255,255,255,0.25);
+        color: #ffffff;
+    }
+
+    /* Action Buttons */
+    .btn-action-pro {
+        border-radius: 12px;
+        padding: 9px 16px;
+        font-weight: 600;
+        font-size: 0.88rem;
+        border: 1px solid transparent;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        transition: all 0.2s ease;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.03);
+    }
+    .btn-action-pro:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 5px 14px rgba(0,0,0,0.08);
+    }
+    .btn-action-primary {
+        background: linear-gradient(135deg, #2563eb, #1d4ed8);
+        color: #ffffff;
+    }
+    .btn-action-primary:hover { color: #ffffff; background: linear-gradient(135deg, #1d4ed8, #1e40af); }
+    .btn-action-success {
+        background: linear-gradient(135deg, #10b981, #059669);
+        color: #ffffff;
+    }
+    .btn-action-success:hover { color: #ffffff; }
+    .btn-action-purple {
+        background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+        color: #ffffff;
+    }
+    .btn-action-purple:hover { color: #ffffff; }
+    .btn-action-secondary {
+        background: #ffffff;
+        color: #334155;
+        border-color: #e2e8f0;
+    }
+    .btn-action-secondary:hover { background: #f8fafc; color: #0f172a; border-color: #cbd5e1; }
+    .btn-action-danger {
+        background: #fee2e2;
+        color: #dc2626;
+        border-color: #fecaca;
+    }
+    .btn-action-danger:hover { background: #fca5a5; color: #b91c1c; }
+
+    /* Premium DataTables Styling */
+    #usersTable {
+        border-collapse: separate !important;
+        border-spacing: 0 8px !important;
+    }
+    #usersTable thead th {
+        background: #f8fafc !important;
+        color: #64748b !important;
+        font-size: 0.75rem !important;
+        font-weight: 700 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.8px !important;
+        padding: 12px 14px !important;
+        border: none !important;
+        white-space: nowrap !important;
+    }
+    #usersTable thead th:first-child { border-top-left-radius: 12px; border-bottom-left-radius: 12px; }
+    #usersTable thead th:last-child { border-top-right-radius: 12px; border-bottom-right-radius: 12px; }
     
-    .table-custom-ui {
-        background-color: #ffffff;
-        border-radius: 8px;
+    #usersTable tbody tr {
+        background: #ffffff !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.02) !important;
+        border-radius: 14px !important;
+        transition: transform 0.18s ease, box-shadow 0.18s ease !important;
+    }
+    #usersTable tbody tr:hover {
+        transform: translateY(-2px) !important;
+        box-shadow: 0 6px 18px rgba(0,0,0,0.06) !important;
+    }
+    #usersTable tbody td {
+        border-top: 1px solid #f1f5f9 !important;
+        border-bottom: 1px solid #f1f5f9 !important;
+        border-left: none !important;
+        border-right: none !important;
+        vertical-align: middle !important;
+        padding: 12px 14px !important;
+        background: transparent !important;
+        font-size: 0.9rem !important;
+    }
+    #usersTable tbody td:first-child {
+        border-left: 1px solid #f1f5f9 !important;
+        border-top-left-radius: 14px !important;
+        border-bottom-left-radius: 14px !important;
+    }
+    #usersTable tbody td:last-child {
+        border-right: 1px solid #f1f5f9 !important;
+        border-top-right-radius: 14px !important;
+        border-bottom-right-radius: 14px !important;
+    }
+
+    /* Avatars */
+    .avatar-pro {
+        width: 38px;
+        height: 38px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.05rem;
+        background: linear-gradient(135deg, #eff6ff, #dbeafe);
+        color: #2563eb;
+        box-shadow: 0 2px 6px rgba(37,99,235,0.08);
+    }
+
+    /* Badges */
+    .badge-soft-success { background-color: #ecfdf5 !important; color: #059669 !important; border: 1px solid #a7f3d0 !important; font-weight: 600; }
+    .badge-soft-secondary { background-color: #f1f5f9 !important; color: #475569 !important; border: 1px solid #e2e8f0 !important; font-weight: 600; }
+    .badge-soft-primary { background-color: #eff6ff !important; color: #2563eb !important; border: 1px solid #bfdbfe !important; font-weight: 600; }
+    .badge-soft-warning { background-color: #fffbeb !important; color: #d97706 !important; border: 1px solid #fde68a !important; font-weight: 600; }
+    .badge-soft-danger { background-color: #fef2f2 !important; color: #dc2626 !important; border: 1px solid #fecaca !important; font-weight: 600; }
+
+    /* DataTables Buttons & Filter */
+    .dt-buttons .btn {
+        background: #ffffff !important;
+        border: 1px solid #e2e8f0 !important;
+        color: #475569 !important;
+        border-radius: 50px !important;
+        padding: 5px 14px !important;
+        font-size: 0.82rem !important;
+        font-weight: 600 !important;
+        margin-right: 5px !important;
+        transition: all 0.2s ease !important;
+    }
+    .dt-buttons .btn:hover {
+        background: #f1f5f9 !important;
+        color: #0f172a !important;
+        border-color: #cbd5e1 !important;
+    }
+    .dataTables_filter input {
+        border-radius: 50px !important;
+        border: 1px solid #e2e8f0 !important;
+        padding: 6px 16px !important;
+        font-size: 0.88rem !important;
+        background: #ffffff !important;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.02) !important;
+        outline: none !important;
+    }
+    .dataTables_filter input:focus {
+        border-color: #2563eb !important;
+        box-shadow: 0 0 0 3px rgba(37,99,235,0.12) !important;
+    }
+    .dataTables_length select {
+        border-radius: 10px !important;
+        border: 1px solid #e2e8f0 !important;
+        padding: 5px 10px !important;
+        font-size: 0.86rem !important;
+    }
+
+    /* Modal Styling */
+    .light-modal {
+        border-radius: 20px !important;
+        border: 1px solid #eef2f6 !important;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.1) !important;
         overflow: hidden;
     }
-    .table-custom-ui thead th {
-        background-color: #f8f9fa;
-        color: #64748b;
-        border-bottom: 2px solid #e5e7eb;
-        font-weight: 600;
-        font-size: 0.9rem;
-        white-space: nowrap;
-    }
-    .table-custom-ui tbody td {
-        vertical-align: middle;
-        border-bottom: 1px solid #e5e7eb;
-        color: #334155;
-        font-size: 0.9rem;
-    }
-    .avatar-circle {
-        width: 40px; height: 40px;
-        background-color: #334155;
-        border-radius: 50%;
-        display: flex; align-items: center; justify-content: center;
-        color: #cbd5e1; font-size: 1.2rem;
-    }
-    .badge-soft-success { background-color: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2); }
-    .badge-soft-secondary { background-color: rgba(148, 163, 184, 0.15); color: #64748b; border: 1px solid rgba(148, 163, 184, 0.2); }
-    .badge-soft-primary { background-color: rgba(59, 130, 246, 0.15); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.2); }
-    .badge-soft-warning { background-color: rgba(245, 158, 11, 0.15); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.2); }
-    
-    .dataTables_wrapper .row { margin-bottom: 15px; }
-    .dataTables_filter input { background-color: #ffffff; border: 1px solid #ced4da; color: #333; border-radius: 20px; padding: 4px 15px; }
-    .dataTables_length select { background-color: #ffffff; border: 1px solid #ced4da; color: #333; border-radius: 6px; }
-
-    .modal-content.light-modal {
-        background-color: #fff;
-        color: #333;
-        border-radius: 8px;
-    }
     .light-modal .modal-header {
-        border-bottom: 1px solid #eaeaea;
-        background-color: #fcfcfc;
-        border-radius: 8px 8px 0 0;
+        background: #f8fafc !important;
+        border-bottom: 1px solid #eef2f6 !important;
+        padding: 18px 24px !important;
     }
-    .light-modal .modal-title { color: #64748b; font-size: 1.1rem; font-weight: 600; }
-    .light-modal .accordion-button {
-        background-color: #f1f5f9;
-        color: #334155;
-        font-weight: 600;
-        border: 1px solid #e2e8f0;
+    .light-modal .modal-title { color: #0f172a; font-size: 1.15rem; font-weight: 700; }
+    .light-modal .modal-body { padding: 24px !important; }
+    .light-modal .modal-footer {
+        background: #f8fafc !important;
+        border-top: 1px solid #eef2f6 !important;
+        padding: 16px 24px !important;
     }
-    .light-modal .accordion-button:not(.collapsed) {
-        background-color: #f1f5f9;
-        color: #334155;
-        box-shadow: none;
-    }
-    .light-modal .accordion-item { border: none; margin-bottom: 15px; }
     .light-modal .col-form-label {
-        color: #64748b;
-        font-weight: 700;
-        font-size: 0.9rem;
+        color: #475569;
+        font-weight: 600;
+        font-size: 0.86rem;
     }
     .light-modal .form-control, .light-modal .form-select {
         border: 1px solid #cbd5e1;
-        border-radius: 4px;
-        color: #333;
-        background-color: #fff;
-        padding: 0.4rem 0.75rem;
+        border-radius: 10px;
+        color: #1e293b;
+        padding: 0.5rem 0.85rem;
     }
     .light-modal .form-control:focus, .light-modal .form-select:focus {
-        border-color: #94a3b8;
-        box-shadow: none;
+        border-color: #2563eb;
+        box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
     }
-    .light-modal .btn-submit { background-color: #1e293b; color: #fff; border: none; padding: 6px 20px; }
-    .light-modal .btn-submit:hover { background-color: #0f172a; color: #fff; }
+    .light-modal .btn-submit {
+        background: linear-gradient(135deg, #2563eb, #1d4ed8);
+        color: #fff;
+        border: none;
+        padding: 8px 24px;
+        border-radius: 50px;
+        font-weight: 600;
+    }
+    .light-modal .btn-submit:hover {
+        background: linear-gradient(135deg, #1d4ed8, #1e40af);
+        color: #fff;
+    }
 </style>
 
-<div class="d-flex align-items-center mb-3">
-    <h4 class="mb-0 me-3"><i class="fa-solid fa-users text-primary"></i> Users</h4>
+<!-- Top Header Section -->
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-3">
+    <div class="d-flex align-items-center">
+        <div class="rounded-circle text-white d-flex align-items-center justify-content-center me-3 shadow-sm" style="width: 48px; height: 48px; font-size: 1.25rem; background: linear-gradient(135deg, #2563eb, #1d4ed8);">
+            <i class="fa-solid fa-users"></i>
+        </div>
+        <div>
+            <h4 class="fw-bold text-dark mb-0">Subscribers & Users</h4>
+            <div class="text-secondary small">Manage subscribers, packages, renewals and payments</div>
+        </div>
+    </div>
+    
+    <!-- Top Action Buttons -->
+    <div class="d-flex flex-wrap gap-2">
+        <button type="button" class="btn btn-action-pro btn-action-primary shadow-sm" data-bs-toggle="modal" data-bs-target="#addUserModal">
+            <i class="fa-solid fa-user-plus"></i> Add New User
+        </button>
+        <button type="button" class="btn btn-action-pro btn-action-success shadow-sm" onclick="openMassRenewModal()">
+            <i class="fa-solid fa-user-check"></i> Mass Renew
+        </button>
+        <button type="button" class="btn btn-action-pro btn-action-purple shadow-sm" onclick="openMassPaymentModal()">
+            <i class="fa-brands fa-paypal"></i> Mass Payment
+        </button>
+        <button type="button" class="btn btn-action-pro btn-action-secondary shadow-sm" data-bs-toggle="modal" data-bs-target="#restoreModal">
+            <i class="fa-solid fa-file-import"></i> Import CSV
+        </button>
+        <button type="button" class="btn btn-action-pro btn-action-danger shadow-sm" onclick="submitMassAction('delete')">
+            <i class="fa-solid fa-trash"></i> Mass Delete
+        </button>
+    </div>
 </div>
 
-<!-- Top Action Bar -->
-<div class="action-bar-top">
-    <button class="btn shadow-sm" onclick="submitMassAction('delete')"><i class="fa-solid fa-trash me-1"></i> Mass Delete</button>
-    <button class="btn shadow-sm" onclick="openMassPaymentModal()"><i class="fa-brands fa-paypal me-1"></i> Mass Payment</button>
-    <button class="btn shadow-sm" onclick="openMassRenewModal()"><i class="fa-solid fa-user-check me-1"></i> Mass Activation/Renew</button>
-    <button class="btn shadow-sm" data-bs-toggle="modal" data-bs-target="#addUserModal"><i class="fa-solid fa-user-plus me-1"></i> Add New User</button>
-    <button class="btn shadow-sm" data-bs-toggle="modal" data-bs-target="#restoreModal"><i class="fa-solid fa-file-import me-1"></i> Import Users</button>
+<!-- Filter Pills Row -->
+<div class="d-flex flex-wrap gap-2 mb-4">
+    <a href="subscribers.php" class="filter-pill-btn <?= empty($filter) ? 'active' : '' ?>">
+        <i class="fa-solid fa-users"></i> All Users <span class="pill-count"><?= number_format($count_all) ?></span>
+    </a>
+    <a href="subscribers.php?filter=online" class="filter-pill-btn <?= $filter==='online' ? 'active' : '' ?>">
+        <i class="fa-solid fa-wifi"></i> Online <span class="pill-count"><?= number_format($count_online) ?></span>
+    </a>
+    <a href="subscribers.php?filter=offline" class="filter-pill-btn <?= $filter==='offline' ? 'active' : '' ?>">
+        <i class="fa-solid fa-user-slash"></i> Offline <span class="pill-count"><?= number_format($count_offline) ?></span>
+    </a>
+    <a href="subscribers.php?filter=expired" class="filter-pill-btn <?= $filter==='expired' ? 'active' : '' ?>">
+        <i class="fa-solid fa-circle-exclamation"></i> Expired <span class="pill-count"><?= number_format($count_expired) ?></span>
+    </a>
+    <a href="subscribers.php?filter=expiring_1w" class="filter-pill-btn <?= $filter==='expiring_1w' ? 'active' : '' ?>">
+        <i class="fa-solid fa-calendar-week"></i> Expiring (1 Week)
+    </a>
+    <a href="subscribers.php?filter=expiring_2w" class="filter-pill-btn <?= $filter==='expiring_2w' ? 'active' : '' ?>">
+        <i class="fa-solid fa-calendar-days"></i> Expiring (2 Weeks)
+    </a>
 </div>
 
-<div class="card table-custom-ui p-3 mt-3 shadow-sm border-0">
-    <div class="table-responsive">
-        <table id="usersTable" class="table table-hover table-borderless w-100">
+<!-- Main Table Card Container -->
+<div class="card-ui p-4 mb-4 position-relative">
+    <!-- Loading State Dialog -->
+    <div id="usersLoadingBox" class="text-center py-5">
+        <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <h5 class="fw-bold text-dark mt-3 mb-1">Loading Subscribers...</h5>
+        <div class="text-secondary small">Please wait while user records are being initialized.</div>
+    </div>
+
+    <!-- Table Container (Initially Hidden) -->
+    <div id="usersTableContainer" class="table-responsive" style="display: none;">
+        <table id="usersTable" class="table table-hover w-100">
             <thead>
                 <tr>
-                    <th><input type="checkbox" id="selectAll"></th>
+                    <th style="width: 40px;"><input type="checkbox" id="selectAll" class="form-check-input"></th>
                     <th>#ID</th>
                     <th>Photo</th>
                     <th>Username</th>
@@ -471,13 +709,13 @@ function formatUptime($seconds) {
                     <th>Package</th>
                     <th>Balance</th>
                     <th>Service</th>
-                    <th>On/Off</th>
+                    <th>Status</th>
                     <th>On/Off Time</th>
-                    <th>Usage Data/Time</th>
-                    <th>Expiry</th>
-                    <th>NAS</th>
+                    <th>Usage / Time</th>
+                    <th>Expiry Date</th>
+                    <th>NAS IP</th>
                     <th>Created</th>
-                    <th>Action</th>
+                    <th style="min-width: 140px;">Actions</th>
                 </tr>
             </thead>
             <tbody>
@@ -488,83 +726,106 @@ function formatUptime($seconds) {
                     $off_time = $s['last_off_time'] ? date('Y-m-d H:i:s', strtotime($s['last_off_time'])) : 'N/A';
                 ?>
                 <tr>
-                    <td><input type="checkbox" class="row-checkbox" value="<?= $s['id'] ?>"></td>
-                    <td><?= $s['id'] ?></td>
+                    <td><input type="checkbox" class="row-checkbox form-check-input" value="<?= $s['id'] ?>"></td>
+                    <td class="fw-semibold text-secondary">#<?= $s['id'] ?></td>
                     <td>
-                        <div class="avatar-circle">
+                        <div class="avatar-pro">
                             <i class="fa-solid fa-user"></i>
                         </div>
                     </td>
                     <td>
-                        <a href="subscriber_view.php?id=<?= $s['id'] ?>">
-                            <span class="badge rounded-pill badge-soft-success px-3 py-2"><?= htmlspecialchars($s['username']) ?></span>
+                        <a href="subscriber_view.php?id=<?= $s['id'] ?>" class="text-decoration-none">
+                            <span class="badge rounded-pill badge-soft-primary px-3 py-2 fw-bold" style="font-size: 0.88rem;">
+                                <i class="fa-solid fa-user me-1"></i> <?= htmlspecialchars($s['username']) ?>
+                            </span>
                         </a>
                     </td>
-                    <td><?= htmlspecialchars($s['password']) ?></td>
-                    <td><?= htmlspecialchars($s['full_name']) ?></td>
+                    <td class="font-monospace small"><?= htmlspecialchars($s['password']) ?></td>
+                    <td class="fw-medium text-dark"><?= htmlspecialchars($s['full_name']) ?></td>
                     <td><?= htmlspecialchars($s['national_id']) ?></td>
                     <td><?= htmlspecialchars($s['mobile'] ?: ($s['phone'] ?: 'N/A')) ?></td>
                     <td><?= htmlspecialchars($s['address']) ?></td>
                     <td>
-                        <?= htmlspecialchars($s['package_name'] ?? 'N/A') ?>
-                        <br><small class="text-muted">(Local)</small>
+                        <span class="fw-bold text-dark"><?= htmlspecialchars($s['package_name'] ?? 'N/A') ?></span>
+                        <br><span class="badge bg-light text-secondary border px-2 py-1" style="font-size: 0.7rem;">Local</span>
                     </td>
                     <td>
-                        <span class="badge rounded-pill badge-soft-warning px-3 py-2"><?= number_format($s['balance'], 2) ?></span>
+                        <span class="badge rounded-pill badge-soft-warning px-3 py-2 fw-bold">Rs. <?= number_format($s['balance'], 2) ?></span>
                     </td>
-                    <td><span class="badge rounded-pill badge-soft-primary px-3 py-2 fw-bold"><?= strtoupper(htmlspecialchars($s['service_type'])) ?></span></td>
+                    <td>
+                        <span class="badge rounded-pill badge-soft-secondary px-3 py-2 text-uppercase fw-bold" style="font-size: 0.78rem;">
+                            <?= htmlspecialchars($s['service_type']) ?>
+                        </span>
+                    </td>
                     <td>
                         <?php if($s['is_online'] > 0): ?>
-                            <div class="d-flex flex-column align-items-center gap-1">
-                                <span class="badge rounded-pill badge-soft-success px-3 py-1">Online</span>
+                            <div class="d-flex flex-column gap-1">
+                                <span class="badge rounded-pill badge-soft-success px-3 py-1">
+                                    <i class="fa-solid fa-circle text-success me-1" style="font-size: 0.55rem;"></i> Online
+                                </span>
                                 <small class="text-muted font-monospace" style="font-size: 0.75rem;"><?= htmlspecialchars($s['live_ip']) ?></small>
                             </div>
                         <?php else: ?>
-                            <span class="badge rounded-pill badge-soft-secondary px-3 py-2">Offline</span>
+                            <span class="badge rounded-pill badge-soft-secondary px-3 py-1">
+                                <i class="fa-regular fa-circle text-muted me-1" style="font-size: 0.55rem;"></i> Offline
+                            </span>
                         <?php endif; ?>
                     </td>
-                    <td><?= $on_time ?><br><?= $off_time ?></td>
-                    <td><?= $usage_gb ?> GB<br><?= $uptime_fmt ?></td>
+                    <td>
+                        <small class="text-muted d-block font-monospace" style="font-size: 0.75rem;"><?= $on_time ?></small>
+                        <small class="text-muted d-block font-monospace" style="font-size: 0.75rem;"><?= $off_time ?></small>
+                    </td>
+                    <td>
+                        <div class="fw-bold text-dark"><?= $usage_gb ?> GB</div>
+                        <small class="text-muted font-monospace" style="font-size: 0.75rem;"><?= $uptime_fmt ?></small>
+                    </td>
                     <td>
                         <?php if($s['expiry_date']): ?>
                             <?php if(strtotime($s['expiry_date']) < time()): ?>
-                                <div class="d-flex flex-column align-items-center gap-1">
-                                    <span class="badge rounded-pill bg-danger text-white fw-bold px-3 py-1 text-uppercase" style="letter-spacing: 0.5px;">Expired</span>
+                                <div class="d-flex flex-column gap-1">
+                                    <span class="badge rounded-pill badge-soft-danger px-3 py-1 fw-bold text-uppercase" style="letter-spacing: 0.5px;">
+                                        <i class="fa-solid fa-triangle-exclamation me-1"></i> Expired
+                                    </span>
                                     <small class="text-muted font-monospace" style="font-size: 0.70rem;"><?= date('d M Y h:i A', strtotime($s['expiry_date'])) ?></small>
                                 </div>
                             <?php else: ?>
-                                <span class="badge rounded-pill badge-soft-success px-3 py-2">
-                                    <?= date('d M Y h:i A', strtotime($s['expiry_date'])) ?>
-                                </span>
+                                <div class="d-flex flex-column gap-1">
+                                    <span class="badge rounded-pill badge-soft-success px-3 py-1">
+                                        <i class="fa-regular fa-clock me-1"></i> <?= date('d M Y', strtotime($s['expiry_date'])) ?>
+                                    </span>
+                                    <small class="text-muted font-monospace" style="font-size: 0.70rem;"><?= date('h:i A', strtotime($s['expiry_date'])) ?></small>
+                                </div>
                             <?php endif; ?>
                         <?php else: ?>
-                            <span class="badge rounded-pill badge-soft-secondary px-3 py-2">N/A</span>
+                            <span class="badge rounded-pill badge-soft-secondary px-3 py-1">N/A</span>
                         <?php endif; ?>
                     </td>
-                    <td><?= htmlspecialchars($s['nas_ip'] ?: 'N/A') ?></td>
-                    <td><?= $s['created_at'] ? date('Y-m-d H:i:s', strtotime($s['created_at'])) : 'N/A' ?></td>
+                    <td><small class="font-monospace text-muted"><?= htmlspecialchars($s['nas_ip'] ?: 'N/A') ?></small></td>
+                    <td><small class="font-monospace text-muted"><?= $s['created_at'] ? date('Y-m-d', strtotime($s['created_at'])) : 'N/A' ?></small></td>
                     <td>
                         <div class="d-flex flex-column gap-1">
-                            <button type="button" class="badge rounded-pill badge-soft-primary border-0 px-3 py-2 w-100 btn-payment" data-id="<?= $s['id'] ?>" data-username="<?= htmlspecialchars($s['username']) ?>" data-balance="<?= number_format($s['balance'], 2) ?>"><i class="fa-brands fa-paypal"></i> Payment</button>
+                            <button type="button" class="btn btn-sm btn-outline-primary rounded-pill px-2 py-1 w-100 btn-payment fw-bold" style="font-size: 0.78rem;" data-id="<?= $s['id'] ?>" data-username="<?= htmlspecialchars($s['username']) ?>" data-balance="<?= number_format($s['balance'], 2) ?>">
+                                <i class="fa-brands fa-paypal me-1"></i> Payment
+                            </button>
                             <div class="d-flex gap-1">
                                 <!-- Trigger Renew Modal -->
-                                <button type="button" class="badge rounded-pill badge-soft-success border-0 px-2 py-2 w-100 btn-renew" 
+                                <button type="button" class="btn btn-sm btn-outline-success rounded-pill px-2 py-1 flex-grow-1 btn-renew fw-bold" style="font-size: 0.78rem;"
                                     data-id="<?= $s['id'] ?>" 
                                     data-username="<?= htmlspecialchars($s['username']) ?>" 
                                     data-pkg="<?= $s['package_id'] ?>" 
                                     data-expiry="<?= $s['expiry_date'] ? date('Y-m-d\TH:i', strtotime($s['expiry_date'])) : '' ?>">
-                                    <i class="fa-solid fa-rotate"></i> Renew
+                                    <i class="fa-solid fa-rotate me-1"></i> Renew
                                 </button>
                                 
                                 <form action="subscriber_action.php" method="POST" class="d-inline" onsubmit="return confirm('Disconnect this user now?');">
                                     <input type="hidden" name="action" value="kick">
                                     <input type="hidden" name="username" value="<?= htmlspecialchars($s['username']) ?>">
-                                    <button type="submit" class="badge rounded-pill badge-soft-success border-0 px-2 py-2" title="Live Kick"><i class="fa-solid fa-check"></i></button>
+                                    <button type="submit" class="btn btn-sm btn-light border text-success rounded-circle p-0" style="width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;" title="Live Kick"><i class="fa-solid fa-bolt" style="font-size: 0.75rem;"></i></button>
                                 </form>
                                 <form method="POST" class="d-inline" onsubmit="return confirm('Delete this user permanently?');">
                                     <input type="hidden" name="action" value="delete_id">
                                     <input type="hidden" name="id" value="<?= $s['id'] ?>">
-                                    <button type="submit" class="badge rounded-pill badge-soft-secondary border-0 px-2 py-2" title="Delete"><i class="fa-solid fa-trash"></i></button>
+                                    <button type="submit" class="btn btn-sm btn-light border text-danger rounded-circle p-0" style="width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;" title="Delete"><i class="fa-solid fa-trash" style="font-size: 0.75rem;"></i></button>
                                 </form>
                             </div>
                         </div>
@@ -577,6 +838,7 @@ function formatUptime($seconds) {
 </div>
 
 <!-- Add User Modal -->
+
 <div class="modal fade" id="addUserModal" tabindex="-1">
   <div class="modal-dialog modal-lg">
     <div class="modal-content light-modal">
@@ -681,13 +943,73 @@ function formatUptime($seconds) {
                                     <label class="col-form-label">Full Address</label>
                                     <input type="text" name="address" class="form-control">
                                 </div>
-                                <div class="col-md-6 mb-3">
-                                    <label class="col-form-label">Latitude</label>
-                                    <input type="text" name="latitude" class="form-control">
-                                </div>
-                                <div class="col-md-6 mb-3">
-                                    <label class="col-form-label">Longitude</label>
-                                    <input type="text" name="longitude" class="form-control">
+                                <div class="col-md-12 mb-3">
+                                    <label class="col-form-label d-flex justify-content-between align-items-center">
+                                        <span><i class="fa-solid fa-map-location-dot text-primary me-1"></i> Customer Location (Map Pin & GPS)</span>
+                                        <button type="button" class="btn btn-link btn-sm text-decoration-none p-0 text-muted" onclick="toggleManualCoords()" style="font-size: 0.75rem;">
+                                            <i class="fa-solid fa-keyboard me-1"></i> Manual Enter
+                                        </button>
+                                    </label>
+                                    
+                                    <!-- Action controls: GPS Button + Map Search Box + Satellite/Map toggle -->
+                                    <div class="row g-2 mb-2">
+                                        <div class="col-md-5">
+                                            <button type="button" class="btn btn-outline-primary btn-sm fw-bold w-100 py-2 shadow-sm" id="btn_capture_location" onclick="captureUserLocation()">
+                                                <i class="fa-solid fa-crosshairs me-1 text-danger"></i> Get Current GPS (10m)
+                                            </button>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <div class="input-group input-group-sm">
+                                                <input type="text" class="form-control" id="map_search_input" placeholder="Search area, colony..." onkeydown="if(event.key==='Enter'){event.preventDefault();searchLocationOnMap();}">
+                                                <button class="btn btn-primary" type="button" id="btn_map_search" onclick="searchLocationOnMap()" title="Search Area on Map">
+                                                    <i class="fa-solid fa-magnifying-glass"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <div class="btn-group btn-group-sm w-100 shadow-sm" role="group">
+                                                <button type="button" class="btn btn-primary btn-sm fw-bold" id="btnUserMapHybrid" onclick="switchUserMapLayer('hybrid')" title="Satellite View with Streets"><i class="fa-solid fa-satellite me-1"></i>Sat</button>
+                                                <button type="button" class="btn btn-outline-secondary btn-sm fw-bold" id="btnUserMapStreets" onclick="switchUserMapLayer('streets')" title="Streets Map View"><i class="fa-solid fa-road me-1"></i>Map</button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Interactive Leaflet Map Container -->
+                                    <div class="position-relative rounded border overflow-hidden shadow-sm" style="height: 280px;">
+                                        <div id="user_map_picker" style="height: 100%; width: 100%; z-index: 1;"></div>
+                                        <div class="position-absolute bottom-0 start-0 m-2 px-2 py-1 rounded bg-dark bg-opacity-75 text-white small" style="z-index: 1000; font-size: 0.75rem; pointer-events: none;">
+                                            <i class="fa-solid fa-hand-pointer text-warning me-1"></i> Map par click karein ya pin ko drag kar ke customer ki location par set karein
+                                        </div>
+                                    </div>
+
+                                    <!-- Actual inputs sent to DB -->
+                                    <input type="hidden" name="latitude" id="user_latitude" value="">
+                                    <input type="hidden" name="longitude" id="user_longitude" value="">
+
+                                    <!-- Live Pinned / Captured Status Card -->
+                                    <div id="location_status_box" class="mt-2">
+                                        <div class="d-flex align-items-center justify-content-between p-2 rounded bg-light border small">
+                                            <div>
+                                                <span class="text-secondary fw-semibold"><i class="fa-solid fa-location-dot text-danger me-1"></i> Pinned Coordinates:</span>
+                                                <span class="font-monospace text-dark fw-bold ms-1" id="pinned_coords_text">Not set (Click map or drag pin)</span>
+                                            </div>
+                                            <div id="location_accuracy_badge">
+                                                <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">Draggable Pin</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Collapsible Manual Inputs -->
+                                    <div id="manual_coords_container" class="row mt-2 d-none">
+                                        <div class="col-6">
+                                            <label class="small text-muted fw-bold">Latitude</label>
+                                            <input type="text" class="form-control form-control-sm font-monospace" id="manual_lat" placeholder="e.g. 31.520371" oninput="syncManualCoords()">
+                                        </div>
+                                        <div class="col-6">
+                                            <label class="small text-muted fw-bold">Longitude</label>
+                                            <input type="text" class="form-control form-control-sm font-monospace" id="manual_lng" placeholder="e.g. 74.358742" oninput="syncManualCoords()">
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -702,47 +1024,528 @@ function formatUptime($seconds) {
 </div>
 
 
-<!-- Renew Modal (Simplified for display) -->
-<div class="modal fade" id="renewModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog">
-    <div class="modal-content light-modal">
-      <div class="modal-header">
-        <h5 class="modal-title"><i class="fa-solid fa-rotate text-success"></i> Renew User / Set Expiry</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+<?php
+// Fetch users and packages for the renew modal
+$renewUsers = $pdo->query("SELECT id, username, full_name, status, expiry_date, package_id FROM subscribers WHERE client_id = $client_id ORDER BY username ASC")->fetchAll();
+$renewPackages = $pdo->query("SELECT id, name, price, validity_days FROM packages WHERE client_id = $client_id OR client_id = 0 ORDER BY name ASC")->fetchAll();
+?>
+<!-- Activate/Renew User Modal -->
+<div class="modal fade" id="renewUserModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content light-modal" style="background-color: #f8fafc;">
+      <div class="modal-header bg-white border-bottom-0">
+        <h5 class="modal-title fw-bold"><i class="fa-solid fa-bolt text-warning me-2"></i> Activate / Renew User</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
-      <form method="POST">
-        <input type="hidden" name="action" value="renew_user">
-        <input type="hidden" name="id" id="renew_user_id">
-        <div class="modal-body p-4">
-            <p><strong>Username:</strong> <span id="renew_username_display" class="badge bg-success text-white px-2 py-1 ms-2"></span></p>
-            
-            <div class="mb-3">
-                <label class="form-label fw-bold text-secondary">Change Package</label>
-                <select name="package_id" id="renew_package_id" class="form-select" required>
-                    <option value="">Select Package</option>
-                    <?php foreach($packages as $p): ?>
-                        <option value="<?= $p['id'] ?>"><?= htmlspecialchars($p['name']) ?> (<?= htmlspecialchars($p['rate_limit']) ?>)</option>
-                    <?php endforeach; ?>
-                </select>
+      <form action="renew_user_action.php" method="POST">
+        <input type="hidden" name="redirect_to" value="subscribers.php">
+        <div class="modal-body p-4 pt-2">
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label class="col-form-label text-secondary small fw-bold">Select User <span class="text-danger">*</span></label>
+                    <select name="user_id" id="renew_user_id" class="form-select form-select-sm" required onchange="updateRenewDetails()">
+                        <option value="">-- Choose User --</option>
+                        <?php foreach($renewUsers as $ru): ?>
+                            <option value="<?= $ru['id'] ?>" 
+                                data-username="<?= htmlspecialchars($ru['username']) ?>"
+                                data-fullname="<?= htmlspecialchars($ru['full_name']) ?>"
+                                data-status="<?= $ru['status'] ?>"
+                                data-expiry="<?= $ru['expiry_date'] ?>"
+                                data-pkg="<?= $ru['package_id'] ?>">
+                                <?= htmlspecialchars($ru['username']) ?> (<?= htmlspecialchars($ru['full_name']) ?>)
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="col-form-label text-secondary small fw-bold">Package <span class="text-danger">*</span></label>
+                    <select name="package_id" id="renew_package_id" class="form-select form-select-sm" required onchange="updateRenewDetails()">
+                        <option value="">-- Select Package --</option>
+                        <?php foreach($renewPackages as $rp): ?>
+                            <option value="<?= $rp['id'] ?>" 
+                                data-name="<?= htmlspecialchars($rp['name']) ?>"
+                                data-duration="<?= $rp['validity_days'] ?>"
+                                data-price="<?= $rp['price'] ?>">
+                                <?= htmlspecialchars($rp['name']) ?> (Rs <?= number_format($rp['price']) ?>)
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                
+                <div class="col-md-6 mb-3">
+                    <label class="col-form-label text-secondary small fw-bold">Expiry Type <span class="text-danger">*</span></label>
+                    <select name="expiry_type" id="renew_expiry_type" class="form-select form-select-sm" onchange="toggleCustomExpiry()">
+                        <option value="default">Default (Package Duration)</option>
+                        <option value="custom">Custom Date & Time</option>
+                    </select>
+                </div>
+                
+                <div class="col-md-6 mb-3 d-none" id="custom_expiry_container">
+                    <label class="col-form-label text-secondary small fw-bold">Custom Expiry Date/Time <span class="text-danger">*</span></label>
+                    <input type="datetime-local" name="custom_expiry" id="renew_custom_expiry" class="form-control form-control-sm" onchange="updateRenewDetails()">
+                </div>
             </div>
 
-            <div class="mb-3">
-                <label class="form-label fw-bold text-secondary">Set Expiry Date & Time <span class="text-danger">*</span></label>
-                <input type="datetime-local" name="expiry_date" id="renew_expiry_date" class="form-control" required>
-                <small class="text-muted">This will automatically enforce disconnection via FreeRADIUS when time reaches.</small>
+            <!-- Expanding Details Section -->
+            <div id="renew_details_section" class="d-none mt-3">
+                <h6 class="fw-bold text-primary border-bottom pb-2 mb-3"><i class="fa-solid fa-list me-1"></i> Renewal Summary</h6>
+                <div class="table-responsive bg-white border rounded shadow-sm">
+                    <table class="table table-sm table-hover mb-0 align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="text-secondary ps-3" style="width: 40%;">Attribute</th>
+                                <th class="text-secondary">Description</th>
+                            </tr>
+                        </thead>
+                        <tbody id="renew_details_tbody">
+                            <!-- Filled via JS -->
+                        </tbody>
+                    </table>
+                </div>
             </div>
+
         </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
-          <button type="submit" class="btn btn-submit">Update & Renew</button>
+        <div class="modal-footer bg-white border-top-0 pt-0">
+          <button type="button" class="btn btn-light border" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-warning fw-bold px-4"><i class="fa-solid fa-bolt me-2"></i> Confirm Renewal</button>
         </div>
       </form>
     </div>
   </div>
 </div>
 
+<script>
+function toggleCustomExpiry() {
+    var type = document.getElementById('renew_expiry_type').value;
+    var container = document.getElementById('custom_expiry_container');
+    var input = document.getElementById('renew_custom_expiry');
+    if (type === 'custom') {
+        container.classList.remove('d-none');
+        input.setAttribute('required', 'required');
+    } else {
+        container.classList.add('d-none');
+        input.removeAttribute('required');
+    }
+    updateRenewDetails();
+}
+
+function updateRenewDetails() {
+    var userSelect = document.getElementById('renew_user_id');
+    var pkgSelect = document.getElementById('renew_package_id');
+    var section = document.getElementById('renew_details_section');
+    var tbody = document.getElementById('renew_details_tbody');
+    
+    if (!userSelect || userSelect.value === "") {
+        if (section) section.classList.add('d-none');
+        return;
+    }
+    
+    section.classList.remove('d-none');
+    
+    var uOpt = userSelect.options[userSelect.selectedIndex];
+    if (!uOpt) return;
+
+    var username = uOpt.getAttribute('data-username');
+    var uid = userSelect.value;
+    var status = uOpt.getAttribute('data-status');
+    var curExp = uOpt.getAttribute('data-expiry');
+    var uPkgId = uOpt.getAttribute('data-pkg');
+    
+    // Auto-select package if user has one and package select is currently empty
+    if(pkgSelect.value === "" && uPkgId && uPkgId != "0" && uPkgId != "") {
+        for(let i=0; i<pkgSelect.options.length; i++){
+            if(pkgSelect.options[i].value == uPkgId) {
+                pkgSelect.selectedIndex = i;
+                break;
+            }
+        }
+    }
+    
+    var pOpt = pkgSelect.options[pkgSelect.selectedIndex];
+    var pName = (pOpt && pOpt.value) ? pOpt.getAttribute('data-name') : 'N/A';
+    var pDur = (pOpt && pOpt.value) ? parseInt(pOpt.getAttribute('data-duration')) : 0;
+    var pPrice = (pOpt && pOpt.value) ? parseFloat(pOpt.getAttribute('data-price')).toFixed(0) : '0';
+    
+    // Formatting Current Expiry
+    var curExpFormatted = "No Expiry";
+    if (curExp && curExp !== "" && curExp !== "null" && curExp !== "0000-00-00 00:00:00") {
+        let d = new Date(curExp);
+        if(!isNaN(d)) curExpFormatted = d.toLocaleString('en-GB', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit'}).replace(',', '');
+    }
+
+    // Calculating New Expiry
+    var newExpFormatted = "Select Package/Date";
+    var expType = document.getElementById('renew_expiry_type').value;
+    
+    if (expType === 'custom') {
+        var customVal = document.getElementById('renew_custom_expiry').value;
+        if(customVal) {
+            let nd = new Date(customVal);
+            if(!isNaN(nd)) newExpFormatted = nd.toLocaleString('en-GB', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit'}).replace(',', '');
+        }
+    } else {
+        if (pDur > 0) {
+            let baseDate = new Date();
+            // Append to current expiry if it's in the future
+            if(curExp && curExp !== "" && curExp !== "null" && curExp !== "0000-00-00 00:00:00") {
+                let cd = new Date(curExp);
+                if(cd > baseDate) baseDate = cd;
+            }
+            
+            baseDate.setDate(baseDate.getDate() + pDur);
+            // Set to rat 12 bajy (23:59:59)
+            baseDate.setHours(23, 59, 59, 0);
+            newExpFormatted = baseDate.toLocaleString('en-GB', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit'}).replace(',', '');
+        }
+    }
+
+    var statusHtml = status === 'active' ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-danger">Disabled</span>';
+
+    tbody.innerHTML = `
+        <tr><td class="fw-bold ps-3">Username & ID</td><td>${username} (#${uid})</td></tr>
+        <tr><td class="fw-bold ps-3">User Status</td><td>${statusHtml}</td></tr>
+        <tr><td class="fw-bold ps-3">Current Expiration</td><td class="text-danger fw-bold">${curExpFormatted}</td></tr>
+        <tr><td class="fw-bold ps-3">New Expiration</td><td class="text-success fw-bold">${newExpFormatted}</td></tr>
+        <tr><td class="fw-bold ps-3">Package</td><td><span class="badge bg-primary bg-opacity-10 text-primary">${pName}</span></td></tr>
+        <tr><td class="fw-bold ps-3">Package Duration</td><td>${pDur} Days</td></tr>
+        <tr><td class="fw-bold ps-3">Package Price</td><td class="text-success fw-bold">Rs ${pPrice}</td></tr>
+    `;
+}
+
+function openRenewModal(userId) {
+    $('#renew_user_id').val(userId).trigger('change');
+    $('#renew_expiry_type').val('default');
+    toggleCustomExpiry();
+    
+    // Auto-select package for this user
+    var uOpt = $('#renew_user_id option:selected');
+    var uPkgId = uOpt.attr('data-pkg');
+    if (uPkgId && uPkgId !== '0') {
+        $('#renew_package_id').val(uPkgId);
+    }
+    updateRenewDetails();
+    var m = bootstrap.Modal.getOrCreateInstance(document.getElementById('renewUserModal'));
+    m.show();
+}
+
+// --- GPS Location & Interactive Leaflet Map Logic (10m accuracy target) ---
+let geoWatchId = null;
+let bestPosition = null;
+let userMap = null;
+let userMarker = null;
+let userHybridLayer = null;
+let userStreetsLayer = null;
+const defaultMapLat = 31.5204;
+const defaultMapLng = 74.3587; // Central Pakistan default
+
+function initUserMapPicker() {
+    if (userMap !== null) {
+        setTimeout(function() {
+            if (userMap) userMap.invalidateSize();
+        }, 150);
+        return;
+    }
+    
+    var container = document.getElementById('user_map_picker');
+    if (!container) return;
+    
+    var curLat = parseFloat(document.getElementById('user_latitude').value);
+    var curLng = parseFloat(document.getElementById('user_longitude').value);
+    var hasExisting = !isNaN(curLat) && curLat !== 0 && !isNaN(curLng) && curLng !== 0;
+    var startLat = hasExisting ? curLat : defaultMapLat;
+    var startLng = hasExisting ? curLng : defaultMapLng;
+
+    userHybridLayer = L.tileLayer('https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+        maxZoom: 22,
+        subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+        attribution: '&copy; Google Maps'
+    });
+
+    userStreetsLayer = L.tileLayer('https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+        maxZoom: 22,
+        subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+        attribution: '&copy; Google Maps'
+    });
+
+    var userEsri = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 19,
+        attribution: 'Tiles &copy; Esri'
+    });
+
+    var userOsm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap'
+    });
+
+    var userBaseMaps = {
+        "🛰️ Google Satellite (Hybrid)": userHybridLayer,
+        "🗺️ Google Streets": userStreetsLayer,
+        "🌍 Esri Satellite": userEsri,
+        "📍 OpenStreetMap": userOsm
+    };
+
+    userMap = L.map('user_map_picker', {
+        center: [startLat, startLng],
+        zoom: hasExisting ? 18 : 14,
+        maxZoom: 22,
+        zoomControl: true,
+        layers: [userHybridLayer]
+    });
+
+    L.control.layers(userBaseMaps, null, { position: 'topright' }).addTo(userMap);
+
+    var pinIcon = L.icon({
+        iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+        iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+        shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+        iconSize: [25, 41],
+        iconAnchor: [12, 41],
+        popupAnchor: [1, -34],
+        shadowSize: [41, 41]
+    });
+
+    userMarker = L.marker([startLat, startLng], {
+        draggable: true,
+        icon: pinIcon
+    }).addTo(userMap);
+
+    userMarker.bindTooltip("Drag me or click map", { permanent: false, direction: 'top' });
+
+    if (hasExisting) {
+        updateCoordsFromMap(startLat, startLng, false);
+    }
+
+    userMarker.on('dragend', function () {
+        var pos = userMarker.getLatLng();
+        updateCoordsFromMap(pos.lat, pos.lng);
+    });
+
+    userMap.on('click', function (e) {
+        userMarker.setLatLng(e.latlng);
+        updateCoordsFromMap(e.latlng.lat, e.latlng.lng);
+    });
+
+    setTimeout(function() {
+        if (userMap) userMap.invalidateSize();
+    }, 200);
+}
+
+function switchUserMapLayer(type) {
+    if (!userMap || !userHybridLayer || !userStreetsLayer) return;
+    var btnHybrid = document.getElementById('btnUserMapHybrid');
+    var btnStreets = document.getElementById('btnUserMapStreets');
+    if (type === 'hybrid') {
+        userMap.removeLayer(userStreetsLayer);
+        userMap.addLayer(userHybridLayer);
+        if (btnHybrid) { btnHybrid.className = 'btn btn-primary btn-sm fw-bold'; }
+        if (btnStreets) { btnStreets.className = 'btn btn-outline-secondary btn-sm fw-bold'; }
+    } else if (type === 'streets') {
+        userMap.removeLayer(userHybridLayer);
+        userMap.addLayer(userStreetsLayer);
+        if (btnStreets) { btnStreets.className = 'btn btn-primary btn-sm fw-bold'; }
+        if (btnHybrid) { btnHybrid.className = 'btn btn-outline-secondary btn-sm fw-bold'; }
+    }
+}
+
+function updateCoordsFromMap(lat, lng, panTo) {
+    var fixedLat = parseFloat(lat).toFixed(7);
+    var fixedLng = parseFloat(lng).toFixed(7);
+    
+    document.getElementById('user_latitude').value = fixedLat;
+    document.getElementById('user_longitude').value = fixedLng;
+    
+    var manLat = document.getElementById('manual_lat');
+    var manLng = document.getElementById('manual_lng');
+    if (manLat) manLat.value = fixedLat;
+    if (manLng) manLng.value = fixedLng;
+    
+    var textEl = document.getElementById('pinned_coords_text');
+    if (textEl) {
+        textEl.innerHTML = `<span class="text-primary">${fixedLat}</span>, <span class="text-primary">${fixedLng}</span>`;
+    }
+    
+    var badgeEl = document.getElementById('location_accuracy_badge');
+    if (badgeEl) {
+        badgeEl.innerHTML = '<span class="badge bg-primary-subtle text-primary border border-primary-subtle"><i class="fa-solid fa-map-pin me-1"></i> Pinned on Map</span>';
+    }
+    
+    if (panTo && userMap) {
+        userMap.panTo([fixedLat, fixedLng]);
+    }
+}
+
+function searchLocationOnMap() {
+    var query = document.getElementById('map_search_input').value.trim();
+    if (!query) return;
+    var btn = document.getElementById('btn_map_search');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+    
+    fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`)
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-magnifying-glass"></i> Search';
+            if (data && data.length > 0) {
+                var lat = parseFloat(data[0].lat);
+                var lon = parseFloat(data[0].lon);
+                if (userMap && userMarker) {
+                    userMap.setView([lat, lon], 16);
+                    userMarker.setLatLng([lat, lon]);
+                }
+                updateCoordsFromMap(lat, lon);
+            } else {
+                alert('Area/location not found. Please try another search term or drag the map manually.');
+            }
+        })
+        .catch(function() {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-magnifying-glass"></i> Search';
+        });
+}
+
+function toggleManualCoords() {
+    var cont = document.getElementById('manual_coords_container');
+    if (!cont) return;
+    if (cont.classList.contains('d-none')) {
+        cont.classList.remove('d-none');
+        document.getElementById('manual_lat').value = document.getElementById('user_latitude').value;
+        document.getElementById('manual_lng').value = document.getElementById('user_longitude').value;
+    } else {
+        cont.classList.add('d-none');
+    }
+}
+
+function syncManualCoords() {
+    var lat = parseFloat(document.getElementById('manual_lat').value.trim());
+    var lng = parseFloat(document.getElementById('manual_lng').value.trim());
+    
+    if (!isNaN(lat) && !isNaN(lng)) {
+        if (userMap && userMarker) {
+            userMarker.setLatLng([lat, lng]);
+            userMap.setView([lat, lng], 17);
+        }
+        updateCoordsFromMap(lat, lng);
+    }
+}
+
+function captureUserLocation() {
+    if (!navigator.geolocation) {
+        alert("Geolocation is not supported by your browser/device.");
+        return;
+    }
+    
+    const btn = document.getElementById('btn_capture_location');
+    const statusEl = document.getElementById('location_accuracy_badge');
+    const latInp = document.getElementById('user_latitude');
+    const lngInp = document.getElementById('user_longitude');
+    
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin me-1"></i> Locking GPS (&le;10m)...';
+    if (statusEl) {
+        statusEl.innerHTML = '<span class="badge bg-info-subtle text-info border border-info-subtle"><i class="fa-solid fa-satellite-dish fa-spin me-1"></i> Locking GPS...</span>';
+    }
+    
+    if (geoWatchId !== null) {
+        navigator.geolocation.clearWatch(geoWatchId);
+        geoWatchId = null;
+    }
+    bestPosition = null;
+
+    const finishCapture = (pos) => {
+        if (geoWatchId !== null) {
+            navigator.geolocation.clearWatch(geoWatchId);
+            geoWatchId = null;
+        }
+        btn.disabled = false;
+        btn.className = 'btn btn-outline-success btn-sm fw-bold w-100 py-2 shadow-sm';
+        btn.innerHTML = '<i class="fa-solid fa-arrows-rotate me-1"></i> Re-capture GPS';
+        
+        const lat = pos.coords.latitude.toFixed(7);
+        const lng = pos.coords.longitude.toFixed(7);
+        const acc = Math.round(pos.coords.accuracy);
+        
+        if (userMap && userMarker) {
+            userMap.setView([lat, lng], 17);
+            userMarker.setLatLng([lat, lng]);
+        }
+        
+        updateCoordsFromMap(lat, lng);
+        
+        let accBadge = acc <= 10 
+            ? `<span class="badge bg-success text-white px-2 py-1"><i class="fa-solid fa-bullseye me-1"></i> High GPS: ±${acc}m (&le;10m)</span>`
+            : `<span class="badge bg-warning text-dark px-2 py-1"><i class="fa-solid fa-satellite me-1"></i> GPS: ±${acc}m</span>`;
+            
+        if (statusEl) statusEl.innerHTML = accBadge;
+    };
+
+    const timeoutTimer = setTimeout(() => {
+        if (bestPosition) {
+            finishCapture(bestPosition);
+        } else {
+            if (geoWatchId !== null) {
+                navigator.geolocation.clearWatch(geoWatchId);
+                geoWatchId = null;
+            }
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-crosshairs me-1 text-danger"></i> Get Current GPS (10m)';
+            if (statusEl) statusEl.innerHTML = '<span class="badge bg-warning text-dark">GPS Timeout</span>';
+            alert("GPS request timed out. Make sure Location/GPS is turned ON, or use the interactive map to pin the location!");
+        }
+    }, 12000);
+
+    try {
+        geoWatchId = navigator.geolocation.watchPosition(
+            (pos) => {
+                const acc = pos.coords.accuracy;
+                if (!bestPosition || acc < bestPosition.coords.accuracy) {
+                    bestPosition = pos;
+                }
+                
+                if (statusEl) {
+                    statusEl.innerHTML = `<span class="badge bg-info-subtle text-info">GPS reading: ±${Math.round(acc)}m</span>`;
+                }
+                
+                // If accuracy is within 10 meters, lock immediately!
+                if (acc <= 10) {
+                    clearTimeout(timeoutTimer);
+                    finishCapture(pos);
+                }
+            },
+            (err) => {
+                clearTimeout(timeoutTimer);
+                if (geoWatchId !== null) {
+                    navigator.geolocation.clearWatch(geoWatchId);
+                    geoWatchId = null;
+                }
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-crosshairs me-1 text-danger"></i> Get Current GPS (10m)';
+                
+                let errMsg = 'Failed to get location.';
+                if (err.code === 1) errMsg = 'Location permission denied in browser.';
+                else if (err.code === 2) errMsg = 'Location unavailable on device.';
+                else if (err.code === 3) errMsg = 'Location request timed out.';
+                
+                if (statusEl) statusEl.innerHTML = `<span class="badge bg-danger">${errMsg}</span>`;
+            },
+            {
+                enableHighAccuracy: true,
+                maximumAge: 0,
+                timeout: 10000
+            }
+        );
+    } catch(e) {
+        clearTimeout(timeoutTimer);
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-crosshairs me-1 text-danger"></i> Get Current GPS (10m)';
+        if (statusEl) statusEl.innerHTML = `<span class="badge bg-danger">GPS Error</span>`;
+    }
+}
+</script>
+
 <!-- jQuery & DataTables JS -->
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
 <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
 
@@ -754,13 +1557,41 @@ function formatUptime($seconds) {
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.53/vfs_fonts.js"></script>
 <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.html5.min.js"></script>
 <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.print.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 
 <script>
 $(document).ready(function() {
+    $('#renew_user_id').select2({
+        dropdownParent: $('#renewUserModal'),
+        width: '100%',
+        placeholder: '-- Choose User --'
+    });
+
+    $('#renewUserModal').on('shown.bs.modal', function () {
+        $('#renew_user_id').select2({
+            dropdownParent: $('#renewUserModal'),
+            width: '100%',
+            placeholder: '-- Choose User --'
+        });
+    });
+
+    $('#renew_user_id').on('change', function() {
+        var uOpt = $(this).find('option:selected');
+        var uPkgId = uOpt.attr('data-pkg');
+        if (uPkgId && uPkgId !== '0') {
+            $('#renew_package_id').val(uPkgId);
+        }
+        updateRenewDetails();
+    });
+
+    $('#renew_package_id').on('change', function() {
+        updateRenewDetails();
+    });
+
     var exportColumns = [1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]; // Everything except Checkbox, Photo, Action
 
     $('#usersTable').DataTable({
-        dom: '<"row align-items-center"<"col-md-2"l><"col-md-6 dt-buttons"B><"col-md-4"f>>rtip',
+        dom: '<"row align-items-center mb-3"<"col-md-2"l><"col-md-6 dt-buttons"B><"col-md-4"f>>rtip',
         buttons: [
             { extend: 'print', exportOptions: { columns: exportColumns }, text: '<i class="fa-solid fa-print"></i> Print' },
             { extend: 'copy', exportOptions: { columns: exportColumns }, text: '<i class="fa-solid fa-copy"></i> Copy' },
@@ -777,7 +1608,16 @@ $(document).ready(function() {
         scrollX: true,
         language: {
             search: "Search:",
-            searchPlaceholder: "Type & Submit"
+            searchPlaceholder: "Type & Submit",
+            emptyTable: '<div class="text-center py-4"><i class="fa-solid fa-users-slash fa-2x text-muted mb-2"></i><div class="text-muted fw-semibold">No subscribers found.</div></div>',
+            zeroRecords: '<div class="text-center py-4"><i class="fa-solid fa-magnifying-glass fa-2x text-muted mb-2"></i><div class="text-muted fw-semibold">No matching subscribers found.</div></div>'
+        },
+        initComplete: function() {
+            $('#usersLoadingBox').fadeOut(120, function() {
+                $('#usersTableContainer').fadeIn(180, function() {
+                    $('#usersTable').DataTable().columns.adjust().draw();
+                });
+            });
         }
     });
 
@@ -789,13 +1629,8 @@ $(document).ready(function() {
     // Robust DataTables Modal Triggers
     $('#usersTable tbody').on('click', '.btn-renew', function(e) {
         e.preventDefault();
-        $('#renew_user_id').val($(this).attr('data-id'));
-        $('#renew_username_display').text($(this).attr('data-username'));
-        $('#renew_package_id').val($(this).attr('data-pkg'));
-        var exp = $(this).attr('data-expiry');
-        $('#renew_expiry_date').val(exp ? exp : '');
-        var m = new bootstrap.Modal(document.getElementById('renewModal'));
-        m.show();
+        var uid = $(this).attr('data-id');
+        openRenewModal(uid);
     });
 
     $('#usersTable tbody').on('click', '.btn-payment', function(e) {
@@ -809,6 +1644,17 @@ $(document).ready(function() {
     
     // Append modals to body to prevent z-index backdrop bugs inside card containers
     $('.modal').appendTo('body');
+
+    $('#addUserModal').on('shown.bs.modal', function () {
+        initUserMapPicker();
+    });
+
+    $('#addUserModal').on('hidden.bs.modal', function () {
+        if (geoWatchId !== null) {
+            navigator.geolocation.clearWatch(geoWatchId);
+            geoWatchId = null;
+        }
+    });
 
 });
 </script>

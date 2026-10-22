@@ -3,14 +3,15 @@
  * RouterOS API client implementation.
  * Standard implementation for MikroTik API communication.
  */
+if (!class_exists('RouterosAPI')) {
 class RouterosAPI
 {
     public $debug     = false;
     public $connected = false;
     public $port      = 8728;
     public $timeout   = 3;
-    public $attempts  = 5;
-    public $delay     = 2;
+    public $attempts  = 1;
+    public $delay     = 0;
 
     private $socket;
     private $error_no;
@@ -95,23 +96,47 @@ class RouterosAPI
 
     private function readWord()
     {
-        $byte = ord(fread($this->socket, 1));
+        if (!$this->socket || feof($this->socket)) {
+            return false;
+        }
+        $char = @fread($this->socket, 1);
+        if ($char === false || $char === '') {
+            return false;
+        }
+        $byte = ord($char);
         $length = 0;
         if (($byte & 0x80) == 0x00) {
             $length = $byte;
         } elseif (($byte & 0xC0) == 0x80) {
-            $length = (($byte & 0x3F) << 8) + ord(fread($this->socket, 1));
+            $ch = @fread($this->socket, 1);
+            if ($ch === false || $ch === '') return false;
+            $length = (($byte & 0x3F) << 8) + ord($ch);
         } elseif (($byte & 0xE0) == 0xC0) {
-            $length = (($byte & 0x1F) << 16) + (ord(fread($this->socket, 1)) << 8) + ord(fread($this->socket, 1));
+            $ch1 = @fread($this->socket, 1);
+            $ch2 = @fread($this->socket, 1);
+            if ($ch1 === false || $ch2 === false || $ch1 === '' || $ch2 === '') return false;
+            $length = (($byte & 0x1F) << 16) + (ord($ch1) << 8) + ord($ch2);
         } elseif (($byte & 0xF0) == 0xE0) {
-            $length = (($byte & 0x0F) << 24) + (ord(fread($this->socket, 1)) << 16) + (ord(fread($this->socket, 1)) << 8) + ord(fread($this->socket, 1));
+            $ch1 = @fread($this->socket, 1);
+            $ch2 = @fread($this->socket, 1);
+            $ch3 = @fread($this->socket, 1);
+            if ($ch1 === false || $ch2 === false || $ch3 === false || $ch1 === '' || $ch2 === '' || $ch3 === '') return false;
+            $length = (($byte & 0x0F) << 24) + (ord($ch1) << 16) + (ord($ch2) << 8) + ord($ch3);
         } elseif (($byte & 0xF8) == 0xF0) {
-            $length = (ord(fread($this->socket, 1)) << 24) + (ord(fread($this->socket, 1)) << 16) + (ord(fread($this->socket, 1)) << 8) + ord(fread($this->socket, 1));
+            $ch1 = @fread($this->socket, 1);
+            $ch2 = @fread($this->socket, 1);
+            $ch3 = @fread($this->socket, 1);
+            $ch4 = @fread($this->socket, 1);
+            if ($ch1 === false || $ch2 === false || $ch3 === false || $ch4 === false || $ch1 === '' || $ch2 === '' || $ch3 === '' || $ch4 === '') return false;
+            $length = (ord($ch1) << 24) + (ord($ch2) << 16) + (ord($ch3) << 8) + ord($ch4);
         }
         
         $word = '';
         while ($length > 0) {
-            $chunk = fread($this->socket, $length);
+            $chunk = @fread($this->socket, $length);
+            if ($chunk === false || $chunk === '') {
+                break;
+            }
             $word .= $chunk;
             $length -= strlen($chunk);
         }
@@ -122,12 +147,19 @@ class RouterosAPI
     {
         $response = array();
         while (true) {
+            if (!$this->socket || feof($this->socket)) {
+                break;
+            }
+            $meta = stream_get_meta_data($this->socket);
+            if (!empty($meta['timed_out'])) {
+                break;
+            }
             $word = $this->readWord();
-            if ($word == '') {
-                continue;
+            if ($word === false || $word === '') {
+                break;
             }
             $response[] = $word;
-            if ($word == '!done' || $word == '!fatal') {
+            if ($word == '!done' || $word == '!fatal' || $word == '!trap') {
                 break;
             }
         }
@@ -187,4 +219,5 @@ class RouterosAPI
         }
         return $result;
     }
+}
 }

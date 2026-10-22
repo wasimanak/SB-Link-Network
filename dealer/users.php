@@ -236,28 +236,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->prepare("UPDATE subscribers SET status = ? WHERE id = ?")->execute([$newStatus, $id]);
             
             if ($newStatus === 'disabled') {
-                $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Auth-Type', ':=', 'Reject') ON DUPLICATE KEY UPDATE value='Reject'")->execute([$sub['username']]);
+                $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute = 'Auth-Type'")->execute([$sub['username']]);
+                $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Auth-Type', ':=', 'Reject')")->execute([$sub['username']]);
                 
-                // Disconnect active session
-                $nasStmt = $pdo->prepare("SELECT n.nasname, n.coa_port, n.secret FROM nas n 
-                                        JOIN radacct r ON n.nasname = r.nasipaddress 
-                                        WHERE r.username = ? AND r.acctstoptime IS NULL LIMIT 1");
-                $nasStmt->execute([$sub['username']]);
-                $nas = $nasStmt->fetch();
-                if (!$nas) {
-                    $nasStmt = $pdo->prepare("SELECT nasname, coa_port, secret FROM nas WHERE client_id = ? LIMIT 1");
-                    $nasStmt->execute([$sub['client_id']]);
-                    $nas = $nasStmt->fetch();
-                }
-                if ($nas) {
-                    $ip = escapeshellarg($nas['nasname'] . ":" . $nas['coa_port']);
-                    $secret = escapeshellarg($nas['secret']);
-                    $user = escapeshellarg("User-Name=" . $sub['username']);
-                    $cmd = "echo $user | radclient -x $ip disconnect $secret 2>&1";
-                    exec($cmd);
-                    $pdo->prepare("UPDATE radacct SET acctstoptime = NOW(), acctterminatecause = 'Admin-Reset' WHERE username = ? AND acctstoptime IS NULL")->execute([$sub['username']]);
-                }
-                echo "<script>alert('User disabled and disconnected!'); window.location='users.php';</script>";
+                // Disconnect active session via Dual Engine (API + PoD)
+                require_once __DIR__ . '/../config/radius_kick_helper.php';
+                kick_subscriber_session($pdo, $sub['username'], $sub['client_id']);
+                echo "<script>alert('User disabled and disconnected from network!'); window.location='users.php';</script>";
             } else {
                 $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute = 'Auth-Type'")->execute([$sub['username']]);
                 echo "<script>alert('User enabled!'); window.location='users.php';</script>";

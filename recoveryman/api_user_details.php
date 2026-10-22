@@ -6,7 +6,7 @@ if (!isset($_SESSION['rm_id']) || !isset($_GET['username'])) exit;
 $username = $_GET['username'];
 $client_id = $_SESSION['client_id'];
 
-$stmt = $pdo->prepare("SELECT * FROM user_ledger WHERE username = ? AND client_id = ? ORDER BY id DESC LIMIT 5");
+$stmt = $pdo->prepare("SELECT * FROM user_ledger WHERE username = ? AND client_id = ? ORDER BY id DESC");
 $stmt->execute([$username, $client_id]);
 $ledger = $stmt->fetchAll(PDO::FETCH_ASSOC);
 

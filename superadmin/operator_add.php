@@ -28,7 +28,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'mr' => $max_routers,
                 'ms' => $max_subscribers
             ]);
-            $success = "Operator added successfully!";
+            $new_client_id = (int)$pdo->lastInsertId();
+
+            // Auto-provision network defaults (PTCL, Telenor, core tables)
+            require_once '../config/mikrotik_sync_helper.php';
+            init_operator_network_defaults($pdo, $new_client_id);
+
+            $success = "Operator added successfully! Network defaults initialized.";
         } catch (Exception $e) {
             $error = "Database Error: " . $e->getMessage();
         }

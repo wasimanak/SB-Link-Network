@@ -1,6 +1,18 @@
 <?php
 require_once 'header.php';
 
+// Access Control: Block Manager Access
+if (!empty($_SESSION['is_manager'])) {
+    echo "<div class='container py-5'>
+            <div class='alert alert-danger shadow-sm'>
+                <i class='fa-solid fa-shield-halved me-2'></i> Access Denied: Managers are not authorized to view or configure Payment Gateways.
+            </div>
+            <a href='dashboard.php' class='btn btn-outline-secondary'><i class='fa-solid fa-arrow-left me-1'></i> Return to Dashboard</a>
+          </div>";
+    require_once 'footer.php';
+    exit;
+}
+
 $client_id = $_SESSION['operator_id'];
 
 // --- HANDLE ACTIONS ---
@@ -109,7 +121,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         echo "<script>alert('Bank Account enabled!'); window.location='payment_gateways.php';</script>";
         exit;
     }
+    elseif ($action === 'sync_safepay') {
+        require_once '../config/safepay_helper.php';
+        $synced = sync_pending_safepay_payments($pdo, $client_id);
+        $count = count($synced);
+        if ($count > 0) {
+            echo "<script>alert('Successfully verified and updated {$count} pending payment(s) from Safepay!'); window.location='payment_gateways.php';</script>";
+        } else {
+            echo "<script>alert('Safepay sync complete. Checked all pending transactions with Safepay API.'); window.location='payment_gateways.php';</script>";
+        }
+        exit;
+    }
 }
+
+// Auto-create online_payments table and seed Safepay default if none exists
+try {
+    require_once '../config/safepay_helper.php';
+    ensure_online_payments_table($pdo);
+
+    $checkSp = $pdo->prepare("SELECT id FROM payment_gateways WHERE client_id = ? AND gateway_name = 'Safepay' LIMIT 1");
+    $checkSp->execute([$client_id]);
+    if (!$checkSp->fetch()) {
+        // Pre-insert Safepay Sandbox credentials
+        $insSp = $pdo->prepare("INSERT INTO payment_gateways (client_id, gateway_name, account_name, merchant_id, api_key, api_secret, mode, status) VALUES (?, 'Safepay', 'Safepay (All Bank Cards & Wallets)', '', 'sec_d45fe081-9ba5-4437-a8f6-96e157c0569f', 'b5559a16fde4d60797ff18e9b148dd6cdd18eb17888ff36bf7ec04b9adf4e3c2', 'sandbox', 'active')");
+        $insSp->execute([$client_id]);
+    }
+} catch (Exception $e) {}
 
 // Fetch Gateways
 $stmt = $pdo->prepare("SELECT * FROM payment_gateways WHERE client_id = ? ORDER BY created_at DESC");
@@ -120,6 +157,16 @@ $gateways = $stmt->fetchAll();
 $bStmt = $pdo->prepare("SELECT * FROM operator_bank_accounts WHERE client_id = ? ORDER BY created_at DESC");
 $bStmt->execute([$client_id]);
 $banks = $bStmt->fetchAll();
+
+// Fetch Recent Online Payments
+$txStmt = $pdo->prepare("SELECT op.*, s.username, s.full_name, p.name as package_name 
+                         FROM online_payments op 
+                         LEFT JOIN subscribers s ON op.subscriber_id = s.id 
+                         LEFT JOIN packages p ON op.package_id = p.id 
+                         WHERE op.client_id = ? 
+                         ORDER BY op.id DESC LIMIT 15");
+$txStmt->execute([$client_id]);
+$recent_txs = $txStmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
 
 <div class="d-flex flex-wrap justify-content-between align-items-center mb-4">
@@ -127,6 +174,22 @@ $banks = $bStmt->fetchAll();
         <h4 class="m-0 text-secondary fw-bold mb-1"><i class="fa-solid fa-credit-card text-primary me-2"></i> Payment Methods</h4>
         <p class="text-muted small mb-0">Manage API Gateways & Bank Accounts. (Only ONE method can be active at a time).</p>
     </div>
+</div>
+
+<!-- Webhook Guidance Banner -->
+<?php
+$current_protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? "https://" : "http://";
+$webhook_url = $current_protocol . $_SERVER['HTTP_HOST'] . '/safepay_webhook.php';
+?>
+<div class="alert alert-info border-0 rounded-4 shadow-sm mb-4 p-3 d-flex flex-wrap align-items-center justify-content-between gap-3 bg-primary-subtle text-primary-emphasis">
+    <div>
+        <div class="fw-bold mb-1"><i class="fa-solid fa-bolt text-warning me-1"></i> Safepay Automated Webhook URL:</div>
+        <code class="small text-dark font-monospace user-select-all p-1 bg-white rounded border d-inline-block"><?= htmlspecialchars($webhook_url) ?></code>
+        <div class="text-muted small mt-1">Safepay Dashboard &rarr; <strong>Developers &rarr; Webhooks</strong> mein ja kar yeh Webhook URL paste karein taake customer payment karte hi background me auto-verify ho jaye.</div>
+    </div>
+    <button type="button" class="btn btn-sm btn-primary rounded-pill px-3 shadow-sm" onclick="navigator.clipboard.writeText('<?= addslashes($webhook_url) ?>'); alert('Webhook URL Copied: <?= addslashes($webhook_url) ?>');">
+        <i class="fa-regular fa-clipboard me-1"></i> Copy Webhook URL
+    </button>
 </div>
 
 <div class="row">
@@ -270,6 +333,80 @@ $banks = $bStmt->fetchAll();
     </div>
 </div>
 
+<!-- 3. Recent Online Payments & Auto-Sync -->
+<div class="card border-0 shadow-sm rounded-4 mb-5">
+    <div class="card-header bg-white border-bottom-0 py-3 px-4 d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <div>
+            <h6 class="m-0 fw-bold text-dark"><i class="fa-solid fa-list-check text-primary me-2"></i> Recent Safepay Online Payments</h6>
+            <span class="text-muted small">Live log of online checkout attempts, payments, and instant activation status</span>
+        </div>
+        <form method="POST" class="m-0">
+            <input type="hidden" name="action" value="sync_safepay">
+            <button type="submit" class="btn btn-sm btn-outline-primary rounded-pill px-3 fw-bold">
+                <i class="fa-solid fa-rotate me-1"></i> Check & Sync Pending with Safepay
+            </button>
+        </form>
+    </div>
+    <div class="card-body p-0">
+        <?php if (empty($recent_txs)): ?>
+            <div class="text-center py-4 text-muted small">
+                <i class="fa-solid fa-receipt fa-2x mb-2 text-secondary opacity-50"></i>
+                <p class="mb-0">No online payment transactions recorded yet.</p>
+            </div>
+        <?php else: ?>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0 small">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="ps-4">Order ID</th>
+                            <th>Subscriber</th>
+                            <th>Amount</th>
+                            <th>Type</th>
+                            <th>Tracker (Safepay)</th>
+                            <th>Status</th>
+                            <th>Date / Time</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($recent_txs as $tx): ?>
+                        <tr>
+                            <td class="ps-4 fw-bold font-monospace text-dark"><?= htmlspecialchars($tx['order_id']) ?></td>
+                            <td>
+                                <div class="fw-semibold text-dark"><?= htmlspecialchars($tx['username'] ?? 'User #' . $tx['subscriber_id']) ?></div>
+                                <div class="text-muted" style="font-size: 0.72rem;"><?= htmlspecialchars($tx['full_name'] ?? '') ?></div>
+                            </td>
+                            <td class="fw-bold text-success">Rs. <?= number_format($tx['amount'], 2) ?></td>
+                            <td>
+                                <?php if ($tx['purpose'] === 'package_renew'): ?>
+                                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle">Renew: <?= htmlspecialchars($tx['package_name'] ?? 'Package') ?></span>
+                                <?php else: ?>
+                                    <span class="badge bg-success-subtle text-success border border-success-subtle">Wallet Recharge</span>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <span class="font-monospace text-muted" style="font-size: 0.75rem;" title="<?= htmlspecialchars($tx['tracker_token'] ?? '') ?>">
+                                    <?= htmlspecialchars(substr($tx['tracker_token'] ?? 'N/A', 0, 18)) ?>...
+                                </span>
+                            </td>
+                            <td>
+                                <?php if ($tx['status'] === 'completed'): ?>
+                                    <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1"><i class="fa-solid fa-check me-1"></i> Completed</span>
+                                <?php elseif ($tx['status'] === 'pending'): ?>
+                                    <span class="badge bg-warning-subtle text-warning border border-warning-subtle px-2 py-1"><i class="fa-solid fa-clock me-1"></i> Pending</span>
+                                <?php else: ?>
+                                    <span class="badge bg-secondary-subtle text-secondary px-2 py-1"><?= htmlspecialchars($tx['status']) ?></span>
+                                <?php endif; ?>
+                            </td>
+                            <td class="text-muted" style="font-size: 0.75rem;"><?= htmlspecialchars($tx['created_at']) ?></td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        <?php endif; ?>
+    </div>
+</div>
+
 
 <!-- 1. Add Gateway Modal -->
 <div class="modal fade" id="addGatewayModal" tabindex="-1">
@@ -286,6 +423,7 @@ $banks = $bStmt->fetchAll();
                 <label class="form-label fw-bold text-secondary small">Provider / Gateway Name</label>
                 <select name="gateway_name" class="form-select" required>
                     <option value="">Select Provider...</option>
+                    <option value="Safepay" selected>Safepay (All Bank Cards, EasyPaisa, JazzCash, 1Link)</option>
                     <option value="JazzCash">JazzCash</option>
                     <option value="EasyPaisa">EasyPaisa</option>
                     <option value="NayaPay">NayaPay</option>
@@ -342,6 +480,7 @@ $banks = $bStmt->fetchAll();
             <div class="mb-3">
                 <label class="form-label fw-bold text-secondary small">Provider / Gateway Name</label>
                 <select name="gateway_name" id="edit_gateway_name" class="form-select" required>
+                    <option value="Safepay">Safepay (All Bank Cards, EasyPaisa, JazzCash, 1Link)</option>
                     <option value="JazzCash">JazzCash</option>
                     <option value="EasyPaisa">EasyPaisa</option>
                     <option value="NayaPay">NayaPay</option>

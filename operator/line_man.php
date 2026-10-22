@@ -52,6 +52,10 @@ try {
 
 // Handle Actions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!empty($_SESSION['is_manager'])) {
+        echo "<script>alert('Permission Denied: Managers cannot create, edit, or delete team members.'); window.location='line_man.php';</script>";
+        exit;
+    }
     $action = $_POST['action'] ?? '';
     
     // Add Member
@@ -126,9 +130,11 @@ $members = $stmt->fetchAll();
         <h4 class="mb-0 fw-bold"><i class="fa-solid fa-hard-hat text-primary me-2"></i> Manage Line Mans</h4>
         <small class="text-muted">View and manage your Line Man team</small>
     </div>
+    <?php if (empty($_SESSION['is_manager'])): ?>
     <button class="btn btn-primary shadow-sm fw-bold" data-bs-toggle="modal" data-bs-target="#addMemberModal">
         <i class="fa-solid fa-plus me-1"></i> Add New Line Man
     </button>
+    <?php endif; ?>
 </div>
 
 <div class="card card-custom mb-4">
@@ -176,6 +182,7 @@ $members = $stmt->fetchAll();
                             </div>
                         </td>
                         <td>
+                            <?php if (empty($_SESSION['is_manager'])): ?>
                             <button type="button" class="btn btn-sm btn-outline-primary me-1 btn-edit" 
                                 data-id="<?= $m['id'] ?>"
                                 data-fullname="<?= htmlspecialchars($m['full_name']) ?>"
@@ -193,6 +200,11 @@ $members = $stmt->fetchAll();
                                 <input type="hidden" name="id" value="<?= $m['id'] ?>">
                                 <button type="submit" class="btn btn-sm btn-outline-danger"><i class="fa-solid fa-trash"></i></button>
                             </form>
+                            <?php else: ?>
+                            <span class="badge bg-secondary-subtle text-secondary border px-2 py-1 rounded-pill small">
+                                <i class="fa-solid fa-lock me-1"></i> Read-Only
+                            </span>
+                            <?php endif; ?>
                         </td>
                     </tr>
                     <?php endforeach; ?>
@@ -202,6 +214,7 @@ $members = $stmt->fetchAll();
     </div>
 </div>
 
+<?php if (empty($_SESSION['is_manager'])): ?>
 <!-- Add Member Modal -->
 <div class="modal fade" id="addMemberModal" tabindex="-1">
   <div class="modal-dialog modal-lg">
@@ -342,5 +355,6 @@ $(document).ready(function() {
     </div>
   </div>
 </div>
+<?php endif; ?>
 
 <?php require_once 'footer.php'; ?>

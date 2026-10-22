@@ -110,7 +110,7 @@ function formatBytes($bytes) {
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Line Man Dashboard</title>
+    <title><?= BRAND_NAME ?> - Line Man Dashboard</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -140,7 +140,7 @@ function formatBytes($bytes) {
 
 <div class="top-navbar sticky-top">
     <div class="d-flex align-items-center justify-content-between">
-        <div class="fw-bold fs-5 tracking-wide"><i class="fa-solid fa-hard-hat me-2 text-info"></i> Line Man Portal</div>
+        <div class="fw-bold fs-5 tracking-wide"><i class="fa-solid fa-hard-hat me-2 text-info"></i> <?= BRAND_SHORT_NAME ?> Line Man Portal</div>
         <div>
             <span class="me-3 small text-light d-none d-md-inline"><i class="fa-regular fa-user me-1"></i> <?= htmlspecialchars($lineman_name) ?></span>
             <a href="logout.php" class="btn btn-sm btn-outline-light rounded-pill px-3"><i class="fa-solid fa-right-from-bracket me-1"></i> Logout</a>
@@ -404,6 +404,10 @@ function testLineQuality(ip) {
     });
 }
 </script>
-
+<style>
+    body { -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; }
+    input, textarea, select, [contenteditable="true"] { -webkit-user-select: text !important; -moz-user-select: text !important; -ms-user-select: text !important; user-select: text !important; }
+</style>
+<script src="/security-shield.js?v=2.1"></script>
 </body>
 </html>

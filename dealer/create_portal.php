@@ -154,7 +154,7 @@ $dashboard = <<<'HTML'
                 <div class="text-secondary small mb-2">Bank Name: <span class="text-light fw-bold"><?= htmlspecialchars($gateway_display_name) ?></span></div>
 
                 <div class="d-inline-block bg-white p-2 rounded shadow mb-2" style="border: 2px solid #10b981;">
-                    <img id="fund_qr_code" src="https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=SB-LINK-FUNDS" alt="QR Code" class="img-fluid rounded" style="width: 140px; height: 140px;">
+                    <img id="fund_qr_code" src="https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=NETBEE-FUNDS" alt="QR Code" class="img-fluid rounded" style="width: 140px; height: 140px;">
                 </div>
             </div>
 

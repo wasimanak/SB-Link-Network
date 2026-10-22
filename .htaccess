@@ -1,0 +1,72 @@
+# ==========================================
+# SB Link Network / NetBee Web Configuration
+# ==========================================
+
+Options -Indexes -MultiViews +FollowSymLinks
+
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteBase /
+
+# 1. Force HTTPS on live domain (lasani.tech, sblink.tech, etc. - skips raw IP)
+RewriteCond %{HTTPS} off
+RewriteCond %{HTTP_HOST} !^[0-9.:]+$
+RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+# 2. Automatically route customer.sblink.tech to /customer/ folder
+RewriteCond %{HTTP_HOST} ^customer\. [NC]
+RewriteCond %{REQUEST_URI} !^/customer/ [NC]
+RewriteRule ^(.*)$ customer/$1 [L,QSA]
+
+# 3. Block Automated Vulnerability Scanners & Exploit Tools (SQLMap, Nikto, DirBuster, etc.)
+RewriteCond %{HTTP_USER_AGENT} (sqlmap|nikto|wpscan|masscan|zgrab|acunetix|nessus|nmap|havij|dirbuster|python-requests) [NC]
+RewriteRule .* - [F,L]
+
+# 4. Redirect root /index.php to /
+RewriteCond %{REQUEST_METHOD} !POST
+RewriteCond %{THE_REQUEST} ^[A-Z]{3,}\s+/index\.php [NC]
+RewriteRule ^index\.php$ / [R=301,L]
+
+# 5. Redirect subfolder /path/index.php to /path/
+RewriteCond %{REQUEST_METHOD} !POST
+RewriteCond %{THE_REQUEST} ^[A-Z]{3,}\s+([^?\s]+)/index\.php [NC]
+RewriteRule ^ %1/ [R=301,L]
+
+# 6. External 301 Redirect: Remove .php from URL in browser address bar
+# (Only redirect browser GET/HEAD requests; skip POST so form payloads are preserved)
+RewriteCond %{REQUEST_METHOD} !POST
+RewriteCond %{THE_REQUEST} !/index\.php [NC]
+RewriteCond %{THE_REQUEST} ^[A-Z]{3,}\s+([^?\s]+)\.php [NC]
+RewriteRule ^ %1 [R=301,L]
+
+# 7. Internal Rewrite: Route /path/file to /path/file.php if file.php exists
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteCond %{REQUEST_FILENAME}.php -f [OR]
+RewriteCond %{DOCUMENT_ROOT}/$1.php -f
+RewriteRule ^(.*?)/?$ $1.php [L,QSA]
+
+</IfModule>
+
+# ==========================================
+# SECURITY HARDENING DIRECTIVES
+# ==========================================
+
+# Block access to sensitive database dumps, logs, configs, and hidden files
+<FilesMatch "\.(sql|log|ini|env|bak|sh|git.*|md)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order deny,allow
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# Security Headers to prevent clickjacking & MIME-sniffing attacks
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+    Header set X-Frame-Options "SAMEORIGIN"
+    Header set X-XSS-Protection "1; mode=block"
+    Header set Referrer-Policy "strict-origin-when-cross-origin"
+    Header set Permissions-Policy "camera=(), microphone=(), geolocation=()"
+</IfModule>

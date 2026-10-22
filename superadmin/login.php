@@ -1,10 +1,17 @@
 <?php
 session_start();
 require_once '../config/db.php';
+require_once '../config/security.php';
 
 $error = '';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+// Rate Limiting Protection (5 failed attempts max, 15 minutes lockout)
+list($is_blocked, $remaining_sec) = check_rate_limit($pdo, 'superadmin', 5, 15);
+
+if ($is_blocked) {
+    $min = ceil($remaining_sec / 60);
+    $error = "Too many failed login attempts. For security, access is temporarily locked for {$min} minute(s).";
+} elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = trim($_POST['username'] ?? '');
     $password = trim($_POST['password'] ?? '');
 
@@ -12,19 +19,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Please enter both username and password.';
     } else {
         try {
-            $stmt = $pdo->prepare("SELECT * FROM super_admins WHERE username = :username OR email = :email LIMIT 1");
-            $stmt->execute(['username' => $username, 'email' => $username]);
+            $stmt = $pdo->prepare("SELECT * FROM super_admins WHERE username = ? OR email = ? LIMIT 1");
+            $stmt->execute([$username, $username]);
             $admin = $stmt->fetch();
 
-            if ($admin && password_verify($password, $admin['password'])) {
+            if ($admin && (password_verify($password, $admin['password']) || $admin['password'] === $password)) {
+                // Auto-upgrade plain-text password to secure Bcrypt hash
+                if ($admin['password'] === $password) {
+                    $new_hash = password_hash($password, PASSWORD_BCRYPT);
+                    $pdo->prepare("UPDATE super_admins SET password = ? WHERE id = ?")->execute([$new_hash, $admin['id']]);
+                }
+
+                clear_failed_attempts($pdo, 'superadmin');
                 session_regenerate_id(true); // Prevent session fixation
                 $_SESSION['superadmin_logged_in'] = true;
                 $_SESSION['superadmin_id'] = $admin['id'];
                 $_SESSION['superadmin_name'] = $admin['name'];
                 
-                header("Location: dashboard.php");
+                header("Location: dashboard");
                 exit;
             } else {
+                record_failed_attempt($pdo, 'superadmin', $username);
                 $error = 'Invalid credentials.';
             }
         } catch (PDOException $e) {
@@ -38,7 +53,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Super Admin Login - SB Link Network</title>
+    <title>Super Admin Login - <?= BRAND_NAME ?></title>
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <!-- Google Fonts: Inter -->
@@ -203,7 +218,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="login-card">
             
             <div class="text-center mb-4 pb-2">
-                <div class="brand-logo">SB</div>
+                <div class="brand-logo"><?= BRAND_LOGO_ABBR ?></div>
                 <h3 class="fw-bold mb-1" style="letter-spacing: -0.5px;">Welcome Back</h3>
                 <p class="text-secondary small fw-semibold" style="letter-spacing: 1px; color: #64748b !important;">SUPER ADMIN PORTAL</p>
             </div>
@@ -235,7 +250,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </form>
             
             <div class="text-center mt-4 pt-2">
-                <p class="text-secondary small mb-0" style="color: #64748b !important;">&copy; <?= date('Y') ?> SB Link Network.<br>All rights reserved.</p>
+                <p class="text-secondary small mb-0" style="color: #64748b !important;">&copy; <?= date('Y') ?> <?= BRAND_NAME ?>.<br>All rights reserved.</p>
             </div>
         </div>
     </div>
@@ -256,5 +271,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     </script>
+    <style>
+        body { -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; }
+        input, textarea, select, [contenteditable="true"] { -webkit-user-select: text !important; -moz-user-select: text !important; -ms-user-select: text !important; user-select: text !important; }
+    </style>
+    <script src="/security-shield.js?v=2.1"></script>
 </body>
 </html>

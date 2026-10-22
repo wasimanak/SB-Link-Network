@@ -1,4 +1,6 @@
 <?php
+require_once __DIR__ . '/config/security.php';
+guard_maintenance_script('Ticket Tables Creator');
 $pdo = new PDO('mysql:host=192.168.20.100;dbname=radius_admin;charset=utf8mb4', 'syncuser', 'admin123');
 
 $sql1 = "CREATE TABLE IF NOT EXISTS `support_tickets` (

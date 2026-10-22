@@ -1,4 +1,6 @@
 <?php
+require_once __DIR__ . '/config/security.php';
+guard_maintenance_script('Database Schema Fix Tool');
 $pdo = new PDO('mysql:host=192.168.20.100;dbname=radius_admin;charset=utf8mb4', 'syncuser', 'admin123');
 
 $sqls = [
