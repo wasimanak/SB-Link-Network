@@ -1,12 +1,17 @@
 <?php
-require_once 'header.php';
+if (session_status() === PHP_SESSION_NONE) session_start();
+require_once '../config/db.php';
+if (!isset($_SESSION['operator_logged_in']) || !isset($_SESSION['operator_id'])) {
+    header("Location: ../login.php");
+    exit;
+}
 $client_id = (int)$_SESSION['operator_id'];
 
 // Logged-in actor identification
 if (!empty($_SESSION['is_manager'])) {
     $actor_name = $_SESSION['manager_name'] ?? 'Manager';
 } else {
-    $actor_name = $tenant['company_name'] ?? 'Operator';
+    $actor_name = $_SESSION['operator_name'] ?? 'Operator';
 }
 
 // -------------------------------------------------------------
@@ -280,6 +285,8 @@ foreach ($investments as $inv) {
     $category_totals[$c] += $amt;
 }
 arsort($category_totals);
+
+require_once 'header.php';
 ?>
 
 <!-- DataTables & Buttons CSS -->

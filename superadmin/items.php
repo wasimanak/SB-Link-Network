@@ -1,5 +1,6 @@
 <?php
-require_once 'header.php';
+require_once 'auth_check.php';
+require_once '../config/db.php';
 
 // -------------------------------------------------------------
 // Self-Healing Table Schema for Items
@@ -42,6 +43,7 @@ try {
 
 // -------------------------------------------------------------
 // AJAX Endpoint: Fetch Single Item Details for Edit
+// (Runs BEFORE header.php so it outputs 100% clean JSON)
 // -------------------------------------------------------------
 if (isset($_GET['ajax']) && $_GET['ajax'] === 'get_item' && !empty($_GET['id'])) {
     header('Content-Type: application/json; charset=utf-8');
@@ -59,6 +61,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'get_item' && !empty($_GET['id']))
 
 // -------------------------------------------------------------
 // Handle POST Actions (Add, Edit, Delete)
+// (Runs BEFORE header.php so redirects succeed without headers-already-sent)
 // -------------------------------------------------------------
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
@@ -137,6 +140,9 @@ if (isset($_SESSION['item_flash'])) {
     $flash = $_SESSION['item_flash'];
     unset($_SESSION['item_flash']);
 }
+
+// Now include header for HTML page rendering
+require_once 'header.php';
 
 // -------------------------------------------------------------
 // Fetch All Items & Calculate Stats
@@ -512,7 +518,18 @@ $commonUnits = [
                             <td class="text-end">
                                 <div class="d-inline-flex gap-1">
                                     <!-- Edit -->
-                                    <button type="button" class="btn btn-sm btn-light border rounded-circle text-primary" style="width: 32px; height: 32px;" onclick="openEditItemModal(<?= (int)$itm['id'] ?>)" title="Edit Item">
+                                    <button type="button" 
+                                        class="btn btn-sm btn-light border rounded-circle text-primary" 
+                                        style="width: 32px; height: 32px;" 
+                                        data-id="<?= (int)$itm['id'] ?>"
+                                        data-name="<?= htmlspecialchars($itm['name'], ENT_QUOTES) ?>"
+                                        data-unit="<?= htmlspecialchars($itm['unit'], ENT_QUOTES) ?>"
+                                        data-category="<?= htmlspecialchars($itm['category'] ?? 'General', ENT_QUOTES) ?>"
+                                        data-model="<?= htmlspecialchars($itm['model_code'] ?? '', ENT_QUOTES) ?>"
+                                        data-description="<?= htmlspecialchars($itm['description'] ?? '', ENT_QUOTES) ?>"
+                                        data-status="<?= htmlspecialchars($itm['status'] ?? 'active', ENT_QUOTES) ?>"
+                                        onclick="openEditItemModalDirect(this)" 
+                                        title="Edit Item">
                                         <i class="fa-solid fa-pen-to-square"></i>
                                     </button>
                                     <!-- Delete -->
@@ -808,7 +825,48 @@ $(document).ready(function() {
     });
 });
 
-// Open Edit Item Dialog Box
+// Open Edit Item Dialog Box (Instant client-side from row data attributes)
+function openEditItemModalDirect(btn) {
+    const id = btn.getAttribute('data-id');
+    const name = btn.getAttribute('data-name');
+    const unit = btn.getAttribute('data-unit');
+    const category = btn.getAttribute('data-category');
+    const model = btn.getAttribute('data-model');
+    const description = btn.getAttribute('data-description');
+    const status = btn.getAttribute('data-status');
+
+    document.getElementById('edit_item_id').value = id;
+    document.getElementById('edit_item_name').value = name;
+    document.getElementById('edit_item_unit').value = unit;
+    document.getElementById('edit_item_model_code').value = model || '';
+    document.getElementById('edit_item_description').value = description || '';
+
+    const catSelect = document.getElementById('edit_item_category');
+    let foundCat = false;
+    for (let i = 0; i < catSelect.options.length; i++) {
+        if (catSelect.options[i].value === category) {
+            catSelect.selectedIndex = i;
+            foundCat = true;
+            break;
+        }
+    }
+    if (!foundCat && category) {
+        const newOpt = new Option(category, category, true, true);
+        catSelect.add(newOpt);
+    }
+
+    const statusSelect = document.getElementById('edit_item_status');
+    if (statusSelect) statusSelect.value = status || 'active';
+
+    document.getElementById('edit_loading_spinner').classList.add('d-none');
+    document.getElementById('edit_item_fields').classList.remove('d-none');
+
+    const modalEl = document.getElementById('editItemModal');
+    const modal = new bootstrap.Modal(modalEl);
+    modal.show();
+}
+
+// Open Edit Item Dialog Box (Fallback via pure AJAX)
 function openEditItemModal(itemId) {
     const modalEl = document.getElementById('editItemModal');
     const modal = new bootstrap.Modal(modalEl);
