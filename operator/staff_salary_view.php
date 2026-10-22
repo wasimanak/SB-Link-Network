@@ -166,8 +166,14 @@ $ledgerEntries = $ledgerStmt->fetchAll(PDO::FETCH_ASSOC);
             </h5>
             <span class="text-muted small">Complete historical statement of monthly salary accruals, advance payouts, and balance adjustments.</span>
         </div>
-        <div>
-            <button type="button" class="btn btn-primary rounded-pill btn-sm px-3 fw-bold" data-bs-toggle="modal" data-bs-target="#payStaffSalaryModal">
+        <div class="d-flex flex-wrap align-items-center gap-2">
+            <a href="staff_salary_print.php?type=<?= urlencode($staff_type) ?>&id=<?= (int)$staff_id ?>" target="_blank" class="btn btn-danger rounded-pill btn-sm px-3 fw-bold shadow-sm d-inline-flex align-items-center gap-1" title="Open A4 Size PDF Printable Statement">
+                <i class="fa-solid fa-file-pdf"></i> Download PDF (A4)
+            </a>
+            <a href="staff_salary_export.php?type=<?= urlencode($staff_type) ?>&id=<?= (int)$staff_id ?>" class="btn btn-success rounded-pill btn-sm px-3 fw-bold shadow-sm d-inline-flex align-items-center gap-1" title="Download Formatted Excel Spreadsheet">
+                <i class="fa-solid fa-file-excel"></i> Export Excel
+            </a>
+            <button type="button" class="btn btn-primary rounded-pill btn-sm px-3 fw-bold shadow-sm d-inline-flex align-items-center gap-1" data-bs-toggle="modal" data-bs-target="#payStaffSalaryModal">
                 <i class="fa-solid fa-hand-holding-dollar me-1"></i> Give Payment / Advance
             </button>
         </div>
@@ -186,7 +192,6 @@ $ledgerEntries = $ledgerStmt->fetchAll(PDO::FETCH_ASSOC);
                         <th class="text-end">Credit (+)</th>
                         <th class="text-end">Debit (-)</th>
                         <th class="text-end">Balance After</th>
-                        <th class="text-end" style="width: 80px;">Action</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -253,15 +258,6 @@ $ledgerEntries = $ledgerStmt->fetchAll(PDO::FETCH_ASSOC);
                                 <?php else: ?>
                                     <span class="fw-bold text-success fs-6">Rs. <?= number_format($balAfter, 0) ?></span>
                                 <?php endif; ?>
-                            </td>
-                            <td class="text-end">
-                                <form method="POST" onsubmit="return confirm('Delete this ledger entry? Linked expenses and running balances will be recalculated.');" class="d-inline">
-                                    <input type="hidden" name="action" value="delete_staff_transaction">
-                                    <input type="hidden" name="transaction_id" value="<?= $entry['id'] ?>">
-                                    <button type="submit" class="btn btn-sm btn-light border rounded-circle text-danger" style="width: 30px; height: 30px;" title="Delete entry">
-                                        <i class="fa-solid fa-trash-can"></i>
-                                    </button>
-                                </form>
                             </td>
                         </tr>
                         <?php endforeach; ?>
@@ -387,6 +383,15 @@ $ledgerEntries = $ledgerStmt->fetchAll(PDO::FETCH_ASSOC);
     </div>
 </div>
 
+<!-- DataTables Buttons & Export Dependencies -->
+<script src="https://cdn.datatables.net/buttons/2.4.2/js/dataTables.buttons.min.js"></script>
+<script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.bootstrap5.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.53/pdfmake.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.53/vfs_fonts.js"></script>
+<script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.html5.min.js"></script>
+<script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.print.min.js"></script>
+
 <script>
 $(document).ready(function() {
     if ($.fn.DataTable.isDataTable('#staffSalaryLedgerTable')) {
@@ -395,15 +400,43 @@ $(document).ready(function() {
     $('#staffSalaryLedgerTable').DataTable({
         dom: '<"row align-items-center mb-3"<"col-md-3"l><"col-md-6 dt-buttons"B><"col-md-3"f>>rtip',
         buttons: [
-            { extend: 'print', text: '<i class="fa-solid fa-print"></i> Print' },
-            { extend: 'excel', text: '<i class="fa-solid fa-file-excel"></i> Excel' },
-            { extend: 'pdf', text: '<i class="fa-solid fa-file-pdf"></i> PDF' }
+            {
+                extend: 'excelHtml5',
+                className: 'btn btn-outline-success btn-sm rounded-pill px-3 shadow-sm',
+                text: '<i class="fa-solid fa-file-excel me-1"></i> Excel',
+                title: 'Staff_Salary_Ledger_<?= preg_replace("/[^a-zA-Z0-9_-]/", "_", $staff_name) ?>_<?= date("Ymd") ?>',
+                exportOptions: { columns: ':visible' }
+            },
+            {
+                extend: 'pdfHtml5',
+                className: 'btn btn-outline-danger btn-sm rounded-pill px-3 shadow-sm',
+                text: '<i class="fa-solid fa-file-pdf me-1"></i> PDF (A4)',
+                title: 'Staff Salary & Advance Ledger - <?= htmlspecialchars($staff_name, ENT_QUOTES) ?>',
+                orientation: 'portrait',
+                pageSize: 'A4',
+                exportOptions: { columns: ':visible' },
+                customize: function (doc) {
+                    doc.defaultStyle.fontSize = 8.5;
+                    doc.styles.tableHeader.fontSize = 9.5;
+                    doc.styles.tableHeader.fillColor = '#1e293b';
+                    if (doc.content[1] && doc.content[1].table) {
+                        doc.content[1].table.widths = ['6%', '14%', '28%', '14%', '12%', '9%', '9%', '8%'];
+                    }
+                }
+            },
+            {
+                extend: 'print',
+                className: 'btn btn-outline-secondary btn-sm rounded-pill px-3 shadow-sm',
+                text: '<i class="fa-solid fa-print me-1"></i> Print',
+                title: 'Staff Salary & Advance Ledger - <?= htmlspecialchars($staff_name, ENT_QUOTES) ?>'
+            }
         ],
         pageLength: 25,
         order: [[1, 'desc']],
         language: {
             search: "Search Ledger:",
-            searchPlaceholder: "Search date, note, type..."
+            searchPlaceholder: "Search date, note, type...",
+            emptyTable: '<div class="text-center py-4 text-muted"><i class="fa-solid fa-receipt fa-2x mb-2 text-muted"></i><div>No salary or advance records found for this team member.</div></div>'
         }
     });
 });
