@@ -61,7 +61,7 @@ $p = basename($_SERVER['PHP_SELF']);
 $filter = $_GET['filter'] ?? '';
 
 // Menu Active States
-$isTeamMenu = in_array($p, ['dealers.php', 'dealer_view.php', 'recovery_man.php', 'line_man.php', 'managers.php', 'manager_view.php']);
+$isTeamMenu = in_array($p, ['dealers.php', 'dealer_view.php', 'recovery_man.php', 'line_man.php', 'managers.php', 'manager_view.php', 'recoveryman_profile.php', 'recoveryman_profile', 'lineman_profile.php', 'lineman_profile']);
 $isUserMenu = in_array($p, ['subscribers.php', 'live_sessions.php']);
 $isAccMenu = in_array($p, ['packages.php', 'fund_requests.php', 'invoices.php', 'expenses.php', 'expenses', 'net_worth.php', 'net_worth']);
 $isTicketMenu = in_array($p, ['requests.php', 'fund_requests.php', 'support_tickets.php', 'view_ticket.php']);
