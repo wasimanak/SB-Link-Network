@@ -90,17 +90,22 @@ try {
     if ($action === 'edit_member' && isset($_POST['id'])) {
         $id = (int)$_POST['id'];
         $full_name = trim($_POST['full_name']);
-        $password = trim($_POST['password']);
+        $password = trim($_POST['password'] ?? '');
         $phone = trim($_POST['phone'] ?? '');
         $address = trim($_POST['address'] ?? '');
         $city = trim($_POST['city'] ?? '');
         $status = $_POST['status'] ?? 'active';
         $can_create = isset($_POST['can_create_users']) ? (int)$_POST['can_create_users'] : 1;
+        $monthly_salary = (int)($_POST['monthly_salary'] ?? 0);
         
         try {
-            $monthly_salary = (int)($_POST['monthly_salary'] ?? 0);
-            $stmt = $pdo->prepare("UPDATE linemen SET full_name=?, password=?, phone=?, address=?, city=?, status=?, can_create_users=?, monthly_salary=? WHERE id=? AND client_id=?");
-            $stmt->execute([$full_name, $password, $phone, $address, $city, $status, $can_create, $monthly_salary, $id, $client_id]);
+            if ($password !== '' && !str_starts_with($password, '$2y$')) {
+                $stmt = $pdo->prepare("UPDATE linemen SET full_name=?, password=?, phone=?, address=?, city=?, status=?, can_create_users=?, monthly_salary=? WHERE id=? AND client_id=?");
+                $stmt->execute([$full_name, $password, $phone, $address, $city, $status, $can_create, $monthly_salary, $id, $client_id]);
+            } else {
+                $stmt = $pdo->prepare("UPDATE linemen SET full_name=?, phone=?, address=?, city=?, status=?, can_create_users=?, monthly_salary=? WHERE id=? AND client_id=?");
+                $stmt->execute([$full_name, $phone, $address, $city, $status, $can_create, $monthly_salary, $id, $client_id]);
+            }
             echo "<script>alert('Line Man updated successfully!'); window.location='$_SERVER[PHP_SELF]';</script>";
             exit;
         } catch (PDOException $e) {
@@ -164,7 +169,17 @@ $members = $stmt->fetchAll();
                     <tr>
                         <td class="fw-bold text-dark"><a href="lineman_profile?id=<?= $m['id'] ?>" class="text-primary text-decoration-none fw-bold"><i class="fa-solid fa-user-circle me-1"></i> <?= htmlspecialchars($m['full_name']) ?></a></td>
                         <td><span class="badge bg-primary fs-6"><?= htmlspecialchars($m['username']) ?></span></td>
-                        <td class="font-monospace text-muted"><?= htmlspecialchars($m['password']) ?></td>
+                        <td>
+                            <?php if (str_starts_with($m['password'] ?? '', '$2y$') || strlen($m['password'] ?? '') > 30): ?>
+                                <span class="badge bg-warning-subtle text-dark border border-warning-subtle font-monospace px-2 py-1" title="Encrypted password hash. Click edit to set readable password (e.g. 1234)">
+                                    <i class="fa-solid fa-lock text-warning me-1"></i> Encrypted <small class="text-muted">(Edit)</small>
+                                </span>
+                            <?php else: ?>
+                                <span class="badge bg-light text-dark border font-monospace px-2 py-1">
+                                    <i class="fa-solid fa-key text-muted small me-1"></i><?= htmlspecialchars($m['password']) ?>
+                                </span>
+                            <?php endif; ?>
+                        </td>
                         <td><?= htmlspecialchars($m['city'] ?: 'N/A') ?></td>
                         <td>
                             <div><i class="fa-solid fa-phone text-secondary small me-1"></i> <?= htmlspecialchars($m['phone'] ?: 'N/A') ?></div>
@@ -307,7 +322,14 @@ $(document).ready(function() {
         $("#edit_id").val($(this).attr("data-id"));
         $("#edit_fullname").val($(this).attr("data-fullname"));
         $("#edit_username").val($(this).attr("data-username"));
-        $("#edit_password").val($(this).attr("data-password"));
+        var rawPass = $(this).attr("data-password") || "";
+        if (rawPass.startsWith("$2y$") || rawPass.length > 30) {
+            $("#edit_password").val("").attr("placeholder", "Leave blank to keep, or enter new password");
+            $("#edit_password_hint").html('<span class="text-warning"><i class="fa-solid fa-triangle-exclamation me-1"></i>Currently encrypted. Type a readable password (e.g. 1234) to set it.</span>');
+        } else {
+            $("#edit_password").val(rawPass).attr("placeholder", "Enter password");
+            $("#edit_password_hint").text("");
+        }
         $("#edit_phone").val($(this).attr("data-phone"));
         $("#edit_city").val($(this).attr("data-city"));
         $("#edit_monthly_salary").val($(this).attr("data-salary") || 0);
@@ -348,7 +370,8 @@ $(document).ready(function() {
                 </div>
                 <div class="col-md-6 mb-3">
                     <label class="form-label fw-bold small text-muted">Password</label>
-                    <input type="text" name="password" id="edit_password" class="form-control bg-light" required>
+                    <input type="text" name="password" id="edit_password" class="form-control bg-light" placeholder="Enter new password">
+                    <small id="edit_password_hint" class="text-muted d-block mt-1" style="font-size: 0.75rem;"></small>
                 </div>
                 <div class="col-md-6 mb-3">
                     <label class="form-label fw-bold small text-muted">Phone Number</label>
