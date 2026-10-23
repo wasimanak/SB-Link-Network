@@ -569,9 +569,7 @@ require_once 'header.php';
     }
 </style>
 
-<div class="main-content">
-    
-    <!-- Top Alert Notification -->
+<!-- Top Alert Notification -->
     <?php if ($flash): ?>
         <div class="alert alert-<?= htmlspecialchars($flash['type']) ?> alert-dismissible fade show rounded-4 shadow-sm mb-4" role="alert">
             <div class="d-flex align-items-center gap-2">
@@ -919,8 +917,6 @@ require_once 'header.php';
             </table>
         </div>
     </div>
-
-</div>
 
 <!-- ============================================================== -->
 <!-- MODAL: ADD EXPENSE                                             -->
