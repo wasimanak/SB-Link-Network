@@ -61,16 +61,24 @@ $p = basename($_SERVER['PHP_SELF']);
 $filter = $_GET['filter'] ?? '';
 
 // Menu Active States
-$isTeamMenu = in_array($p, ['dealers.php', 'dealer_view.php', 'recovery_man.php', 'line_man.php', 'managers.php', 'manager_view.php', 'recoveryman_profile.php', 'recoveryman_profile', 'lineman_profile.php', 'lineman_profile']);
-$isUserMenu = in_array($p, ['subscribers.php', 'live_sessions.php']);
-$isAccMenu = in_array($p, ['packages.php', 'fund_requests.php', 'invoices.php', 'expenses.php', 'expenses', 'net_worth.php', 'net_worth']);
-$isTicketMenu = in_array($p, ['requests.php', 'fund_requests.php', 'support_tickets.php', 'view_ticket.php']);
+$isUserMenu = in_array($p, ['subscribers.php', 'subscribers', 'live_sessions.php', 'live_sessions', 'subscriber_add.php', 'subscriber_edit.php', 'subscriber_view.php']);
+$isTeamMenu = in_array($p, ['recovery_man.php', 'recovery_man', 'recoveryman_profile.php', 'recoveryman_profile', 'line_man.php', 'line_man', 'lineman_profile.php', 'lineman_profile', 'managers.php', 'managers', 'manager_view.php']);
+$isDealerMenu = in_array($p, ['dealers.php', 'dealers', 'dealer_view.php', 'dealer_view']);
+$isAccMenu = in_array($p, ['invoices.php', 'invoices', 'expenses.php', 'expenses', 'net_worth.php', 'net_worth', 'fund_requests.php', 'fund_requests']);
+$isTicketMenu = in_array($p, ['support_tickets.php', 'support_tickets', 'view_ticket.php', 'view_ticket', 'requests.php', 'requests']);
+$isRechargeMenu = in_array($p, ['packages.php', 'packages', 'payment_gateways.php', 'payment_gateways']);
+$isLogsMenu = in_array($p, ['activity_logs.php', 'activity_logs', 'package_logs.php', 'package_logs', 'session_logs.php', 'session_logs', 'ip_pools.php', 'ip_pools']);
 
 // Fetch Pending Requests Count for Badges
 $pending_pkgs = $pdo->query("SELECT COUNT(*) FROM package_requests WHERE client_id = {$_SESSION['operator_id']} AND status = 'pending'")->fetchColumn() ?: 0;
 $pending_funds = $pdo->query("SELECT COUNT(*) FROM fund_requests WHERE client_id = {$_SESSION['operator_id']} AND status = 'pending'")->fetchColumn() ?: 0;
 $open_tickets = $pdo->query("SELECT COUNT(*) FROM support_tickets WHERE client_id = {$_SESSION['operator_id']} AND status = 'open'")->fetchColumn() ?: 0;
 $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
+
+// Display name and avatar for bottom profile strip (UrAsool Design)
+$displayName = !empty($_SESSION['manager_name']) ? $_SESSION['manager_name'] : (!empty($_SESSION['operator_name']) ? $_SESSION['operator_name'] : ($tenant['company_name'] ?? 'Operator'));
+$avatarInitial = strtoupper(substr(trim($displayName), 0, 1) ?: 'A');
+$userRoleLabel = !empty($_SESSION['is_manager']) ? 'MANAGER' : 'OPERATOR';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -81,12 +89,16 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        body { font-family: 'Inter', sans-serif; background-color: #f4f6f9; color: #333; overflow-x: hidden; }
+        body { 
+            font-family: 'Inter', system-ui, -apple-system, sans-serif; 
+            background-color: #f8fafc; 
+            color: #1e293b; 
+            overflow-x: hidden; 
+        }
         
-                /* --- Premium Modern Sidebar & Navigation --- */
+        /* --- UrAsool-Style White Curved Sidebar --- */
         :root {
-            --sidebar-width: 260px;
-            --sidebar-mini-width: 75px;
+            --sidebar-width: 270px;
             --sidebar-transition: 0.28s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
@@ -97,122 +109,297 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
             top: 0;
             left: 0;
             background: #ffffff;
-            border-right: 1px solid #eef2f6;
-            overflow-y: auto;
-            overflow-x: hidden;
+            border-top-right-radius: 36px;
+            border-bottom-right-radius: 36px;
+            box-shadow: 6px 0 28px rgba(15, 23, 42, 0.04);
+            border-right: 1px solid #edf2f7;
+            overflow: hidden;
             z-index: 1045;
-            transition: width var(--sidebar-transition), box-shadow var(--sidebar-transition), transform var(--sidebar-transition);
-            box-shadow: 2px 0 12px rgba(15, 23, 42, 0.03);
-            scrollbar-width: thin;
-            scrollbar-color: #e2e8f0 transparent;
+            display: flex;
+            flex-direction: column;
+            transition: transform var(--sidebar-transition), width var(--sidebar-transition);
         }
 
-        .sidebar::-webkit-scrollbar { width: 5px; }
-        .sidebar::-webkit-scrollbar-track { background: transparent; }
-        .sidebar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
-        .sidebar::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
-
-        .sidebar a.nav-link-main {
-            color: #475569;
-            text-decoration: none;
-            padding: 11px 16px;
-            margin: 3px 12px;
-            border-radius: 12px;
+        /* Top Logo Card */
+        .sidebar-logo-card {
+            background: #ffffff;
+            border: 1.5px solid #edf2f7;
+            border-radius: 14px;
+            padding: 12px 14px;
+            margin: 18px 16px 12px 16px;
             display: flex;
             align-items: center;
-            font-size: 0.92rem;
-            font-weight: 500;
-            transition: all 0.18s ease;
-            white-space: nowrap;
+            gap: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+            flex-shrink: 0;
         }
 
-        .sidebar a.nav-link-main:hover {
+        .sidebar-logo-icon {
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #1d9bf0, #2563eb);
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+            flex-shrink: 0;
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.28);
+        }
+
+        .sidebar-logo-details {
+            min-width: 0;
+            flex-grow: 1;
+        }
+
+        .sidebar-logo-title {
+            font-size: 1.05rem;
+            font-weight: 800;
+            color: #1e3a8a;
+            letter-spacing: -0.4px;
+            line-height: 1.2;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .sidebar-logo-sub {
+            font-size: 0.68rem;
+            font-weight: 700;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+        }
+
+        /* Scrollable Menu Area */
+        .sidebar-menu-scroll {
+            flex: 1 1 auto;
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding: 4px 14px 14px 14px;
+            scrollbar-width: thin;
+            scrollbar-color: #94a3b8 #f8fafc;
+        }
+
+        .sidebar-menu-scroll::-webkit-scrollbar {
+            width: 6px;
+        }
+        .sidebar-menu-scroll::-webkit-scrollbar-track {
+            background: #f8fafc;
+            border-radius: 10px;
+        }
+        .sidebar-menu-scroll::-webkit-scrollbar-thumb {
+            background: #94a3b8;
+            border-radius: 10px;
+        }
+        .sidebar-menu-scroll::-webkit-scrollbar-thumb:hover {
+            background: #64748b;
+        }
+
+        /* Parent Nav Link Items */
+        .nav-item-link {
+            display: flex;
+            align-items: center;
+            padding: 10px 14px;
+            margin: 3px 0;
+            border-radius: 12px;
+            color: #1e293b;
+            font-weight: 600;
+            font-size: 0.92rem;
+            text-decoration: none;
+            transition: all 0.18s ease;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .nav-item-link:hover {
             background-color: #f8fafc;
             color: #0f172a;
         }
 
-        .sidebar a.nav-link-main i.menu-icon {
-            width: 26px;
+        .nav-item-link .nav-icon {
+            width: 24px;
             font-size: 1.15rem;
-            color: #64748b;
-            text-align: left;
-            flex-shrink: 0;
+            color: #1e293b;
             margin-right: 12px;
-            transition: color 0.18s ease, transform 0.18s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
         }
 
-        .sidebar a.nav-link-main:hover i.menu-icon {
-            color: #2563eb;
-            transform: scale(1.08);
+        .nav-item-link .nav-text {
+            flex-grow: 1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
-        /* Active Main Item */
-        .sidebar a.active-parent {
-            background-color: #eff6ff !important;
-            color: #2563eb !important;
-            font-weight: 600;
-            box-shadow: 0 1px 3px rgba(37,99,235,0.06);
-        }
-
-        .sidebar a.active-parent i.menu-icon {
-            color: #2563eb !important;
-        }
-
-        /* Submenu Dropdown Arrow */
-        .has-submenu::after {
-            content: '\f107';
-            font-family: 'Font Awesome 6 Free';
-            font-weight: 900;
-            margin-left: auto;
-            transition: transform 0.2s ease;
+        .nav-item-link .nav-chevron {
+            font-size: 0.72rem;
             color: #94a3b8;
-            font-size: 0.85rem;
+            margin-left: auto;
+            transition: transform 0.25s ease;
         }
 
-        .has-submenu[aria-expanded="true"]::after {
+        /* Active / Expanded State (Like "Area" in screenshot) */
+        .nav-item-link.active-parent,
+        .nav-item-link[aria-expanded="true"] {
+            background-color: #f1f3f6 !important;
+            color: #0f172a !important;
+            font-weight: 700;
+        }
+
+        .nav-item-link[aria-expanded="true"] .nav-chevron {
             transform: rotate(180deg);
-            color: #2563eb;
+            color: #0f172a;
         }
 
-        /* Submenu Styling */
-        .submenu {
-            background: transparent;
-            margin: 2px 12px 6px 36px;
-            padding-left: 0;
-            border-left: 2px solid #f1f5f9;
+        /* Sub-Menu Tree Connector System (Iconic L-Branches from Screenshot) */
+        .submenu-tree {
+            position: relative;
+            padding-left: 20px;
+            margin: 2px 0 8px 16px;
+            list-style: none;
         }
 
-        .submenu a {
-            display: block;
-            color: #64748b;
-            text-decoration: none;
-            padding: 8px 14px 8px 16px;
+        /* Continuous vertical guide line */
+        .submenu-tree::before {
+            content: '';
+            position: absolute;
+            top: -2px;
+            bottom: 14px;
+            left: 8px;
+            width: 2px;
+            background-color: #cbd5e1;
+        }
+
+        .submenu-tree-item {
+            position: relative;
+            margin: 3px 0;
+        }
+
+        /* The curved L-branch connector */
+        .submenu-tree-item::before {
+            content: '';
+            position: absolute;
+            left: -12px;
+            top: -6px;
+            width: 14px;
+            height: 22px;
+            border-left: 2px solid #cbd5e1;
+            border-bottom: 2px solid #cbd5e1;
+            border-bottom-left-radius: 9px;
+            pointer-events: none;
+        }
+
+        .submenu-tree-item a {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 7px 12px 7px 16px;
             font-size: 0.88rem;
             font-weight: 500;
+            color: #334155;
+            text-decoration: none;
             border-radius: 8px;
-            margin: 2px 0;
-            transition: all 0.18s ease;
+            transition: all 0.15s ease;
             white-space: nowrap;
         }
 
-        .submenu a:hover {
+        .submenu-tree-item a:hover {
+            background-color: #f1f5f9;
             color: #0f172a;
-            background-color: #f8fafc;
-            padding-left: 20px;
         }
 
-        .submenu a.active {
-            color: #2563eb;
-            font-weight: 600;
-            background-color: #eff6ff;
+        /* Active sub-item capsule (Like "Country" in screenshot) */
+        .submenu-tree-item a.active {
+            background-color: #f1f5f9 !important;
+            color: #1e3a8a !important;
+            font-weight: 700 !important;
+        }
+
+        /* Bottom User Profile Strip (ADMINCHECK1 from Screenshot) */
+        .sidebar-footer-user {
+            padding: 14px 18px;
+            background: #ffffff;
+            border-top: 1px solid #f1f5f9;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-top: auto;
+            border-bottom-right-radius: 36px;
+            flex-shrink: 0;
+        }
+
+        .sidebar-footer-user .user-avatar {
+            width: 38px;
+            height: 38px;
+            border-radius: 50%;
+            background: #2563eb;
+            color: #ffffff;
+            font-weight: 800;
+            font-size: 1.05rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            box-shadow: 0 3px 8px rgba(37, 99, 235, 0.28);
+        }
+
+        .sidebar-footer-user .user-info {
+            flex-grow: 1;
+            min-width: 0;
+        }
+
+        .sidebar-footer-user .user-name {
+            font-size: 0.88rem;
+            font-weight: 700;
+            color: #1e293b;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .sidebar-footer-user .user-role {
+            font-size: 0.68rem;
+            font-weight: 700;
+            color: #94a3b8;
+            letter-spacing: 0.5px;
+        }
+
+        .sidebar-footer-user .logout-btn {
+            color: #1e293b;
+            font-size: 1.15rem;
+            text-decoration: none;
+            width: 34px;
+            height: 34px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+            transition: color 0.18s, background-color 0.18s;
+            flex-shrink: 0;
+        }
+
+        .sidebar-footer-user .logout-btn:hover {
+            color: #dc2626;
+            background: #fee2e2;
         }
 
         /* Page Layout Margins */
         .main-content {
             padding: 30px;
             min-height: 100vh;
+            margin-left: var(--sidebar-width);
             transition: margin-left var(--sidebar-transition);
         }
+
         .top-nav {
             background-color: #ffffff;
             padding: 15px 30px;
@@ -221,63 +408,14 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
             align-items: center;
             border-bottom: 1px solid #eef2f6;
             box-shadow: 0 1px 5px rgba(0,0,0,0.02);
+            margin-left: var(--sidebar-width);
             transition: margin-left var(--sidebar-transition);
         }
 
-        /* Pinned State (Full 260px) */
-        body.sidebar-pinned .sidebar {
-            width: var(--sidebar-width);
-        }
-        body.sidebar-pinned .main-content,
-        body.sidebar-pinned .top-nav {
-            margin-left: var(--sidebar-width);
-        }
-
-        /* Unpinned / Mini Mode (75px default, expands smoothly on hover) */
-        body:not(.sidebar-pinned) .sidebar {
-            width: var(--sidebar-mini-width);
-        }
-        body:not(.sidebar-pinned) .main-content,
-        body:not(.sidebar-pinned) .top-nav {
-            margin-left: var(--sidebar-mini-width);
-        }
-
-        /* When Mini and NOT hovered: hide labels cleanly, center icons */
-        body:not(.sidebar-pinned) .sidebar:not(:hover) {
-            overflow: hidden;
-        }
-        body:not(.sidebar-pinned) .sidebar:not(:hover) .menu-text,
-        body:not(.sidebar-pinned) .sidebar:not(:hover) .brand-text,
-        body:not(.sidebar-pinned) .sidebar:not(:hover) .has-submenu::after,
-        body:not(.sidebar-pinned) .sidebar:not(:hover) .badge,
-        body:not(.sidebar-pinned) .sidebar:not(:hover) .pin-toggle-btn,
-        body:not(.sidebar-pinned) .sidebar:not(:hover) .submenu,
-        body:not(.sidebar-pinned) .sidebar:not(:hover) .menu-section-heading {
-            display: none !important;
-        }
-        body:not(.sidebar-pinned) .sidebar:not(:hover) .nav-link-main {
-            padding: 12px 0;
-            margin: 4px 10px;
-            justify-content: center;
-        }
-        body:not(.sidebar-pinned) .sidebar:not(:hover) .nav-link-main i.menu-icon {
-            margin: 0;
-            width: auto;
-            font-size: 1.25rem;
-            text-align: center;
-        }
-
-        /* Floating Smooth Hover Expansion in Unpinned Mode */
-        body:not(.sidebar-pinned) .sidebar:hover {
-            width: var(--sidebar-width) !important;
-            box-shadow: 12px 0 35px rgba(15, 23, 42, 0.12), 0 0 1px rgba(0,0,0,0.08);
-        }
-
-        /* Mobile Responsive */
+        /* Mobile Responsive Drawer */
         @media (max-width: 991px) {
             .sidebar {
                 transform: translateX(-100%);
-                width: var(--sidebar-width) !important;
             }
             body.mobile-sidebar-open .sidebar {
                 transform: translateX(0);
@@ -286,6 +424,15 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
             .main-content, .top-nav {
                 margin-left: 0 !important;
             }
+        }
+
+        /* Desktop Toggle Collapse */
+        body.sidebar-collapsed .sidebar {
+            transform: translateX(-100%);
+        }
+        body.sidebar-collapsed .main-content,
+        body.sidebar-collapsed .top-nav {
+            margin-left: 0 !important;
         }
     </style>
 </head>
@@ -319,132 +466,177 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
     <!-- Sidebar -->
     <div class="sidebar" id="appSidebar">
         
-        <!-- Brand / Logo Area -->
-        <div class="d-flex align-items-center px-3 pt-3 pb-3 border-bottom mb-2">
-            <div class="bg-primary text-white rounded-3 d-flex align-items-center justify-content-center me-3 shadow-sm flex-shrink-0" style="width: 42px; height: 42px; background: linear-gradient(135deg, #2563eb, #1d4ed8) !important;">
-                <i class="fa-solid fa-bolt fs-5"></i>
+        <!-- Top Logo Card (UrAsool Style) -->
+        <div class="sidebar-logo-card">
+            <div class="sidebar-logo-icon">
+                <i class="fa-solid fa-wifi"></i>
             </div>
-            <div class="brand-text flex-grow-1 overflow-hidden" style="min-width: 0;">
-                <h6 class="fw-bold mb-0 text-dark text-truncate" style="letter-spacing: -0.3px; font-size: 0.95rem;"><?= htmlspecialchars($tenant['company_name']) ?></h6>
-                <div class="text-muted" style="font-size: 0.68rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px;">Operator Panel</div>
+            <div class="sidebar-logo-details">
+                <div class="sidebar-logo-title" title="<?= htmlspecialchars($tenant['company_name']) ?>">
+                    <?= htmlspecialchars($tenant['company_name']) ?>
+                </div>
+                <div class="sidebar-logo-sub"><?= BRAND_SHORT_NAME ?> OPERATOR</div>
             </div>
-            <button type="button" id="sidebarPinToggle" class="btn btn-sm btn-light border-0 text-secondary rounded-circle p-0 pin-toggle-btn" title="Pin / Unpin Sidebar" style="width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: transform 0.2s;">
-                <i class="fa-solid fa-thumbtack" style="font-size: 0.75rem; transform: rotate(-45deg);"></i>
-            </button>
         </div>
 
-        <div class="px-3">
-            <div class="text-muted fw-bold mb-2 px-3 menu-section-heading" style="font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px;">Main Menu</div>
-            <a href="dashboard" class="nav-link-main rounded-3 mb-1 <?= ($p==='dashboard.php' || $p==='dashboard') ? 'active-parent' : '' ?>">
-                <i class="fa-solid fa-house menu-icon"></i> <span class="menu-text">Home</span>
-            </a>
-
-            <a href="profile" class="nav-link-main rounded-3 mb-1 <?= ($p==='profile.php' || $p==='profile') ? 'active-parent' : '' ?>">
-                <i class="fa-solid fa-user menu-icon"></i> <span class="menu-text">My Profile</span>
-            </a>
-
-        <!-- Team -->
-        <a href="#teamMenu" data-bs-toggle="collapse" class="nav-link-main has-submenu <?= $isTeamMenu ? 'active-parent' : 'collapsed' ?>" aria-expanded="<?= $isTeamMenu ? 'true' : 'false' ?>">
-            <i class="fa-solid fa-sitemap menu-icon"></i> <span class="menu-text">Team</span>
-        </a>
-        <div class="collapse submenu <?= $isTeamMenu ? 'show' : '' ?>" id="teamMenu">
-            <?php if (empty($_SESSION['is_manager'])): ?>
-                <a href="managers" class="<?= in_array($p, ['managers.php', 'managers', 'manager_view.php', 'manager_view']) ? 'active' : '' ?>">Manager</a>
-            <?php endif; ?>
-            <a href="dealers" class="<?= in_array($p, ['dealers.php', 'dealers', 'dealer_view.php', 'dealer_view']) ? 'active' : '' ?>">Dealer</a>
-            <a href="recovery_man" class="<?= in_array($p, ['recovery_man.php', 'recovery_man']) ? 'active' : '' ?>">Recovery Man</a>
-            <a href="line_man" class="<?= in_array($p, ['line_man.php', 'line_man']) ? 'active' : '' ?>">Line Man</a>
-        </div>
-
-        <!-- User -->
-        <a href="#userMenu" data-bs-toggle="collapse" class="nav-link-main has-submenu <?= $isUserMenu ? 'active-parent' : 'collapsed' ?>" aria-expanded="<?= $isUserMenu ? 'true' : 'false' ?>">
-            <i class="fa-solid fa-user menu-icon"></i> <span class="menu-text">User</span>
-        </a>
-        <div class="collapse submenu <?= $isUserMenu ? 'show' : '' ?>" id="userMenu">
-            <a href="subscribers" class="<?= ($p==='subscribers.php' && $filter==='') ? 'active' : '' ?>">All Users</a>
-            <a href="live_sessions" class="<?= ($p==='live_sessions.php' && $filter!=='expired_online') ? 'active' : '' ?>">Online Users</a>
-            <a href="live_sessions?filter=expired_online" class="<?= $filter==='expired_online' ? 'active' : '' ?>">Expired Online</a>
-            <a href="subscribers?filter=offline" class="<?= $filter==='offline' ? 'active' : '' ?>">Offline Users (Radius)</a>
-            <a href="subscribers?filter=expired" class="<?= $filter==='expired' ? 'active' : '' ?>">Expired Users</a>
-            <a href="subscribers?filter=expiring_1w" class="<?= $filter==='expiring_1w' ? 'active' : '' ?>">Expiring In Week</a>
-            <a href="subscribers?filter=expiring_2w" class="<?= $filter==='expiring_2w' ? 'active' : '' ?>">Expiring In 2 Weeks</a>
-        </div>
-
-        <!-- Net Worth -->
-        <a href="net_worth" class="nav-link-main rounded-3 mb-1 <?= in_array($p, ['net_worth.php', 'net_worth']) ? 'active-parent' : '' ?>">
-            <i class="fa-solid fa-chart-line menu-icon"></i> <span class="menu-text">Net Worth</span>
-        </a>
-
-        <!-- Expenses -->
-        <a href="expenses" class="nav-link-main rounded-3 mb-1 <?= in_array($p, ['expenses.php', 'expenses']) ? 'active-parent' : '' ?>">
-            <i class="fa-solid fa-receipt menu-icon"></i> <span class="menu-text">Expenses</span>
-        </a>
-
-        <!-- Accounting -->
-        <a href="#accountingMenu" data-bs-toggle="collapse" class="nav-link-main has-submenu <?= $isAccMenu ? 'active-parent' : 'collapsed' ?>" aria-expanded="<?= $isAccMenu ? 'true' : 'false' ?>">
-            <i class="fa-solid fa-dollar-sign menu-icon"></i> <span class="menu-text">Accounting</span>
-        </a>
-        <div class="collapse submenu <?= $isAccMenu ? 'show' : '' ?>" id="accountingMenu">
+        <!-- Scrollable Menu Items -->
+        <div class="sidebar-menu-scroll">
             
-            <a href="invoices" class="<?= in_array($p, ['invoices.php', 'invoices']) ? 'active' : '' ?>">Invoices / Receipts</a>
-            <a href="fund_requests" class="<?= in_array($p, ['fund_requests.php', 'fund_requests']) ? 'active' : '' ?>">Payments / Fund Requests</a>
-            <a href="expenses" class="<?= in_array($p, ['expenses.php', 'expenses']) ? 'active' : '' ?>">Daily Expenses</a>
-            <a href="net_worth" class="<?= in_array($p, ['net_worth.php', 'net_worth']) ? 'active' : '' ?>">Business Net Worth</a>
-        </div>
-
-        <!-- Logs & Reports -->
-        <a href="#logsMenu" data-bs-toggle="collapse" class="nav-link-main has-submenu <?= in_array($p, ['activity_logs.php', 'package_logs.php', 'session_logs.php']) ? 'active-parent' : 'collapsed' ?>" aria-expanded="<?= in_array($p, ['activity_logs.php', 'package_logs.php', 'session_logs.php']) ? 'true' : 'false' ?>">
-            <i class="fa-regular fa-file-lines menu-icon"></i> <span class="menu-text">Logs & Reports</span>
-        </a>
-        <div class="collapse submenu <?= in_array($p, ['activity_logs.php', 'package_logs.php', 'session_logs.php']) ? 'show' : '' ?>" id="logsMenu">
-            <a href="activity_logs" class="<?= in_array($p, ['activity_logs.php', 'activity_logs']) ? 'active' : '' ?>">Activity Logs</a>
-            <a href="package_logs" class="<?= in_array($p, ['package_logs.php', 'package_logs']) ? 'active' : '' ?>">Package Logs</a>
-            <a href="session_logs" class="<?= in_array($p, ['session_logs.php', 'session_logs']) ? 'active' : '' ?>">Session Logs</a>
-        </div>
-        
-        <!-- MikroTik Menu -->
-        <?php if (empty($_SESSION['is_manager'])): ?>
-        <!-- Network & Multi-WAN Pools -->
-        <a href="ip_pools" class="nav-link-main rounded-3 mb-1 <?= in_array($p, ['ip_pools.php', 'ip_pools']) ? 'active-parent' : '' ?>">
-            <i class="fa-solid fa-network-wired menu-icon"></i> <span class="menu-text">IP Pools (Multi-WAN)</span>
-        </a>
-        <?php endif; ?>
-        <!-- Payment Gateways -->
-        
-        <!-- Requests & Support -->
-        <a href="#ticketMenu" data-bs-toggle="collapse" class="nav-link-main has-submenu <?= $isTicketMenu ? 'active-parent' : 'collapsed' ?>" aria-expanded="<?= $isTicketMenu ? 'true' : 'false' ?>">
-            <i class="fa-solid fa-headset menu-icon"></i> <span class="menu-text">Support & Requests</span>
-            <?php if($total_pending_requests > 0): ?>
-                <span class="badge bg-danger ms-auto rounded-pill"><?= $total_pending_requests ?></span>
-            <?php endif; ?>
-        </a>
-        <div class="collapse submenu <?= $isTicketMenu ? 'show' : '' ?>" id="ticketMenu">
-            <a href="requests" class="<?= in_array($p, ['requests.php', 'requests']) ? 'active' : '' ?>">Package Requests
-                <?php if($pending_pkgs > 0): ?><span class="badge bg-danger float-end rounded-pill"><?= $pending_pkgs ?></span><?php endif; ?>
+            <!-- 1. Dashboard -->
+            <a href="dashboard" class="nav-item-link <?= in_array($p, ['dashboard.php', 'dashboard']) ? 'active-parent' : '' ?>">
+                <i class="fa-solid fa-desktop nav-icon"></i>
+                <span class="nav-text">Dashboard</span>
             </a>
-            <a href="fund_requests" class="<?= in_array($p, ['fund_requests.php', 'fund_requests']) ? 'active' : '' ?>">Fund Requests
-                <?php if($pending_funds > 0): ?><span class="badge bg-danger float-end rounded-pill"><?= $pending_funds ?></span><?php endif; ?>
+
+            <!-- 2. Company Profile -->
+            <a href="profile" class="nav-item-link <?= in_array($p, ['profile.php', 'profile']) ? 'active-parent' : '' ?>">
+                <i class="fa-solid fa-building nav-icon"></i>
+                <span class="nav-text">Company Profile</span>
             </a>
-            <a href="support_tickets" class="<?= in_array($p, ['support_tickets.php', 'support_tickets', 'view_ticket.php', 'view_ticket']) ? 'active' : '' ?>">Support Tickets
-                <?php if($open_tickets > 0): ?><span class="badge bg-danger float-end rounded-pill"><?= $open_tickets ?></span><?php endif; ?>
+
+            <!-- 3. Users Profile -->
+            <a href="#usersMenu" data-bs-toggle="collapse" class="nav-item-link has-submenu <?= $isUserMenu ? 'active-parent' : 'collapsed' ?>" aria-expanded="<?= $isUserMenu ? 'true' : 'false' ?>">
+                <i class="fa-solid fa-users nav-icon"></i>
+                <span class="nav-text">Users Profile</span>
+                <i class="fa-solid fa-chevron-down nav-chevron"></i>
+            </a>
+            <div class="collapse <?= $isUserMenu ? 'show' : '' ?>" id="usersMenu">
+                <ul class="submenu-tree">
+                    <li class="submenu-tree-item"><a href="subscribers" class="<?= ($p==='subscribers.php' && $filter==='') ? 'active' : '' ?>">All Users</a></li>
+                    <li class="submenu-tree-item"><a href="live_sessions" class="<?= ($p==='live_sessions.php' && $filter!=='expired_online') ? 'active' : '' ?>">Online Users</a></li>
+                    <li class="submenu-tree-item"><a href="live_sessions?filter=expired_online" class="<?= $filter==='expired_online' ? 'active' : '' ?>">Expired Online</a></li>
+                    <li class="submenu-tree-item"><a href="subscribers?filter=offline" class="<?= $filter==='offline' ? 'active' : '' ?>">Offline Users (Radius)</a></li>
+                    <li class="submenu-tree-item"><a href="subscribers?filter=expired" class="<?= $filter==='expired' ? 'active' : '' ?>">Expired Users</a></li>
+                    <li class="submenu-tree-item"><a href="subscribers?filter=expiring_1w" class="<?= $filter==='expiring_1w' ? 'active' : '' ?>">Expiring In Week</a></li>
+                    <li class="submenu-tree-item"><a href="subscribers?filter=expiring_2w" class="<?= $filter==='expiring_2w' ? 'active' : '' ?>">Expiring In 2 Weeks</a></li>
+                </ul>
+            </div>
+
+            <!-- 4. Dealers Profile -->
+            <a href="dealers" class="nav-item-link <?= in_array($p, ['dealers.php', 'dealers', 'dealer_view.php', 'dealer_view']) ? 'active-parent' : '' ?>">
+                <i class="fa-solid fa-user-tie nav-icon"></i>
+                <span class="nav-text">Dealers Profile</span>
+            </a>
+
+            <!-- 5. Recovery Officer & Staff -->
+            <a href="#recoveryMenu" data-bs-toggle="collapse" class="nav-item-link has-submenu <?= $isTeamMenu ? 'active-parent' : 'collapsed' ?>" aria-expanded="<?= $isTeamMenu ? 'true' : 'false' ?>">
+                <i class="fa-solid fa-user-shield nav-icon"></i>
+                <span class="nav-text">Recovery Officer</span>
+                <i class="fa-solid fa-chevron-down nav-chevron"></i>
+            </a>
+            <div class="collapse <?= $isTeamMenu ? 'show' : '' ?>" id="recoveryMenu">
+                <ul class="submenu-tree">
+                    <li class="submenu-tree-item"><a href="recovery_man" class="<?= in_array($p, ['recovery_man.php', 'recovery_man', 'recoveryman_profile.php', 'recoveryman_profile']) ? 'active' : '' ?>">Recovery Officer</a></li>
+                    <li class="submenu-tree-item"><a href="line_man" class="<?= in_array($p, ['line_man.php', 'line_man', 'lineman_profile.php', 'lineman_profile']) ? 'active' : '' ?>">Line Man (Staff)</a></li>
+                    <?php if (empty($_SESSION['is_manager'])): ?>
+                    <li class="submenu-tree-item"><a href="managers" class="<?= in_array($p, ['managers.php', 'managers', 'manager_view.php', 'manager_view']) ? 'active' : '' ?>">Managers</a></li>
+                    <?php endif; ?>
+                </ul>
+            </div>
+
+            <!-- 6. Transactions -->
+            <a href="#transMenu" data-bs-toggle="collapse" class="nav-item-link has-submenu <?= $isAccMenu ? 'active-parent' : 'collapsed' ?>" aria-expanded="<?= $isAccMenu ? 'true' : 'false' ?>">
+                <i class="fa-solid fa-money-bill-transfer nav-icon"></i>
+                <span class="nav-text">Transactions</span>
+                <i class="fa-solid fa-chevron-down nav-chevron"></i>
+            </a>
+            <div class="collapse <?= $isAccMenu ? 'show' : '' ?>" id="transMenu">
+                <ul class="submenu-tree">
+                    <li class="submenu-tree-item"><a href="invoices" class="<?= in_array($p, ['invoices.php', 'invoices']) ? 'active' : '' ?>">Invoices / Receipts</a></li>
+                    <li class="submenu-tree-item"><a href="fund_requests" class="<?= in_array($p, ['fund_requests.php', 'fund_requests']) ? 'active' : '' ?>">Payments / Fund Requests</a></li>
+                    <li class="submenu-tree-item"><a href="expenses" class="<?= in_array($p, ['expenses.php', 'expenses']) ? 'active' : '' ?>">Daily Expenses</a></li>
+                    <li class="submenu-tree-item"><a href="net_worth" class="<?= in_array($p, ['net_worth.php', 'net_worth']) ? 'active' : '' ?>">Business Net Worth</a></li>
+                </ul>
+            </div>
+
+            <!-- 7. Complain -->
+            <a href="#complainMenu" data-bs-toggle="collapse" class="nav-item-link has-submenu <?= $isTicketMenu ? 'active-parent' : 'collapsed' ?>" aria-expanded="<?= $isTicketMenu ? 'true' : 'false' ?>">
+                <i class="fa-solid fa-headset nav-icon"></i>
+                <span class="nav-text">Complain</span>
+                <?php if($total_pending_requests > 0): ?>
+                    <span class="badge bg-danger rounded-pill me-2" style="font-size: 0.72rem;"><?= $total_pending_requests ?></span>
+                <?php endif; ?>
+                <i class="fa-solid fa-chevron-down nav-chevron"></i>
+            </a>
+            <div class="collapse <?= $isTicketMenu ? 'show' : '' ?>" id="complainMenu">
+                <ul class="submenu-tree">
+                    <li class="submenu-tree-item">
+                        <a href="support_tickets" class="<?= in_array($p, ['support_tickets.php', 'support_tickets', 'view_ticket.php', 'view_ticket']) ? 'active' : '' ?>">
+                            <span>Support Tickets</span>
+                            <?php if($open_tickets > 0): ?><span class="badge bg-danger rounded-pill"><?= $open_tickets ?></span><?php endif; ?>
+                        </a>
+                    </li>
+                    <li class="submenu-tree-item">
+                        <a href="requests" class="<?= in_array($p, ['requests.php', 'requests']) ? 'active' : '' ?>">
+                            <span>Package Requests</span>
+                            <?php if($pending_pkgs > 0): ?><span class="badge bg-danger rounded-pill"><?= $pending_pkgs ?></span><?php endif; ?>
+                        </a>
+                    </li>
+                    <li class="submenu-tree-item">
+                        <a href="fund_requests" class="<?= in_array($p, ['fund_requests.php', 'fund_requests']) ? 'active' : '' ?>">
+                            <span>Fund Requests</span>
+                            <?php if($pending_funds > 0): ?><span class="badge bg-danger rounded-pill"><?= $pending_funds ?></span><?php endif; ?>
+                        </a>
+                    </li>
+                </ul>
+            </div>
+
+            <!-- 8. Messages -->
+            <a href="#" class="nav-item-link">
+                <i class="fa-solid fa-comment-dots nav-icon"></i>
+                <span class="nav-text">Messages</span>
+            </a>
+
+            <!-- 9. Recharge System -->
+            <a href="#rechargeMenu" data-bs-toggle="collapse" class="nav-item-link has-submenu <?= $isRechargeMenu ? 'active-parent' : 'collapsed' ?>" aria-expanded="<?= $isRechargeMenu ? 'true' : 'false' ?>">
+                <i class="fa-solid fa-wifi nav-icon"></i>
+                <span class="nav-text">Recharge System</span>
+                <i class="fa-solid fa-chevron-down nav-chevron"></i>
+            </a>
+            <div class="collapse <?= $isRechargeMenu ? 'show' : '' ?>" id="rechargeMenu">
+                <ul class="submenu-tree">
+                    <li class="submenu-tree-item"><a href="packages" class="<?= in_array($p, ['packages.php', 'packages']) ? 'active' : '' ?>">Master Packages</a></li>
+                    <?php if (empty($_SESSION['is_manager'])): ?>
+                    <li class="submenu-tree-item"><a href="payment_gateways" class="<?= in_array($p, ['payment_gateways.php', 'payment_gateways']) ? 'active' : '' ?>">Payment Gateways</a></li>
+                    <?php endif; ?>
+                </ul>
+            </div>
+
+            <!-- 10. Logs & Reports -->
+            <a href="#logsMenu" data-bs-toggle="collapse" class="nav-item-link has-submenu <?= $isLogsMenu ? 'active-parent' : 'collapsed' ?>" aria-expanded="<?= $isLogsMenu ? 'true' : 'false' ?>">
+                <i class="fa-regular fa-file-lines nav-icon"></i>
+                <span class="nav-text">Logs &amp; Reports</span>
+                <i class="fa-solid fa-chevron-down nav-chevron"></i>
+            </a>
+            <div class="collapse <?= $isLogsMenu ? 'show' : '' ?>" id="logsMenu">
+                <ul class="submenu-tree">
+                    <?php if (empty($_SESSION['is_manager'])): ?>
+                    <li class="submenu-tree-item"><a href="ip_pools" class="<?= in_array($p, ['ip_pools.php', 'ip_pools']) ? 'active' : '' ?>">IP Pools (Multi-WAN)</a></li>
+                    <?php endif; ?>
+                    <li class="submenu-tree-item"><a href="activity_logs" class="<?= in_array($p, ['activity_logs.php', 'activity_logs']) ? 'active' : '' ?>">Activity Logs</a></li>
+                    <li class="submenu-tree-item"><a href="package_logs" class="<?= in_array($p, ['package_logs.php', 'package_logs']) ? 'active' : '' ?>">Package Logs</a></li>
+                    <li class="submenu-tree-item"><a href="session_logs" class="<?= in_array($p, ['session_logs.php', 'session_logs']) ? 'active' : '' ?>">Session Logs</a></li>
+                </ul>
+            </div>
+
+        </div>
+
+        <!-- Bottom User Profile Strip (ADMINCHECK1 from Screenshot) -->
+        <div class="sidebar-footer-user">
+            <div class="user-avatar">
+                <?= $avatarInitial ?>
+            </div>
+            <div class="user-info">
+                <div class="user-name" title="<?= htmlspecialchars($displayName) ?>">
+                    <?= htmlspecialchars(strtoupper($displayName)) ?>
+                </div>
+                <div class="user-role"><?= $userRoleLabel ?></div>
+            </div>
+            <a href="logout" class="logout-btn" title="Logout">
+                <i class="fa-solid fa-arrow-right-from-bracket"></i>
             </a>
         </div>
-        <?php if (empty($_SESSION['is_manager'])): ?>
-        <a href="payment_gateways" class="nav-link-main <?= in_array($p, ['payment_gateways.php', 'payment_gateways']) ? 'active-parent' : '' ?>">
-            <i class="fa-brands fa-cc-stripe menu-icon"></i> <span class="menu-text">Payment Gateways</span>
-        </a>
-        <?php endif; ?>
 
-        <a href="#" class="nav-link-main">
-            <i class="fa-solid fa-bell menu-icon"></i> <span class="menu-text">Notices</span>
-        </a>
-
-        <hr class="text-muted opacity-25 mx-3 my-3">
-
-        <a href="logout" class="nav-link-main text-danger rounded-3 mb-4 <?= in_array($p, ['logout.php', 'logout']) ? 'active-parent' : '' ?>">
-            <i class="fa-solid fa-arrow-right-from-bracket menu-icon text-danger"></i> <span class="menu-text">Logout</span>
-        </a>
-        </div>
     </div>
 
     <!-- Top Navbar -->
@@ -557,45 +749,8 @@ $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
 <!-- Modern Sidebar Logic -->
 <script>
 document.addEventListener("DOMContentLoaded", function() {
-    var isPinned = localStorage.getItem("operator_sidebar_pinned") === "true";
     var body = document.body;
-    var pinBtn = document.getElementById("sidebarPinToggle");
     var topToggle = document.getElementById("topNavSidebarToggle");
-
-    function updatePinState(pinned) {
-        if (pinned) {
-            body.classList.add("sidebar-pinned");
-            if (pinBtn) {
-                pinBtn.classList.add("text-primary");
-                pinBtn.classList.remove("text-secondary");
-                var pinIcon = pinBtn.querySelector("i");
-                if (pinIcon) pinIcon.style.transform = "rotate(0deg)";
-                pinBtn.title = "Unpin Sidebar (Enable Auto-hide on hover)";
-            }
-        } else {
-            body.classList.remove("sidebar-pinned");
-            if (pinBtn) {
-                pinBtn.classList.remove("text-primary");
-                pinBtn.classList.add("text-secondary");
-                var pinIcon = pinBtn.querySelector("i");
-                if (pinIcon) pinIcon.style.transform = "rotate(-45deg)";
-                pinBtn.title = "Pin Sidebar (Keep permanently open)";
-            }
-        }
-        localStorage.setItem("operator_sidebar_pinned", pinned);
-    }
-
-    // Apply saved pin state
-    updatePinState(isPinned);
-
-    if (pinBtn) {
-        pinBtn.addEventListener("click", function(e) {
-            e.preventDefault();
-            e.stopPropagation();
-            isPinned = !body.classList.contains("sidebar-pinned");
-            updatePinState(isPinned);
-        });
-    }
 
     if (topToggle) {
         topToggle.addEventListener("click", function(e) {
@@ -603,8 +758,7 @@ document.addEventListener("DOMContentLoaded", function() {
             if (window.innerWidth <= 991) {
                 body.classList.toggle("mobile-sidebar-open");
             } else {
-                isPinned = !body.classList.contains("sidebar-pinned");
-                updatePinState(isPinned);
+                body.classList.toggle("sidebar-collapsed");
             }
         });
     }
