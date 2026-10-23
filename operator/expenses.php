@@ -13,7 +13,7 @@ if (!empty($_SESSION['is_manager'])) {
     $actor_type = 'manager';
     $actor_id   = (int)($_SESSION['manager_id'] ?? 0);
 } else {
-    $actor_name = $_SESSION['operator_name'] ?? 'Operator';
+    $actor_name = $_SESSION['operator_name'] ?? 'Admin';
     $actor_type = 'operator';
     $actor_id   = $client_id;
 }
@@ -873,7 +873,7 @@ require_once 'header.php';
                                 </td>
                                 <td>
                                     <span class="badge badge-soft-primary">
-                                        <i class="fa-regular fa-user me-1"></i><?= htmlspecialchars($row['created_by'] ?? 'Operator') ?>
+                                        <i class="fa-regular fa-user me-1"></i><?= htmlspecialchars($row['created_by'] ?? 'Admin') ?>
                                     </span>
                                 </td>
                                 <td>
@@ -1447,7 +1447,7 @@ function printExpenseVoucher(exp) {
     document.getElementById('pv_title').innerText = exp.title;
     document.getElementById('pv_notes').innerText = exp.notes || '';
     document.getElementById('pv_amount').innerText = 'Rs ' + Math.round(parseFloat(exp.amount)).toLocaleString('en-US');
-    document.getElementById('pv_recorded_by').innerText = 'Recorded By: ' + (exp.created_by || 'Operator');
+    document.getElementById('pv_recorded_by').innerText = 'Recorded By: ' + (exp.created_by || 'Admin');
 
     // Create hidden iframe to trigger clean print dialog
     let printContent = document.getElementById('printArea').innerHTML;

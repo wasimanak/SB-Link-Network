@@ -15,7 +15,7 @@ $stmt->execute([$rm_id, $client_id]);
 $rm = $stmt->fetch();
 
 if (!$rm) {
-    echo "<div class='container mt-5'><div class='alert alert-danger'>Recovery Man not found.</div></div>";
+    echo "<div class='container mt-5'><div class='alert alert-danger'>Operator not found.</div></div>";
     exit;
 }
 
@@ -24,7 +24,7 @@ $can_collect_recovery = can_collect_recovery();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'collect_cash') {
     if (!$can_collect_recovery) {
-        echo "<script>alert('Permission Denied: You do not have permission from the Operator to collect cash from Recovery Men.'); window.location='recoveryman_profile.php?id=$rm_id';</script>";
+        echo "<script>alert('Permission Denied: You do not have permission from the Admin to collect cash from Operators.'); window.location='recoveryman_profile.php?id=$rm_id';</script>";
         exit;
     }
     $amount = (float)$_POST['amount'];
@@ -37,8 +37,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $pdo->prepare("UPDATE recovery_men SET cash_in_hand = cash_in_hand - ? WHERE id = ?")->execute([$amount, $rm_id]);
             
             // Log the activity
-            $log_msg = "Collected Cash Rs. " . number_format($amount, 0) . " from Recovery Man";
-            $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, 'Operator', ?, 'RecoveryMan', ?)")
+            $log_msg = "Collected Cash Rs. " . number_format($amount, 0) . " from Operator";
+            $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, 'Admin', ?, 'RecoveryMan', ?)")
                 ->execute([$client_id, $operator_name, $rm['full_name'], $log_msg]);
                 
             $pdo->commit();
@@ -254,7 +254,7 @@ $submissions = $submissionStmt->fetchAll(PDO::FETCH_ASSOC);
                             <i class="fa-solid fa-hand-holding-dollar me-2"></i> Collect Cash
                         </button>
                     <?php else: ?>
-                        <div class="badge bg-secondary-subtle text-secondary border p-2 px-3 rounded-pill"><i class="fa-solid fa-lock me-1"></i> Cash Collection Restricted (Operator Only)</div>
+                        <div class="badge bg-secondary-subtle text-secondary border p-2 px-3 rounded-pill"><i class="fa-solid fa-lock me-1"></i> Cash Collection Restricted (Admin Only)</div>
                     <?php endif; ?>
                 <?php else: ?>
                     <div class="badge bg-secondary p-2 px-3 rounded-pill"><i class="fa-solid fa-check-circle me-1"></i> Accounts Cleared</div>
@@ -280,10 +280,10 @@ $submissions = $submissionStmt->fetchAll(PDO::FETCH_ASSOC);
 <div class="card card-custom bg-white">
     <div class="card-header bg-transparent border-bottom-0 p-0 pt-2 px-3">
         <ul class="nav nav-tabs border-bottom" id="statementTabs" role="tablist">
-            <!-- Tab on Left Side: All RM Activities & Renewals -->
+            <!-- Tab on Left Side: All Operator Activities & Renewals -->
             <li class="nav-item" role="presentation">
                 <button class="nav-link active" id="activities-tab" data-bs-toggle="tab" data-bs-target="#activities" type="button" role="tab">
-                    <i class="fa-solid fa-bolt me-1 text-warning"></i> RM Activities & Renewals
+                    <i class="fa-solid fa-bolt me-1 text-warning"></i> Operator Activities & Renewals
                     <span class="badge bg-primary ms-1"><?= count($all_activities) ?></span>
                 </button>
             </li>
@@ -294,10 +294,10 @@ $submissions = $submissionStmt->fetchAll(PDO::FETCH_ASSOC);
                     <span class="badge bg-secondary ms-1"><?= count($user_collections) ?></span>
                 </button>
             </li>
-            <!-- Existing Tab: Submissions to Operator -->
+            <!-- Existing Tab: Submissions to Admin -->
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="operator-tab" data-bs-toggle="tab" data-bs-target="#operator" type="button" role="tab">
-                    <i class="fa-solid fa-building-columns me-1 text-danger"></i> Submissions to Operator
+                    <i class="fa-solid fa-building-columns me-1 text-danger"></i> Submissions to Admin
                     <span class="badge bg-secondary ms-1"><?= count($submissions) ?></span>
                 </button>
             </li>

@@ -234,7 +234,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
                 $type = $amount > 0 ? 'credit' : 'debit';
                 $absAmount = abs($amount);
-                $desc = $amount > 0 ? 'Funds added by Operator' : 'Funds deducted by Operator';
+                $desc = $amount > 0 ? 'Funds added by Admin' : 'Funds deducted by Admin';
                 $actStr = $amount > 0 ? "Added Balance: Rs. $absAmount" : "Deducted Balance: Rs. $absAmount";
 
                 $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, 'Admin', ?, 'User', ?)")->execute([$client_id, $u, $actStr]);

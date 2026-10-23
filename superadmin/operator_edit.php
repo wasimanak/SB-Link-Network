@@ -29,9 +29,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'ms' => $max_subscribers,
                     'id' => $id
                 ]);
-                $success = "Operator details updated successfully.";
+                $success = "Admin details updated successfully.";
             } catch (Exception $e) {
-                $error = "Error updating operator: " . $e->getMessage();
+                $error = "Error updating admin: " . $e->getMessage();
             }
         }
     } 
@@ -42,7 +42,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $stmt = $pdo->prepare("SELECT * FROM clients WHERE id = :id");
 $stmt->execute(['id' => $id]);
 $op = $stmt->fetch();
-if (!$op) { die("Operator not found."); }
+if (!$op) { die("Admin not found."); }
 
 // Fetch linked NAS
 $nasStmt = $pdo->prepare("SELECT * FROM nas WHERE client_id = ?");
@@ -51,8 +51,8 @@ $nas = $nasStmt->fetch();
 ?>
 
 <div class="d-flex justify-content-between align-items-center mb-4">
-    <h4 class="fw-bold mb-0 text-dark"><i class="fa-solid fa-user-tie text-primary me-2"></i> Operator Profile: <?= htmlspecialchars($op['company_name']) ?></h4>
-    <a href="operators.php" class="btn btn-outline-secondary"><i class="fa-solid fa-arrow-left me-1"></i> Back to List</a>
+    <h4 class="fw-bold mb-0 text-dark"><i class="fa-solid fa-user-tie text-primary me-2"></i> Admin Profile: <?= htmlspecialchars($op['company_name']) ?></h4>
+    <a href="admins.php" class="btn btn-outline-secondary"><i class="fa-solid fa-arrow-left me-1"></i> Back to List</a>
 </div>
 
 <?php if($error): ?><div class="alert alert-danger shadow-sm border-0"><i class="fa-solid fa-triangle-exclamation me-2"></i> <?= $error ?></div><?php endif; ?>

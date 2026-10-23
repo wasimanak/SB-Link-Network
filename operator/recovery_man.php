@@ -114,7 +114,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'delete_member' && isset($_POST['id'])) {
         $del = (int)$_POST['id'];
         $pdo->prepare("DELETE FROM recovery_men WHERE id = ? AND client_id = ?")->execute([$del, $client_id]);
-        echo "<script>alert('Recovery Man deleted successfully!'); window.location='$_SERVER[PHP_SELF]';</script>";
+        echo "<script>alert('Operator deleted successfully!'); window.location='$_SERVER[PHP_SELF]';</script>";
         exit;
     }
 }
@@ -134,12 +134,12 @@ $members = $stmt->fetchAll();
 
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h4 class="mb-0 fw-bold"><i class="fa-solid fa-motorcycle text-primary me-2"></i> Manage Recovery Mans</h4>
-        <small class="text-muted">View and manage your Recovery Man team</small>
+        <h4 class="mb-0 fw-bold"><i class="fa-solid fa-users text-primary me-2"></i> Manage Operators</h4>
+        <small class="text-muted">View and manage your field Operator team</small>
     </div>
     <?php if (empty($_SESSION['is_manager'])): ?>
     <button class="btn btn-primary shadow-sm fw-bold" data-bs-toggle="modal" data-bs-target="#addMemberModal">
-        <i class="fa-solid fa-plus me-1"></i> Add New Recovery Man
+        <i class="fa-solid fa-plus me-1"></i> Add New Operator
     </button>
     <?php endif; ?>
 </div>
@@ -228,7 +228,7 @@ $members = $stmt->fetchAll();
                                   data-status="<?= $m['status'] ?? 'active' ?>" data-can_create="<?= $m['can_create_user'] ?? 'yes' ?>" data-salary="<?= (int)($m['monthly_salary'] ?? 0) ?>">
                                   <i class="fa-solid fa-pen"></i>
                               </button>
-                              <form method="POST" onsubmit="return confirm('Are you sure you want to delete this Recovery Man?');" class="d-inline">
+                              <form method="POST" onsubmit="return confirm('Are you sure you want to delete this Operator?');" class="d-inline">
                                 <input type="hidden" name="action" value="delete_member">
                                 <input type="hidden" name="id" value="<?= $m['id'] ?>">
                                 <button type="submit" class="btn btn-sm btn-outline-danger"><i class="fa-solid fa-trash"></i></button>
@@ -249,7 +249,7 @@ $members = $stmt->fetchAll();
   <div class="modal-dialog modal-lg">
     <div class="modal-content border-0 rounded-4 shadow-lg">
       <div class="modal-header border-bottom px-4 pt-4">
-        <h5 class="modal-title fw-bold text-dark"><i class="fa-solid fa-motorcycle text-primary me-2"></i> Create Recovery Man</h5>
+        <h5 class="modal-title fw-bold text-dark"><i class="fa-solid fa-users text-primary me-2"></i> Create Operator</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <form method="POST" class="needs-validation" novalidate>
@@ -332,7 +332,7 @@ $(document).ready(function() {
   <div class="modal-dialog modal-dialog-centered modal-lg">
     <div class="modal-content bg-white border-0 shadow-lg" style="border-radius: 16px;">
       <div class="modal-header border-bottom p-4">
-        <h5 class="modal-title fw-bold"><i class="fa-solid fa-pen text-primary me-2"></i> Edit Recovery Man</h5>
+        <h5 class="modal-title fw-bold"><i class="fa-solid fa-pen text-primary me-2"></i> Edit Operator</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <form method="POST">

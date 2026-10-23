@@ -965,7 +965,7 @@ try {
                     <div class="mb-3">
                         <label class="form-label text-dark fw-bold small mb-1">Application Title</label>
                         <input type="text" name="settings[app_name]" class="form-control" value="<?= htmlspecialchars($appName) ?>" required>
-                        <div class="form-text text-muted" style="font-size: 0.74rem;">Brand name displayed across client and operator login screens.</div>
+                        <div class="form-text text-muted" style="font-size: 0.74rem;">Brand name displayed across client and admin login screens.</div>
                     </div>
                     
                     <div class="mb-3">

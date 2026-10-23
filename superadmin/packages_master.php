@@ -131,7 +131,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             }
                         }
                     }
-                    $flashMsg = "<div class='alert alert-success border-0 shadow-sm rounded-4 mb-4 d-flex align-items-center gap-2'><i class='fa-solid fa-circle-check fs-5'></i> <div>Master package updated and synced with tenant operators successfully.</div></div>";
+                    $flashMsg = "<div class='alert alert-success border-0 shadow-sm rounded-4 mb-4 d-flex align-items-center gap-2'><i class='fa-solid fa-circle-check fs-5'></i> <div>Master package updated and synced with tenant admins successfully.</div></div>";
                 }
             } elseif ($action === 'delete') {
                 $id = (int)$_POST['delete_id'];
@@ -473,7 +473,7 @@ foreach ($packages as $p) {
                 <span class="visually-hidden">Loading...</span>
             </div>
             <h6 class="fw-bold text-dark mb-1">Loading Master Packages...</h6>
-            <div class="text-muted small">Synchronizing bandwidth profiles and operator assignments</div>
+            <div class="text-muted small">Synchronizing bandwidth profiles and admin assignments</div>
         </div>
 
         <!-- Hidden Table Container until DataTables initComplete -->
@@ -512,11 +512,11 @@ foreach ($packages as $p) {
                             <td>
                                 <?php if($is_operator_specific): ?>
                                     <span class="badge bg-info-subtle text-info-emphasis border border-info-subtle rounded-pill px-3 py-1 fw-bold" style="font-size: 0.72rem;">
-                                        <i class="fa-solid fa-user-gear me-1"></i> <?= htmlspecialchars($p['owner_name'] ?? 'Operator') ?> (Owner)
+                                        <i class="fa-solid fa-user-gear me-1"></i> <?= htmlspecialchars($p['owner_name'] ?? 'Admin') ?> (Owner)
                                     </span>
                                 <?php elseif($is_global): ?>
                                     <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-3 py-1 fw-bold" style="font-size: 0.72rem;">
-                                        <i class="fa-solid fa-earth-americas me-1"></i> Global (All Operators)
+                                        <i class="fa-solid fa-earth-americas me-1"></i> Global (All Admins)
                                     </span>
                                 <?php else: ?>
                                     <div class="d-flex flex-wrap gap-1">
@@ -577,7 +577,7 @@ foreach ($packages as $p) {
                                     </button>
 
                                     <!-- Delete Form -->
-                                    <form method="POST" class="d-inline m-0" onsubmit="return confirm('DANGER: Delete master package #<?= $p['id'] ?> (<?= htmlspecialchars($p['name']) ?>)? This will also remove it from all assigned operators!');">
+                                    <form method="POST" class="d-inline m-0" onsubmit="return confirm('DANGER: Delete master package #<?= $p['id'] ?> (<?= htmlspecialchars($p['name']) ?>)? This will also remove it from all assigned admins!');">
                                         <input type="hidden" name="action" value="delete">
                                         <input type="hidden" name="delete_id" value="<?= $p['id'] ?>">
                                         <button type="submit" class="btn-action-icon btn-action-delete" title="Delete Package">
@@ -609,12 +609,12 @@ foreach ($packages as $p) {
                                             <!-- Operator Assignment Checklist -->
                                             <div class="mb-4">
                                                 <label class="form-label fw-bold text-dark small text-uppercase mb-1">Assign Availability</label>
-                                                <div class="small text-muted mb-2">Check operators allowed to sell or renew this package:</div>
+                                                <div class="small text-muted mb-2">Check admins allowed to sell or renew this package:</div>
                                                 <div class="border rounded-4 p-3 bg-light shadow-sm" style="max-height: 200px; overflow-y: auto;">
                                                     <div class="form-check border-bottom pb-2 mb-2">
                                                         <input class="form-check-input" type="checkbox" name="operator_ids[]" value="0" id="op_global_edit_<?= $p['id'] ?>" <?= $is_global ? 'checked' : '' ?>>
                                                         <label class="form-check-label fw-bold text-success" for="op_global_edit_<?= $p['id'] ?>">
-                                                            <i class="fa-solid fa-earth-americas me-1"></i> Global (Available to All Operators)
+                                                            <i class="fa-solid fa-earth-americas me-1"></i> Global (Available to All Admins)
                                                         </label>
                                                     </div>
                                                     <?php foreach($operators as $op): 
@@ -783,12 +783,12 @@ foreach ($packages as $p) {
             
             <div class="mb-4">
                 <label class="form-label fw-bold text-dark small text-uppercase mb-1">Assign Availability</label>
-                <div class="small text-muted mb-2">Check the operators allowed to distribute this package:</div>
+                <div class="small text-muted mb-2">Check the admins allowed to distribute this package:</div>
                 <div class="border rounded-4 p-3 bg-light shadow-sm" style="max-height: 200px; overflow-y: auto;">
                     <div class="form-check border-bottom pb-2 mb-2">
                         <input class="form-check-input" type="checkbox" name="operator_ids[]" value="0" id="op_global_add" checked>
                         <label class="form-check-label fw-bold text-success" for="op_global_add">
-                            <i class="fa-solid fa-earth-americas me-1"></i> Global (Available to All Operators)
+                            <i class="fa-solid fa-earth-americas me-1"></i> Global (Available to All Admins)
                         </label>
                     </div>
                     <?php foreach($operators as $op): ?>

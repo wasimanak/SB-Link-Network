@@ -39,6 +39,13 @@ RewriteCond %{THE_REQUEST} !/index\.php [NC]
 RewriteCond %{THE_REQUEST} ^[A-Z]{3,}\s+([^?\s]+)\.php [NC]
 RewriteRule ^ %1 [R=301,L]
 
+# 6b. Admin to Operator Alias Routing (preserves backwards compatibility)
+RewriteRule ^admin/?$ operator/dashboard.php [L,QSA]
+RewriteRule ^admin/(.*)$ operator/$1 [L,QSA]
+RewriteRule ^superadmin/admins/?$ superadmin/operators.php [L,QSA]
+RewriteRule ^superadmin/admin_add/?$ superadmin/operator_add.php [L,QSA]
+RewriteRule ^superadmin/admin_edit/?$ superadmin/operator_edit.php [L,QSA]
+
 # 7. Internal Rewrite: Route /path/file to /path/file.php if file.php exists
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteCond %{REQUEST_FILENAME}.php -f [OR]

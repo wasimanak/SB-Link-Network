@@ -39,7 +39,7 @@ if (!empty($tickets)) {
                 <thead class="table-light">
                     <tr>
                         <th class="ps-4">Ticket ID</th>
-                        <th>Operator</th>
+                        <th>Admin</th>
                         <th>Customer</th>
                         <th>Subject</th>
                         <th>Status</th>
@@ -99,7 +99,7 @@ if (!empty($tickets)) {
                                                       <div class="d-inline-block p-3 rounded shadow-sm <?= $m['sender_type'] === 'operator' ? 'bg-primary text-white' : 'bg-white text-dark border' ?>" style="max-width: 75%; text-align: left;">
                                                           <div class="small fw-bold mb-2 <?= $m['sender_type'] === 'operator' ? 'text-white-50' : 'text-muted' ?>" style="font-size: 0.7rem; border-bottom: 1px solid <?= $m['sender_type'] === 'operator' ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.05)' ?>; padding-bottom: 4px;">
                                                               <i class="fa-solid <?= $m['sender_type'] === 'operator' ? 'fa-user-tie' : 'fa-user' ?> me-1"></i>
-                                                              <?= $m['sender_type'] === 'operator' ? 'Operator ('.htmlspecialchars($t['operator_name'] ?? '').')' : 'Customer ('.htmlspecialchars($t['customer_username'] ?? '').')' ?> 
+                                                              <?= $m['sender_type'] === 'operator' ? 'Admin ('.htmlspecialchars($t['operator_name'] ?? '').')' : 'Customer ('.htmlspecialchars($t['customer_username'] ?? '').')' ?> 
                                                               <span class="ms-2 fw-normal"><i class="fa-regular fa-clock me-1"></i><?= date('d M Y h:i A', strtotime($m['created_at'])) ?></span>
                                                           </div>
                                                           <div style="font-size: 0.95rem;">

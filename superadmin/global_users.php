@@ -46,7 +46,7 @@ $users = $stmt->fetchAll();
             </div>
             <div class="col-md-4">
                 <select name="client_id" class="form-select">
-                    <option value="">All Operators (ISPs)</option>
+                    <option value="">All Admins (ISPs)</option>
                     <?php foreach($operators as $op): ?>
                         <option value="<?= $op['id'] ?>" <?= $client_id == $op['id'] ? 'selected' : '' ?>><?= htmlspecialchars($op['company_name']) ?></option>
                     <?php endforeach; ?>
@@ -66,7 +66,7 @@ $users = $stmt->fetchAll();
                 <thead class="table-light">
                     <tr>
                         <th class="ps-4">Username</th>
-                        <th>ISP / Operator</th>
+                        <th>ISP / Admin</th>
                         <th>Package</th>
                         <th>Status</th>
                         <th>Live</th>

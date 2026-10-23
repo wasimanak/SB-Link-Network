@@ -627,7 +627,7 @@ $map_subscribers = $pdo->query("
 <!-- Dashboard Header -->
 <div class="d-flex flex-wrap justify-content-between align-items-center mb-4">
     <div>
-        <h3 class="fw-bold text-dark mb-1">Operator Dashboard</h3>
+        <h3 class="fw-bold text-dark mb-1">Admin Dashboard</h3>
         <p class="text-secondary small mb-0">Manage your network, users and services</p>
     </div>
     
@@ -641,7 +641,7 @@ $map_subscribers = $pdo->query("
             </div>
         </div>
 
-        <!-- Operator User Capsule -->
+        <!-- Admin User Capsule -->
         <div class="d-flex align-items-center bg-white px-3 py-2 rounded-pill shadow-sm border">
             <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center me-2" style="width: 36px; height: 36px;">
                 <i class="fa-solid fa-user"></i>
@@ -650,7 +650,7 @@ $map_subscribers = $pdo->query("
                 <div class="fw-bold text-dark" style="font-size: 0.92rem; line-height: 1.1;">
                     <?= htmlspecialchars($_SESSION['operator_username'] ?? 'Admin') ?>
                 </div>
-                <div class="text-muted" style="font-size: 0.7rem; font-weight: 600;">Operator</div>
+                <div class="text-muted" style="font-size: 0.7rem; font-weight: 600;">Admin</div>
             </div>
         </div>
     </div>
@@ -1435,7 +1435,7 @@ $map_subscribers = $pdo->query("
             <div class="alert alert-info d-flex align-items-center mb-3 py-2 border-0 shadow-sm">
               <i class="fa-solid fa-wallet fs-4 me-3 text-info"></i>
               <div>
-                <span class="small text-muted d-block">Total Operator Balance</span>
+                <span class="small text-muted d-block">Total Admin Balance</span>
                 <strong class="fs-5 text-dark">Rs. <?= number_format($total_balance_all, 0) ?></strong>
               </div>
             </div>

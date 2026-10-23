@@ -90,7 +90,7 @@ $total_all_debit = 0;
 <div class="container-fluid px-4 py-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
-            <h4 class="fw-bold text-dark mb-1"><i class="fa-solid fa-file-invoice-dollar text-primary me-2"></i> Operator Statement & Dues</h4>
+            <h4 class="fw-bold text-dark mb-1"><i class="fa-solid fa-file-invoice-dollar text-primary me-2"></i> Admin Statement & Dues</h4>
             <p class="text-secondary mb-0">Lifetime recharge statement and pending customer balances.</p>
         </div>
         <a href="profile.php" class="btn btn-light border fw-bold text-secondary shadow-sm"><i class="fa-solid fa-arrow-left me-2"></i> Back to Profile</a>
@@ -149,7 +149,7 @@ $total_all_debit = 0;
                                     <?php if($u['dealer_username']): ?>
                                         <span class="badge bg-secondary"><i class="fa-solid fa-store me-1"></i> <?= htmlspecialchars($u['dealer_username']) ?></span>
                                     <?php else: ?>
-                                        <span class="badge bg-primary"><i class="fa-solid fa-user-shield me-1"></i> Operator</span>
+                                        <span class="badge bg-primary"><i class="fa-solid fa-user-shield me-1"></i> Admin</span>
                                     <?php endif; ?>
                                 </td>
                                 <td>
@@ -246,7 +246,7 @@ $total_all_debit = 0;
                                     <?php if($pu['dealer_username']): ?>
                                         <span class="badge bg-secondary"><i class="fa-solid fa-store me-1"></i> <?= htmlspecialchars($pu['dealer_username']) ?></span>
                                     <?php else: ?>
-                                        <span class="badge bg-primary"><i class="fa-solid fa-user-shield me-1"></i> Operator</span>
+                                        <span class="badge bg-primary"><i class="fa-solid fa-user-shield me-1"></i> Admin</span>
                                     <?php endif; ?>
                                 </td>
                                 <td>

@@ -241,11 +241,11 @@ try {
                 <p class="text-muted small mb-0">High-level telemetry, multi-tenant ISP metrics, and core server infrastructure status.</p>
             </div>
             <div class="d-flex gap-2">
-                <a href="operators.php" class="btn btn-outline-secondary rounded-pill px-3 py-2 fw-semibold">
-                    <i class="fa-solid fa-users me-1"></i> View Operators
+                <a href="admins.php" class="btn btn-outline-secondary rounded-pill px-3 py-2 fw-semibold">
+                    <i class="fa-solid fa-users me-1"></i> View Admins
                 </a>
-                <a href="operator_add.php" class="btn btn-primary rounded-pill px-4 py-2 fw-bold shadow-sm">
-                    <i class="fa-solid fa-user-plus me-1"></i> Add Operator
+                <a href="admin_add.php" class="btn btn-primary rounded-pill px-4 py-2 fw-bold shadow-sm">
+                    <i class="fa-solid fa-user-plus me-1"></i> Add Admin
                 </a>
             </div>
         </div>
@@ -261,7 +261,7 @@ try {
                 <div>
                     <h6 class="text-danger fw-bold mb-1">FreeRADIUS Synchronization Notice</h6>
                     <p class="text-dark small mb-0" style="max-width: 800px;">
-                        Whenever you add a <strong>New Operator</strong> or <strong>MikroTik Router (NAS)</strong>, FreeRADIUS must be restarted to flush cached memory. New routers will not authenticate until synchronized.
+                        Whenever you add a <strong>New Admin</strong> or <strong>MikroTik Router (NAS)</strong>, FreeRADIUS must be restarted to flush cached memory. New routers will not authenticate until synchronized.
                     </p>
                 </div>
             </div>
@@ -285,7 +285,7 @@ try {
                     <i class="fa-solid fa-users-gear"></i>
                 </div>
                 <div>
-                    <div class="stat-pill-lbl">ISP Operators</div>
+                    <div class="stat-pill-lbl">ISP Admins</div>
                     <div class="stat-pill-val"><?= number_format($totalOperators) ?></div>
                     <div class="text-muted small" style="font-size: 0.74rem;">Registered Multi-Tenants</div>
                 </div>
@@ -358,12 +358,12 @@ try {
                     <span class="badge bg-light text-muted border rounded-pill">Shortcuts</span>
                 </div>
                 <div class="d-flex flex-column gap-2">
-                    <a href="operator_add.php" class="quick-action-btn">
+                    <a href="admin_add.php" class="quick-action-btn">
                         <div class="quick-action-icon" style="background: #eff6ff; color: #2563eb;">
                             <i class="fa-solid fa-user-plus"></i>
                         </div>
                         <div class="flex-grow-1">
-                            <div>Register New Operator</div>
+                            <div>Register New Admin</div>
                             <div class="text-muted small fw-normal" style="font-size: 0.74rem;">Setup tenant account & domain</div>
                         </div>
                         <i class="fa-solid fa-chevron-right text-muted fs-6"></i>
@@ -386,7 +386,7 @@ try {
                         </div>
                         <div class="flex-grow-1">
                             <div>Tenant Subscriptions</div>
-                            <div class="text-muted small fw-normal" style="font-size: 0.74rem;">Manage operator recurring billing</div>
+                            <div class="text-muted small fw-normal" style="font-size: 0.74rem;">Manage admin recurring billing</div>
                         </div>
                         <i class="fa-solid fa-chevron-right text-muted fs-6"></i>
                     </a>
@@ -482,11 +482,11 @@ try {
                             <i class="fa-solid fa-users"></i>
                         </div>
                         <div>
-                            <h5 class="fw-bold text-dark mb-0 fs-6">Recently Added Operators</h5>
+                            <h5 class="fw-bold text-dark mb-0 fs-6">Recently Added Admins</h5>
                             <span class="text-muted small">Latest tenant ISPs onboarded on your platform</span>
                         </div>
                     </div>
-                    <a href="operators.php" class="btn btn-sm btn-outline-primary rounded-pill px-3 fw-semibold">
+                    <a href="admins.php" class="btn btn-sm btn-outline-primary rounded-pill px-3 fw-semibold">
                         View All <i class="fa-solid fa-arrow-right ms-1"></i>
                     </a>
                 </div>
@@ -509,7 +509,7 @@ try {
                             <tr>
                                 <td colspan="4" class="text-center py-5 text-muted">
                                     <i class="fa-solid fa-users fs-3 d-block mb-2 text-muted opacity-50"></i>
-                                    No operators found. <a href="operator_add.php">Add your first operator</a>.
+                                    No admins found. <a href="admin_add.php">Add your first admin</a>.
                                 </td>
                             </tr>
                             <?php else: ?>
@@ -537,7 +537,7 @@ try {
                                     <?php endif; ?>
                                 </td>
                                 <td class="pe-4 text-end">
-                                    <a href="operator_edit.php?id=<?= $op['id'] ?>" class="btn btn-sm btn-light border rounded-pill px-3 text-primary fw-semibold">
+                                    <a href="admin_edit.php?id=<?= $op['id'] ?>" class="btn btn-sm btn-light border rounded-pill px-3 text-primary fw-semibold">
                                         <i class="fa-solid fa-pen-to-square me-1"></i> Edit
                                     </a>
                                 </td>

@@ -11,7 +11,7 @@ $client_id = (int)$_SESSION['operator_id'];
 if (!empty($_SESSION['is_manager'])) {
     $actor_name = $_SESSION['manager_name'] ?? 'Manager';
 } else {
-    $actor_name = $_SESSION['operator_name'] ?? 'Operator';
+    $actor_name = $_SESSION['operator_name'] ?? 'Admin';
 }
 
 // -------------------------------------------------------------

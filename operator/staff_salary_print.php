@@ -35,7 +35,7 @@ $staff = null;
 $roleTitle = 'Staff Member';
 
 if ($staff_type === 'recoveryman') {
-    $roleTitle = 'Recovery Officer';
+    $roleTitle = 'Operator';
     $sStmt = $pdo->prepare("SELECT * FROM recovery_men WHERE id = ? AND client_id = ?");
     $sStmt->execute([$staff_id, $client_id]);
     $staff = $sStmt->fetch(PDO::FETCH_ASSOC);

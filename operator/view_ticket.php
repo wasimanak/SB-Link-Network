@@ -55,7 +55,7 @@ $messages = $msgs->fetchAll();
             <?php else: ?>
                 <div class="d-flex mb-4 justify-content-end">
                     <div class="bg-primary p-3 rounded-4 shadow-sm text-white" style="max-width: 75%; border-top-right-radius: 0;">
-                        <div class="fw-bold text-white-50 small mb-1">Operator <span class="text-light fw-normal ms-2" style="font-size: 0.7rem;"><?= date('d M, h:i A', strtotime($m['created_at'])) ?></span></div>
+                        <div class="fw-bold text-white-50 small mb-1">Admin <span class="text-light fw-normal ms-2" style="font-size: 0.7rem;"><?= date('d M, h:i A', strtotime($m['created_at'])) ?></span></div>
                         <div style="white-space: pre-wrap;"><?= htmlspecialchars($m['message']) ?></div>
                     </div>
                 </div>
