@@ -550,7 +550,16 @@ if (strtolower($user['status'] ?? '') === 'disabled') {
                         </a>
                     <?php endif; ?>
                 </li>
-                <li><i class="fa-solid fa-calendar-alt"></i> <?= $user['expiry_date'] ? date('Y-m-d H:i:s', strtotime($user['expiry_date'])) : 'N/A' ?></li>
+                <li>
+                    <i class="fa-solid fa-calendar-plus text-primary"></i> 
+                    <span class="text-muted small me-1">Created:</span> 
+                    <span class="fw-semibold text-dark"><?= !empty($user['created_at']) ? date('d M Y, h:i A', strtotime($user['created_at'])) : 'N/A' ?></span>
+                </li>
+                <li>
+                    <i class="fa-solid fa-calendar-xmark text-danger"></i> 
+                    <span class="text-muted small me-1">Expiry:</span> 
+                    <span class="fw-semibold text-dark"><?= !empty($user['expiry_date']) ? date('d M Y, h:i A', strtotime($user['expiry_date'])) : 'N/A' ?></span>
+                </li>
             </ul>
             <div class="action-grid">
                 <!-- Modals Triggers -->
@@ -716,6 +725,7 @@ if (strtolower($user['status'] ?? '') === 'disabled') {
                                 <tr><td class="fw-bold">Connection Type</td><td>Radius <?= strtoupper($user['service_type']) ?></td></tr>
                                 <tr><td class="fw-bold">Package</td><td><?= htmlspecialchars($user['pkg_name'] ?? 'N/A') ?></td></tr>
                                 <tr><td class="fw-bold">Package Duration</td><td><?= $user['validity_days'] ? $user['validity_days'] . ' Days' : 'N/A' ?></td></tr>
+                                <tr><td class="fw-bold">Created / Registered Date</td><td><?= !empty($user['created_at']) ? date('d M Y H:i:s', strtotime($user['created_at'])) : 'N/A' ?></td></tr>
                                 <tr><td class="fw-bold">Last Expiration Date</td><td><?= $user['expiry_date'] ? date('d M Y H:i:s', strtotime($user['expiry_date'])) : 'N/A' ?></td></tr>
                                 <tr><td class="fw-bold">Total Volume</td><td><?= $total_vol_str ?></td></tr>
                                 <tr><td class="fw-bold">Used Volume</td><td id="svc_used_volume"><?= $used_volume_str ?></td></tr>
@@ -934,6 +944,10 @@ if (strtolower($user['status'] ?? '') === 'disabled') {
                         <div class="col-md-6 mb-3">
                             <label class="col-form-label">Custom Expiry</label>
                             <input type="datetime-local" name="expiry_date" class="form-control" value="<?= $user['expiry_date'] ? date('Y-m-d\TH:i', strtotime($user['expiry_date'])) : '' ?>">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="col-form-label text-muted"><i class="fa-solid fa-calendar-plus text-primary me-1"></i> Registration Date (Created)</label>
+                            <input type="text" class="form-control bg-light" value="<?= !empty($user['created_at']) ? date('d M Y, h:i A', strtotime($user['created_at'])) : 'N/A' ?>" readonly disabled>
                         </div>
                     </div>
                 </div>
