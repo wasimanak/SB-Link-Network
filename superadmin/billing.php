@@ -14,7 +14,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $pdo->beginTransaction();
             $pdo->prepare("UPDATE clients SET balance = balance + ? WHERE id = ?")->execute([$amount, $client_id]);
             $pdo->commit();
-            $success = "Balance of Rs " . number_format($amount, 0) . " successfully added to operator wallet.";
+            $success = "Balance of Rs " . number_format($amount, 0) . " successfully added to admin wallet.";
         } catch (Exception $e) {
             $pdo->rollBack();
             $error = "Error adding balance: " . htmlspecialchars($e->getMessage());
@@ -226,8 +226,8 @@ foreach ($operators as $op) {
                 <a href="dashboard.php" class="btn btn-outline-secondary rounded-pill px-3 py-2 fw-semibold">
                     <i class="fa-solid fa-arrow-left me-1"></i> Dashboard
                 </a>
-                <a href="operators.php" class="btn btn-primary rounded-pill px-4 py-2 fw-bold shadow-sm">
-                    <i class="fa-solid fa-users me-1"></i> View Operators
+                <a href="admins.php" class="btn btn-primary rounded-pill px-4 py-2 fw-bold shadow-sm">
+                    <i class="fa-solid fa-users me-1"></i> View Admins
                 </a>
             </div>
         </div>
@@ -242,7 +242,7 @@ foreach ($operators as $op) {
                     <i class="fa-solid fa-wallet"></i>
                 </div>
                 <div>
-                    <div class="stat-pill-lbl">Total Operator Balances</div>
+                    <div class="stat-pill-lbl">Total Admin Balances</div>
                     <div class="stat-pill-val">Rs <?= number_format($totalBalanceHeld, 0) ?></div>
                     <div class="text-success small fw-semibold" style="font-size: 0.74rem;"><i class="fa-solid fa-circle-check"></i> Aggregate Pre-paid Funds</div>
                 </div>
@@ -303,7 +303,7 @@ foreach ($operators as $op) {
                 <span class="visually-hidden">Loading...</span>
             </div>
             <h6 class="fw-bold text-dark mb-1">Loading Tenant Balances...</h6>
-            <div class="text-muted small">Synchronizing operator wallets and renewal cycles</div>
+            <div class="text-muted small">Synchronizing admin wallets and renewal cycles</div>
         </div>
 
         <!-- Hidden Table Container until DataTables initComplete -->
@@ -402,7 +402,7 @@ foreach ($operators as $op) {
                                             </div>
 
                                             <div class="alert alert-light border small text-muted mb-0">
-                                                <i class="fa-solid fa-circle-info text-success me-1"></i> The credited balance will be available immediately for this operator to activate subscribers and packages.
+                                                <i class="fa-solid fa-circle-info text-success me-1"></i> The credited balance will be available immediately for this admin to activate subscribers and packages.
                                             </div>
                                         </div>
                                         <div class="modal-footer d-flex justify-content-between">
@@ -445,7 +445,7 @@ $(document).ready(function() {
         responsive: true,
         language: {
             search: "_INPUT_",
-            searchPlaceholder: "Search operator company, id...",
+            searchPlaceholder: "Search admin company, id...",
             lengthMenu: "Show _MENU_ entries"
         },
         initComplete: function() {

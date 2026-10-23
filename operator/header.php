@@ -76,16 +76,16 @@ $open_tickets = $pdo->query("SELECT COUNT(*) FROM support_tickets WHERE client_i
 $total_pending_requests = $pending_pkgs + $pending_funds + $open_tickets;
 
 // Display name and avatar for bottom profile strip (UrAsool Design)
-$displayName = !empty($_SESSION['manager_name']) ? $_SESSION['manager_name'] : (!empty($_SESSION['operator_name']) ? $_SESSION['operator_name'] : ($tenant['company_name'] ?? 'Operator'));
+$displayName = !empty($_SESSION['manager_name']) ? $_SESSION['manager_name'] : (!empty($_SESSION['operator_name']) ? $_SESSION['operator_name'] : ($tenant['company_name'] ?? 'Admin'));
 $avatarInitial = strtoupper(substr(trim($displayName), 0, 1) ?: 'A');
-$userRoleLabel = !empty($_SESSION['is_manager']) ? 'MANAGER' : 'OPERATOR';
+$userRoleLabel = !empty($_SESSION['is_manager']) ? 'MANAGER' : 'ADMIN';
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <meta charset="UTF-8">
-    <title><?= BRAND_NAME ?> - Operator Portal</title>
+    <title><?= BRAND_NAME ?> - Admin Portal</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
@@ -475,7 +475,7 @@ $userRoleLabel = !empty($_SESSION['is_manager']) ? 'MANAGER' : 'OPERATOR';
                 <div class="sidebar-logo-title" title="<?= htmlspecialchars($tenant['company_name']) ?>">
                     <?= htmlspecialchars($tenant['company_name']) ?>
                 </div>
-                <div class="sidebar-logo-sub"><?= BRAND_SHORT_NAME ?> OPERATOR</div>
+                <div class="sidebar-logo-sub"><?= BRAND_SHORT_NAME ?> ADMIN</div>
             </div>
         </div>
 
@@ -518,15 +518,15 @@ $userRoleLabel = !empty($_SESSION['is_manager']) ? 'MANAGER' : 'OPERATOR';
                 <span class="nav-text">Dealers Profile</span>
             </a>
 
-            <!-- 5. Recovery Officer & Staff -->
+            <!-- 5. Operators & Staff -->
             <a href="#recoveryMenu" data-bs-toggle="collapse" class="nav-item-link has-submenu <?= $isTeamMenu ? 'active-parent' : 'collapsed' ?>" aria-expanded="<?= $isTeamMenu ? 'true' : 'false' ?>">
                 <i class="fa-solid fa-user-shield nav-icon"></i>
-                <span class="nav-text">Recovery Officer</span>
+                <span class="nav-text">Operators</span>
                 <i class="fa-solid fa-chevron-down nav-chevron"></i>
             </a>
             <div class="collapse <?= $isTeamMenu ? 'show' : '' ?>" id="recoveryMenu">
                 <ul class="submenu-tree">
-                    <li class="submenu-tree-item"><a href="recovery_man" class="<?= in_array($p, ['recovery_man.php', 'recovery_man', 'recoveryman_profile.php', 'recoveryman_profile']) ? 'active' : '' ?>">Recovery Officer</a></li>
+                    <li class="submenu-tree-item"><a href="recovery_man" class="<?= in_array($p, ['recovery_man.php', 'recovery_man', 'recoveryman_profile.php', 'recoveryman_profile']) ? 'active' : '' ?>">Operators</a></li>
                     <li class="submenu-tree-item"><a href="line_man" class="<?= in_array($p, ['line_man.php', 'line_man', 'lineman_profile.php', 'lineman_profile']) ? 'active' : '' ?>">Line Man (Staff)</a></li>
                     <?php if (empty($_SESSION['is_manager'])): ?>
                     <li class="submenu-tree-item"><a href="managers" class="<?= in_array($p, ['managers.php', 'managers', 'manager_view.php', 'manager_view']) ? 'active' : '' ?>">Managers</a></li>

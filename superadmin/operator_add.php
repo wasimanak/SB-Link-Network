@@ -34,7 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             require_once '../config/mikrotik_sync_helper.php';
             init_operator_network_defaults($pdo, $new_client_id);
 
-            $success = "Operator added successfully! Network defaults initialized.";
+            $success = "Admin added successfully! Network defaults initialized.";
         } catch (Exception $e) {
             $error = "Database Error: " . $e->getMessage();
         }
@@ -43,12 +43,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 ?>
 
 <div class="mb-3">
-    <a href="operators.php" class="btn btn-secondary"><i class="fa-solid fa-arrow-left"></i> Back</a>
+    <a href="admins.php" class="btn btn-secondary"><i class="fa-solid fa-arrow-left"></i> Back</a>
 </div>
 
 <div class="card shadow-sm w-75">
     <div class="card-header">
-        <h5 class="mb-0">Add New Operator</h5>
+        <h5 class="mb-0">Add New Admin</h5>
     </div>
     <div class="card-body">
         <?php if($error): ?><div class="alert alert-danger"><?= htmlspecialchars($error) ?></div><?php endif; ?>
@@ -89,7 +89,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <input type="date" name="expiry_date" class="form-control">
                 </div>
             </div>
-            <button type="submit" class="btn btn-primary"><i class="fa-solid fa-save"></i> Save Operator</button>
+            <button type="submit" class="btn btn-primary"><i class="fa-solid fa-save"></i> Save Admin</button>
         </form>
     </div>
 </div>

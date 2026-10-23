@@ -406,7 +406,7 @@ $total_subs_count = (int)$pdo->query("SELECT COUNT(*) FROM subscribers WHERE sta
                                     <span class="tech-pill"><i class="fa-solid fa-globe text-primary me-1"></i><?= htmlspecialchars($nas_ip) ?></span>
                                 </div>
                                 <div class="small text-muted mt-1">
-                                    <i class="fa-solid fa-building text-secondary me-1"></i> <strong><?= htmlspecialchars($router['operator_name'] ?: 'All Operators / Direct Network') ?></strong>
+                                    <i class="fa-solid fa-building text-secondary me-1"></i> <strong><?= htmlspecialchars($router['operator_name'] ?: 'All Admins / Direct Network') ?></strong>
                                     <?php if(!empty($router['api_port'])): ?>
                                         <span class="ms-2 text-secondary">• Port: <?= htmlspecialchars($router['api_port']) ?></span>
                                     <?php endif; ?>

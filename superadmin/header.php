@@ -17,7 +17,7 @@ try {
 } catch (Exception $e) {}
 
 // Menu Active States
-$isOpMenu = strpos($page, 'operator') !== false || in_array($page, ['global_users.php', 'global_users']);
+$isOpMenu = strpos($page, 'operator') !== false || strpos($page, 'admin') !== false || in_array($page, ['global_users.php', 'global_users', 'admins', 'admin_add', 'admin_edit']);
 $isRouterMenu = strpos($page, 'router') !== false || in_array($page, ['live_routers.php', 'live_routers']);
 ?>
 <!DOCTYPE html>
@@ -435,16 +435,16 @@ $isRouterMenu = strpos($page, 'router') !== false || in_array($page, ['live_rout
                 <span class="nav-text">Dashboard</span>
             </a>
 
-            <!-- 2. Operators (ISPs) -->
+            <!-- 2. Admins (ISPs) -->
             <a href="#operatorsMenu" data-bs-toggle="collapse" class="nav-item-link has-submenu <?= $isOpMenu ? 'active-parent' : 'collapsed' ?>" aria-expanded="<?= $isOpMenu ? 'true' : 'false' ?>">
                 <i class="fa-solid fa-users-gear nav-icon"></i>
-                <span class="nav-text">Operators (ISPs)</span>
+                <span class="nav-text">Admins (ISPs)</span>
                 <i class="fa-solid fa-chevron-down nav-chevron"></i>
             </a>
             <div class="collapse <?= $isOpMenu ? 'show' : '' ?>" id="operatorsMenu">
                 <ul class="submenu-tree">
-                    <li class="submenu-tree-item"><a href="operators" class="<?= in_array($page, ['operators.php', 'operators', 'operator_edit.php']) ? 'active' : '' ?>">All Operators</a></li>
-                    <li class="submenu-tree-item"><a href="operator_add" class="<?= in_array($page, ['operator_add.php', 'operator_add']) ? 'active' : '' ?>">Add Operator</a></li>
+                    <li class="submenu-tree-item"><a href="admins" class="<?= in_array($page, ['operators.php', 'operators', 'operator_edit.php', 'admins.php', 'admins', 'admin_edit.php', 'admin_edit']) ? 'active' : '' ?>">All Admins</a></li>
+                    <li class="submenu-tree-item"><a href="admin_add" class="<?= in_array($page, ['operator_add.php', 'operator_add', 'admin_add.php', 'admin_add']) ? 'active' : '' ?>">Add Admin</a></li>
                     <li class="submenu-tree-item"><a href="global_users" class="<?= in_array($page, ['global_users.php', 'global_users']) ? 'active' : '' ?>">Global Users</a></li>
                 </ul>
             </div>

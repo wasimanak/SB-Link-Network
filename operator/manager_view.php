@@ -291,9 +291,9 @@ foreach ($activities as $act) {
             <div class="perm-card d-flex justify-content-between align-items-center">
                 <div>
                     <h6 class="fw-bold mb-1 text-dark">
-                        <i class="fa-solid fa-hand-holding-dollar text-warning me-2"></i> Recovery Man Cash Collection
+                        <i class="fa-solid fa-hand-holding-dollar text-warning me-2"></i> Operator Cash Collection
                     </h6>
-                    <p class="text-muted small mb-0">Allow manager to receive and collect cash in hand from field Recovery Men.</p>
+                    <p class="text-muted small mb-0">Allow manager to receive and collect cash in hand from field Operators.</p>
                 </div>
                 <form method="POST" class="ms-3 flex-shrink-0">
                     <input type="hidden" name="action" value="toggle_permission">

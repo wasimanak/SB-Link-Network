@@ -17,11 +17,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['client_id'])) {
         $_SESSION['operator_id'] = $client['id'];
         $_SESSION['operator_company'] = $client['company_name'];
         
-        // Normally redirect to the operator portal index, here we just show a mock message
-        die("<h3>Impersonating Operator: " . htmlspecialchars($client['company_name']) . "</h3>
-             <p>Session started. Redirecting to Operator Portal...</p>
-             <p><a href='operators.php'>Go Back to Super Admin</a></p>");
+        // Normally redirect to the admin portal index, here we just show a mock message
+        die("<h3>Impersonating Admin: " . htmlspecialchars($client['company_name']) . "</h3>
+             <p>Session started. Redirecting to Admin Portal...</p>
+             <p><a href='admins.php'>Go Back to Super Admin</a></p>");
     }
 }
-header("Location: operators.php");
+header("Location: admins.php");
 exit;

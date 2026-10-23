@@ -18,7 +18,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $api_password = trim($_POST['api_password'] ?? '');
 
     if (empty($client_id) || empty($nasname) || empty($secret)) {
-        $error = "Operator, NAS IP, and RADIUS Secret are required.";
+        $error = "Admin, NAS IP, and RADIUS Secret are required.";
     } else {
         try {
             $stmt = $pdo->prepare("INSERT INTO nas (client_id, nasname, shortname, secret, api_port, api_user, api_password) VALUES (:cid, :nas, :short, :sec, :apip, :apiu, :apipass)");
@@ -39,7 +39,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 sync_operator_mikrotik_pools($pdo, $client_id);
             }
 
-            $success = "Router successfully mapped to Operator! Pools and WANs auto-synchronized.";
+            $success = "Router successfully mapped to Admin! Pools and WANs auto-synchronized.";
         } catch (PDOException $e) {
             $error = "Database Error: " . $e->getMessage();
         }
@@ -69,9 +69,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <form method="POST">
             <div class="row mb-3">
                 <div class="col-md-12">
-                    <label class="form-label">Assign to Operator</label>
+                    <label class="form-label">Assign to Admin</label>
                     <select name="client_id" class="form-select" required>
-                        <option value="">-- Select Operator --</option>
+                        <option value="">-- Select Admin --</option>
                         <?php foreach($clients as $c): ?>
                             <option value="<?= $c['id'] ?>"><?= htmlspecialchars($c['company_name']) ?></option>
                         <?php endforeach; ?>

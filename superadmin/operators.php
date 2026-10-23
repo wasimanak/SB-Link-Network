@@ -65,10 +65,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->execute(['id' => $delId]);
 
             $pdo->commit();
-            $flashMsg = "<div class='alert alert-success border-0 shadow-sm rounded-4 mb-4 d-flex align-items-center gap-2'><i class='fa-solid fa-circle-check fs-5'></i> <div>Operator and all associated records (Subscribers, RADIUS data, Routers, Dealers) deleted successfully.</div></div>";
+            $flashMsg = "<div class='alert alert-success border-0 shadow-sm rounded-4 mb-4 d-flex align-items-center gap-2'><i class='fa-solid fa-circle-check fs-5'></i> <div>Admin and all associated records (Subscribers, RADIUS data, Routers, Dealers) deleted successfully.</div></div>";
         } catch (Exception $e) {
             $pdo->rollBack();
-            $flashMsg = "<div class='alert alert-danger border-0 shadow-sm rounded-4 mb-4 d-flex align-items-center gap-2'><i class='fa-solid fa-circle-exclamation fs-5'></i> <div>Error deleting operator: " . htmlspecialchars($e->getMessage()) . "</div></div>";
+            $flashMsg = "<div class='alert alert-danger border-0 shadow-sm rounded-4 mb-4 d-flex align-items-center gap-2'><i class='fa-solid fa-circle-exclamation fs-5'></i> <div>Error deleting admin: " . htmlspecialchars($e->getMessage()) . "</div></div>";
         }
     }
 
@@ -91,7 +91,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute = 'Auth-Type'")->execute([$u]);
                     $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Auth-Type', ':=', 'Reject')")->execute([$u]);
                 }
-                $flashMsg = "<div class='alert alert-warning border-0 shadow-sm rounded-4 mb-4 d-flex align-items-center gap-2'><i class='fa-solid fa-triangle-exclamation fs-5'></i> <div>Operator suspended. All user authentications and sub-portals are now blocked.</div></div>";
+                $flashMsg = "<div class='alert alert-warning border-0 shadow-sm rounded-4 mb-4 d-flex align-items-center gap-2'><i class='fa-solid fa-triangle-exclamation fs-5'></i> <div>Admin suspended. All user authentications and sub-portals are now blocked.</div></div>";
             } else {
                 // Unblock users in RADIUS (except individually disabled)
                 $subs = $pdo->prepare("SELECT username FROM subscribers WHERE client_id = ? AND status != 'disabled'");
@@ -100,7 +100,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $u = $sub['username'];
                     $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute = 'Auth-Type' AND value = 'Reject'")->execute([$u]);
                 }
-                $flashMsg = "<div class='alert alert-success border-0 shadow-sm rounded-4 mb-4 d-flex align-items-center gap-2'><i class='fa-solid fa-circle-check fs-5'></i> <div>Operator activated. Sub-portals and active subscribers restored.</div></div>";
+                $flashMsg = "<div class='alert alert-success border-0 shadow-sm rounded-4 mb-4 d-flex align-items-center gap-2'><i class='fa-solid fa-circle-check fs-5'></i> <div>Admin activated. Sub-portals and active subscribers restored.</div></div>";
             }
             
             $pdo->commit();
@@ -115,7 +115,7 @@ try {
     $stmt = $pdo->query("SELECT * FROM clients ORDER BY id DESC");
     $operators = $stmt->fetchAll();
 } catch (PDOException $e) {
-    die("<div class='alert alert-danger m-4'>Error loading operators.</div>");
+    die("<div class='alert alert-danger m-4'>Error loading admins.</div>");
 }
 
 // Compute metrics
@@ -325,15 +325,15 @@ foreach ($operators as $op) {
                 <div class="d-inline-flex align-items-center gap-2 text-primary fw-bold text-uppercase mb-1" style="font-size: 0.75rem; letter-spacing: 0.5px;">
                     <i class="fa-solid fa-users-gear"></i> Multi-Tenant Administration
                 </div>
-                <h3 class="fw-bold text-dark mb-1">Manage Operators (ISPs)</h3>
+                <h3 class="fw-bold text-dark mb-1">Manage Admins (ISPs)</h3>
                 <p class="text-muted small mb-0">Configure tenant portals, manage system limits, toggle service suspension, or log in directly to tenant portals.</p>
             </div>
             <div class="d-flex gap-2">
                 <a href="dashboard.php" class="btn btn-outline-secondary rounded-pill px-3 py-2 fw-semibold">
                     <i class="fa-solid fa-arrow-left me-1"></i> Dashboard
                 </a>
-                <a href="operator_add.php" class="btn btn-primary rounded-pill px-4 py-2 fw-bold shadow-sm">
-                    <i class="fa-solid fa-plus me-1"></i> Add New Operator
+                <a href="admin_add.php" class="btn btn-primary rounded-pill px-4 py-2 fw-bold shadow-sm">
+                    <i class="fa-solid fa-plus me-1"></i> Add New Admin
                 </a>
             </div>
         </div>
@@ -348,7 +348,7 @@ foreach ($operators as $op) {
                     <i class="fa-solid fa-building-user"></i>
                 </div>
                 <div>
-                    <div class="stat-pill-lbl">Total Operators</div>
+                    <div class="stat-pill-lbl">Total Admins</div>
                     <div class="stat-pill-val"><?= number_format($totalOps) ?></div>
                     <div class="text-muted small" style="font-size: 0.74rem;">Active & registered tenants</div>
                 </div>
@@ -401,7 +401,7 @@ foreach ($operators as $op) {
     <!-- Filter Pills Row -->
     <div class="d-flex align-items-center gap-2 mb-3 overflow-x-auto pb-1">
         <button type="button" class="filter-pill-btn active" onclick="filterOperators('all', this)">
-            <span>All Operators</span>
+            <span>All Admins</span>
             <span class="badge-count"><?= $totalOps ?></span>
         </button>
         <button type="button" class="filter-pill-btn" onclick="filterOperators('active', this)">
@@ -422,7 +422,7 @@ foreach ($operators as $op) {
             <div class="spinner-border text-primary mb-3" style="width: 2.75rem; height: 2.75rem;" role="status">
                 <span class="visually-hidden">Loading...</span>
             </div>
-            <h6 class="fw-bold text-dark mb-1">Loading Operators Directory...</h6>
+            <h6 class="fw-bold text-dark mb-1">Loading Admins Directory...</h6>
             <div class="text-muted small">Synchronizing tenant records and service quotas</div>
         </div>
 
@@ -432,7 +432,7 @@ foreach ($operators as $op) {
                 <table class="modern-table" id="operatorsTable">
                     <thead>
                         <tr>
-                            <th class="ps-4">Operator / Tenant</th>
+                            <th class="ps-4">Admin / Tenant</th>
                             <th>Contact & Email</th>
                             <th>Status</th>
                             <th>Service Limits</th>
@@ -510,18 +510,18 @@ foreach ($operators as $op) {
                                     <!-- Impersonate Form -->
                                     <form method="POST" action="impersonate.php" class="d-inline m-0">
                                         <input type="hidden" name="client_id" value="<?= $op['id'] ?>">
-                                        <button type="submit" class="btn-action-icon btn-action-impersonate" title="Login as Operator (Impersonate)">
+                                        <button type="submit" class="btn-action-icon btn-action-impersonate" title="Login as Admin (Impersonate)">
                                             <i class="fa-solid fa-user-secret"></i>
                                         </button>
                                     </form>
 
                                     <!-- Edit Button -->
-                                    <a href="operator_edit.php?id=<?= $op['id'] ?>" class="btn-action-icon btn-action-edit" title="Edit Operator Profile">
+                                    <a href="admin_edit.php?id=<?= $op['id'] ?>" class="btn-action-icon btn-action-edit" title="Edit Admin Profile">
                                         <i class="fa-solid fa-pen"></i>
                                     </a>
 
                                     <!-- Toggle Status Form -->
-                                    <form method="POST" class="d-inline m-0" onsubmit="return confirm('Change status for this operator? This will toggle login and RADIUS access.');">
+                                    <form method="POST" class="d-inline m-0" onsubmit="return confirm('Change status for this admin? This will toggle login and RADIUS access.');">
                                         <input type="hidden" name="toggle_status_id" value="<?= $op['id'] ?>">
                                         <input type="hidden" name="new_status" value="<?= $status === 'active' ? 'suspended' : 'active' ?>">
                                         <button type="submit" class="btn-action-icon btn-action-power" title="Toggle Active / Suspended">
@@ -532,7 +532,7 @@ foreach ($operators as $op) {
                                     <!-- Delete Form -->
                                     <form method="POST" class="d-inline m-0" onsubmit="return confirm('DANGER: Are you sure you want to delete <?= htmlspecialchars($op['company_name']) ?>? All associated subscribers, routers, and data will be permanently purged!');">
                                         <input type="hidden" name="delete_id" value="<?= $op['id'] ?>">
-                                        <button type="submit" class="btn-action-icon btn-action-delete" title="Delete Operator">
+                                        <button type="submit" class="btn-action-icon btn-action-delete" title="Delete Admin">
                                             <i class="fa-solid fa-trash"></i>
                                         </button>
                                     </form>
@@ -566,7 +566,7 @@ $(document).ready(function() {
         responsive: true,
         language: {
             search: "_INPUT_",
-            searchPlaceholder: "Search operators, email, id...",
+            searchPlaceholder: "Search admins, email, id...",
             lengthMenu: "Show _MENU_ entries"
         },
         initComplete: function() {

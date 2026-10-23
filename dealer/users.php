@@ -621,7 +621,7 @@ $subs = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     <label class="form-label text-muted small fw-bold">Select Router / City <span class="text-danger">*</span></label>
                     <select name="router_nasname" class="form-select bg-white shadow-none" required>
                         <?php if(empty($dealer_routers)): ?>
-                            <option value="">No Routers Assigned (Contact Operator)</option>
+                            <option value="">No Routers Assigned (Contact Admin)</option>
                         <?php else: ?>
                             <?php foreach($dealer_routers as $r): ?>
                                 <option value="<?= $r['nasname'] ?>"><?= htmlspecialchars($r['shortname'] ?: 'Router') ?> (<?= $r['nasname'] ?>)</option>
@@ -683,7 +683,7 @@ $subs = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 <label class="form-label">Select Router / City <span class="text-danger">*</span></label>
                 <select name="router_nasname" class="form-select" required>
                     <?php if(empty($dealer_routers)): ?>
-                        <option value="">No Routers Assigned (Contact Operator)</option>
+                        <option value="">No Routers Assigned (Contact Admin)</option>
                     <?php else: ?>
                         <?php foreach($dealer_routers as $r): ?>
                             <option value="<?= $r['nasname'] ?>"><?= htmlspecialchars($r['shortname'] ?: 'Router') ?> (<?= $r['nasname'] ?>)</option>

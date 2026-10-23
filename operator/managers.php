@@ -518,10 +518,10 @@ foreach ($managers as $m) {
                         
                         <div class="col-12"><hr class="my-2 text-muted opacity-25"></div>
 
-                        <!-- Permissions Controlled by Operator -->
+                        <!-- Permissions Controlled by Admin -->
                         <div class="col-12">
-                            <h6 class="fw-bold text-dark mb-2"><i class="fa-solid fa-key text-warning me-1"></i> Operator-Controlled Permissions</h6>
-                            <p class="text-muted small mb-3">By default, Manager cannot edit/create packages or collect cash from Recovery Men unless explicitly granted below.</p>
+                            <h6 class="fw-bold text-dark mb-2"><i class="fa-solid fa-key text-warning me-1"></i> Admin-Controlled Permissions</h6>
+                            <p class="text-muted small mb-3">By default, Manager cannot edit/create packages or collect cash from Operators unless explicitly granted below.</p>
                             
                             <div class="p-3 bg-light rounded-3 border mb-3">
                                 <div class="form-check form-switch mb-2">
@@ -537,9 +537,9 @@ foreach ($managers as $m) {
                                 <div class="form-check form-switch">
                                     <input class="form-check-input" type="checkbox" role="switch" id="add_can_collect_recovery" name="can_collect_recovery">
                                     <label class="form-check-label fw-bold text-dark" for="add_can_collect_recovery">
-                                        Allow Cash Collection from Recovery Men
+                                        Allow Cash Collection from Operators
                                     </label>
-                                    <div class="text-muted small">Enables manager to collect and receive cash in hand from Recovery Men.</div>
+                                    <div class="text-muted small">Enables manager to collect and receive cash in hand from Operators.</div>
                                 </div>
                             </div>
                         </div>
@@ -608,9 +608,9 @@ foreach ($managers as $m) {
 
                         <div class="col-12"><hr class="my-2 text-muted opacity-25"></div>
 
-                        <!-- Permissions Controlled by Operator -->
+                        <!-- Permissions Controlled by Admin -->
                         <div class="col-12">
-                            <h6 class="fw-bold text-dark mb-2"><i class="fa-solid fa-key text-warning me-1"></i> Operator-Controlled Permissions</h6>
+                            <h6 class="fw-bold text-dark mb-2"><i class="fa-solid fa-key text-warning me-1"></i> Admin-Controlled Permissions</h6>
                             
                             <div class="p-3 bg-light rounded-3 border mb-3">
                                 <div class="form-check form-switch mb-2">
@@ -626,9 +626,9 @@ foreach ($managers as $m) {
                                 <div class="form-check form-switch">
                                     <input class="form-check-input" type="checkbox" role="switch" id="edit_can_collect_recovery" name="can_collect_recovery">
                                     <label class="form-check-label fw-bold text-dark" for="edit_can_collect_recovery">
-                                        Allow Cash Collection from Recovery Men
+                                        Allow Cash Collection from Operators
                                     </label>
-                                    <div class="text-muted small">Enables manager to collect and receive cash in hand from Recovery Men.</div>
+                                    <div class="text-muted small">Enables manager to collect and receive cash in hand from Operators.</div>
                                 </div>
                             </div>
                         </div>

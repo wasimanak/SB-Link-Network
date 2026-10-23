@@ -286,7 +286,7 @@ $operatorCount = count($distinctOperators);
                     <thead>
                         <tr>
                             <th class="ps-4">Router Name</th>
-                            <th>Operator / Tenant</th>
+                            <th>Admin / Tenant</th>
                             <th>NAS IP Address</th>
                             <th>RADIUS Secret</th>
                             <th>API Port</th>
@@ -381,7 +381,7 @@ $(document).ready(function() {
         responsive: true,
         language: {
             search: "_INPUT_",
-            searchPlaceholder: "Search routers, IP, operator...",
+            searchPlaceholder: "Search routers, IP, admin...",
             lengthMenu: "Show _MENU_ entries"
         },
         initComplete: function() {

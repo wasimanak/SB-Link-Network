@@ -241,7 +241,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // Check Package Management permission for restricted actions
     if (in_array($action, ['create', 'edit', 'delete', 'shift_wan_quick']) && !$can_manage_packages) {
-        $flash_msg = "Permission Denied: You do not have permission from the Operator to create, edit, or delete packages.";
+        $flash_msg = "Permission Denied: You do not have permission from the Admin to create, edit, or delete packages.";
         $flash_type = 'danger';
     }
     // A. CREATE OR EDIT PACKAGE
@@ -856,7 +856,7 @@ try {
                                     </button>
                                 </form>
                                 <?php else: ?>
-                                <span class="badge bg-secondary-subtle text-secondary border px-2 py-1 rounded-pill small" title="Editing locked by Operator">
+                                <span class="badge bg-secondary-subtle text-secondary border px-2 py-1 rounded-pill small" title="Editing locked by Admin">
                                     <i class="fa-solid fa-lock me-1"></i> Read-Only
                                 </span>
                                 <?php endif; ?>

@@ -32,8 +32,8 @@ if ($is_blocked) {
         $error = 'Please fill in all fields.';
     } else {
         try {
-            if ($role === 'operator') {
-                // Operator uses email or company name
+            if ($role === 'operator' || $role === 'admin') {
+                // Admin (formerly Operator) uses email or company name
                 $stmt = $pdo->prepare("SELECT * FROM clients WHERE email = ? OR company_name = ? LIMIT 1");
                 $stmt->execute([$identifier, $identifier]);
                 $client = $stmt->fetch();
@@ -57,12 +57,12 @@ if ($is_blocked) {
                         $_SESSION['operator_company'] = $client['company_name'];
                         $_SESSION['client_id'] = $client['id'];
 
-                        header("Location: operator/dashboard");
+                        header("Location: admin/dashboard");
                         exit;
                     }
                 } else {
                     record_failed_attempt($pdo, 'staff', $identifier);
-                    $error = 'Invalid Operator Email/Username or Password.';
+                    $error = 'Invalid Admin Email/Username or Password.';
                 }
 
             } elseif ($role === 'dealer') {
@@ -87,7 +87,7 @@ if ($is_blocked) {
                     exit;
                 } else {
                     record_failed_attempt($pdo, 'staff', $identifier);
-                    $error = 'Invalid Dealer credentials, or Operator is inactive/suspended.';
+                    $error = 'Invalid Dealer credentials, or Admin is inactive/suspended.';
                 }
 
             } elseif ($role === 'lineman') {
@@ -106,11 +106,11 @@ if ($is_blocked) {
                     exit;
                 } else {
                     record_failed_attempt($pdo, 'staff', $identifier);
-                    $error = 'Invalid Line Man credentials, or Operator is inactive/suspended.';
+                    $error = 'Invalid Line Man credentials, or Admin is inactive/suspended.';
                 }
 
-            } elseif ($role === 'recoveryman') {
-                // Recoveryman login by unique username
+            } elseif ($role === 'recoveryman' || $role === 'operator_staff') {
+                // Operator (formerly Recoveryman) login by unique username
                 $stmt = $pdo->prepare("SELECT r.*, c.status as op_status FROM recovery_men r JOIN clients c ON r.client_id = c.id WHERE r.username = ? AND r.status = 'active' AND c.status = 'active'");
                 $stmt->execute([$identifier]);
                 $user = $stmt->fetch();
@@ -125,7 +125,7 @@ if ($is_blocked) {
                     exit;
                 } else {
                     record_failed_attempt($pdo, 'staff', $identifier);
-                    $error = 'Invalid Recovery Man credentials, or Operator is inactive/suspended.';
+                    $error = 'Invalid Operator credentials, or Admin is inactive/suspended.';
                 }
 
             } elseif ($role === 'manager') {
@@ -171,11 +171,11 @@ if ($is_blocked) {
 
                     log_staff_activity($pdo, 'Logged in to Manager Portal', 'System', 'Login');
 
-                    header("Location: operator/dashboard");
+                    header("Location: admin/dashboard");
                     exit;
                 } else {
                     record_failed_attempt($pdo, 'staff', $identifier);
-                    $error = 'Invalid Manager credentials, or Operator account is inactive/suspended.';
+                    $error = 'Invalid Manager credentials, or Admin account is inactive/suspended.';
                 }
             } else {
                 $error = 'Invalid role selected.';
@@ -463,7 +463,7 @@ if ($is_blocked) {
                 <div class="role-grid" id="role_selection">
                     <div class="role-card" data-role="operator" onclick="selectRole('operator', 'Email')">
                         <i class="fa-solid fa-user-tie"></i>
-                        <div class="role-name">Operator</div>
+                        <div class="role-name">Admin</div>
                     </div>
                     <div class="role-card" data-role="manager" onclick="selectRole('manager', 'Username')">
                         <i class="fa-solid fa-user-shield"></i>
@@ -475,7 +475,7 @@ if ($is_blocked) {
                     </div>
                     <div class="role-card" data-role="recoveryman" onclick="selectRole('recoveryman', 'Username')">
                         <i class="fa-solid fa-motorcycle"></i>
-                        <div class="role-name">Recovery</div>
+                        <div class="role-name">Operator</div>
                     </div>
                     <div class="role-card" data-role="lineman" onclick="selectRole('lineman', 'Username')">
                         <i class="fa-solid fa-hard-hat"></i>
@@ -555,7 +555,7 @@ if ($is_blocked) {
             
             if(role === 'operator') {
                 btnSubmit.classList.add('btn-operator');
-                subtitle = "OPERATOR LOGIN";
+                subtitle = "ADMIN LOGIN";
             } else if(role === 'manager') {
                 btnSubmit.classList.add('btn-manager');
                 subtitle = "MANAGER LOGIN";
@@ -564,7 +564,7 @@ if ($is_blocked) {
                 subtitle = "DEALER LOGIN";
             } else if(role === 'recoveryman') {
                 btnSubmit.classList.add('btn-recoveryman');
-                subtitle = "RECOVERY LOGIN";
+                subtitle = "OPERATOR LOGIN";
             } else if(role === 'lineman') {
                 btnSubmit.classList.add('btn-lineman');
                 subtitle = "LINE MAN LOGIN";
