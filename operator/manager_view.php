@@ -105,13 +105,29 @@ if (!$mgr) {
     exit;
 }
 
-// Fetch Manager Activity History (retained up to 2 Years / 730 Days)
+// 1. Maintain activity retention:
+// Login activities: strictly 7 days retention
+// All other actions (renewals, billing, edits, financial events): 2 Years (730 days) retention
+try {
+    $pdo->exec("DELETE FROM activity_logs 
+                WHERE (activity LIKE '%Login%' OR activity LIKE '%Logged in%' OR against_role = 'Login') 
+                  AND created_at < NOW() - INTERVAL 7 DAY");
+    $pdo->exec("DELETE FROM activity_logs WHERE created_at < NOW() - INTERVAL 730 DAY");
+} catch (Exception $e) {}
+
+// Fetch Manager Activity History:
+// Login activities: retained for 7 Days only.
+// Administrative, Financial & Audit actions: retained for 2 Years (730 Days).
 $actStmt = $pdo->prepare("
     SELECT * 
     FROM activity_logs 
     WHERE client_id = ? 
       AND (manager_id = ? OR by_user = ? OR by_user = ?)
-      AND created_at >= NOW() - INTERVAL 730 DAY 
+      AND (
+          ((activity LIKE '%Login%' OR activity LIKE '%Logged in%' OR against_role = 'Login') AND created_at >= NOW() - INTERVAL 7 DAY)
+          OR
+          ((activity NOT LIKE '%Login%' AND activity NOT LIKE '%Logged in%' AND (against_role != 'Login' OR against_role IS NULL)) AND created_at >= NOW() - INTERVAL 730 DAY)
+      )
     ORDER BY id DESC
 ");
 $actStmt->execute([$client_id, $manager_id, $mgr['username'], $mgr['full_name']]);
@@ -593,7 +609,7 @@ $unique_subscribers_count = count($unique_subs);
         </div>
     </div>
 
-    <!-- 30-Day Activity Stat Overview -->
+    <!-- Activity & Financial Audit Stat Overview -->
     <div class="row g-3 mb-4">
         <div class="col-6 col-lg-3">
             <div class="mini-stat-card">
@@ -602,7 +618,7 @@ $unique_subscribers_count = count($unique_subs);
                 </div>
                 <div>
                     <div class="fs-4 fw-bold text-dark"><?= $total_acts ?></div>
-                    <div class="text-muted small fw-semibold text-uppercase" style="font-size: 0.72rem;">Total 30-Day Actions</div>
+                    <div class="text-muted small fw-semibold text-uppercase" style="font-size: 0.72rem;">Total Actions (2-Yr Audit)</div>
                 </div>
             </div>
         </div>
@@ -635,7 +651,7 @@ $unique_subscribers_count = count($unique_subs);
                 </div>
                 <div>
                     <div class="fs-4 fw-bold text-dark"><?= $login_count ?></div>
-                    <div class="text-muted small fw-semibold text-uppercase" style="font-size: 0.72rem;">Logins Recorded</div>
+                    <div class="text-muted small fw-semibold text-uppercase" style="font-size: 0.72rem;">Logins (Last 7 Days)</div>
                 </div>
             </div>
         </div>
@@ -847,10 +863,10 @@ $unique_subscribers_count = count($unique_subs);
                     <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
                         <div>
                             <h6 class="fw-bold mb-1 text-dark">
-                                <i class="fa-solid fa-list-check text-primary me-2"></i> Manager Activity Audit Trail (2-Year History)
+                                <i class="fa-solid fa-list-check text-primary me-2"></i> Manager Activity Audit Trail
                             </h6>
                             <div class="text-muted small">
-                                Every action taken by this Manager is permanently timestamped with station IP and target information.
+                                Login activities are preserved for 7 days, and all other administrative &amp; financial actions are retained for 2 years (730 days).
                             </div>
                         </div>
                         <span class="badge bg-light text-dark border px-3 py-2 rounded-pill font-monospace">

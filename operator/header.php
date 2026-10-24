@@ -6,8 +6,11 @@ require_once '../config/manager_helper.php';
 // Ensure Manager schema & triggers are updated
 ensure_manager_schema($pdo);
 
-// Retain all activity and financial audit logs for 2 Years (730 days)
-try { $pdo->exec("DELETE FROM activity_logs WHERE created_at < NOW() - INTERVAL 730 DAY"); } catch (Exception $e) {}
+// Retain login activities for 7 days, and all other audit/financial logs for 2 Years (730 days)
+try { 
+    $pdo->exec("DELETE FROM activity_logs WHERE (activity LIKE '%Login%' OR activity LIKE '%Logged in%' OR against_role = 'Login') AND created_at < NOW() - INTERVAL 7 DAY");
+    $pdo->exec("DELETE FROM activity_logs WHERE created_at < NOW() - INTERVAL 730 DAY"); 
+} catch (Exception $e) {}
 
 
 // Auth Check

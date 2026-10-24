@@ -59,13 +59,17 @@ function run_database_maintenance($pdo, $auth_retention_days = 7, $acct_retentio
         $result['errors'][] = "ghost sessions error: " . $e->getMessage();
     }
 
-    // 4b. Activity Logs Retention (Preserve all user & financial activities for 2 Years / 730 Days)
+    // 4b. Activity Logs Retention:
+    // Login activities: strictly 7 Days retention
+    // Financial & administrative actions: preserved for 2 Years / 730 Days
     // CRITICAL: Financial records (user_ledger, expenses, staff_salary_ledger, invoices)
     // are STRICTLY PRESERVED for at least 2 Years (730 Days) and NEVER touched by ephemeral session cleanup.
     try {
+        $stmtLogin = $pdo->prepare("DELETE FROM activity_logs WHERE (activity LIKE '%Login%' OR activity LIKE '%Logged in%' OR against_role = 'Login') AND created_at < NOW() - INTERVAL 7 DAY");
+        $stmtLogin->execute();
         $stmt = $pdo->prepare("DELETE FROM activity_logs WHERE created_at < NOW() - INTERVAL 730 DAY");
         $stmt->execute();
-        $result['activity_logs_pruned'] = $stmt->rowCount();
+        $result['activity_logs_pruned'] = $stmt->rowCount() + $stmtLogin->rowCount();
     } catch (Exception $e) {}
 
     // 5. Defragment & Optimize Tables (reclaims deleted disk space back to operating system)
