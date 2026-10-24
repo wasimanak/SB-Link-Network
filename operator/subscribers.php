@@ -264,11 +264,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
                     }
 
-                    $pdo->prepare("INSERT INTO subscribers (client_id, dealer_id, package_id, username, password, service_type, full_name, national_id, mobile, phone, email, address, subarea, latitude, longitude, expiry_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-                        ->execute([$client_id, $dealer_id > 0 ? $dealer_id : null, $package_id, $username, $password, $service_type, $full_name, $national_id, $mobile, $phone, $email, $address, $subarea, $latitude, $longitude, $expiry_date]);
+                    $is_expired_default = empty($expiry_date) || (strtotime($expiry_date) <= time());
+                    $status = $is_expired_default ? 'expired' : 'active';
+                    $actual_expiry = !empty($expiry_date) ? $expiry_date : date('Y-m-d H:i:s', time() - 60);
+
+                    $pdo->prepare("INSERT INTO subscribers (client_id, dealer_id, package_id, username, password, service_type, full_name, national_id, mobile, phone, email, address, subarea, latitude, longitude, expiry_date, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                        ->execute([$client_id, $dealer_id > 0 ? $dealer_id : null, $package_id, $username, $password, $service_type, $full_name, $national_id, $mobile, $phone, $email, $address, $subarea, $latitude, $longitude, $actual_expiry, $status]);
                     
                     $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Cleartext-Password', ':=', ?)")
                         ->execute([$username, $password]);
+
+                    if ($status === 'expired') {
+                        $formatted_past_expiry = date('d M Y H:i:s', time() - 60);
+                        $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute IN ('Expiration', 'Auth-Type')")->execute([$username]);
+                        $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Expiration', ':=', ?)")->execute([$username, $formatted_past_expiry]);
+                        $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Auth-Type', ':=', 'Reject')")->execute([$username]);
+                    }
                     
                     if (!empty($pkg['rate_limit']) && $pkg['rate_limit'] !== 'No Limit') {
                         $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Rate-Limit', '=', ?)")
@@ -849,6 +860,14 @@ $count_offline = max(0, $count_all - $count_online);
       <form method="POST" class="needs-validation" novalidate>
         <input type="hidden" name="action" value="add_user">
         <div class="modal-body p-4">
+
+            <!-- Default Expired Status Banner -->
+            <div class="alert alert-warning border border-warning-subtle rounded-3 py-2 px-3 mb-3 d-flex align-items-center gap-2 shadow-sm" style="background-color: #fffbeb;">
+                <i class="fa-solid fa-clock-rotate-left text-warning-emphasis fs-5"></i>
+                <div class="small text-dark">
+                    <strong>Default Status: Expired</strong> — Naya user by default <strong>Expired</strong> state me create hoga. Account create hone ke baad <strong>Activate/Renew</strong> se renew karein ta k package charge ho aur financial ledger record update ho sake.
+                </div>
+            </div>
             
             <div class="add-user-flat-form">
                 
