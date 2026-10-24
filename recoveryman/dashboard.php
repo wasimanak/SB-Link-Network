@@ -275,21 +275,101 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
+// --- HANDLE EDIT SUBSCRIBER PROFILE ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'edit_subscriber') {
+    $sub_id = (int)$_POST['subscriber_id'];
+    $full_name = trim($_POST['full_name'] ?? '');
+    $national_id = trim($_POST['national_id'] ?? '');
+    $password = trim($_POST['password'] ?? '');
+    $mobile = trim($_POST['mobile'] ?? '');
+    $phone = trim($_POST['phone'] ?? '');
+    $email = trim($_POST['email'] ?? '');
+    $subarea = trim($_POST['subarea'] ?? '');
+    $address = trim($_POST['address'] ?? '');
+    $latitude = trim($_POST['latitude'] ?? '');
+    $longitude = trim($_POST['longitude'] ?? '');
+
+    try {
+        // Fetch existing subscriber
+        $subStmt = $pdo->prepare("SELECT id, username, password FROM subscribers WHERE id = ? AND client_id = ?");
+        $subStmt->execute([$sub_id, $client_id]);
+        $sub = $subStmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$sub) {
+            echo "<script>alert('Error: Subscriber not found.'); window.history.back();</script>";
+            exit;
+        }
+
+        $username = $sub['username'];
+        $pdo->beginTransaction();
+
+        // 1. Update subscriber table
+        $upd = $pdo->prepare("
+            UPDATE subscribers SET 
+                full_name = ?,
+                national_id = ?,
+                password = ?,
+                mobile = ?,
+                phone = ?,
+                email = ?,
+                subarea = ?,
+                address = ?,
+                latitude = ?,
+                longitude = ?
+            WHERE id = ? AND client_id = ?
+        ");
+        $upd->execute([
+            $full_name,
+            $national_id,
+            $password,
+            $mobile,
+            $phone,
+            $email,
+            $subarea,
+            $address,
+            $latitude,
+            $longitude,
+            $sub_id,
+            $client_id
+        ]);
+
+        // 2. Sync FreeRADIUS password if changed
+        if (!empty($password)) {
+            $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Cleartext-Password', ':=', ?) ON DUPLICATE KEY UPDATE value = ?")
+                ->execute([$username, $password, $password]);
+        }
+
+        // 3. Activity Log
+        $act_msg = "Updated Profile Details for User: $username (Name: $full_name, Mobile: $mobile, Area: $subarea)";
+        $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, 'RecoveryMan', ?, 'User', ?)")
+            ->execute([$client_id, $rm_name, $username, $act_msg]);
+
+        $pdo->commit();
+        echo "<script>alert('Subscriber profile updated successfully!'); window.location='dashboard.php';</script>";
+        exit;
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        echo "<script>alert('Error: " . addslashes($e->getMessage()) . "'); window.history.back();</script>";
+        exit;
+    }
+}
+
 // Search Logic
 $search_results = [];
 if (isset($_GET['search_query']) && !empty(trim($_GET['search_query']))) {
     $search = trim($_GET['search_query']);
     $sStmt = $pdo->prepare("
-        SELECT s.id, s.username, s.full_name, s.balance, s.status, s.expiry_date, s.phone, s.address, p.name as package_name, p.price as package_price,
+        SELECT s.id, s.username, s.full_name, s.national_id, s.password, s.mobile, s.phone, s.email, s.subarea, s.address, s.latitude, s.longitude,
+               s.balance, s.status, s.expiry_date, p.name as package_name, p.price as package_price,
                (SELECT SUM(acctinputoctets) FROM radacct r WHERE r.username = s.username) as upload_bytes,
                (SELECT SUM(acctoutputoctets) FROM radacct r WHERE r.username = s.username) as download_bytes,
                (SELECT framedipaddress FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL ORDER BY radacctid DESC LIMIT 1) as live_ip
         FROM subscribers s
         LEFT JOIN packages p ON s.package_id = p.id
-        WHERE (s.username LIKE ? OR s.full_name LIKE ? OR s.phone LIKE ?) AND s.client_id = ?
+        WHERE (s.username LIKE ? OR s.full_name LIKE ? OR s.phone LIKE ? OR s.mobile LIKE ?) AND s.client_id = ?
         LIMIT 20
     ");
-    $sStmt->execute(["%$search%", "%$search%", "%$search%", $client_id]);
+    $sStmt->execute(["%$search%", "%$search%", "%$search%", "%$search%", $client_id]);
     $search_results = $sStmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
@@ -322,7 +402,8 @@ if ($filter === 'expiring_1d') {
 
 // Fetch Filtered Users
 $filteredStmt = $pdo->prepare("
-    SELECT s.id, s.username, s.full_name, s.balance, s.status, s.expiry_date, s.phone, s.address, p.name as package_name, p.price as package_price,
+    SELECT s.id, s.username, s.full_name, s.national_id, s.password, s.mobile, s.phone, s.email, s.subarea, s.address, s.latitude, s.longitude,
+           s.balance, s.status, s.expiry_date, p.name as package_name, p.price as package_price,
            (SELECT SUM(acctinputoctets) FROM radacct r WHERE r.username = s.username) as upload_bytes,
            (SELECT SUM(acctoutputoctets) FROM radacct r WHERE r.username = s.username) as download_bytes,
            (SELECT framedipaddress FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL ORDER BY radacctid DESC LIMIT 1) as live_ip
@@ -367,10 +448,13 @@ function formatBytes($bytes) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Leaflet Map CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         body { background-color: #f1f5f9; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         .top-navbar { background: #0f172a; color: white; padding: 15px 20px; border-bottom: 3px solid #dc2626; display: flex; justify-content: space-between; align-items: center; }
         .card-custom { border: none; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .btn-action-sm { font-size: 0.8rem; padding: 0.3rem 0.5rem; }
     </style>
 </head>
 <body>
@@ -476,8 +560,24 @@ function formatBytes($bytes) {
                                     <button class="btn btn-success btn-sm px-2 py-1 fw-bold shadow-sm mb-1 d-block w-100" data-bs-toggle="modal" data-bs-target="#collectModal<?= $u['id'] ?>">
                                         <i class="fa-solid fa-hand-holding-dollar"></i> Collect
                                     </button>
-                                    <button class="btn btn-danger btn-sm px-2 py-1 fw-bold shadow-sm d-block w-100" onclick="openCollectModal('<?= $u['username'] ?>', <?= $u['id'] ?>, '<?= addslashes($u['full_name']) ?>', '<?= $u['balance'] ?>')">
+                                    <button class="btn btn-danger btn-sm px-2 py-1 fw-bold shadow-sm mb-1 d-block w-100" onclick="openCollectModal('<?= $u['username'] ?>', <?= $u['id'] ?>, '<?= addslashes($u['full_name']) ?>', '<?= $u['balance'] ?>')">
                                         <i class="fa-solid fa-rotate"></i> Renew
+                                    </button>
+                                    <button type="button" class="btn btn-primary btn-sm px-2 py-1 fw-bold shadow-sm d-block w-100" 
+                                        onclick="openEditUserModal(this)"
+                                        data-id="<?= $u['id'] ?>"
+                                        data-username="<?= htmlspecialchars($u['username']) ?>"
+                                        data-fullname="<?= htmlspecialchars($u['full_name'] ?? '') ?>"
+                                        data-nationalid="<?= htmlspecialchars($u['national_id'] ?? '') ?>"
+                                        data-password="<?= htmlspecialchars($u['password'] ?? '') ?>"
+                                        data-mobile="<?= htmlspecialchars($u['mobile'] ?? '') ?>"
+                                        data-phone="<?= htmlspecialchars($u['phone'] ?? '') ?>"
+                                        data-email="<?= htmlspecialchars($u['email'] ?? '') ?>"
+                                        data-subarea="<?= htmlspecialchars($u['subarea'] ?? '') ?>"
+                                        data-address="<?= htmlspecialchars($u['address'] ?? '') ?>"
+                                        data-latitude="<?= htmlspecialchars($u['latitude'] ?? '') ?>"
+                                        data-longitude="<?= htmlspecialchars($u['longitude'] ?? '') ?>">
+                                        <i class="fa-solid fa-user-pen"></i> Edit
                                     </button>
                                 </div>
                             </div>
@@ -617,8 +717,24 @@ function formatBytes($bytes) {
                                     <button class="btn btn-success btn-sm px-2 py-1 fw-bold shadow-sm mb-1 d-block w-100" data-bs-toggle="modal" data-bs-target="#collectModal<?= $u['id'] ?>">
                                         <i class="fa-solid fa-hand-holding-dollar"></i> Collect
                                     </button>
-                                    <button class="btn btn-danger btn-sm px-2 py-1 fw-bold shadow-sm d-block w-100" onclick="openCollectModal('<?= $u['username'] ?>', <?= $u['id'] ?>, '<?= addslashes($u['full_name']) ?>', '<?= $u['balance'] ?>')">
+                                    <button class="btn btn-danger btn-sm px-2 py-1 fw-bold shadow-sm mb-1 d-block w-100" onclick="openCollectModal('<?= $u['username'] ?>', <?= $u['id'] ?>, '<?= addslashes($u['full_name']) ?>', '<?= $u['balance'] ?>')">
                                         <i class="fa-solid fa-rotate"></i> Renew
+                                    </button>
+                                    <button type="button" class="btn btn-primary btn-sm px-2 py-1 fw-bold shadow-sm d-block w-100" 
+                                        onclick="openEditUserModal(this)"
+                                        data-id="<?= $u['id'] ?>"
+                                        data-username="<?= htmlspecialchars($u['username']) ?>"
+                                        data-fullname="<?= htmlspecialchars($u['full_name'] ?? '') ?>"
+                                        data-nationalid="<?= htmlspecialchars($u['national_id'] ?? '') ?>"
+                                        data-password="<?= htmlspecialchars($u['password'] ?? '') ?>"
+                                        data-mobile="<?= htmlspecialchars($u['mobile'] ?? '') ?>"
+                                        data-phone="<?= htmlspecialchars($u['phone'] ?? '') ?>"
+                                        data-email="<?= htmlspecialchars($u['email'] ?? '') ?>"
+                                        data-subarea="<?= htmlspecialchars($u['subarea'] ?? '') ?>"
+                                        data-address="<?= htmlspecialchars($u['address'] ?? '') ?>"
+                                        data-latitude="<?= htmlspecialchars($u['latitude'] ?? '') ?>"
+                                        data-longitude="<?= htmlspecialchars($u['longitude'] ?? '') ?>">
+                                        <i class="fa-solid fa-user-pen"></i> Edit
                                     </button>
                                 </div>
                             </div>
@@ -913,6 +1029,365 @@ function stopLiveSpeed() {
     </div>
   </div>
 </div>
+
+<!-- Edit User Profile Modal -->
+<div class="modal fade" id="editUserModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content border-0 rounded-4 shadow-lg">
+      <div class="modal-header border-bottom px-4 pt-4 bg-dark text-white rounded-top-4">
+        <h5 class="modal-title fw-bold">
+            <i class="fa-solid fa-user-pen text-primary me-2"></i> Edit Subscriber Profile (<span id="edit_user_badge" class="text-warning font-monospace"></span>)
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST">
+        <input type="hidden" name="action" value="edit_subscriber">
+        <input type="hidden" name="subscriber_id" id="edit_subscriber_id">
+        <div class="modal-body p-4 bg-light">
+            
+            <!-- Basic Profile Information -->
+            <div class="card border-0 shadow-sm rounded-3 p-3 mb-3 bg-white">
+                <h6 class="fw-bold text-primary border-bottom pb-2 mb-3">
+                    <i class="fa-solid fa-id-card me-2"></i> Personal &amp; Account Details
+                </h6>
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold small text-secondary">Full Name <span class="text-danger">*</span></label>
+                        <input type="text" name="full_name" id="edit_full_name" class="form-control" required placeholder="Full Name">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold small text-secondary">CNIC / National ID</label>
+                        <input type="text" name="national_id" id="edit_national_id" class="form-control" placeholder="e.g. 35201-1234567-1">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold small text-secondary">Password <span class="text-danger">*</span></label>
+                        <div class="input-group">
+                            <input type="text" name="password" id="edit_password" class="form-control font-monospace" required>
+                            <button class="btn btn-outline-secondary" type="button" onclick="document.getElementById('edit_password').value = Math.random().toString(36).slice(-8);" title="Generate Random Password">
+                                <i class="fa-solid fa-shuffle"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold small text-secondary">Mobile No.</label>
+                        <input type="text" name="mobile" id="edit_mobile" class="form-control" placeholder="03001234567">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold small text-secondary">Phone (Alt / Landline)</label>
+                        <input type="text" name="phone" id="edit_phone" class="form-control" placeholder="Optional">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold small text-secondary">Email Address</label>
+                        <input type="email" name="email" id="edit_email" class="form-control" placeholder="user@example.com">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold small text-secondary">Area / City / Subarea</label>
+                        <input type="text" name="subarea" id="edit_subarea" class="form-control" placeholder="e.g. Model Town / Lahore">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold small text-secondary">Full Street Address</label>
+                        <input type="text" name="address" id="edit_address" class="form-control" placeholder="House #, Street #, Colony">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Location from Map (GPS & Pin) -->
+            <div class="card border-0 shadow-sm rounded-3 p-3 bg-white">
+                <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-3">
+                    <h6 class="fw-bold text-primary mb-0">
+                        <i class="fa-solid fa-map-location-dot me-2"></i> Location from Map (GPS Pin)
+                    </h6>
+                    <button type="button" class="btn btn-link btn-sm text-decoration-none p-0 text-muted" onclick="toggleEditManualCoords()" style="font-size: 0.75rem;">
+                        <i class="fa-solid fa-keyboard me-1"></i> Manual Lat/Lng
+                    </button>
+                </div>
+
+                <!-- GPS Capture & Search Controls -->
+                <div class="row g-2 mb-2">
+                    <div class="col-md-5">
+                        <button type="button" class="btn btn-outline-primary btn-sm fw-bold w-100 py-2 shadow-sm" id="btn_edit_capture_gps" onclick="captureEditUserGPS()">
+                            <i class="fa-solid fa-crosshairs me-1 text-danger"></i> Get Current GPS (10m)
+                        </button>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="input-group input-group-sm">
+                            <input type="text" class="form-control" id="edit_map_search_input" placeholder="Search area, colony..." onkeydown="if(event.key==='Enter'){event.preventDefault();searchEditMapLocation();}">
+                            <button class="btn btn-primary" type="button" onclick="searchEditMapLocation()" title="Search Area on Map">
+                                <i class="fa-solid fa-magnifying-glass"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="btn-group btn-group-sm w-100 shadow-sm" role="group">
+                            <button type="button" class="btn btn-primary btn-sm fw-bold" id="btnEditMapHybrid" onclick="switchEditMapLayer('hybrid')" title="Satellite View with Streets"><i class="fa-solid fa-satellite me-1"></i>Sat</button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm fw-bold" id="btnEditMapStreets" onclick="switchEditMapLayer('streets')" title="Streets Map View"><i class="fa-solid fa-road me-1"></i>Map</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Interactive Leaflet Map Picker -->
+                <div class="position-relative rounded border overflow-hidden shadow-sm" style="height: 280px;">
+                    <div id="edit_user_map_picker" style="height: 100%; width: 100%; z-index: 1;"></div>
+                    <div class="position-absolute bottom-0 start-0 m-2 px-2 py-1 rounded bg-dark bg-opacity-75 text-white small" style="z-index: 1000; font-size: 0.75rem; pointer-events: none;">
+                        <i class="fa-solid fa-hand-pointer text-warning me-1"></i> Map par click karein ya pin ko drag kar ke customer ki location par set karein
+                    </div>
+                </div>
+
+                <!-- Hidden inputs passed to DB -->
+                <input type="hidden" name="latitude" id="edit_latitude">
+                <input type="hidden" name="longitude" id="edit_longitude">
+
+                <!-- Manual Coordinate Inputs (Collapsible) -->
+                <div class="row g-2 mt-2" id="edit_manual_coords_row" style="display: none;">
+                    <div class="col-6">
+                        <label class="small text-muted fw-bold">Latitude</label>
+                        <input type="text" class="form-control form-control-sm font-monospace" id="edit_manual_lat" placeholder="e.g. 31.520371" oninput="syncEditManualCoords()">
+                    </div>
+                    <div class="col-6">
+                        <label class="small text-muted fw-bold">Longitude</label>
+                        <input type="text" class="form-control form-control-sm font-monospace" id="edit_manual_lng" placeholder="e.g. 74.358742" oninput="syncEditManualCoords()">
+                    </div>
+                </div>
+            </div>
+
+        </div>
+        <div class="modal-footer px-4 py-3 bg-white border-top">
+            <button type="button" class="btn btn-light fw-bold px-4 rounded-pill" data-bs-dismiss="modal">Cancel</button>
+            <button type="submit" class="btn btn-primary fw-bold px-5 rounded-pill shadow-sm">
+                <i class="fa-solid fa-check me-1"></i> Save Changes
+            </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Leaflet Map JS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+let editUserMap = null;
+let editUserMarker = null;
+let editHybridLayer = null;
+let editStreetsLayer = null;
+let editActiveLayerType = 'hybrid';
+const defaultMapLat = 31.5204;
+const defaultMapLng = 74.3587; // Pakistan default
+
+function openEditUserModal(btn) {
+    const id = btn.dataset.id;
+    const username = btn.dataset.username || '';
+    const fullname = btn.dataset.fullname || '';
+    const nationalid = btn.dataset.nationalid || '';
+    const password = btn.dataset.password || '';
+    const mobile = btn.dataset.mobile || '';
+    const phone = btn.dataset.phone || '';
+    const email = btn.dataset.email || '';
+    const subarea = btn.dataset.subarea || '';
+    const address = btn.dataset.address || '';
+    const lat = btn.dataset.latitude || '';
+    const lng = btn.dataset.longitude || '';
+
+    document.getElementById('edit_subscriber_id').value = id;
+    document.getElementById('edit_user_badge').innerText = username;
+    document.getElementById('edit_full_name').value = fullname;
+    document.getElementById('edit_national_id').value = nationalid;
+    document.getElementById('edit_password').value = password;
+    document.getElementById('edit_mobile').value = mobile;
+    document.getElementById('edit_phone').value = phone;
+    document.getElementById('edit_email').value = email;
+    document.getElementById('edit_subarea').value = subarea;
+    document.getElementById('edit_address').value = address;
+    document.getElementById('edit_latitude').value = lat;
+    document.getElementById('edit_longitude').value = lng;
+    document.getElementById('edit_manual_lat').value = lat;
+    document.getElementById('edit_manual_lng').value = lng;
+
+    const modal = new bootstrap.Modal(document.getElementById('editUserModal'));
+    modal.show();
+}
+
+function initEditUserMapPicker() {
+    var latVal = parseFloat(document.getElementById('edit_latitude').value);
+    var lngVal = parseFloat(document.getElementById('edit_longitude').value);
+    var hasExisting = !isNaN(latVal) && latVal !== 0 && !isNaN(lngVal) && lngVal !== 0;
+    var startLat = hasExisting ? latVal : defaultMapLat;
+    var startLng = hasExisting ? lngVal : defaultMapLng;
+
+    if (editUserMap !== null) {
+        setTimeout(function() {
+            if (editUserMap) {
+                editUserMap.invalidateSize();
+                editUserMap.setView([startLat, startLng], hasExisting ? 18 : 13);
+                if (editUserMarker) {
+                    editUserMarker.setLatLng([startLat, startLng]);
+                }
+            }
+        }, 150);
+        return;
+    }
+
+    var container = document.getElementById('edit_user_map_picker');
+    if (!container) return;
+
+    editHybridLayer = L.tileLayer('https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+        maxZoom: 22,
+        subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+        attribution: '&copy; Google Maps'
+    });
+
+    editStreetsLayer = L.tileLayer('https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+        maxZoom: 22,
+        subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+        attribution: '&copy; Google Maps'
+    });
+
+    editUserMap = L.map('edit_user_map_picker', {
+        center: [startLat, startLng],
+        zoom: hasExisting ? 18 : 13,
+        maxZoom: 22,
+        zoomControl: true,
+        layers: [editHybridLayer]
+    });
+
+    var pinIcon = L.icon({
+        iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+        iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+        shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+        iconSize: [25, 41],
+        iconAnchor: [12, 41],
+        popupAnchor: [1, -34],
+        shadowSize: [41, 41]
+    });
+
+    editUserMarker = L.marker([startLat, startLng], {
+        draggable: true,
+        icon: pinIcon
+    }).addTo(editUserMap);
+
+    function updateCoords(lat, lng) {
+        document.getElementById('edit_latitude').value = lat.toFixed(6);
+        document.getElementById('edit_longitude').value = lng.toFixed(6);
+        document.getElementById('edit_manual_lat').value = lat.toFixed(6);
+        document.getElementById('edit_manual_lng').value = lng.toFixed(6);
+    }
+
+    editUserMarker.on('dragend', function(e) {
+        var pos = editUserMarker.getLatLng();
+        updateCoords(pos.lat, pos.lng);
+    });
+
+    editUserMap.on('click', function(e) {
+        editUserMarker.setLatLng(e.latlng);
+        updateCoords(e.latlng.lat, e.latlng.lng);
+    });
+
+    setTimeout(function() {
+        if (editUserMap) editUserMap.invalidateSize();
+    }, 200);
+}
+
+function switchEditMapLayer(type) {
+    if (!editUserMap) return;
+    if (type === 'hybrid') {
+        if (editUserMap.hasLayer(editStreetsLayer)) editUserMap.removeLayer(editStreetsLayer);
+        if (!editUserMap.hasLayer(editHybridLayer)) editUserMap.addLayer(editHybridLayer);
+        document.getElementById('btnEditMapHybrid').className = 'btn btn-primary btn-sm fw-bold';
+        document.getElementById('btnEditMapStreets').className = 'btn btn-outline-secondary btn-sm fw-bold';
+        editActiveLayerType = 'hybrid';
+    } else {
+        if (editUserMap.hasLayer(editHybridLayer)) editUserMap.removeLayer(editHybridLayer);
+        if (!editUserMap.hasLayer(editStreetsLayer)) editUserMap.addLayer(editStreetsLayer);
+        document.getElementById('btnEditMapStreets').className = 'btn btn-primary btn-sm fw-bold';
+        document.getElementById('btnEditMapHybrid').className = 'btn btn-outline-secondary btn-sm fw-bold';
+        editActiveLayerType = 'streets';
+    }
+}
+
+function toggleEditManualCoords() {
+    var row = document.getElementById('edit_manual_coords_row');
+    if (row.style.display === 'none') {
+        row.style.display = 'flex';
+    } else {
+        row.style.display = 'none';
+    }
+}
+
+function syncEditManualCoords() {
+    var lat = parseFloat(document.getElementById('edit_manual_lat').value);
+    var lng = parseFloat(document.getElementById('edit_manual_lng').value);
+    if (!isNaN(lat) && !isNaN(lng)) {
+        document.getElementById('edit_latitude').value = lat;
+        document.getElementById('edit_longitude').value = lng;
+        if (editUserMap && editUserMarker) {
+            editUserMarker.setLatLng([lat, lng]);
+            editUserMap.setView([lat, lng], 18);
+        }
+    }
+}
+
+function captureEditUserGPS() {
+    var btn = document.getElementById('btn_edit_capture_gps');
+    if (!btn) return;
+    if (!navigator.geolocation) {
+        alert("Geolocation is not supported by your browser/device.");
+        return;
+    }
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Getting GPS...';
+
+    navigator.geolocation.getCurrentPosition(
+        function(pos) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-check text-success me-1"></i> GPS Captured (' + Math.round(pos.coords.accuracy) + 'm)';
+            var lat = pos.coords.latitude;
+            var lng = pos.coords.longitude;
+            document.getElementById('edit_latitude').value = lat.toFixed(6);
+            document.getElementById('edit_longitude').value = lng.toFixed(6);
+            document.getElementById('edit_manual_lat').value = lat.toFixed(6);
+            document.getElementById('edit_manual_lng').value = lng.toFixed(6);
+            if (editUserMap && editUserMarker) {
+                editUserMarker.setLatLng([lat, lng]);
+                editUserMap.setView([lat, lng], 18);
+            }
+        },
+        function(err) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-crosshairs me-1 text-danger"></i> Get Current GPS (10m)';
+            alert("Could not retrieve GPS location: " + err.message);
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+}
+
+function searchEditMapLocation() {
+    var q = document.getElementById('edit_map_search_input').value.trim();
+    if (!q) return;
+    fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}`)
+        .then(res => res.json())
+        .then(data => {
+            if (data && data.length > 0) {
+                var lat = parseFloat(data[0].lat);
+                var lon = parseFloat(data[0].lon);
+                document.getElementById('edit_latitude').value = lat.toFixed(6);
+                document.getElementById('edit_longitude').value = lon.toFixed(6);
+                document.getElementById('edit_manual_lat').value = lat.toFixed(6);
+                document.getElementById('edit_manual_lng').value = lon.toFixed(6);
+                if (editUserMap && editUserMarker) {
+                    editUserMarker.setLatLng([lat, lon]);
+                    editUserMap.setView([lat, lon], 17);
+                }
+            } else {
+                alert("Location not found. Please try searching with city name (e.g. 'Gulberg, Lahore').");
+            }
+        })
+        .catch(err => { alert("Search error: " + err.message); });
+}
+
+// When editUserModal opens, initialize or resize Leaflet map
+$('#editUserModal').on('shown.bs.modal', function () {
+    initEditUserMapPicker();
+});
+</script>
 
 <style>
     body { -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; }
