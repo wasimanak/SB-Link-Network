@@ -1,5 +1,7 @@
 <?php
 require_once 'header.php';
+require_once __DIR__ . '/staff_salary_helper.php';
+init_staff_salary_schema($pdo);
 
 // Access Control: Only Operator can view manager profiles & activity logs
 if (!empty($_SESSION['is_manager'])) {
@@ -22,12 +24,45 @@ if ($manager_id <= 0) {
     exit;
 }
 
-// Handle Direct Quick Actions (Toggle permissions or reset password)
+// Handle Direct Quick Actions (Toggle permissions, profile edit, or reset password)
 $flash_msg = '';
 $flash_type = 'success';
+$activeTabToOpen = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
+
+    if (in_array($action, ['record_staff_payment', 'delete_staff_transaction', 'edit_manager_profile'])) {
+        $activeTabToOpen = 'salary';
+    }
+
+    if ($action === 'edit_manager_profile') {
+        $full_name = trim($_POST['full_name'] ?? '');
+        $phone = trim($_POST['phone'] ?? '');
+        $email = trim($_POST['email'] ?? '');
+        $city = trim($_POST['city'] ?? '');
+        $address = trim($_POST['address'] ?? '');
+        $monthly_salary = (int)($_POST['monthly_salary'] ?? 0);
+        $status = in_array($_POST['status'] ?? '', ['active', 'inactive']) ? $_POST['status'] : 'active';
+
+        if (!empty($full_name)) {
+            $upd = $pdo->prepare("
+                UPDATE managers 
+                SET full_name = ?, phone = ?, email = ?, city = ?, address = ?, monthly_salary = ?, status = ?
+                WHERE id = ? AND client_id = ?
+            ");
+            $upd->execute([$full_name, $phone, $email, $city, $address, $monthly_salary, $status, $manager_id, $client_id]);
+
+            sync_staff_monthly_salary($pdo, $client_id, 'manager', $manager_id, $full_name, $monthly_salary);
+
+            log_staff_activity($pdo, "Updated Profile & Salary (Rs. {$monthly_salary}) for Manager #{$manager_id}", $full_name, "Manager");
+            $flash_msg = "Manager profile and monthly salary updated successfully!";
+            $flash_type = "success";
+        } else {
+            $flash_msg = "Full Name cannot be empty.";
+            $flash_type = "danger";
+        }
+    }
 
     if ($action === 'toggle_permission') {
         $field = $_POST['permission'] ?? '';
@@ -454,6 +489,10 @@ $unique_subscribers_count = count($unique_subs);
                 </div>
             </div>
             <div class="d-flex gap-2">
+                <!-- Edit Profile & Salary Button -->
+                <button class="btn btn-outline-primary btn-sm rounded-pill px-3" data-bs-toggle="modal" data-bs-target="#editManagerProfileModal">
+                    <i class="fa-solid fa-user-pen me-1"></i> Edit Profile &amp; Salary
+                </button>
                 <!-- Change Password Button -->
                 <button class="btn btn-outline-secondary btn-sm rounded-pill px-3" data-bs-toggle="modal" data-bs-target="#changePasswordModal">
                     <i class="fa-solid fa-key me-1"></i> Reset Password
@@ -478,6 +517,10 @@ $unique_subscribers_count = count($unique_subs);
         <div class="p-4 pt-2 border-top">
             <div class="row g-3">
                 <div class="col-md-3 col-sm-6">
+                    <div class="text-secondary small fw-semibold text-uppercase">Monthly Salary</div>
+                    <div class="fw-bold text-success mt-1"><i class="fa-solid fa-money-bill-wave me-1 small"></i> Rs. <?= number_format($mgr['monthly_salary'] ?? 0) ?></div>
+                </div>
+                <div class="col-md-2 col-sm-6">
                     <div class="text-secondary small fw-semibold text-uppercase">Phone Number</div>
                     <div class="fw-bold text-dark mt-1"><i class="fa-solid fa-phone text-muted me-1 small"></i> <?= htmlspecialchars($mgr['phone'] ?: 'N/A') ?></div>
                 </div>
@@ -485,11 +528,11 @@ $unique_subscribers_count = count($unique_subs);
                     <div class="text-secondary small fw-semibold text-uppercase">Email Address</div>
                     <div class="fw-bold text-dark mt-1"><i class="fa-regular fa-envelope text-muted me-1 small"></i> <?= htmlspecialchars($mgr['email'] ?: 'N/A') ?></div>
                 </div>
-                <div class="col-md-3 col-sm-6">
+                <div class="col-md-2 col-sm-6">
                     <div class="text-secondary small fw-semibold text-uppercase">City / Region</div>
                     <div class="fw-bold text-dark mt-1"><i class="fa-solid fa-city text-muted me-1 small"></i> <?= htmlspecialchars($mgr['city'] ?: 'N/A') ?></div>
                 </div>
-                <div class="col-md-3 col-sm-6">
+                <div class="col-md-2 col-sm-6">
                     <div class="text-secondary small fw-semibold text-uppercase">Address</div>
                     <div class="fw-bold text-dark mt-1 text-truncate" title="<?= htmlspecialchars($mgr['address'] ?: 'N/A') ?>"><i class="fa-solid fa-location-dot text-muted me-1 small"></i> <?= htmlspecialchars($mgr['address'] ?: 'N/A') ?></div>
                 </div>
@@ -898,6 +941,70 @@ $unique_subscribers_count = count($unique_subs);
     </div>
 </div>
 
+<!-- Edit Manager Profile & Salary Modal -->
+<div class="modal fade" id="editManagerProfileModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 16px;">
+            <div class="modal-header border-bottom px-4 py-3 bg-light">
+                <h5 class="modal-title fw-bold text-dark">
+                    <i class="fa-solid fa-user-pen text-primary me-2"></i> Edit Manager Profile &amp; Salary
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" autocomplete="off">
+                <input type="hidden" name="action" value="edit_manager_profile">
+                <div class="modal-body p-4">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold text-secondary small">Full Name <span class="text-danger">*</span></label>
+                            <input type="text" name="full_name" class="form-control" value="<?= htmlspecialchars($mgr['full_name']) ?>" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold text-secondary small">Username</label>
+                            <input type="text" class="form-control font-monospace bg-light" value="<?= htmlspecialchars($mgr['username']) ?>" readonly>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-secondary">Monthly Salary (Rs)</label>
+                            <div class="input-group">
+                                <span class="input-group-text bg-light text-muted fw-bold">Rs</span>
+                                <input type="number" step="1" min="0" name="monthly_salary" class="form-control" placeholder="e.g. 35000" value="<?= (int)($mgr['monthly_salary'] ?? 0) ?>">
+                            </div>
+                            <div class="text-muted small mt-1">Updates staff ledger auto-accruals and lifetime ledger balance.</div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold text-secondary small">Account Status</label>
+                            <select name="status" class="form-select">
+                                <option value="active" <?= ($mgr['status'] ?? 'active') === 'active' ? 'selected' : '' ?>>Active</option>
+                                <option value="inactive" <?= ($mgr['status'] ?? '') === 'inactive' ? 'selected' : '' ?>>Inactive / Suspended</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold text-secondary small">Phone Number</label>
+                            <input type="text" name="phone" class="form-control" value="<?= htmlspecialchars($mgr['phone'] ?? '') ?>">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold text-secondary small">Email Address</label>
+                            <input type="email" name="email" class="form-control" value="<?= htmlspecialchars($mgr['email'] ?? '') ?>">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold text-secondary small">City</label>
+                            <input type="text" name="city" class="form-control" value="<?= htmlspecialchars($mgr['city'] ?? '') ?>">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold text-secondary small">Office / Physical Address</label>
+                            <input type="text" name="address" class="form-control" value="<?= htmlspecialchars($mgr['address'] ?? '') ?>">
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer border-top px-4 py-3 bg-light">
+                    <button type="button" class="btn btn-outline-secondary rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary rounded-pill px-4 fw-semibold shadow-sm">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <!-- Reset Password Modal -->
 <div class="modal fade" id="changePasswordModal" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered">
@@ -976,6 +1083,21 @@ $(document).ready(function() {
     $('button[data-bs-toggle="tab"]').on('shown.bs.tab', function (e) {
         $($.fn.dataTable.tables(true)).DataTable().columns.adjust();
     });
+
+    // Handle deep-link and state retention for tabs
+    const urlParams = new URLSearchParams(window.location.search);
+    const activeTabParam = urlParams.get('tab') || window.location.hash.replace('#', '') || '<?= $activeTabToOpen ?>';
+    if (activeTabParam === 'salary' || activeTabParam === 'tab-salary') {
+        const triggerEl = document.querySelector('#salary-tab');
+        if (triggerEl) {
+            bootstrap.Tab.getOrCreateInstance(triggerEl).show();
+        }
+    } else if (activeTabParam === 'activity' || activeTabParam === 'tab-activity' || activeTabParam === 'activityLogs') {
+        const triggerEl = document.querySelector('#activity-tab');
+        if (triggerEl) {
+            bootstrap.Tab.getOrCreateInstance(triggerEl).show();
+        }
+    }
 });
 </script>
 

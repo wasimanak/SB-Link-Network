@@ -32,6 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $email = trim($_POST['email'] ?? '');
         $address = trim($_POST['address'] ?? '');
         $city = trim($_POST['city'] ?? '');
+        $monthly_salary = (int)($_POST['monthly_salary'] ?? 0);
         $status = $_POST['status'] ?? 'active';
         $can_manage_packages = isset($_POST['can_manage_packages']) ? 'yes' : 'no';
         $can_collect_recovery = isset($_POST['can_collect_recovery']) ? 'yes' : 'no';
@@ -50,12 +51,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 try {
                     $hash = password_hash($password, PASSWORD_BCRYPT);
                     $ins = $pdo->prepare("
-                        INSERT INTO managers (client_id, full_name, username, password, phone, email, address, city, status, can_manage_packages, can_collect_recovery)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        INSERT INTO managers (client_id, full_name, username, password, phone, email, address, city, monthly_salary, status, can_manage_packages, can_collect_recovery)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ");
                     $ins->execute([
-                        $client_id, $full_name, $username, $hash, $phone, $email, $address, $city, $status, $can_manage_packages, $can_collect_recovery
+                        $client_id, $full_name, $username, $hash, $phone, $email, $address, $city, $monthly_salary, $status, $can_manage_packages, $can_collect_recovery
                     ]);
+                    $new_mgr_id = (int)$pdo->lastInsertId();
+
+                    if ($monthly_salary > 0 && $new_mgr_id > 0) {
+                        sync_staff_monthly_salary($pdo, $client_id, 'manager', $new_mgr_id, $full_name, $monthly_salary);
+                    }
 
                     log_staff_activity($pdo, "Created new Manager: {$full_name} ({$username})", $full_name, "Manager");
 
@@ -78,6 +84,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $email = trim($_POST['email'] ?? '');
         $address = trim($_POST['address'] ?? '');
         $city = trim($_POST['city'] ?? '');
+        $monthly_salary = (int)($_POST['monthly_salary'] ?? 0);
         $status = $_POST['status'] ?? 'active';
         $can_manage_packages = isset($_POST['can_manage_packages']) ? 'yes' : 'no';
         $can_collect_recovery = isset($_POST['can_collect_recovery']) ? 'yes' : 'no';
@@ -91,21 +98,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $hash = password_hash($password, PASSWORD_BCRYPT);
                     $upd = $pdo->prepare("
                         UPDATE managers 
-                        SET full_name=?, password=?, phone=?, email=?, address=?, city=?, status=?, can_manage_packages=?, can_collect_recovery=?
+                        SET full_name=?, password=?, phone=?, email=?, address=?, city=?, monthly_salary=?, status=?, can_manage_packages=?, can_collect_recovery=?
                         WHERE id=? AND client_id=?
                     ");
                     $upd->execute([
-                        $full_name, $hash, $phone, $email, $address, $city, $status, $can_manage_packages, $can_collect_recovery, $id, $client_id
+                        $full_name, $hash, $phone, $email, $address, $city, $monthly_salary, $status, $can_manage_packages, $can_collect_recovery, $id, $client_id
                     ]);
                 } else {
                     $upd = $pdo->prepare("
                         UPDATE managers 
-                        SET full_name=?, phone=?, email=?, address=?, city=?, status=?, can_manage_packages=?, can_collect_recovery=?
+                        SET full_name=?, phone=?, email=?, address=?, city=?, monthly_salary=?, status=?, can_manage_packages=?, can_collect_recovery=?
                         WHERE id=? AND client_id=?
                     ");
                     $upd->execute([
-                        $full_name, $phone, $email, $address, $city, $status, $can_manage_packages, $can_collect_recovery, $id, $client_id
+                        $full_name, $phone, $email, $address, $city, $monthly_salary, $status, $can_manage_packages, $can_collect_recovery, $id, $client_id
                     ]);
+                }
+
+                if ($id > 0) {
+                    sync_staff_monthly_salary($pdo, $client_id, 'manager', $id, $full_name, $monthly_salary);
                 }
 
                 log_staff_activity($pdo, "Updated Manager profile & permissions: {$full_name}", $full_name, "Manager");
@@ -359,6 +370,7 @@ foreach ($managers as $m) {
                         <th>Manager Name</th>
                         <th>Username</th>
                         <th>Contact</th>
+                        <th>Monthly Salary</th>
                         <th>Package Perm</th>
                         <th>RM Collection</th>
                         <th>Status</th>
@@ -393,6 +405,10 @@ foreach ($managers as $m) {
                                 <?php if ($m['email']): ?>
                                     <div class="text-muted small"><i class="fa-regular fa-envelope me-1"></i> <?= htmlspecialchars($m['email']) ?></div>
                                 <?php endif; ?>
+                            </td>
+                            <td>
+                                <div class="fw-bold text-dark"><i class="fa-solid fa-money-bill-wave text-success me-1 small"></i> Rs. <?= number_format($m['monthly_salary'] ?? 0) ?></div>
+                                <div class="text-muted small">per month</div>
                             </td>
                             <td>
                                 <form method="POST" class="d-inline">
@@ -601,6 +617,13 @@ foreach ($managers as $m) {
                             <label class="form-label fw-semibold text-secondary small">City</label>
                             <input type="text" name="city" id="edit_mgr_city" class="form-control">
                         </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-secondary">Monthly Salary (Rs)</label>
+                            <div class="input-group">
+                                <span class="input-group-text bg-light text-muted fw-bold">Rs</span>
+                                <input type="number" step="1" min="0" name="monthly_salary" id="edit_mgr_monthly_salary" class="form-control" placeholder="e.g. 35000" value="0">
+                            </div>
+                        </div>
                         <div class="col-12">
                             <label class="form-label fw-semibold text-secondary small">Office / Physical Address</label>
                             <textarea name="address" id="edit_mgr_address" class="form-control" rows="2"></textarea>
@@ -678,6 +701,7 @@ function openEditModal(mgr) {
     document.getElementById('edit_mgr_phone').value = mgr.phone || '';
     document.getElementById('edit_mgr_email').value = mgr.email || '';
     document.getElementById('edit_mgr_city').value = mgr.city || '';
+    document.getElementById('edit_mgr_monthly_salary').value = mgr.monthly_salary || 0;
     document.getElementById('edit_mgr_address').value = mgr.address || '';
     document.getElementById('edit_mgr_status').value = mgr.status || 'active';
     document.getElementById('edit_can_manage_packages').checked = (mgr.can_manage_packages === 'yes');
