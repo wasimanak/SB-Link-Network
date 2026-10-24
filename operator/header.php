@@ -12,6 +12,18 @@ try {
     $pdo->exec("DELETE FROM activity_logs WHERE created_at < NOW() - INTERVAL 730 DAY"); 
 } catch (Exception $e) {}
 
+// Auto-sync subscriber status with expiry_date across the whole system
+try {
+    // 1. Any user whose expiry is in future (> NOW) but status is 'expired' -> sync to 'active'
+    $pdo->exec("UPDATE subscribers SET status = 'active' WHERE expiry_date > NOW() AND status = 'expired'");
+    // 2. Any user whose expiry has passed (<= NOW) but status is 'active' -> sync to 'expired'
+    $pdo->exec("UPDATE subscribers SET status = 'expired' WHERE expiry_date <= NOW() AND status = 'active'");
+    // 3. Remove stray Auth-Type := Reject for active subscribers with future expiry
+    $pdo->exec("DELETE rc FROM radcheck rc 
+                JOIN subscribers s ON rc.username = s.username COLLATE utf8mb4_general_ci 
+                WHERE s.expiry_date > NOW() AND s.status = 'active' AND rc.attribute = 'Auth-Type' AND rc.value = 'Reject'");
+} catch (Exception $e) {}
+
 
 // Auth Check
 if (!isset($_SESSION['operator_logged_in']) || !isset($_SESSION['operator_id'])) {

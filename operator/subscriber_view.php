@@ -117,13 +117,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $pdo->beginTransaction();
             
+            // Auto-determine status based on expiry
+            $cur_status = $pdo->query("SELECT status FROM subscribers WHERE id = $id")->fetchColumn();
+            $new_status = 'active';
+            if ($cur_status === 'disabled') {
+                $new_status = 'disabled';
+            } elseif (!empty($expiry) && strtotime($expiry) <= time()) {
+                $new_status = 'expired';
+            }
+
             // Update subscriber
             $pdo->prepare("UPDATE subscribers SET 
                 full_name=?, national_id=?, username=?, password=?, service_type=?, 
-                package_id=?, dealer_id=?, expiry_date=?, mobile=?, phone=?, email=?, 
+                package_id=?, dealer_id=?, expiry_date=?, status=?, mobile=?, phone=?, email=?, 
                 address=?, subarea=?, city=?, latitude=?, longitude=?, gps_lat=?, gps_lng=? WHERE id=?")
                 ->execute([$full_name, $national_id, $new_username, $password, $service_type, 
-                           $package_id, $dealer_id, $expiry, $mobile, $phone, $email, 
+                           $package_id, $dealer_id, $expiry, $new_status, $mobile, $phone, $email, 
                            $address, $subarea, $city, $latitude, $longitude, $latitude, $longitude, $id]);
             
             // Update RADIUS Cleartext-Password & Username
@@ -135,14 +144,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $pdo->prepare("UPDATE radcheck SET value=? WHERE username=? AND attribute='Cleartext-Password'")->execute([$password, $new_username]);
             
+            // RADIUS Expiration & Auth-Type Sync
+            $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute IN ('Expiration', 'Auth-Type')")->execute([$new_username]);
+            if (!empty($expiry)) {
+                $formatted_exp = date('d M Y H:i:s', strtotime($expiry));
+                $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Expiration', ':=', ?)")->execute([$new_username, $formatted_exp]);
+            }
+            if ($new_status === 'expired' || $new_status === 'disabled') {
+                $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Auth-Type', ':=', 'Reject')")->execute([$new_username]);
+            }
+
             // Update Package Group in FreeRADIUS
-            $pkgStmt = $pdo->prepare("SELECT name FROM packages WHERE id = ?");
+            $pkgStmt = $pdo->prepare("SELECT name, rate_limit, pool_id FROM packages WHERE id = ?");
             $pkgStmt->execute([$package_id]);
-            $pkg_name = $pkgStmt->fetchColumn();
+            $pkg_row = $pkgStmt->fetch(PDO::FETCH_ASSOC);
             
-            if ($pkg_name) {
+            if ($pkg_row) {
+                $pkg_name = $pkg_row['name'];
                 $pdo->prepare("DELETE FROM radusergroup WHERE username = ?")->execute([$new_username]);
                 $pdo->prepare("INSERT INTO radusergroup (username, groupname, priority) VALUES (?, ?, 1)")->execute([$new_username, $pkg_name]);
+
+                if (!empty($pkg_row['rate_limit']) && $pkg_row['rate_limit'] !== 'No Limit' && $pkg_row['rate_limit'] !== 'Unlimited') {
+                    $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Rate-Limit'")->execute([$new_username]);
+                    $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Rate-Limit', '=', ?)")->execute([$new_username, $pkg_row['rate_limit']]);
+                }
             }
 
             $pdo->commit();
@@ -547,20 +572,40 @@ $ledgerStmt = $pdo->prepare("SELECT * FROM user_ledger WHERE client_id = ? AND u
 $ledgerStmt->execute([$client_id, $user['username']]);
 $ledger_history = $ledgerStmt->fetchAll();
 
-// PROFILE STATUS LOGIC
-$is_expired = false;
-if (!empty($user['expiry_date']) && strtotime($user['expiry_date']) < time()) {
-    $is_expired = true;
+// PROFILE STATUS LOGIC & AUTO-HEALING
+$has_expiry = (!empty($user['expiry_date']) && $user['expiry_date'] !== '0000-00-00 00:00:00');
+$expiry_ts  = $has_expiry ? strtotime($user['expiry_date']) : 0;
+$now_ts     = time();
+$is_time_expired = ($has_expiry && $expiry_ts <= $now_ts);
+$is_disabled = (strtolower($user['status'] ?? '') === 'disabled');
+
+// Auto-heal status if expiry_date and status are out of sync:
+if (!$is_disabled) {
+    if ($has_expiry && $expiry_ts > $now_ts && $user['status'] !== 'active') {
+        // Expiry is in future but status was marked expired -> heal to 'active'
+        $user['status'] = 'active';
+        try {
+            $pdo->prepare("UPDATE subscribers SET status = 'active' WHERE id = ?")->execute([$id]);
+            $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute = 'Auth-Type' AND value = 'Reject'")->execute([$user['username']]);
+            $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute IN ('Mikrotik-Address-List', 'Mikrotik-Group') AND value IN ('EXPIRED_USERS', 'expired')")->execute([$user['username']]);
+        } catch (Exception $e) {}
+    } elseif ($is_time_expired && $user['status'] !== 'expired') {
+        // Expiry has passed but status was marked active -> mark expired
+        $user['status'] = 'expired';
+        try {
+            $pdo->prepare("UPDATE subscribers SET status = 'expired' WHERE id = ?")->execute([$id]);
+        } catch (Exception $e) {}
+    }
 }
-if (strtolower($user['status'] ?? '') === 'expired') {
-    $is_expired = true;
-}
+
+// $is_expired is true IF AND ONLY IF expiry has actually passed or user has no valid expiry and is marked expired
+$is_expired = (!$is_disabled && ($is_time_expired || (!$has_expiry && strtolower($user['status'] ?? '') === 'expired')));
 
 $profile_status = 'Offline';
 $status_color = 'secondary';
 $header_badge_class = 'offline';
 
-if (strtolower($user['status'] ?? '') === 'disabled') {
+if ($is_disabled) {
     $profile_status = 'Disabled';
     $status_color = 'danger';
     $header_badge_class = 'disabled';
@@ -841,7 +886,7 @@ if (strtolower($user['status'] ?? '') === 'disabled') {
                                 <tr>
                                     <td class="fw-bold w-50">Profile Status</td>
                                     <td>
-                                        <?php if (strtolower($user['status'] ?? '') === 'disabled'): ?>
+                                        <?php if ($is_disabled): ?>
                                             <span class="badge bg-danger">Disabled</span>
                                         <?php elseif ($is_expired): ?>
                                             <span class="badge bg-warning text-dark">Expired</span>
@@ -998,9 +1043,13 @@ if (strtolower($user['status'] ?? '') === 'disabled') {
                     <div class="col-6 col-md-3">
                         <div class="text-muted small fw-semibold">Status</div>
                         <div class="mt-1">
-                            <?php if ($user['status'] === 'active' && strtotime($user['expiry_date'] ?? '') > time()): ?>
+                            <?php if (!$is_disabled && !$is_expired): ?>
                                 <span class="badge bg-success-subtle text-success border border-success-subtle fw-bold rounded-pill px-2 py-1">
                                     <i class="fa-solid fa-circle-check me-1"></i> Active
+                                </span>
+                            <?php elseif ($is_disabled): ?>
+                                <span class="badge bg-danger-subtle text-danger border border-danger-subtle fw-bold rounded-pill px-2 py-1">
+                                    <i class="fa-solid fa-ban me-1"></i> Disabled
                                 </span>
                             <?php else: ?>
                                 <span class="badge bg-danger-subtle text-danger border border-danger-subtle fw-bold rounded-pill px-2 py-1">

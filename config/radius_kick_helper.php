@@ -217,7 +217,7 @@ function sync_expired_subscribers($pdo, $client_id = null, $kick_sessions = true
 
         // -------------------------------------------------------------
         // Group B: EXPIRED SUBSCRIBERS (Walled Garden / Redirection)
-        // (expiry_date <= NOW() OR status = 'expired') AND status != 'disabled'
+        // (expiry_date <= NOW()) AND status != 'disabled'
         // Allowed to connect (shows Online) but throttled & added to EXPIRED_USERS list
         // -------------------------------------------------------------
         $sqlExpired = "
@@ -225,7 +225,7 @@ function sync_expired_subscribers($pdo, $client_id = null, $kick_sessions = true
             FROM subscribers s
             WHERE (
                 (s.expiry_date IS NOT NULL AND s.expiry_date <= NOW())
-                OR s.status = 'expired'
+                OR (s.expiry_date IS NULL AND s.status = 'expired')
             )
             AND s.status != 'disabled'
         ";
@@ -286,16 +286,17 @@ function sync_expired_subscribers($pdo, $client_id = null, $kick_sessions = true
 
         // -------------------------------------------------------------
         // Group C: ACTIVE / RENEWED SUBSCRIBERS
-        // status = 'active' AND (expiry_date IS NULL OR expiry_date > NOW())
+        // (expiry_date IS NULL OR expiry_date > NOW()) AND status != 'disabled'
         // Restores package speed and unblocks firewall
         // -------------------------------------------------------------
         $sqlActiveNeedsRestoration = "
-            SELECT DISTINCT s.id, s.username, s.client_id, s.package_id
+            SELECT DISTINCT s.id, s.username, s.client_id, s.package_id, s.status
             FROM subscribers s
-            WHERE s.status = 'active'
-              AND (s.expiry_date IS NULL OR s.expiry_date > NOW())
+            WHERE (s.expiry_date IS NULL OR s.expiry_date > NOW())
+              AND s.status != 'disabled'
               AND (
-                  EXISTS (SELECT 1 FROM radcheck rc WHERE rc.username = s.username AND rc.attribute = 'Auth-Type')
+                  s.status != 'active'
+                  OR EXISTS (SELECT 1 FROM radcheck rc WHERE rc.username = s.username AND rc.attribute = 'Auth-Type')
                   OR EXISTS (SELECT 1 FROM radreply rr WHERE rr.username = s.username AND rr.attribute = 'Mikrotik-Address-List' AND rr.value = 'EXPIRED_USERS')
                   OR EXISTS (SELECT 1 FROM radreply rr WHERE rr.username = s.username AND rr.attribute = 'Mikrotik-Group' AND rr.value = 'expired')
               )
@@ -315,6 +316,11 @@ function sync_expired_subscribers($pdo, $client_id = null, $kick_sessions = true
         foreach ($restoredUsers as $ru) {
             $user = trim($ru['username']);
             if (empty($user)) continue;
+
+            // Ensure status in subscribers table is active
+            if ($ru['status'] !== 'active') {
+                $pdo->prepare("UPDATE subscribers SET status = 'active' WHERE id = ?")->execute([$ru['id']]);
+            }
 
             // Remove Reject from radcheck
             $delRadcheckAuthStmt->execute([$user]);
