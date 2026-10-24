@@ -37,6 +37,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         if ($expiry_type === 'custom') {
             $expiry_date = date('Y-m-d H:i:s', strtotime($custom_expiry));
+            $new_exp_ts = strtotime($expiry_date);
+
+            // Pro-rata adjustment for custom expiry
+            $old_remaining_credit = 0;
+            if ($current_expiry > $now) {
+                $cur_pq = $pdo->prepare("SELECT price, validity_days FROM packages WHERE id = ?");
+                $cur_pq->execute([$uData['package_id']]);
+                $cur_pkg = $cur_pq->fetch();
+                $cur_price = (float)($cur_pkg['price'] ?? $pkg['price']);
+                $cur_val = (int)(($cur_pkg['validity_days'] ?? 0) > 0 ? $cur_pkg['validity_days'] : 30);
+                $cur_daily = $cur_price / $cur_val;
+                $old_remaining_credit = (($current_expiry - $now) / 86400) * $cur_daily;
+            }
+
+            $new_total_cost = 0;
+            $pkg_validity = (int)(($pkg['validity_days'] ?? 0) > 0 ? $pkg['validity_days'] : 30);
+            $new_daily = (float)$pkg['price'] / $pkg_validity;
+            if ($new_exp_ts > $now) {
+                $new_total_cost = (($new_exp_ts - $now) / 86400) * $new_daily;
+            }
+
+            // Positive = charge subscriber (balance minus), Negative = refund subscriber (balance plus)
+            $net_adjustment = round($new_total_cost - $old_remaining_credit, 2);
         } else {
             $days = (int)$pkg['validity_days'];
             if ($current_expiry > $now) {
@@ -46,11 +69,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Expired: Extend from now
                 $expiry_date = date('Y-m-d H:i:s', strtotime("+$days days", $now));
             }
+            $new_exp_ts = strtotime($expiry_date);
+            $net_adjustment = (float)$pkg['price'];
         }
         
         $current_bal = (float)$uData['balance'];
-        $pkg_price = (float)$pkg['price'];
-        $new_bal = $current_bal - $pkg_price;
+        $new_bal = round($current_bal - $net_adjustment, 2);
         
         $pdo->beginTransaction();
 
@@ -89,19 +113,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             $net_deduction = round($new_total_value - $old_remaining_value, 2);
-            if ($net_deduction > 0) {
+            if ($net_deduction != 0) {
                 $pdo->prepare("UPDATE dealers SET balance = balance - ? WHERE id = ?")->execute([$net_deduction, $sub_dealer_id]);
-                $note = "Package Upgrade/Renew for user $u. Total Cost: Rs." . round($new_total_value, 2) . ", Old Credit: Rs." . round($old_remaining_value, 2) . ". Net Deducted: Rs. $net_deduction";
-                $pdo->prepare("INSERT INTO dealer_notes (dealer_id, note) VALUES (?, ?)")->execute([$sub_dealer_id, $note]);
-            } else {
-                $note = "Package Downgrade/Change for user $u. Total Cost: Rs." . round($new_total_value, 2) . " covered by Old Credit Rs." . round($old_remaining_value, 2) . ". No balance deducted.";
+                $note = ($net_deduction > 0)
+                    ? "Package Upgrade/Renew for user $u. Total Cost: Rs." . round($new_total_value, 2) . ", Old Credit: Rs." . round($old_remaining_value, 2) . ". Net Deducted: Rs. $net_deduction"
+                    : "Package Change/Refund for user $u. Total Cost: Rs." . round($new_total_value, 2) . ", Old Credit: Rs." . round($old_remaining_value, 2) . ". Net Credited: Rs. " . abs($net_deduction);
                 $pdo->prepare("INSERT INTO dealer_notes (dealer_id, note) VALUES (?, ?)")->execute([$sub_dealer_id, $note]);
             }
         }
         
+        $new_status = ($new_exp_ts > $now) ? 'active' : 'expired';
+
         // Update DB
-        $pdo->prepare("UPDATE subscribers SET package_id = ?, expiry_date = ?, status = 'active', balance = ? WHERE id = ?")
-            ->execute([$package_id, $expiry_date, $new_bal, $user_id]);
+        $pdo->prepare("UPDATE subscribers SET package_id = ?, expiry_date = ?, status = ?, balance = ? WHERE id = ?")
+            ->execute([$package_id, $expiry_date, $new_status, $new_bal, $user_id]);
             
         // Update Radius
         $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Rate-Limit'")->execute([$u]);
@@ -128,15 +153,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $formatted_expiry = date('d M Y H:i:s', strtotime($expiry_date));
         $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute IN ('Expiration', 'Auth-Type')")->execute([$u]);
         $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Expiration', ':=', ?)")->execute([$u, $formatted_expiry]);
+        if ($new_status === 'expired') {
+            $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Auth-Type', ':=', 'Reject')")->execute([$u]);
+        }
         
+        // Actor details
+        $actor_role = !empty($_SESSION['is_manager']) ? 'Manager' : 'Admin';
+        $actor_name = !empty($_SESSION['manager_name']) ? $_SESSION['manager_name'] : (!empty($_SESSION['operator_name']) ? $_SESSION['operator_name'] : 'Admin');
+        $actor_mgr_id = !empty($_SESSION['is_manager']) ? (int)($_SESSION['manager_id'] ?? 0) : null;
+
         // Logs
         $act_dealer_id = ($sub_dealer_id > 0) ? $sub_dealer_id : null;
-        $pdo->prepare("INSERT INTO activity_logs (client_id, dealer_id, by_user, against_to, against_role, activity) VALUES (?, ?, 'Admin', ?, 'User', 'Package Renewed & Expiry Updated')")
-            ->execute([$client_id, $act_dealer_id, $u]);
+        if ($net_adjustment > 0) {
+            $act_log_text = "Package Renewed / Extended Expiry to " . date('d M Y, h:i A', $new_exp_ts) . ". Charged Rs. " . number_format($net_adjustment, 2) . " ({$pkg['name']})";
+        } elseif ($net_adjustment < 0) {
+            $act_log_text = "Package Expiry Reduced to " . date('d M Y, h:i A', $new_exp_ts) . ". Credited Rs. " . number_format(abs($net_adjustment), 2) . " ({$pkg['name']})";
+        } else {
+            $act_log_text = "Updated Package & Expiry Date to " . date('d M Y, h:i A', $new_exp_ts) . " ({$pkg['name']})";
+        }
+
+        $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, dealer_id, by_user, against_to, against_role, activity) VALUES (?, ?, ?, ?, ?, 'User', ?)")
+            ->execute([$client_id, $actor_mgr_id, $act_dealer_id, $actor_name, $u, $act_log_text]);
             
-        if ($pkg_price > 0) {
+        if ($net_adjustment > 0) {
             $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'debit', ?, ?, ?)")
-                ->execute([$client_id, $u, $pkg_price, $new_bal, "Package Renewed: " . $pkg['name']]);
+                ->execute([$client_id, $u, $net_adjustment, $new_bal, "Package Renewed: " . $pkg['name'] . " by $actor_role ($actor_name)"]);
+        } elseif ($net_adjustment < 0) {
+            $abs_refund = abs($net_adjustment);
+            $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'credit', ?, ?, ?)")
+                ->execute([$client_id, $u, $abs_refund, $new_bal, "Expiry Adjustment Refund ({$pkg['name']}) by $actor_role ($actor_name)"]);
         }
         
         $pdo->commit();

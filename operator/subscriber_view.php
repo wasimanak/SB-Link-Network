@@ -249,53 +249,193 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         elseif ($action === 'renew_user') {
             $package_id = (int)$_POST['package_id'];
-            $expiry_date = $_POST['expiry_date'];
+            $expiry_date = trim($_POST['expiry_date'] ?? '');
             
-            $p = $pdo->prepare("SELECT p.name, p.rate_limit, p.price, p.pool_id, pl.pool_name FROM packages p LEFT JOIN ip_pools pl ON p.pool_id = pl.id WHERE p.id = ? AND p.client_id = ?");
+            $p = $pdo->prepare("SELECT p.name, p.rate_limit, p.price, p.validity_days, p.pool_id, pl.pool_name FROM packages p LEFT JOIN ip_pools pl ON p.pool_id = pl.id WHERE p.id = ? AND (p.client_id = ? OR p.client_id = 0)");
             $p->execute([$package_id, $client_id]);
             $pkg = $p->fetch();
 
-            if ($pkg) {
-                // Get current balance
-                $bStmt = $pdo->prepare("SELECT balance FROM subscribers WHERE id=?");
-                $bStmt->execute([$id]);
-                $current_bal = (float)$bStmt->fetchColumn();
-                $pkg_price = (float)$pkg['price'];
-                $new_bal = $current_bal - $pkg_price; // Deduct price
-                
-                $pdo->beginTransaction();
-                $pdo->prepare("UPDATE subscribers SET package_id = ?, expiry_date = ?, status = 'active', balance = ? WHERE id = ?")->execute([$package_id, $expiry_date, $new_bal, $id]);
-                $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Rate-Limit'")->execute([$u]);
-                if (!empty($pkg['rate_limit']) && $pkg['rate_limit'] !== 'No Limit') {
-                    $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Rate-Limit', '=', ?)")->execute([$u, $pkg['rate_limit']]);
+            if ($pkg && !empty($expiry_date)) {
+                // Fetch full subscriber details including current package details
+                $subStmt = $pdo->prepare("
+                    SELECT s.id, s.username, s.balance, s.status, s.expiry_date, s.package_id, s.dealer_id,
+                           p.price as cur_pkg_price, p.validity_days as cur_pkg_validity, p.name as cur_pkg_name
+                    FROM subscribers s
+                    LEFT JOIN packages p ON s.package_id = p.id
+                    WHERE s.id = ? AND s.client_id = ?
+                ");
+                $subStmt->execute([$id, $client_id]);
+                $sub = $subStmt->fetch();
+
+                if (!$sub) {
+                    echo "<script>alert('Subscriber not found.'); window.location='subscribers.php';</script>";
+                    exit;
                 }
 
-                // NEVER inject Mikrotik-Address-List (prevents 700 dynamic entries and WAN hijacking)
-                $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute IN ('Mikrotik-Address-List', 'Framed-Pool')")->execute([$u]);
-                $target_profile = !empty($pkg['pool_name']) ? $pkg['pool_name'] : '';
-                if (empty($target_profile) || $target_profile === 'PPPoE Pool') {
-                    if (preg_match('/(\d+)\s*(?:M|MB|Mbps)/i', $pkg['name'], $m_prof)) {
-                        $target_profile = $m_prof[1] . 'Mbps';
+                $now = time();
+                $cur_exp_ts = (!empty($sub['expiry_date']) && $sub['expiry_date'] !== '0000-00-00 00:00:00') ? strtotime($sub['expiry_date']) : 0;
+                $new_exp_ts = strtotime($expiry_date);
+
+                if ($new_exp_ts === false || $new_exp_ts <= 0) {
+                    echo "<script>alert('Invalid Expiry Date & Time.'); window.location='subscriber_view.php?id=$id';</script>";
+                    exit;
+                }
+
+                // 1. Calculate remaining credit on currently active period (if user was still active)
+                $old_remaining_credit = 0;
+                if ($cur_exp_ts > $now) {
+                    $cur_pkg_price = (float)($sub['cur_pkg_price'] ?? 0);
+                    $cur_validity = (int)(($sub['cur_pkg_validity'] ?? 0) > 0 ? $sub['cur_pkg_validity'] : 30);
+                    $cur_daily_rate = $cur_pkg_price / $cur_validity;
+                    $remaining_seconds = $cur_exp_ts - $now;
+                    $old_remaining_credit = ($remaining_seconds / 86400) * $cur_daily_rate;
+                }
+
+                // 2. Calculate total cost for new future period
+                $new_total_cost = 0;
+                $new_pkg_price = (float)$pkg['price'];
+                $new_validity = (int)(($pkg['validity_days'] ?? 0) > 0 ? $pkg['validity_days'] : 30);
+                $new_daily_rate = $new_pkg_price / $new_validity;
+
+                if ($new_exp_ts > $now) {
+                    $new_seconds = $new_exp_ts - $now;
+                    $new_total_cost = ($new_seconds / 86400) * $new_daily_rate;
+                }
+
+                // 3. Financial Net Adjustment:
+                // Date goes forward -> net_adjustment is positive -> CHARGE user (balance decreases / minus)
+                // Date goes backward -> net_adjustment is negative -> REFUND user (balance increases / plus)
+                $net_adjustment = round($new_total_cost - $old_remaining_credit, 2);
+
+                $current_bal = (float)$sub['balance'];
+                $new_bal = round($current_bal - $net_adjustment, 2);
+
+                $pdo->beginTransaction();
+
+                // Dealer handling if subscriber belongs to a dealer
+                $sub_dealer_id = (int)($sub['dealer_id'] ?? 0);
+                if ($sub_dealer_id > 0) {
+                    $old_dealer_credit = 0;
+                    if ($cur_exp_ts > $now) {
+                        $old_dpStmt = $pdo->prepare("SELECT dealer_price FROM dealer_packages WHERE dealer_id = ? AND package_id = ?");
+                        $old_dpStmt->execute([$sub_dealer_id, $sub['package_id']]);
+                        $old_dp_price = $old_dpStmt->fetchColumn();
+                        if ($old_dp_price === false) {
+                            $old_dp_price = (float)($sub['cur_pkg_price'] ?? 0);
+                        }
+                        $old_cur_val = (int)(($sub['cur_pkg_validity'] ?? 0) > 0 ? $sub['cur_pkg_validity'] : 30);
+                        $old_dp_rate = (float)$old_dp_price / $old_cur_val;
+                        $old_dealer_credit = (($cur_exp_ts - $now) / 86400) * $old_dp_rate;
+                    }
+
+                    $new_dealer_cost = 0;
+                    if ($new_exp_ts > $now) {
+                        $new_dpStmt = $pdo->prepare("SELECT dealer_price FROM dealer_packages WHERE dealer_id = ? AND package_id = ?");
+                        $new_dpStmt->execute([$sub_dealer_id, $package_id]);
+                        $new_dp_price = $new_dpStmt->fetchColumn();
+                        if ($new_dp_price === false) {
+                            $new_dp_price = $new_pkg_price;
+                        }
+                        $new_dp_rate = (float)$new_dp_price / $new_validity;
+                        $new_dealer_cost = (($new_exp_ts - $now) / 86400) * $new_dp_rate;
+                    }
+
+                    $net_dealer_deduction = round($new_dealer_cost - $old_dealer_credit, 2);
+                    if ($net_dealer_deduction != 0) {
+                        $pdo->prepare("UPDATE dealers SET balance = balance - ? WHERE id = ?")->execute([$net_dealer_deduction, $sub_dealer_id]);
+                        $d_note = ($net_dealer_deduction > 0) 
+                            ? "Expiry Extended for user {$sub['username']}. Deducted Rs. " . abs($net_dealer_deduction)
+                            : "Expiry Reduced for user {$sub['username']}. Credited Rs. " . abs($net_dealer_deduction);
+                        $pdo->prepare("INSERT INTO dealer_notes (dealer_id, note) VALUES (?, ?)")->execute([$sub_dealer_id, $d_note]);
                     }
                 }
-                if (!empty($target_profile)) {
-                    $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Group'")->execute([$u]);
-                    $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Group', '=', ?)")->execute([$u, $target_profile]);
+
+                $new_status = ($new_exp_ts > $now) ? 'active' : 'expired';
+                $formatted_expiry_db = date('Y-m-d H:i:s', $new_exp_ts);
+
+                // Update subscriber record
+                $pdo->prepare("UPDATE subscribers SET package_id = ?, expiry_date = ?, status = ?, balance = ? WHERE id = ?")
+                    ->execute([$package_id, $formatted_expiry_db, $new_status, $new_bal, $id]);
+
+                // RADIUS sync
+                $formatted_expiry_rad = date('d M Y H:i:s', $new_exp_ts);
+                if ($new_status === 'active') {
+                    $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute IN ('Expiration', 'Auth-Type')")->execute([$u]);
+                    $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Expiration', ':=', ?)")->execute([$u, $formatted_expiry_rad]);
+
+                    $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute IN ('Mikrotik-Address-List', 'Framed-Pool')")->execute([$u]);
+                    
+                    if (!empty($pkg['rate_limit']) && $pkg['rate_limit'] !== 'No Limit' && $pkg['rate_limit'] !== 'Unlimited') {
+                        $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Rate-Limit'")->execute([$u]);
+                        $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Rate-Limit', '=', ?)")->execute([$u, $pkg['rate_limit']]);
+                    }
+
+                    $target_profile = !empty($pkg['pool_name']) ? $pkg['pool_name'] : '';
+                    if (empty($target_profile) || $target_profile === 'PPPoE Pool') {
+                        if (preg_match('/(\d+)\s*(?:M|MB|Mbps)/i', $pkg['name'], $m_prof)) {
+                            $target_profile = $m_prof[1] . 'Mbps';
+                        }
+                    }
+                    if (!empty($target_profile)) {
+                        $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Group'")->execute([$u]);
+                        $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Group', '=', ?)")->execute([$u, $target_profile]);
+                    }
+                } else {
+                    $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute IN ('Expiration', 'Auth-Type')")->execute([$u]);
+                    $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Expiration', ':=', ?)")->execute([$u, $formatted_expiry_rad]);
+                    $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Auth-Type', ':=', 'Reject')")->execute([$u]);
                 }
-                $formatted_expiry = date('d M Y H:i:s', strtotime($expiry_date));
-                $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute IN ('Expiration', 'Auth-Type')")->execute([$u]);
-                $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Expiration', ':=', ?)")->execute([$u, $formatted_expiry]);
-                
-                $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, 'Admin', ?, 'User', 'Package Renewed & Expiry Updated')")->execute([$client_id, $u]);
-                
-                // Insert deduction into ledger
-                if ($pkg_price > 0) {
+
+                // Actor details (Admin or Manager)
+                $actor_role = !empty($_SESSION['is_manager']) ? 'Manager' : 'Admin';
+                $actor_name = !empty($_SESSION['manager_name']) ? $_SESSION['manager_name'] : (!empty($_SESSION['operator_name']) ? $_SESSION['operator_name'] : 'Admin');
+                $actor_mgr_id = !empty($_SESSION['is_manager']) ? (int)($_SESSION['manager_id'] ?? 0) : null;
+
+                // Activity Log
+                if ($net_adjustment > 0) {
+                    $act_text = "Renewed / Extended Expiry to " . date('d M Y, h:i A', $new_exp_ts) . ". Charged Rs. " . number_format($net_adjustment, 2) . " ({$pkg['name']})";
+                } elseif ($net_adjustment < 0) {
+                    $act_text = "Reduced Expiry to " . date('d M Y, h:i A', $new_exp_ts) . ". Credited Rs. " . number_format(abs($net_adjustment), 2) . " ({$pkg['name']})";
+                } else {
+                    $act_text = "Updated Expiry Date to " . date('d M Y, h:i A', $new_exp_ts) . " ({$pkg['name']})";
+                }
+
+                $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, by_user, against_to, against_role, activity) VALUES (?, ?, ?, ?, 'User', ?)")
+                    ->execute([$client_id, $actor_mgr_id, $actor_name, $u, $act_text]);
+
+                // Ledger Entry
+                if ($net_adjustment > 0) {
+                    $days_label = ($new_exp_ts > $now) ? round(($new_exp_ts - max($now, $cur_exp_ts)) / 86400, 1) : 0;
+                    $desc = "Expiry Extended (+{$days_label}d) to " . date('d M Y, h:i A', $new_exp_ts) . " ({$pkg['name']}) by $actor_role ($actor_name)";
                     $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'debit', ?, ?, ?)")
-                        ->execute([$client_id, $u, $pkg_price, $new_bal, "Package Renewed: " . $pkg['name']]);
+                        ->execute([$client_id, $u, $net_adjustment, $new_bal, $desc]);
+                } elseif ($net_adjustment < 0) {
+                    $abs_refund = abs($net_adjustment);
+                    $desc = "Expiry Reduced to " . date('d M Y, h:i A', $new_exp_ts) . " (Pro-rata Refund) by $actor_role ($actor_name)";
+                    $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'credit', ?, ?, ?)")
+                        ->execute([$client_id, $u, $abs_refund, $new_bal, $desc]);
                 }
 
                 $pdo->commit();
-                echo "<script>alert('Renewed successfully!'); window.location='subscriber_view.php?id=$id';</script>";
+
+                // Kick session
+                try {
+                    require_once __DIR__ . '/../config/radius_kick_helper.php';
+                    kick_subscriber_session($pdo, $u, $client_id);
+                } catch (Exception $e) {
+                    try { kick_user_mikrotik($pdo, $client_id, $u); } catch (Exception $ex) {}
+                }
+
+                $alert_msg = "Successfully updated! Expiry set to " . date('d M Y, h:i A', $new_exp_ts) . ". ";
+                if ($net_adjustment > 0) {
+                    $alert_msg .= "Charged Rs. " . number_format($net_adjustment, 2) . ". New Balance: Rs. " . number_format($new_bal, 2);
+                } elseif ($net_adjustment < 0) {
+                    $alert_msg .= "Credited Rs. " . number_format(abs($net_adjustment), 2) . ". New Balance: Rs. " . number_format($new_bal, 2);
+                } else {
+                    $alert_msg .= "Balance unchanged.";
+                }
+
+                echo "<script>alert('" . addslashes($alert_msg) . "'); window.location='subscriber_view.php?id=$id';</script>";
                 exit;
             }
         }
@@ -304,7 +444,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // --- END ACTIONS ---
 
 // Fetch user data
-$sql = "SELECT s.*, p.name as pkg_name, p.data_limit_gb, p.validity_days, c.company_name 
+$sql = "SELECT s.*, p.name as pkg_name, p.price as pkg_price, p.data_limit_gb, p.validity_days, c.company_name 
         FROM subscribers s 
         JOIN clients c ON s.client_id = c.id 
         LEFT JOIN packages p ON s.package_id = p.id 
@@ -838,37 +978,276 @@ if (strtolower($user['status'] ?? '') === 'disabled') {
   </div>
 </div>
 
-<!-- Renew Modal -->
+<!-- Renew & Custom Expiry Modal -->
 <div class="modal fade" id="renewModal" tabindex="-1">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title"><i class="fa-solid fa-rotate"></i> Renew User</h5>
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content shadow-lg border-0 rounded-4">
+      <div class="modal-header bg-light border-bottom px-4 py-3">
+        <h5 class="modal-title fw-bold text-dark">
+          <i class="fa-solid fa-rotate text-primary me-2"></i> Renew &amp; Custom Expiry Management
+        </h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <form method="POST">
         <input type="hidden" name="action" value="renew_user">
-        <div class="modal-body">
-            <div class="mb-3">
-                <label class="form-label">Change Package</label>
-                <select name="package_id" class="form-select" required>
-                    <?php foreach($packages as $p): ?>
-                        <option value="<?= $p['id'] ?>" <?= $p['id'] == $user['package_id'] ? 'selected' : '' ?>><?= htmlspecialchars($p['name']) ?> (<?= htmlspecialchars($p['rate_limit']) ?>)</option>
-                    <?php endforeach; ?>
-                </select>
+        <div class="modal-body p-4">
+
+            <!-- Subscriber Quick Status Strip -->
+            <div class="bg-light rounded-3 p-3 mb-3 border">
+                <div class="row g-2 align-items-center">
+                    <div class="col-6 col-md-3">
+                        <div class="text-muted small fw-semibold">Status</div>
+                        <div class="mt-1">
+                            <?php if ($user['status'] === 'active' && strtotime($user['expiry_date'] ?? '') > time()): ?>
+                                <span class="badge bg-success-subtle text-success border border-success-subtle fw-bold rounded-pill px-2 py-1">
+                                    <i class="fa-solid fa-circle-check me-1"></i> Active
+                                </span>
+                            <?php else: ?>
+                                <span class="badge bg-danger-subtle text-danger border border-danger-subtle fw-bold rounded-pill px-2 py-1">
+                                    <i class="fa-solid fa-circle-xmark me-1"></i> Expired
+                                </span>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="text-muted small fw-semibold">Current Expiry</div>
+                        <div class="fw-bold text-dark mt-1 font-monospace small">
+                            <?= (!empty($user['expiry_date']) && $user['expiry_date'] !== '0000-00-00 00:00:00') ? date('d M Y, h:i A', strtotime($user['expiry_date'])) : '<span class="text-muted">None / Expired</span>' ?>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="text-muted small fw-semibold">Current Balance</div>
+                        <div class="fw-bold mt-1 <?= (float)$user['balance'] < 0 ? 'text-danger' : 'text-success' ?>">
+                            Rs. <?= number_format((float)$user['balance'], 2) ?>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="text-muted small fw-semibold">Current Package</div>
+                        <div class="fw-bold text-dark mt-1 small">
+                            <?= htmlspecialchars($user['pkg_name'] ?? 'N/A') ?>
+                        </div>
+                    </div>
+                </div>
             </div>
-            <div class="mb-3">
-                <label class="form-label">Set Expiry Date & Time</label>
-                <input type="datetime-local" name="expiry_date" class="form-control" value="<?= $user['expiry_date'] ? date('Y-m-d\TH:i', strtotime($user['expiry_date'])) : '' ?>" required>
+
+            <!-- Form Inputs -->
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label class="form-label fw-semibold text-secondary small">Package <span class="text-danger">*</span></label>
+                    <select name="package_id" id="renew_package_select" class="form-select form-select-sm" required onchange="recalculateRenewAdjustment()">
+                        <?php foreach($packages as $p): ?>
+                            <option value="<?= $p['id'] ?>" 
+                                data-price="<?= (float)$p['price'] ?>" 
+                                data-days="<?= (int)(($p['validity_days'] ?? 0) > 0 ? $p['validity_days'] : 30) ?>" 
+                                data-name="<?= htmlspecialchars($p['name']) ?>"
+                                <?= $p['id'] == $user['package_id'] ? 'selected' : '' ?>>
+                                <?= htmlspecialchars($p['name']) ?> (Rs. <?= number_format($p['price']) ?> / <?= $p['validity_days'] ?: 30 ?>d) - <?= htmlspecialchars($p['rate_limit']) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label fw-semibold text-secondary small">Set Expiry Date &amp; Time <span class="text-danger">*</span></label>
+                    <input type="datetime-local" name="expiry_date" id="renew_expiry_input" class="form-control form-control-sm" 
+                           value="<?= (!empty($user['expiry_date']) && $user['expiry_date'] !== '0000-00-00 00:00:00') ? date('Y-m-d\TH:i', strtotime($user['expiry_date'])) : date('Y-m-d\TH:i', strtotime('+30 days')) ?>" 
+                           required oninput="recalculateRenewAdjustment()">
+                </div>
             </div>
+
+            <!-- Quick Preset Helper Buttons -->
+            <div class="mt-3">
+                <label class="form-label fw-semibold text-secondary small mb-1">
+                    <i class="fa-solid fa-wand-magic-sparkles text-primary me-1"></i> Quick Expiry Presets:
+                </label>
+                <div class="d-flex flex-wrap gap-1">
+                    <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3" onclick="setRenewPreset(7)">+7 Days</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3" onclick="setRenewPreset(15)">+15 Days</button>
+                    <button type="button" class="btn btn-sm btn-outline-primary fw-semibold rounded-pill px-3" onclick="setRenewPreset(30)">+30 Days (1 Month)</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3" onclick="setRenewPreset(60)">+60 Days (2 Months)</button>
+                    <button type="button" class="btn btn-sm btn-outline-danger rounded-pill px-2" onclick="setRenewPreset(0)" title="Set Expiry to Right Now (Expire User)">Expire Now</button>
+                    <button type="button" class="btn btn-sm btn-light border rounded-pill px-2 text-muted" onclick="resetToCurrentExpiry()" title="Reset back to current saved expiry">Reset</button>
+                </div>
+            </div>
+
+            <!-- Live Financial Calculation Container -->
+            <div class="mt-4">
+                <label class="form-label fw-semibold text-secondary small mb-1">
+                    <i class="fa-solid fa-calculator text-primary me-1"></i> Live Financial Impact &amp; Ledger Calculation:
+                </label>
+                <div id="renew_calculation_result">
+                    <!-- Populated dynamically by JavaScript -->
+                </div>
+            </div>
+
         </div>
-        <div class="modal-footer">
-          <button type="submit" class="btn btn-primary">Update & Renew</button>
+        <div class="modal-footer bg-light border-top px-4 py-3">
+          <button type="button" class="btn btn-outline-secondary rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary fw-semibold rounded-pill px-4 shadow-sm">
+              <i class="fa-solid fa-check me-1"></i> Save Expiry &amp; Apply Ledger
+          </button>
         </div>
       </form>
     </div>
   </div>
 </div>
+
+<script>
+const userCurBal = <?= (float)($user['balance'] ?? 0) ?>;
+const userCurExpStr = <?= json_encode((!empty($user['expiry_date']) && $user['expiry_date'] !== '0000-00-00 00:00:00') ? $user['expiry_date'] : '') ?>;
+const userCurPkgPrice = <?= (float)($user['pkg_price'] ?? 0) ?>;
+const userCurPkgValidity = <?= (int)(($user['validity_days'] ?? 0) > 0 ? $user['validity_days'] : 30) ?>;
+
+function recalculateRenewAdjustment() {
+    const pkgSelect = document.getElementById('renew_package_select');
+    const expiryInput = document.getElementById('renew_expiry_input');
+    const resultBox = document.getElementById('renew_calculation_result');
+    if (!pkgSelect || !expiryInput || !resultBox) return;
+
+    const opt = pkgSelect.options[pkgSelect.selectedIndex];
+    const newPrice = opt ? parseFloat(opt.dataset.price || 0) : 0;
+    const newValidity = opt ? parseInt(opt.dataset.days || 30) : 30;
+    const newDaily = newPrice / (newValidity > 0 ? newValidity : 30);
+
+    const now = Math.floor(Date.now() / 1000);
+    let curExpTs = userCurExpStr ? Math.floor(new Date(userCurExpStr).getTime() / 1000) : 0;
+    if (isNaN(curExpTs)) curExpTs = 0;
+
+    let newExpTs = expiryInput.value ? Math.floor(new Date(expiryInput.value).getTime() / 1000) : 0;
+    if (isNaN(newExpTs) || newExpTs <= 0) {
+        resultBox.innerHTML = '<div class="alert alert-secondary py-2 px-3 small mb-0"><i class="fa-solid fa-circle-info me-1"></i> Please enter an Expiry Date &amp; Time.</div>';
+        return;
+    }
+
+    // 1. Old remaining credit if currently active
+    let oldCredit = 0;
+    let curDaysLeft = 0;
+    if (curExpTs > now) {
+        curDaysLeft = (curExpTs - now) / 86400;
+        const curDaily = userCurPkgPrice / (userCurPkgValidity > 0 ? userCurPkgValidity : 30);
+        oldCredit = curDaysLeft * curDaily;
+    }
+
+    // 2. New period cost
+    let newCost = 0;
+    let newDaysAhead = 0;
+    if (newExpTs > now) {
+        newDaysAhead = (newExpTs - now) / 86400;
+        newCost = newDaysAhead * newDaily;
+    }
+
+    // 3. Net adjustment: positive = charge (balance minus), negative = refund (balance plus)
+    const net = Math.round((newCost - oldCredit) * 100) / 100;
+    const projectedBal = Math.round((userCurBal - net) * 100) / 100;
+
+    let html = '';
+    const diffSecs = newExpTs - Math.max(now, curExpTs);
+    const diffDays = Math.round((diffSecs / 86400) * 10) / 10;
+
+    if (net > 0) {
+        html = `
+            <div class="alert alert-warning border border-warning-subtle rounded-3 p-3 mb-0" style="background:#fffbeb;">
+                <div class="d-flex align-items-center justify-content-between mb-2">
+                    <span class="fw-bold text-dark"><i class="fa-solid fa-arrow-up-right-dots text-danger me-1"></i> Date Extended (+${Math.abs(diffDays)} Days)</span>
+                    <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-2 py-1 fw-bold fs-6">- Rs. ${net.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                </div>
+                <div class="small text-muted mb-2">
+                    Package Daily Rate: <strong>Rs. ${newDaily.toFixed(2)}/day</strong> (${opt ? opt.dataset.name : ''}).
+                    ${oldCredit > 0 ? `Unused Credit: <strong>Rs. ${oldCredit.toFixed(2)}</strong>. ` : ''}
+                    New Cost: <strong>Rs. ${newCost.toFixed(2)}</strong>.
+                </div>
+                <div class="d-flex justify-content-between align-items-center pt-2 border-top small">
+                    <span class="text-secondary">Balance Impact (Minus):</span>
+                    <span class="fw-bold text-dark">Rs. ${userCurBal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} &rarr; <span class="${projectedBal < 0 ? 'text-danger' : 'text-success'} fw-bold">Rs. ${projectedBal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></span>
+                </div>
+            </div>
+        `;
+    } else if (net < 0) {
+        const absNet = Math.abs(net);
+        const daysReduced = Math.round(((curExpTs - newExpTs) / 86400) * 10) / 10;
+        html = `
+            <div class="alert alert-success border border-success-subtle rounded-3 p-3 mb-0" style="background:#f0fdf4;">
+                <div class="d-flex align-items-center justify-content-between mb-2">
+                    <span class="fw-bold text-dark"><i class="fa-solid fa-arrow-down-left-and-up-right-to-center text-success me-1"></i> Date Reduced (-${daysReduced} Days)</span>
+                    <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1 fw-bold fs-6">+ Rs. ${absNet.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} (Refund)</span>
+                </div>
+                <div class="small text-muted mb-2">
+                    Unused days refunded at package rate. 
+                    Unused Credit: <strong>Rs. ${oldCredit.toFixed(2)}</strong>. 
+                    New Cost: <strong>Rs. ${newCost.toFixed(2)}</strong>.
+                </div>
+                <div class="d-flex justify-content-between align-items-center pt-2 border-top small">
+                    <span class="text-secondary">Balance Impact (Plus):</span>
+                    <span class="fw-bold text-dark">Rs. ${userCurBal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} &rarr; <span class="${projectedBal < 0 ? 'text-danger' : 'text-success'} fw-bold">Rs. ${projectedBal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></span>
+                </div>
+            </div>
+        `;
+    } else {
+        html = `
+            <div class="alert alert-secondary border rounded-3 p-2 px-3 mb-0 small text-secondary">
+                <i class="fa-solid fa-check text-success me-1"></i> Expiry date unchanged. No balance will be deducted or added.
+            </div>
+        `;
+    }
+
+    resultBox.innerHTML = html;
+}
+
+function setRenewPreset(days) {
+    const input = document.getElementById('renew_expiry_input');
+    if (!input) return;
+
+    let base = new Date();
+    if (userCurExpStr) {
+        const cd = new Date(userCurExpStr);
+        if (cd > base) {
+            base = cd;
+        }
+    }
+
+    if (days === 0) {
+        base = new Date();
+    } else {
+        base.setDate(base.getDate() + days);
+    }
+
+    const y = base.getFullYear();
+    const m = String(base.getMonth() + 1).padStart(2, '0');
+    const d = String(base.getDate()).padStart(2, '0');
+    const h = String(base.getHours()).padStart(2, '0');
+    const min = String(base.getMinutes()).padStart(2, '0');
+
+    input.value = `${y}-${m}-${d}T${h}:${min}`;
+    recalculateRenewAdjustment();
+}
+
+function resetToCurrentExpiry() {
+    const input = document.getElementById('renew_expiry_input');
+    if (!input) return;
+    if (userCurExpStr && userCurExpStr !== '0000-00-00 00:00:00') {
+        const d = new Date(userCurExpStr);
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        const h = String(d.getHours()).padStart(2, '0');
+        const min = String(d.getMinutes()).padStart(2, '0');
+        input.value = `${y}-${m}-${day}T${h}:${min}`;
+    } else {
+        input.value = '';
+    }
+    recalculateRenewAdjustment();
+}
+
+// Auto calculate on modal open
+document.addEventListener('DOMContentLoaded', function() {
+    const renewModalEl = document.getElementById('renewModal');
+    if (renewModalEl) {
+        renewModalEl.addEventListener('shown.bs.modal', function () {
+            recalculateRenewAdjustment();
+        });
+    }
+});
+</script>
 
 <!-- Edit Profile Modal -->
 <div class="modal fade" id="editProfileModal" tabindex="-1">
