@@ -224,12 +224,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         if ($pkg) {
             try {
                 $pdo->beginTransaction();
-                $pdo->prepare("INSERT INTO subscribers (client_id, package_id, username, password, service_type, full_name, national_id, mobile, phone, email, address, subarea, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-                    ->execute([$client_id, $package_id, $username, $password, $service_type, $full_name, $national_id, $mobile, $phone, $email, $address, $subarea, $latitude, $longitude]);
+                
+                // Default Expired status and expiry timestamp (1 min in the past) so financial record can be recorded on renewal
+                $now_expiry = date('Y-m-d H:i:s', time() - 60);
+                $status = 'expired';
+
+                $pdo->prepare("INSERT INTO subscribers (client_id, package_id, username, password, service_type, full_name, national_id, mobile, phone, email, address, subarea, latitude, longitude, status, expiry_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                    ->execute([$client_id, $package_id, $username, $password, $service_type, $full_name, $national_id, $mobile, $phone, $email, $address, $subarea, $latitude, $longitude, $status, $now_expiry]);
                 
                 $pdo->prepare("INSERT IGNORE INTO radcheck (username, attribute, op, value) VALUES (?, 'Cleartext-Password', ':=', ?)")
                     ->execute([$username, $password]);
                 
+                // Set FreeRADIUS Expiration to past date and Auth-Type := Reject so unrenewed user cannot surf without paying
+                $formatted_past_expiry = date('d M Y H:i:s', time() - 60);
+                $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute IN ('Expiration', 'Auth-Type')")->execute([$username]);
+                $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Expiration', ':=', ?)")->execute([$username, $formatted_past_expiry]);
+                $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Auth-Type', ':=', 'Reject')")->execute([$username]);
+
                 if (!empty($pkg['rate_limit']) && $pkg['rate_limit'] !== 'No Limit' && $pkg['rate_limit'] !== 'Unlimited') {
                     $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Rate-Limit', '=', ?)")
                         ->execute([$username, $pkg['rate_limit']]);
@@ -252,8 +263,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 } else {
                     $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Group'")->execute([$username]);
                 }
+
+                // Log the creation
+                $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, 'Admin', ?, 'User', 'Created New User (Default: Expired - Awaiting Renewal)')")
+                    ->execute([$client_id, $username]);
+
                 $pdo->commit();
-                echo "<script>alert('User created successfully!'); window.location='dashboard.php';</script>";
+                echo "<script>alert('User created successfully with Expired status! Please Renew the user to activate service and generate financial ledger records.'); window.location='dashboard.php';</script>";
                 exit;
             } catch (PDOException $e) {
                 $pdo->rollBack();
@@ -1495,6 +1511,14 @@ $map_subscribers = $pdo->query("
       <form method="POST" class="needs-validation" novalidate>
         <input type="hidden" name="action" value="add_user">
         <div class="modal-body p-4 pt-2">
+
+            <!-- Default Expired Status Banner -->
+            <div class="alert alert-warning border border-warning-subtle rounded-3 py-2 px-3 mb-3 d-flex align-items-center gap-2 shadow-sm" style="background-color: #fffbeb;">
+                <i class="fa-solid fa-clock-rotate-left text-warning-emphasis fs-5"></i>
+                <div class="small text-dark">
+                    <strong>Default Status: Expired</strong> — Naya user by default <strong>Expired</strong> state me create hoga. User create hone ke baad <strong>Activate/Renew</strong> button se renew karein ta k package charge ho aur financial ledger record update ho sake.
+                </div>
+            </div>
             
             <div class="add-user-flat-form">
                 <!-- Account Info -->
