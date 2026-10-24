@@ -87,7 +87,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             echo "<script>alert('Password updated successfully!'); window.location='subscriber_view.php?id=$id';</script>";
             exit;
         }
-                elseif ($action === 'edit_profile') {
+        elseif ($action === 'apply_uncredited_refund') {
+            $refund_amount = (float)($_POST['refund_amount'] ?? 0);
+            $refund_reason = trim($_POST['reason'] ?? 'Backward Expiry Adjustment Refund');
+            
+            if ($refund_amount > 0) {
+                $subStmt = $pdo->prepare("SELECT id, username, balance, dealer_id FROM subscribers WHERE id = ? AND client_id = ?");
+                $subStmt->execute([$id, $client_id]);
+                $sub = $subStmt->fetch();
+                
+                if ($sub) {
+                    $pdo->beginTransaction();
+                    $new_bal = round((float)$sub['balance'] + $refund_amount, 2);
+                    
+                    // Update balance
+                    $pdo->prepare("UPDATE subscribers SET balance = ? WHERE id = ?")->execute([$new_bal, $id]);
+                    
+                    // Ledger entry
+                    $actor_role = !empty($_SESSION['is_manager']) ? 'Manager' : 'Admin';
+                    $actor_name = !empty($_SESSION['manager_name']) ? $_SESSION['manager_name'] : (!empty($_SESSION['operator_name']) ? $_SESSION['operator_name'] : 'Admin');
+                    $actor_mgr_id = !empty($_SESSION['is_manager']) ? (int)($_SESSION['manager_id'] ?? 0) : null;
+                    
+                    $desc = "Reconciliation: " . $refund_reason . " by $actor_role ($actor_name)";
+                    $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'credit', ?, ?, ?)")
+                        ->execute([$client_id, $sub['username'], $refund_amount, $new_bal, $desc]);
+                    
+                    // Activity log
+                    $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, by_user, against_to, against_role, activity) VALUES (?, ?, ?, ?, 'User', ?)")
+                        ->execute([$client_id, $actor_mgr_id, $actor_name, $sub['username'], "Reconciliation: Credited Rs. " . number_format($refund_amount, 2) . " into balance for backward expiry adjustment"]);
+                    
+                    // Dealer handling if applicable
+                    $dealer_id = (int)($sub['dealer_id'] ?? 0);
+                    if ($dealer_id > 0) {
+                        $pdo->prepare("UPDATE dealers SET balance = balance + ? WHERE id = ?")->execute([$refund_amount, $dealer_id]);
+                        $pdo->prepare("INSERT INTO dealer_notes (dealer_id, note) VALUES (?, ?)")->execute([$dealer_id, "Reconciliation Credit: Rs. " . number_format($refund_amount, 2) . " credited back for user {$sub['username']}"]);
+                    }
+                    
+                    $pdo->commit();
+                    echo "<script>alert('Successfully credited Rs. " . number_format($refund_amount, 2) . " to {$sub['username']} balance! New Balance: Rs. " . number_format($new_bal, 2) . "'); window.location='subscriber_view.php?id=$id';</script>";
+                    exit;
+                }
+            }
+        }
+        elseif ($action === 'edit_profile') {
             $full_name = trim($_POST['full_name']);
             $national_id = trim($_POST['national_id']);
             $new_username = trim($_POST['username']);
@@ -115,29 +157,135 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
 
+            // Fetch current subscriber details for comparison and pro-rata calculation
+            $subStmt = $pdo->prepare("
+                SELECT s.id, s.username, s.balance, s.status, s.expiry_date, s.package_id, s.dealer_id,
+                       p.price as cur_pkg_price, p.validity_days as cur_pkg_validity, p.name as cur_pkg_name
+                FROM subscribers s
+                LEFT JOIN packages p ON s.package_id = p.id
+                WHERE s.id = ? AND s.client_id = ?
+            ");
+            $subStmt->execute([$id, $client_id]);
+            $cur_sub = $subStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$cur_sub) {
+                echo "<script>alert('Subscriber not found.'); window.location='subscribers.php';</script>";
+                exit;
+            }
+
+            $now = time();
+            $cur_exp_ts = (!empty($cur_sub['expiry_date']) && $cur_sub['expiry_date'] !== '0000-00-00 00:00:00') ? strtotime($cur_sub['expiry_date']) : 0;
+            $new_exp_ts = !empty($expiry) ? strtotime($expiry) : 0;
+
+            // Fetch selected package details
+            $pkgStmt = $pdo->prepare("SELECT id, name, price, validity_days, rate_limit, pool_id FROM packages WHERE id = ?");
+            $pkgStmt->execute([$package_id]);
+            $pkg_row = $pkgStmt->fetch(PDO::FETCH_ASSOC);
+
+            // Check if expiry or package changed
+            $exp_changed = false;
+            if ($cur_exp_ts > 0 && $new_exp_ts > 0) {
+                $exp_changed = (abs($cur_exp_ts - $new_exp_ts) > 60);
+            } elseif ($cur_exp_ts !== $new_exp_ts) {
+                $exp_changed = true;
+            }
+            $pkg_changed = ($package_id !== (int)$cur_sub['package_id']);
+
+            $net_adjustment = 0;
+            $current_bal = (float)($cur_sub['balance'] ?? 0);
+            $new_bal = $current_bal;
+
+            if ($exp_changed || ($pkg_changed && $cur_exp_ts > $now)) {
+                // 1. Calculate remaining credit on currently active period
+                $old_remaining_credit = 0;
+                if ($cur_exp_ts > $now) {
+                    $cur_pkg_price = (float)($cur_sub['cur_pkg_price'] ?? 0);
+                    $cur_validity = (int)(($cur_sub['cur_pkg_validity'] ?? 0) > 0 ? $cur_sub['cur_pkg_validity'] : 30);
+                    $cur_daily_rate = $cur_pkg_price / $cur_validity;
+                    $remaining_seconds = $cur_exp_ts - $now;
+                    $old_remaining_credit = ($remaining_seconds / 86400) * $cur_daily_rate;
+                }
+
+                // 2. Calculate total cost for new future period
+                $new_total_cost = 0;
+                if ($new_exp_ts > $now && $pkg_row) {
+                    $new_pkg_price = (float)$pkg_row['price'];
+                    $new_validity = (int)(($pkg_row['validity_days'] ?? 0) > 0 ? $pkg_row['validity_days'] : 30);
+                    $new_daily_rate = $new_pkg_price / $new_validity;
+                    $new_seconds = $new_exp_ts - $now;
+                    $new_total_cost = ($new_seconds / 86400) * $new_daily_rate;
+                }
+
+                // 3. Net adjustment:
+                // Date goes forward -> net_adjustment is positive -> CHARGE user (balance decreases / minus)
+                // Date goes backward -> net_adjustment is negative -> REFUND user (balance increases / plus)
+                $net_adjustment = round($new_total_cost - $old_remaining_credit, 2);
+                $new_bal = round($current_bal - $net_adjustment, 2);
+            }
+
             $pdo->beginTransaction();
-            
+
+            // Dealer handling if subscriber belongs to a dealer
+            $sub_dealer_id = (int)($cur_sub['dealer_id'] ?? 0);
+            if ($sub_dealer_id > 0 && $net_adjustment != 0) {
+                $old_dealer_credit = 0;
+                if ($cur_exp_ts > $now) {
+                    $old_dpStmt = $pdo->prepare("SELECT dealer_price FROM dealer_packages WHERE dealer_id = ? AND package_id = ?");
+                    $old_dpStmt->execute([$sub_dealer_id, $cur_sub['package_id']]);
+                    $old_dp_price = $old_dpStmt->fetchColumn();
+                    if ($old_dp_price === false) {
+                        $old_dp_price = (float)($cur_sub['cur_pkg_price'] ?? 0);
+                    }
+                    $old_cur_val = (int)(($cur_sub['cur_pkg_validity'] ?? 0) > 0 ? $cur_sub['cur_pkg_validity'] : 30);
+                    $old_dp_rate = (float)$old_dp_price / $old_cur_val;
+                    $old_dealer_credit = (($cur_exp_ts - $now) / 86400) * $old_dp_rate;
+                }
+
+                $new_dealer_cost = 0;
+                if ($new_exp_ts > $now && $pkg_row) {
+                    $new_dpStmt = $pdo->prepare("SELECT dealer_price FROM dealer_packages WHERE dealer_id = ? AND package_id = ?");
+                    $new_dpStmt->execute([$sub_dealer_id, $package_id]);
+                    $new_dp_price = $new_dpStmt->fetchColumn();
+                    if ($new_dp_price === false) {
+                        $new_dp_price = (float)($pkg_row['price'] ?? 0);
+                    }
+                    $new_validity = (int)(($pkg_row['validity_days'] ?? 0) > 0 ? $pkg_row['validity_days'] : 30);
+                    $new_dp_rate = (float)$new_dp_price / $new_validity;
+                    $new_dealer_cost = (($new_exp_ts - $now) / 86400) * $new_dp_rate;
+                }
+
+                $net_dealer_deduction = round($new_dealer_cost - $old_dealer_credit, 2);
+                if ($net_dealer_deduction != 0) {
+                    $pdo->prepare("UPDATE dealers SET balance = balance - ? WHERE id = ?")->execute([$net_dealer_deduction, $sub_dealer_id]);
+                    $d_note = ($net_dealer_deduction > 0) 
+                        ? "Profile Edit: Expiry Extended for user {$new_username}. Deducted Rs. " . abs($net_dealer_deduction)
+                        : "Profile Edit: Expiry Reduced for user {$new_username}. Credited Rs. " . abs($net_dealer_deduction);
+                    $pdo->prepare("INSERT INTO dealer_notes (dealer_id, note) VALUES (?, ?)")->execute([$sub_dealer_id, $d_note]);
+                }
+            }
+
             // Auto-determine status based on expiry
-            $cur_status = $pdo->query("SELECT status FROM subscribers WHERE id = $id")->fetchColumn();
+            $cur_status = $cur_sub['status'];
             $new_status = 'active';
             if ($cur_status === 'disabled') {
                 $new_status = 'disabled';
-            } elseif (!empty($expiry) && strtotime($expiry) <= time()) {
+            } elseif (empty($expiry) || $new_exp_ts <= $now) {
                 $new_status = 'expired';
             }
+
+            $formatted_expiry_db = !empty($expiry) ? date('Y-m-d H:i:s', $new_exp_ts) : null;
 
             // Update subscriber
             $pdo->prepare("UPDATE subscribers SET 
                 full_name=?, national_id=?, username=?, password=?, service_type=?, 
-                package_id=?, dealer_id=?, expiry_date=?, status=?, mobile=?, phone=?, email=?, 
+                package_id=?, dealer_id=?, expiry_date=?, status=?, balance=?, mobile=?, phone=?, email=?, 
                 address=?, subarea=?, city=?, latitude=?, longitude=?, gps_lat=?, gps_lng=? WHERE id=?")
                 ->execute([$full_name, $national_id, $new_username, $password, $service_type, 
-                           $package_id, $dealer_id, $expiry, $new_status, $mobile, $phone, $email, 
+                           $package_id, $dealer_id, $formatted_expiry_db, $new_status, $new_bal, $mobile, $phone, $email, 
                            $address, $subarea, $city, $latitude, $longitude, $latitude, $longitude, $id]);
             
             // Update RADIUS Cleartext-Password & Username
             if ($new_username !== $u) {
-                // Changing username in radius is complex; typically we update the radcheck/radreply usernames
                 $pdo->prepare("UPDATE radcheck SET username=? WHERE username=?")->execute([$new_username, $u]);
                 $pdo->prepare("UPDATE radreply SET username=? WHERE username=?")->execute([$new_username, $u]);
                 $pdo->prepare("UPDATE radusergroup SET username=? WHERE username=?")->execute([$new_username, $u]);
@@ -147,7 +295,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // RADIUS Expiration & Auth-Type Sync
             $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute IN ('Expiration', 'Auth-Type')")->execute([$new_username]);
             if (!empty($expiry)) {
-                $formatted_exp = date('d M Y H:i:s', strtotime($expiry));
+                $formatted_exp = date('d M Y H:i:s', $new_exp_ts);
                 $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Expiration', ':=', ?)")->execute([$new_username, $formatted_exp]);
             }
             if ($new_status === 'expired' || $new_status === 'disabled') {
@@ -155,10 +303,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             // Update Package Group in FreeRADIUS
-            $pkgStmt = $pdo->prepare("SELECT name, rate_limit, pool_id FROM packages WHERE id = ?");
-            $pkgStmt->execute([$package_id]);
-            $pkg_row = $pkgStmt->fetch(PDO::FETCH_ASSOC);
-            
             if ($pkg_row) {
                 $pkg_name = $pkg_row['name'];
                 $pdo->prepare("DELETE FROM radusergroup WHERE username = ?")->execute([$new_username]);
@@ -168,16 +312,68 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Rate-Limit'")->execute([$new_username]);
                     $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Rate-Limit', '=', ?)")->execute([$new_username, $pkg_row['rate_limit']]);
                 }
+
+                $target_profile = !empty($pkg_row['pool_name']) ? $pkg_row['pool_name'] : '';
+                if (empty($target_profile) || $target_profile === 'PPPoE Pool') {
+                    if (preg_match('/(\d+)\s*(?:M|MB|Mbps)/i', $pkg_name, $m_prof)) {
+                        $target_profile = $m_prof[1] . 'Mbps';
+                    }
+                }
+                if (!empty($target_profile) && $new_status === 'active') {
+                    $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Group'")->execute([$new_username]);
+                    $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Group', '=', ?)")->execute([$new_username, $target_profile]);
+                }
+            }
+
+            // Actor details (Admin or Manager)
+            $actor_role = !empty($_SESSION['is_manager']) ? 'Manager' : 'Admin';
+            $actor_name = !empty($_SESSION['manager_name']) ? $_SESSION['manager_name'] : (!empty($_SESSION['operator_name']) ? $_SESSION['operator_name'] : 'Admin');
+            $actor_mgr_id = !empty($_SESSION['is_manager']) ? (int)($_SESSION['manager_id'] ?? 0) : null;
+
+            // Ledger Entry and Activity Log
+            if ($net_adjustment > 0) {
+                $days_label = ($new_exp_ts > $now) ? round(($new_exp_ts - max($now, $cur_exp_ts)) / 86400, 1) : 0;
+                $desc = "Profile Edit: Expiry Extended (+{$days_label}d) to " . date('d M Y, h:i A', $new_exp_ts) . " ({$pkg_row['name']}) by $actor_role ($actor_name)";
+                $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'debit', ?, ?, ?)")
+                    ->execute([$client_id, $new_username, $net_adjustment, $new_bal, $desc]);
+
+                $act_text = "Profile Edit: Extended Expiry to " . date('d M Y, h:i A', $new_exp_ts) . ". Charged Rs. " . number_format($net_adjustment, 2) . " ({$pkg_row['name']})";
+                $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, by_user, against_to, against_role, activity) VALUES (?, ?, ?, ?, 'User', ?)")
+                    ->execute([$client_id, $actor_mgr_id, $actor_name, $new_username, $act_text]);
+            } elseif ($net_adjustment < 0) {
+                $abs_refund = abs($net_adjustment);
+                $desc = "Profile Edit: Expiry Reduced to " . date('d M Y, h:i A', $new_exp_ts) . " (Pro-rata Refund) by $actor_role ($actor_name)";
+                $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'credit', ?, ?, ?)")
+                    ->execute([$client_id, $new_username, $abs_refund, $new_bal, $desc]);
+
+                $act_text = "Profile Edit: Reduced Expiry to " . date('d M Y, h:i A', $new_exp_ts) . ". Credited Rs. " . number_format($abs_refund, 2) . " ({$pkg_row['name']})";
+                $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, by_user, against_to, against_role, activity) VALUES (?, ?, ?, ?, 'User', ?)")
+                    ->execute([$client_id, $actor_mgr_id, $actor_name, $new_username, $act_text]);
+            } else {
+                $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, by_user, against_to, against_role, activity) VALUES (?, ?, ?, ?, 'User', 'Updated Profile Details')")
+                    ->execute([$client_id, $actor_mgr_id, $actor_name, $new_username]);
             }
 
             $pdo->commit();
             
-            // If username changed, also kick the old user
-            if ($new_username !== $u) {
-                kick_user_mikrotik($pdo, $client_id, $u);
+            // Kick user session
+            try {
+                require_once __DIR__ . '/../config/radius_kick_helper.php';
+                kick_subscriber_session($pdo, $new_username, $client_id);
+                if ($new_username !== $u) {
+                    kick_subscriber_session($pdo, $u, $client_id);
+                }
+            } catch (Exception $e) {
+                try { kick_user_mikrotik($pdo, $client_id, $new_username); } catch (Exception $ex) {}
             }
             
-            echo "<script>alert('Profile updated successfully!'); window.location='subscriber_view.php?id=$id';</script>";
+            $alert_msg = "Profile updated successfully!";
+            if ($net_adjustment > 0) {
+                $alert_msg .= " Expiry extended. Charged Rs. " . number_format($net_adjustment, 2) . ". New Balance: Rs. " . number_format($new_bal, 2);
+            } elseif ($net_adjustment < 0) {
+                $alert_msg .= " Expiry reduced. Credited Rs. " . number_format(abs($net_adjustment), 2) . " to balance. New Balance: Rs. " . number_format($new_bal, 2);
+            }
+            echo "<script>alert('" . addslashes($alert_msg) . "'); window.location='subscriber_view.php?id=$id';</script>";
             exit;
         }
         elseif ($action === 'add_note') {
@@ -629,6 +825,84 @@ if ($is_disabled) {
     $header_badge_class = 'offline';
 }
 
+// DETECT UNCREDITED EXPIRY REDUCTION (Backward Expiry Adjustment Without Ledger Credit)
+$uncredited_refund_amount = 0;
+$discrepancy_reason = '';
+$billed_expiry_str = '';
+
+$lastRenewLedgerStmt = $pdo->prepare("
+    SELECT * FROM user_ledger 
+    WHERE client_id = ? AND username = ? AND type = 'debit' 
+    ORDER BY id DESC LIMIT 1
+");
+$lastRenewLedgerStmt->execute([$client_id, $user['username']]);
+$last_debit = $lastRenewLedgerStmt->fetch(PDO::FETCH_ASSOC);
+
+if ($last_debit) {
+    $cur_exp_ts = (!empty($user['expiry_date']) && $user['expiry_date'] !== '0000-00-00 00:00:00') ? strtotime($user['expiry_date']) : 0;
+    $billed_expiry_ts = 0;
+
+    // Pattern 1: "to 25 Nov 2026, 02:00 PM" or "to 2026-11-25 14:00:00"
+    if (preg_match('/to\s+([0-9]{1,4}[-\/ ][A-Za-z0-9]+[-\/ ][0-9]{2,4}(?:[,\s]+[0-9]{1,2}:[0-9]{2}(?:\s*[AP]M)?)?)/i', $last_debit['description'], $matches)) {
+        $parsed = strtotime(trim($matches[1]));
+        if ($parsed && $parsed > 0) {
+            $billed_expiry_ts = $parsed;
+        }
+    }
+    
+    // Pattern 2: If description has "+X days" or "+30d"
+    if (!$billed_expiry_ts && preg_match('/\+([0-9.]+)\s*(?:d|days)/i', $last_debit['description'], $d_matches)) {
+        $days_added = (float)$d_matches[1];
+        $debit_time = strtotime($last_debit['created_at']);
+        $billed_expiry_ts = $debit_time + ($days_added * 86400);
+    }
+
+    // Pattern 3: Standard package renewal debit (amount approx equals package price)
+    if (!$billed_expiry_ts && (float)$last_debit['amount'] > 0) {
+        $pkg_price = (float)($user['pkg_price'] ?? 0);
+        $pkg_val = (int)(($user['validity_days'] ?? 0) > 0 ? $user['validity_days'] : 30);
+        if ($pkg_price > 0 && abs((float)$last_debit['amount'] - $pkg_price) < 10) {
+            $debit_time = strtotime($last_debit['created_at']);
+            $billed_expiry_ts = $debit_time + ($pkg_val * 86400);
+        }
+    }
+
+    // Also check activity_logs for renewal timestamp/target date if not found
+    if (!$billed_expiry_ts) {
+        $actStmt = $pdo->prepare("SELECT * FROM activity_logs WHERE client_id = ? AND against_to = ? AND (activity LIKE '%Renew%' OR activity LIKE '%Extended Expiry to%') ORDER BY id DESC LIMIT 1");
+        $actStmt->execute([$client_id, $user['username']]);
+        $act_row = $actStmt->fetch(PDO::FETCH_ASSOC);
+        if ($act_row && preg_match('/to\s+([0-9]{1,4}[-\/ ][A-Za-z0-9]+[-\/ ][0-9]{2,4}(?:[,\s]+[0-9]{1,2}:[0-9]{2}(?:\s*[AP]M)?)?)/i', $act_row['activity'], $a_matches)) {
+            $parsed_act = strtotime(trim($a_matches[1]));
+            if ($parsed_act && $parsed_act > 0) {
+                $billed_expiry_ts = $parsed_act;
+            }
+        }
+    }
+
+    // Check if billed_expiry_ts > cur_exp_ts (expiry was reduced backward by more than 1 hour)
+    if ($billed_expiry_ts > 0 && $cur_exp_ts > 0 && ($billed_expiry_ts - $cur_exp_ts) > 3600) {
+        // Check if there was already a credit in user_ledger after this debit
+        $chkRefundStmt = $pdo->prepare("
+            SELECT COUNT(*) FROM user_ledger 
+            WHERE client_id = ? AND username = ? AND type = 'credit' AND id > ? AND (description LIKE '%Refund%' OR description LIKE '%Reduced%' OR description LIKE '%Reconciliation%')
+        ");
+        $chkRefundStmt->execute([$client_id, $user['username'], $last_debit['id']]);
+        $already_refunded = ((int)$chkRefundStmt->fetchColumn() > 0);
+
+        if (!$already_refunded) {
+            $pkg_price = (float)($user['pkg_price'] ?? 0);
+            $pkg_val = (int)(($user['validity_days'] ?? 0) > 0 ? $user['validity_days'] : 30);
+            $daily_rate = $pkg_price / $pkg_val;
+            $diff_seconds = $billed_expiry_ts - $cur_exp_ts;
+            $diff_days = round($diff_seconds / 86400, 1);
+            $uncredited_refund_amount = round(($diff_seconds / 86400) * $daily_rate, 2);
+            $billed_expiry_str = date('d M Y, h:i A', $billed_expiry_ts);
+            $discrepancy_reason = "Customer expiry was reduced backward by {$diff_days} days (from {$billed_expiry_str} to " . date('d M Y, h:i A', $cur_exp_ts) . ") during Edit Profile without crediting Rs. " . number_format($uncredited_refund_amount, 2) . " into balance.";
+        }
+    }
+}
+
 
 ?>
 
@@ -691,6 +965,36 @@ if ($is_disabled) {
     .btn-acc-action { background: #f59e0b; color: #fff; border: none; font-size: 0.8rem; padding: 4px 12px; border-radius: 12px; font-weight: 600; text-decoration: none; }
     .btn-acc-action:hover { background: #d97706; color: #fff; }
 </style>
+
+<?php if ($uncredited_refund_amount > 0): ?>
+<div class="alert alert-warning border border-warning shadow-sm rounded-4 p-3 mb-4 d-flex flex-wrap align-items-center justify-content-between gap-3" style="background: #fffbeb;">
+    <div class="d-flex align-items-center gap-3">
+        <div class="bg-warning text-dark rounded-circle d-flex align-items-center justify-content-center flex-shrink-0" style="width: 44px; height: 44px; font-size: 1.25rem;">
+            <i class="fa-solid fa-coins"></i>
+        </div>
+        <div>
+            <h6 class="fw-bold text-dark mb-1 d-flex align-items-center gap-2">
+                <span>Missing Expiry Refund Detected!</span>
+                <span class="badge bg-warning text-dark border border-warning-subtle fw-bold">Uncredited Balance</span>
+            </h6>
+            <div class="text-secondary small">
+                <?= htmlspecialchars($discrepancy_reason) ?>
+            </div>
+        </div>
+    </div>
+    <form method="POST" class="d-flex align-items-center gap-2 m-0 flex-shrink-0">
+        <input type="hidden" name="action" value="apply_uncredited_refund">
+        <input type="hidden" name="reason" value="<?= htmlspecialchars($discrepancy_reason) ?>">
+        <div class="input-group input-group-sm shadow-sm" style="width: 260px;">
+            <span class="input-group-text bg-white fw-bold text-muted">Rs.</span>
+            <input type="number" step="0.01" name="refund_amount" class="form-control fw-bold text-success" value="<?= $uncredited_refund_amount ?>" required>
+            <button type="submit" class="btn btn-success fw-bold px-3">
+                <i class="fa-solid fa-plus-circle me-1"></i> Add to Balance
+            </button>
+        </div>
+    </form>
+</div>
+<?php endif; ?>
 
 <div class="row">
     <!-- Left Column: Profile Card -->
@@ -1287,12 +1591,110 @@ function resetToCurrentExpiry() {
     recalculateRenewAdjustment();
 }
 
+const userCurPkgId = <?= (int)($user['package_id'] ?? 0) ?>;
+
+function recalculateEditProfileAdjustment() {
+    const pkgSelect = document.getElementById('edit_package_select');
+    const expiryInput = document.getElementById('edit_expiry_input');
+    const resultBox = document.getElementById('edit_profile_calculation_result');
+    if (!pkgSelect || !expiryInput || !resultBox) return;
+
+    const opt = pkgSelect.options[pkgSelect.selectedIndex];
+    const newPrice = opt ? parseFloat(opt.dataset.price || 0) : 0;
+    const newValidity = opt ? parseInt(opt.dataset.days || 30) : 30;
+    const newDaily = newPrice / (newValidity > 0 ? newValidity : 30);
+    const selectedPkgId = opt ? parseInt(opt.value || 0) : 0;
+
+    const now = Math.floor(Date.now() / 1000);
+    let curExpTs = userCurExpStr ? Math.floor(new Date(userCurExpStr).getTime() / 1000) : 0;
+    if (isNaN(curExpTs)) curExpTs = 0;
+
+    let newExpTs = expiryInput.value ? Math.floor(new Date(expiryInput.value).getTime() / 1000) : 0;
+    if (isNaN(newExpTs)) newExpTs = 0;
+
+    const expChanged = (Math.abs(curExpTs - newExpTs) > 60);
+    const pkgChanged = (selectedPkgId !== userCurPkgId);
+
+    if (!expChanged && !pkgChanged) {
+        resultBox.innerHTML = '<div class="alert alert-secondary border rounded-3 p-2 px-3 mb-0 small text-secondary"><i class="fa-solid fa-check text-success me-1"></i> Expiry date and package unchanged. Balance will not be affected.</div>';
+        return;
+    }
+
+    // 1. Old remaining credit
+    let oldCredit = 0;
+    if (curExpTs > now) {
+        const curDaysLeft = (curExpTs - now) / 86400;
+        const curDaily = userCurPkgPrice / (userCurPkgValidity > 0 ? userCurPkgValidity : 30);
+        oldCredit = curDaysLeft * curDaily;
+    }
+
+    // 2. New period cost
+    let newCost = 0;
+    if (newExpTs > now) {
+        const newDaysAhead = (newExpTs - now) / 86400;
+        newCost = newDaysAhead * newDaily;
+    }
+
+    // 3. Net adjustment: positive = charge (balance minus), negative = refund (balance plus)
+    const net = Math.round((newCost - oldCredit) * 100) / 100;
+    const projectedBal = Math.round((userCurBal - net) * 100) / 100;
+
+    let html = '';
+    if (net > 0) {
+        const diffDays = Math.round(((newExpTs - Math.max(now, curExpTs)) / 86400) * 10) / 10;
+        html = '<div class="alert alert-warning border border-warning-subtle rounded-3 p-2 px-3 mb-0" style="background:#fffbeb;">' +
+            '<div class="d-flex align-items-center justify-content-between mb-1">' +
+                '<span class="fw-bold text-dark small"><i class="fa-solid fa-arrow-up-right-dots text-danger me-1"></i> Expiry Extended (+' + Math.abs(diffDays) + ' Days)</span>' +
+                '<span class="badge bg-danger-subtle text-danger border border-danger-subtle px-2 py-1 fw-bold fs-6">- Rs. ' + net.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + '</span>' +
+            '</div>' +
+            '<div class="small text-muted mb-1" style="font-size: 0.78rem;">' +
+                'Daily Rate: <strong>Rs. ' + newDaily.toFixed(2) + '/day</strong>. ' +
+                (oldCredit > 0 ? ('Unused Credit: <strong>Rs. ' + oldCredit.toFixed(2) + '</strong>. ') : '') +
+                'New Cost: <strong>Rs. ' + newCost.toFixed(2) + '</strong>.' +
+            '</div>' +
+            '<div class="d-flex justify-content-between align-items-center pt-1 border-top small" style="font-size: 0.8rem;">' +
+                '<span class="text-secondary">Balance Impact (Deduction):</span>' +
+                '<span class="fw-bold text-dark">Rs. ' + userCurBal.toFixed(2) + ' &rarr; <span class="' + (projectedBal < 0 ? 'text-danger' : 'text-success') + ' fw-bold">Rs. ' + projectedBal.toFixed(2) + '</span></span>' +
+            '</div>' +
+        '</div>';
+    } else if (net < 0) {
+        const absNet = Math.abs(net);
+        const daysReduced = Math.round(((curExpTs - newExpTs) / 86400) * 10) / 10;
+        html = '<div class="alert alert-success border border-success-subtle rounded-3 p-2 px-3 mb-0" style="background:#f0fdf4;">' +
+            '<div class="d-flex align-items-center justify-content-between mb-1">' +
+                '<span class="fw-bold text-dark small"><i class="fa-solid fa-arrow-down-left-and-up-right-to-center text-success me-1"></i> Expiry Reduced (-' + daysReduced + ' Days)</span>' +
+                '<span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1 fw-bold fs-6">+ Rs. ' + absNet.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' (Refund)</span>' +
+            '</div>' +
+            '<div class="small text-muted mb-1" style="font-size: 0.78rem;">' +
+                'Unused days will be refunded and <strong>added to customer balance</strong>. ' +
+                (oldCredit > 0 ? ('Unused Credit: <strong>Rs. ' + oldCredit.toFixed(2) + '</strong>. ') : '') +
+                'New Cost: <strong>Rs. ' + newCost.toFixed(2) + '</strong>.' +
+            '</div>' +
+            '<div class="d-flex justify-content-between align-items-center pt-1 border-top small" style="font-size: 0.8rem;">' +
+                '<span class="text-secondary">Balance Impact (Refund to Balance):</span>' +
+                '<span class="fw-bold text-dark">Rs. ' + userCurBal.toFixed(2) + ' &rarr; <span class="' + (projectedBal < 0 ? 'text-danger' : 'text-success') + ' fw-bold">Rs. ' + projectedBal.toFixed(2) + '</span></span>' +
+            '</div>' +
+        '</div>';
+    } else {
+        html = '<div class="alert alert-secondary border rounded-3 p-2 px-3 mb-0 small text-secondary"><i class="fa-solid fa-check text-success me-1"></i> Balance unchanged.</div>';
+    }
+
+    resultBox.innerHTML = html;
+}
+
 // Auto calculate on modal open
 document.addEventListener('DOMContentLoaded', function() {
     const renewModalEl = document.getElementById('renewModal');
     if (renewModalEl) {
         renewModalEl.addEventListener('shown.bs.modal', function () {
             recalculateRenewAdjustment();
+        });
+    }
+
+    const editProfileModalEl = document.getElementById('editProfileModal');
+    if (editProfileModalEl) {
+        editProfileModalEl.addEventListener('shown.bs.modal', function () {
+            recalculateEditProfileAdjustment();
         });
     }
 });
@@ -1349,12 +1751,18 @@ document.addEventListener('DOMContentLoaded', function() {
                         </div>
                         <div class="col-md-6 mb-3">
                             <label class="col-form-label">Select Package <span class="text-danger">*</span></label>
-                            <select name="package_id" class="form-select" required>
+                            <select name="package_id" id="edit_package_select" class="form-select" required onchange="recalculateEditProfileAdjustment()">
                                 <option value="">Choose...</option>
                                 <?php 
                                 $pkgs = $pdo->query("SELECT * FROM packages WHERE client_id=$client_id")->fetchAll();
                                 foreach($pkgs as $p): ?>
-                                    <option value="<?= $p['id'] ?>" <?= $p['id']==$user['package_id']?'selected':'' ?>><?= htmlspecialchars($p['name']) ?> (<?= htmlspecialchars($p['rate_limit']) ?>)</option>
+                                    <option value="<?= $p['id'] ?>" 
+                                        data-price="<?= (float)$p['price'] ?>" 
+                                        data-days="<?= (int)(($p['validity_days'] ?? 0) > 0 ? $p['validity_days'] : 30) ?>" 
+                                        data-name="<?= htmlspecialchars($p['name']) ?>"
+                                        <?= $p['id']==$user['package_id']?'selected':'' ?>>
+                                        <?= htmlspecialchars($p['name']) ?> (Rs. <?= number_format($p['price']) ?> / <?= $p['validity_days'] ?: 30 ?>d) - <?= htmlspecialchars($p['rate_limit']) ?>
+                                    </option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
@@ -1371,11 +1779,21 @@ document.addEventListener('DOMContentLoaded', function() {
                         </div>
                         <div class="col-md-6 mb-3">
                             <label class="col-form-label">Custom Expiry</label>
-                            <input type="datetime-local" name="expiry_date" class="form-control" value="<?= $user['expiry_date'] ? date('Y-m-d\TH:i', strtotime($user['expiry_date'])) : '' ?>">
+                            <input type="datetime-local" name="expiry_date" id="edit_expiry_input" class="form-control" 
+                                   value="<?= $user['expiry_date'] ? date('Y-m-d\TH:i', strtotime($user['expiry_date'])) : '' ?>"
+                                   oninput="recalculateEditProfileAdjustment()">
                         </div>
                         <div class="col-md-6 mb-3">
                             <label class="col-form-label text-muted"><i class="fa-solid fa-calendar-plus text-primary me-1"></i> Registration Date (Created)</label>
                             <input type="text" class="form-control bg-light" value="<?= !empty($user['created_at']) ? date('d M Y, h:i A', strtotime($user['created_at'])) : 'N/A' ?>" readonly disabled>
+                        </div>
+                        <div class="col-md-12 mb-3">
+                            <label class="form-label fw-semibold text-secondary small mb-1">
+                                <i class="fa-solid fa-calculator text-primary me-1"></i> Financial Impact &amp; Balance Adjustment Preview:
+                            </label>
+                            <div id="edit_profile_calculation_result">
+                                <!-- Populated dynamically by JavaScript -->
+                            </div>
                         </div>
                     </div>
                 </div>
