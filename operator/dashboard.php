@@ -407,20 +407,27 @@ $map_subscribers = $pdo->query("
     .cursor-pointer { cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; }
     .card-ui { background: #ffffff; border-radius: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.03); border: 1px solid #e2e8f0; margin-bottom: 24px; }
     
-    /* Top 8 Quick Action Cards */
+    /* Top Quick Action Cards Grid (Responsive 5 columns, strictly contained) */
     .quick-actions-grid {
         display: grid;
-        grid-template-columns: repeat(8, 1fr);
-        gap: 10px;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 12px;
+        width: 100%;
+        max-width: 100%;
     }
-    @media (max-width: 1300px) {
+    @media (max-width: 1200px) {
         .quick-actions-grid {
-            grid-template-columns: repeat(4, 1fr);
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+    }
+    @media (max-width: 992px) {
+        .quick-actions-grid {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
         }
     }
     @media (max-width: 768px) {
         .quick-actions-grid {
-            grid-template-columns: repeat(2, 1fr);
+            grid-template-columns: repeat(2, minmax(0, 1fr));
         }
     }
     @media (max-width: 420px) {
@@ -443,6 +450,7 @@ $map_subscribers = $pdo->query("
         transition: all 0.2s ease;
         height: 100%;
         min-height: 52px;
+        min-width: 0;
     }
     .quick-action-card:hover {
         transform: translateY(-2px);
@@ -468,8 +476,10 @@ $map_subscribers = $pdo->query("
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+        min-width: 0;
     }
-/* Reports & Statistics Header & Pills */
+
+    /* Reports & Statistics Header & Pills */
     .reports-pill-btn {
         border-radius: 50px;
         padding: 7px 22px;
@@ -638,19 +648,6 @@ $map_subscribers = $pdo->query("
             <div>
                 <div class="text-muted" style="font-size: 0.68rem; font-weight: 600; text-transform: uppercase;">Live System Time (<?= date_default_timezone_get() ?>)</div>
                 <div id="live-server-clock" class="fw-bold text-primary" style="font-size: 0.95rem; font-family: monospace;">Loading...</div>
-            </div>
-        </div>
-
-        <!-- Admin User Capsule -->
-        <div class="d-flex align-items-center bg-white px-3 py-2 rounded-pill shadow-sm border">
-            <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center me-2" style="width: 36px; height: 36px;">
-                <i class="fa-solid fa-user"></i>
-            </div>
-            <div>
-                <div class="fw-bold text-dark" style="font-size: 0.92rem; line-height: 1.1;">
-                    <?= htmlspecialchars($_SESSION['operator_username'] ?? 'Admin') ?>
-                </div>
-                <div class="text-muted" style="font-size: 0.7rem; font-weight: 600;">Admin</div>
             </div>
         </div>
     </div>
