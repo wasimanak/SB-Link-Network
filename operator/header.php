@@ -6,8 +6,8 @@ require_once '../config/manager_helper.php';
 // Ensure Manager schema & triggers are updated
 ensure_manager_schema($pdo);
 
-// Prune old activity logs (30 days)
-try { $pdo->exec("DELETE FROM activity_logs WHERE created_at < NOW() - INTERVAL 30 DAY"); } catch (Exception $e) {}
+// Retain all activity and financial audit logs for 2 Years (730 days)
+try { $pdo->exec("DELETE FROM activity_logs WHERE created_at < NOW() - INTERVAL 730 DAY"); } catch (Exception $e) {}
 
 
 // Auth Check

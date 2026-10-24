@@ -1355,6 +1355,22 @@ try {
         <!-- Live Execution Alert Strip (dynamically populated on run) -->
         <div id="maint_result_alert" style="display: none;" class="alert alert-success rounded-4 p-3 mb-4"></div>
 
+        <!-- Financial Records Retention Guarantee Banner -->
+        <div class="alert alert-info border-0 rounded-4 p-3 mb-4 d-flex align-items-center justify-content-between flex-wrap gap-3 shadow-sm" style="background: #eff6ff; border-left: 4px solid #3b82f6 !important;">
+            <div class="d-flex align-items-center gap-3">
+                <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center" style="width: 44px; height: 44px; flex-shrink: 0;">
+                    <i class="fa-solid fa-file-invoice-dollar fs-5"></i>
+                </div>
+                <div>
+                    <h6 class="fw-bold text-dark mb-1">Financial Records &amp; Ledgers Guarantee (2 Years Retention)</h6>
+                    <span class="text-muted small">All user ledgers, operator recoveries, manager collections, staff salaries, expenses, and invoices are strictly preserved for a minimum of <strong>2 Years (730 Days)</strong>. Ephemeral FreeRADIUS session pruning will never delete financial audit records.</span>
+                </div>
+            </div>
+            <span class="badge bg-primary text-white px-3 py-2 rounded-pill font-monospace" style="font-size: 0.8rem;">
+                <i class="fa-solid fa-lock me-1"></i> 2-Year Retention Protected
+            </span>
+        </div>
+
         <!-- 2 Sub-Cards: Retention Rules Form & Nightly Cron Setup -->
         <div class="row g-4">
             <!-- Left: Retention Rules Settings Form -->

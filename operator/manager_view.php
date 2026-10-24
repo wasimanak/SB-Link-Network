@@ -70,15 +70,16 @@ if (!$mgr) {
     exit;
 }
 
-// Fetch 30-Day Activity History
+// Fetch Manager Activity History (retained up to 2 Years / 730 Days)
 $actStmt = $pdo->prepare("
     SELECT * 
     FROM activity_logs 
-    WHERE manager_id = ? 
-      AND created_at >= NOW() - INTERVAL 30 DAY 
+    WHERE client_id = ? 
+      AND (manager_id = ? OR by_user = ? OR by_user = ?)
+      AND created_at >= NOW() - INTERVAL 730 DAY 
     ORDER BY id DESC
 ");
-$actStmt->execute([$manager_id]);
+$actStmt->execute([$client_id, $manager_id, $mgr['username'], $mgr['full_name']]);
 $activities = $actStmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Activity Breakdown stats
@@ -93,6 +94,206 @@ foreach ($activities as $act) {
     if (strpos($txt, 'created new user') !== false || strpos($txt, 'create user') !== false) $user_create_count++;
     if (strpos($txt, 'login') !== false || strpos($txt, 'logged in') !== false) $login_count++;
 }
+
+// Fetch All Recoveries, Renewals & Payment Collections for this Manager (Up to 2 Years)
+$recStmt = $pdo->prepare("
+    SELECT 
+        a.id as act_id,
+        a.created_at,
+        a.activity,
+        a.against_to as username,
+        a.against_role,
+        a.station_ip,
+        s.id as sub_id,
+        s.full_name as sub_fullname,
+        s.mobile as sub_mobile,
+        s.phone as sub_phone,
+        s.balance as sub_balance,
+        s.status as sub_status,
+        s.expiry_date as sub_expiry,
+        p.id as package_id,
+        p.name as package_name,
+        p.price as package_price,
+        p.rate_limit as package_speed
+    FROM activity_logs a
+    LEFT JOIN subscribers s ON a.against_to = s.username COLLATE utf8mb4_general_ci AND s.client_id = a.client_id
+    LEFT JOIN packages p ON s.package_id = p.id
+    WHERE a.client_id = ?
+      AND (
+          a.manager_id = ? 
+          OR a.by_user = ? 
+          OR a.by_user = ? 
+          OR a.by_user = ?
+      )
+      AND a.created_at >= NOW() - INTERVAL 730 DAY
+      AND (
+          a.activity LIKE '%Renew%'
+          OR a.activity LIKE '%Collected%'
+          OR a.activity LIKE '%Balance%'
+          OR a.activity LIKE '%Payment%'
+          OR a.activity LIKE '%Charged%'
+      )
+    ORDER BY a.created_at DESC
+");
+$recStmt->execute([
+    $client_id, 
+    $manager_id, 
+    $mgr['username'], 
+    $mgr['full_name'],
+    'Manager: ' . $mgr['username']
+]);
+$raw_recoveries = $recStmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Also fetch user_ledger records if manager name or username is in description
+$ledStmt = $pdo->prepare("
+    SELECT 
+        l.id as ledger_id,
+        l.created_at,
+        l.description,
+        l.username,
+        l.type,
+        l.amount,
+        l.balance_after,
+        s.id as sub_id,
+        s.full_name as sub_fullname,
+        s.mobile as sub_mobile,
+        s.phone as sub_phone,
+        s.balance as sub_balance,
+        s.status as sub_status,
+        s.expiry_date as sub_expiry,
+        p.id as package_id,
+        p.name as package_name,
+        p.price as package_price,
+        p.rate_limit as package_speed
+    FROM user_ledger l
+    LEFT JOIN subscribers s ON l.username = s.username COLLATE utf8mb4_general_ci AND s.client_id = l.client_id
+    LEFT JOIN packages p ON s.package_id = p.id
+    WHERE l.client_id = ?
+      AND l.created_at >= NOW() - INTERVAL 730 DAY
+      AND (
+          l.description LIKE ? 
+          OR l.description LIKE ? 
+          OR l.description LIKE ?
+      )
+    ORDER BY l.created_at DESC
+");
+$ledStmt->execute([
+    $client_id,
+    "%{$mgr['full_name']}%",
+    "%{$mgr['username']}%",
+    "%Manager #{$manager_id}%"
+]);
+$raw_ledgers = $ledStmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Build Unified All Recoveries List
+$all_recoveries = [];
+$total_recovered_amount = 0;
+$total_renewals_count = 0;
+$total_collections_count = 0;
+$unique_subs = [];
+
+foreach ($raw_recoveries as $rec) {
+    $act_text = $rec['activity'];
+    $sub_username = $rec['username'] ?: 'N/A';
+    if ($sub_username !== 'N/A') {
+        $unique_subs[$sub_username] = true;
+    }
+
+    $charged = 0;
+    $collected = 0;
+    $type = 'other';
+
+    if (stripos($act_text, 'Renew') !== false) {
+        $type = 'renewal';
+        $total_renewals_count++;
+        $charged = (float)($rec['package_price'] ?? 0);
+    } elseif (stripos($act_text, 'Collected') !== false || stripos($act_text, 'Payment') !== false) {
+        $type = 'collection';
+        $total_collections_count++;
+    } elseif (stripos($act_text, 'Added Balance') !== false || stripos($act_text, 'Funds added') !== false) {
+        $type = 'balance_add';
+        $total_collections_count++;
+    }
+
+    if (preg_match('/Charged(?:: Rs\.| Rs\.)\s*([\d,.]+)/i', $act_text, $m)) {
+        $charged = (float)str_replace(',', '', $m[1]);
+    }
+    if (preg_match('/(?:Collected|Added Balance)(?:: Rs\.| Rs\.)\s*([\d,.]+)/i', $act_text, $m)) {
+        $collected = (float)str_replace(',', '', $m[1]);
+    }
+
+    if ($type === 'renewal' && $collected == 0 && $charged > 0) {
+        $collected = $charged;
+    }
+
+    $total_recovered_amount += $collected;
+
+    $all_recoveries[] = [
+        'id'               => $rec['act_id'],
+        'created_at'       => $rec['created_at'],
+        'username'         => $sub_username,
+        'sub_id'           => $rec['sub_id'],
+        'full_name'        => $rec['sub_fullname'] ?: $sub_username,
+        'mobile'           => $rec['sub_mobile'] ?: ($rec['sub_phone'] ?: 'N/A'),
+        'package_name'     => $rec['package_name'] ?: 'N/A',
+        'package_price'    => (float)($rec['package_price'] ?? 0),
+        'package_speed'    => $rec['package_speed'] ?: 'N/A',
+        'expiry_date'      => $rec['sub_expiry'] ?: '',
+        'current_balance'  => (float)($rec['sub_balance'] ?? 0),
+        'charged_amount'   => $charged,
+        'collected_amount' => $collected,
+        'type'             => $type,
+        'activity_text'    => $act_text,
+        'station_ip'       => $rec['station_ip'] ?: ''
+    ];
+}
+
+foreach ($raw_ledgers as $led) {
+    $led_time = strtotime($led['created_at']);
+    $already = false;
+    foreach ($raw_recoveries as $rec) {
+        if ($rec['username'] === $led['username'] && abs($led_time - strtotime($rec['created_at'])) <= 30) {
+            $already = true;
+            break;
+        }
+    }
+
+    if (!$already) {
+        $u = $led['username'] ?: 'N/A';
+        if ($u !== 'N/A') $unique_subs[$u] = true;
+
+        $amt = (float)$led['amount'];
+        $collected = ($led['type'] === 'credit') ? $amt : 0;
+        $charged   = ($led['type'] === 'debit') ? $amt : 0;
+        $total_recovered_amount += $collected;
+        if ($collected > 0) $total_collections_count++;
+
+        $all_recoveries[] = [
+            'id'               => 'L' . $led['ledger_id'],
+            'created_at'       => $led['created_at'],
+            'username'         => $u,
+            'sub_id'           => $led['sub_id'],
+            'full_name'        => $led['sub_fullname'] ?: $u,
+            'mobile'           => $led['sub_mobile'] ?: ($led['sub_phone'] ?: 'N/A'),
+            'package_name'     => $led['package_name'] ?: 'N/A',
+            'package_price'    => (float)($led['package_price'] ?? 0),
+            'package_speed'    => $led['package_speed'] ?: 'N/A',
+            'expiry_date'      => $led['sub_expiry'] ?: '',
+            'current_balance'  => (float)($led['sub_balance'] ?? ($led['balance_after'] ?? 0)),
+            'charged_amount'   => $charged,
+            'collected_amount' => $collected,
+            'type'             => ($led['type'] === 'credit' ? 'collection' : 'renewal'),
+            'activity_text'    => $led['description'],
+            'station_ip'       => 'System'
+        ];
+    }
+}
+
+usort($all_recoveries, function($a, $b) {
+    return strtotime($b['created_at']) <=> strtotime($a['created_at']);
+});
+
+$unique_subscribers_count = count($unique_subs);
 ?>
 
 <!-- DataTables CSS -->
@@ -171,6 +372,42 @@ foreach ($activities as $act) {
     margin-right: 4px;
 }
 .dt-buttons .btn:hover { background: #334155; }
+.nav-tabs .nav-link {
+    font-weight: 600;
+    color: #64748b;
+    border: none;
+    border-bottom: 3px solid transparent;
+    padding: 12px 22px;
+    font-size: 0.95rem;
+    transition: all 0.2s ease;
+}
+.nav-tabs .nav-link:hover {
+    color: #0f172a;
+    border-bottom-color: #cbd5e1;
+}
+.nav-tabs .nav-link.active {
+    color: #2563eb;
+    border-bottom-color: #2563eb;
+    background: transparent;
+}
+.table-custom-ui th {
+    background-color: #f8fafc !important;
+    color: #64748b;
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: 0.78rem;
+    letter-spacing: 0.5px;
+    border-bottom: 2px solid #e2e8f0;
+}
+.table-custom-ui td {
+    vertical-align: middle;
+    border-bottom: 1px solid #f1f5f9;
+    color: #475569;
+    font-size: 0.9rem;
+}
+.table-custom-ui tbody tr:hover {
+    background-color: #f8fafc;
+}
 </style>
 
 <div class="container-fluid px-3 px-md-4 py-3">
@@ -361,98 +598,303 @@ foreach ($activities as $act) {
         </div>
     </div>
 
-    <!-- Manager Salary & Lifetime Advance Ledger Section -->
-    <div class="mb-4">
-        <?php
-        $staff_type = 'manager';
-        $staff_id = (int)$mgr['id'];
-        $staff_name = $mgr['full_name'];
-        $monthly_sal = (int)($mgr['monthly_salary'] ?? 0);
-        $joined_date = $mgr['created_at'];
-        require __DIR__ . '/staff_salary_view.php';
-        ?>
-    </div>
-
-    <!-- 30-Day Activity Audit Table -->
-    <div class="card border-0 shadow-sm rounded-4 p-3 p-md-4" id="activityLogs">
-        <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
-            <div>
-                <h5 class="fw-bold mb-1 text-dark">
-                    <i class="fa-solid fa-list-check text-primary me-2"></i> 30-Day Manager Activity Audit Trail
-                </h5>
-                <div class="text-muted small">
-                    Every action taken by this Manager is permanently timestamped with station IP and target information.
-                </div>
-            </div>
-            <span class="badge bg-light text-dark border px-3 py-2 rounded-pill font-monospace">
-                Showing Last 30 Days History
-            </span>
+    <!-- Manager Governance Tabs Container -->
+    <div class="card card-custom bg-white mb-4 border-0 shadow-sm rounded-4 overflow-hidden">
+        <div class="card-header bg-white border-bottom p-0 pt-3 px-3">
+            <ul class="nav nav-tabs border-bottom-0" id="managerTabs" role="tablist">
+                <!-- Tab 1: All Recovery & Renewals -->
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active fw-bold" id="recovery-tab" data-bs-toggle="tab" data-bs-target="#tab-recovery" type="button" role="tab">
+                        <i class="fa-solid fa-hand-holding-dollar text-success me-2"></i> All Recovery &amp; Renewals
+                        <span class="badge bg-success ms-1"><?= count($all_recoveries) ?></span>
+                    </button>
+                </li>
+                <!-- Tab 2: Activity Audit Trail -->
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link fw-bold" id="activity-tab" data-bs-toggle="tab" data-bs-target="#tab-activity" type="button" role="tab">
+                        <i class="fa-solid fa-list-check text-primary me-2"></i> Activity Audit Trail
+                        <span class="badge bg-primary ms-1"><?= count($activities) ?></span>
+                    </button>
+                </li>
+                <!-- Tab 3: Salary & Advances -->
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link fw-bold" id="salary-tab" data-bs-toggle="tab" data-bs-target="#tab-salary" type="button" role="tab">
+                        <i class="fa-solid fa-wallet text-warning me-2"></i> Salary &amp; Advances
+                    </button>
+                </li>
+            </ul>
         </div>
 
-        <?php if (empty($activities)): ?>
-            <div class="text-center py-5 text-muted">
-                <i class="fa-solid fa-circle-check fs-1 text-success opacity-50 mb-3 d-block"></i>
-                <h6 class="fw-bold text-dark">No Activities Recorded Yet</h6>
-                <p class="small text-secondary mb-0">Activities performed by this Manager within the last 30 days will appear here automatically.</p>
-            </div>
-        <?php else: ?>
-        <div class="table-responsive">
-            <table id="managerLogsTable" class="table table-hover table-borderless align-middle w-100">
-                <thead class="table-light">
-                    <tr>
-                        <th style="width: 50px;">#ID</th>
-                        <th>Datetime</th>
-                        <th>Activity Description</th>
-                        <th>Against To</th>
-                        <th>Against Role</th>
-                        <th>Station IP</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($activities as $act): ?>
-                        <tr>
-                            <td class="fw-bold text-secondary"><?= $act['id'] ?></td>
-                            <td style="white-space: nowrap;">
-                                <div class="fw-semibold text-dark"><?= date('d M Y', strtotime($act['created_at'])) ?></div>
-                                <div class="text-muted small"><?= date('h:i:s A', strtotime($act['created_at'])) ?></div>
-                            </td>
-                            <td>
-                                <?php 
-                                    $act_text = htmlspecialchars($act['activity']);
-                                    if (stripos($act_text, 'renew') !== false) {
-                                        echo "<span class='badge badge-soft-success px-2 py-1 rounded-pill me-1'><i class='fa-solid fa-arrows-rotate me-1'></i>Renew</span> " . $act_text;
-                                    } elseif (stripos($act_text, 'create') !== false) {
-                                        echo "<span class='badge badge-soft-info px-2 py-1 rounded-pill me-1'><i class='fa-solid fa-plus-circle me-1'></i>Create</span> " . $act_text;
-                                    } elseif (stripos($act_text, 'login') !== false) {
-                                        echo "<span class='badge badge-soft-secondary px-2 py-1 rounded-pill me-1'><i class='fa-solid fa-arrow-right-to-bracket me-1'></i>Login</span> " . $act_text;
-                                    } else {
-                                        echo "<span class='fw-medium text-dark'>" . $act_text . "</span>";
+        <div class="card-body p-3 p-md-4">
+            <div class="tab-content" id="managerTabsContent">
+
+                <!-- Tab 1 Content: All Recovery & Renewals -->
+                <div class="tab-pane fade show active" id="tab-recovery" role="tabpanel">
+                    
+                    <!-- Recovery Mini Stat Cards -->
+                    <div class="row g-3 mb-4">
+                        <div class="col-6 col-md-3">
+                            <div class="p-3 bg-success bg-opacity-10 border border-success border-opacity-25 rounded-3 text-center">
+                                <div class="text-success small fw-bold text-uppercase">Total Cash Recovered</div>
+                                <h3 class="mb-0 fw-bold text-success mt-1">Rs. <?= number_format($total_recovered_amount, 0) ?></h3>
+                                <div class="text-muted small mt-1"><i class="fa-solid fa-shield-halved me-1"></i> 2-Year Audit Preserved</div>
+                            </div>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <div class="p-3 bg-primary bg-opacity-10 border border-primary border-opacity-25 rounded-3 text-center">
+                                <div class="text-primary small fw-bold text-uppercase">Package Renewals</div>
+                                <h3 class="mb-0 fw-bold text-primary mt-1"><?= number_format($total_renewals_count) ?></h3>
+                                <div class="text-muted small mt-1">Subscriber Extensions</div>
+                            </div>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <div class="p-3 bg-info bg-opacity-10 border border-info border-opacity-25 rounded-3 text-center">
+                                <div class="text-info-emphasis small fw-bold text-uppercase">Unique Subscribers</div>
+                                <h3 class="mb-0 fw-bold text-dark mt-1"><?= number_format($unique_subscribers_count) ?></h3>
+                                <div class="text-muted small mt-1">Customers Served</div>
+                            </div>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <div class="p-3 bg-warning bg-opacity-10 border border-warning border-opacity-25 rounded-3 text-center">
+                                <div class="text-warning-emphasis small fw-bold text-uppercase">Total Transactions</div>
+                                <h3 class="mb-0 fw-bold text-dark mt-1"><?= number_format(count($all_recoveries)) ?></h3>
+                                <div class="text-muted small mt-1">Lifetime Events Logged</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <?php if (empty($all_recoveries)): ?>
+                        <div class="text-center py-5 text-muted">
+                            <i class="fa-solid fa-hand-holding-dollar fs-1 text-secondary opacity-50 mb-3 d-block"></i>
+                            <h6 class="fw-bold text-dark">No Recovery or Renewal Records Found</h6>
+                            <p class="small text-secondary mb-0">Whenever this Manager renews subscriber packages, collects payments, or adds balances, full records with username, package, and expiry will automatically appear here.</p>
+                        </div>
+                    <?php else: ?>
+                    <div class="table-responsive">
+                        <table id="managerRecoveryTable" class="table table-hover table-custom-ui align-middle w-100">
+                            <thead>
+                                <tr>
+                                    <th>Date &amp; Time</th>
+                                    <th>Subscriber</th>
+                                    <th>Package Detail</th>
+                                    <th>Expiry Date</th>
+                                    <th>Recovered (Paid)</th>
+                                    <th>Fee Charged</th>
+                                    <th>Current Balance</th>
+                                    <th>Recovery Type &amp; Details</th>
+                                    <th class="text-center">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($all_recoveries as $rec): 
+                                    $exp_text = '<span class="text-muted small">N/A</span>';
+                                    if (!empty($rec['expiry_date'])) {
+                                        $exp_time = strtotime($rec['expiry_date']);
+                                        if ($exp_time > 0) {
+                                            $formatted_date = date('d M Y, h:i A', $exp_time);
+                                            $diff_days = ceil(($exp_time - time()) / 86400);
+                                            if ($diff_days < 0) {
+                                                $badge = '<span class="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-2 py-0 ms-1 small">Expired</span>';
+                                            } elseif ($diff_days <= 3) {
+                                                $badge = '<span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle rounded-pill px-2 py-0 ms-1 small">' . $diff_days . 'd left</span>';
+                                            } else {
+                                                $badge = '<span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2 py-0 ms-1 small">' . $diff_days . 'd left</span>';
+                                            }
+                                            $exp_text = '<div class="fw-semibold text-dark" style="white-space:nowrap;">' . $formatted_date . '</div>' . $badge;
+                                        }
                                     }
+                                    $bal = (float)$rec['current_balance'];
                                 ?>
-                            </td>
-                            <td>
-                                <?php if ($act['against_to'] && $act['against_to'] !== 'N/A'): ?>
-                                    <span class="badge bg-light text-dark border px-2 py-1 rounded-pill">
-                                        <?= htmlspecialchars($act['against_to']) ?>
-                                    </span>
-                                <?php else: ?>
-                                    <span class="text-muted small">N/A</span>
-                                <?php endif; ?>
-                            </td>
-                            <td>
-                                <span class="badge bg-secondary-subtle text-secondary rounded-pill px-2 py-1">
-                                    <?= htmlspecialchars($act['against_role'] ?: 'System') ?>
-                                </span>
-                            </td>
-                            <td class="font-monospace text-muted small">
-                                <?= htmlspecialchars($act['station_ip'] ?: '127.0.0.1') ?>
-                            </td>
-                        </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
+                                <tr>
+                                    <td class="text-secondary small fw-bold" style="white-space: nowrap;">
+                                        <div class="text-dark"><?= date('d M Y', strtotime($rec['created_at'])) ?></div>
+                                        <div class="text-muted small font-monospace"><?= date('h:i:s A', strtotime($rec['created_at'])) ?></div>
+                                    </td>
+                                    <td>
+                                        <?php if (!empty($rec['sub_id'])): ?>
+                                            <a href="subscriber_view.php?id=<?= $rec['sub_id'] ?>" class="fw-bold text-primary text-decoration-none">
+                                                <i class="fa-solid fa-user me-1 small"></i><?= htmlspecialchars($rec['username']) ?>
+                                            </a>
+                                        <?php else: ?>
+                                            <span class="fw-bold text-dark"><?= htmlspecialchars($rec['username']) ?></span>
+                                        <?php endif; ?>
+                                        <div class="small text-secondary"><?= htmlspecialchars($rec['full_name']) ?></div>
+                                        <?php if (!empty($rec['mobile']) && $rec['mobile'] !== 'N/A'): ?>
+                                            <div class="small text-muted font-monospace"><i class="fa-solid fa-phone me-1 text-success"></i><?= htmlspecialchars($rec['mobile']) ?></div>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <?php if (!empty($rec['package_name']) && $rec['package_name'] !== 'N/A'): ?>
+                                            <span class="badge bg-light text-dark border px-2 py-1 fw-bold">
+                                                <i class="fa-solid fa-box-open text-primary me-1"></i><?= htmlspecialchars($rec['package_name']) ?>
+                                            </span>
+                                            <?php if ($rec['package_price'] > 0): ?>
+                                                <div class="small text-muted mt-1">Rate: Rs. <?= number_format($rec['package_price'], 0) ?></div>
+                                            <?php endif; ?>
+                                        <?php else: ?>
+                                            <span class="text-muted small">-</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <?= $exp_text ?>
+                                    </td>
+                                    <td>
+                                        <?php if ($rec['collected_amount'] > 0): ?>
+                                            <span class="text-success fw-bold fs-6" style="white-space:nowrap;">
+                                                + Rs. <?= number_format($rec['collected_amount'], 0) ?>
+                                            </span>
+                                        <?php else: ?>
+                                            <span class="text-muted fw-bold">Rs. 0</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <?php if ($rec['charged_amount'] > 0): ?>
+                                            <span class="text-dark fw-semibold" style="white-space:nowrap;">
+                                                Rs. <?= number_format($rec['charged_amount'], 0) ?>
+                                            </span>
+                                        <?php else: ?>
+                                            <span class="text-muted small">-</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <?php if ($bal < 0): ?>
+                                            <span class="badge bg-danger-subtle text-danger border border-danger-subtle fw-bold px-2 py-1" style="white-space:nowrap;">
+                                                <i class="fa-solid fa-triangle-exclamation me-1"></i> - Rs. <?= number_format(abs($bal), 0) ?>
+                                            </span>
+                                        <?php elseif ($bal > 0): ?>
+                                            <span class="badge bg-success-subtle text-success border border-success-subtle fw-bold px-2 py-1" style="white-space:nowrap;">
+                                                <i class="fa-solid fa-check me-1"></i> + Rs. <?= number_format($bal, 0) ?>
+                                            </span>
+                                        <?php else: ?>
+                                            <span class="badge bg-light text-secondary border fw-bold px-2 py-1">
+                                                Rs. 0 (Cleared)
+                                            </span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td class="small" style="max-width: 250px;">
+                                        <?php if ($rec['type'] === 'renewal'): ?>
+                                            <span class="badge badge-soft-success rounded-pill px-2 py-1 me-1"><i class="fa-solid fa-rotate me-1"></i>Renew</span>
+                                        <?php elseif ($rec['type'] === 'collection'): ?>
+                                            <span class="badge badge-soft-info rounded-pill px-2 py-1 me-1"><i class="fa-solid fa-hand-holding-dollar me-1"></i>Collected</span>
+                                        <?php elseif ($rec['type'] === 'balance_add'): ?>
+                                            <span class="badge badge-soft-warning rounded-pill px-2 py-1 me-1"><i class="fa-solid fa-plus-circle me-1"></i>Funds Added</span>
+                                        <?php endif; ?>
+                                        <span class="text-muted"><?= htmlspecialchars($rec['activity_text']) ?></span>
+                                    </td>
+                                    <td class="text-center" style="white-space:nowrap;">
+                                        <?php if (!empty($rec['sub_id'])): ?>
+                                            <a href="subscriber_view.php?id=<?= $rec['sub_id'] ?>" class="btn btn-sm btn-outline-primary rounded-pill px-3" title="View Full Subscriber Profile">
+                                                <i class="fa-solid fa-eye me-1"></i> View
+                                            </a>
+                                        <?php else: ?>
+                                            <span class="text-muted small">-</span>
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                    <?php endif; ?>
+
+                </div>
+
+                <!-- Tab 2 Content: Activity Audit Trail -->
+                <div class="tab-pane fade" id="tab-activity" role="tabpanel">
+                    <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+                        <div>
+                            <h6 class="fw-bold mb-1 text-dark">
+                                <i class="fa-solid fa-list-check text-primary me-2"></i> Manager Activity Audit Trail (2-Year History)
+                            </h6>
+                            <div class="text-muted small">
+                                Every action taken by this Manager is permanently timestamped with station IP and target information.
+                            </div>
+                        </div>
+                        <span class="badge bg-light text-dark border px-3 py-2 rounded-pill font-monospace">
+                            <?= count($activities) ?> Recorded Events
+                        </span>
+                    </div>
+
+                    <?php if (empty($activities)): ?>
+                        <div class="text-center py-5 text-muted">
+                            <i class="fa-solid fa-circle-check fs-1 text-success opacity-50 mb-3 d-block"></i>
+                            <h6 class="fw-bold text-dark">No Activities Recorded Yet</h6>
+                            <p class="small text-secondary mb-0">Activities performed by this Manager will appear here automatically.</p>
+                        </div>
+                    <?php else: ?>
+                    <div class="table-responsive">
+                        <table id="managerLogsTable" class="table table-hover table-custom-ui align-middle w-100">
+                            <thead>
+                                <tr>
+                                    <th style="width: 50px;">#ID</th>
+                                    <th>Datetime</th>
+                                    <th>Activity Description</th>
+                                    <th>Against To</th>
+                                    <th>Against Role</th>
+                                    <th>Station IP</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($activities as $act): ?>
+                                    <tr>
+                                        <td class="fw-bold text-secondary"><?= $act['id'] ?></td>
+                                        <td style="white-space: nowrap;">
+                                            <div class="fw-semibold text-dark"><?= date('d M Y', strtotime($act['created_at'])) ?></div>
+                                            <div class="text-muted small"><?= date('h:i:s A', strtotime($act['created_at'])) ?></div>
+                                        </td>
+                                        <td>
+                                            <?php 
+                                                $act_text = htmlspecialchars($act['activity']);
+                                                if (stripos($act_text, 'renew') !== false) {
+                                                    echo "<span class='badge badge-soft-success px-2 py-1 rounded-pill me-1'><i class='fa-solid fa-arrows-rotate me-1'></i>Renew</span> " . $act_text;
+                                                } elseif (stripos($act_text, 'create') !== false) {
+                                                    echo "<span class='badge badge-soft-info px-2 py-1 rounded-pill me-1'><i class='fa-solid fa-plus-circle me-1'></i>Create</span> " . $act_text;
+                                                } elseif (stripos($act_text, 'login') !== false) {
+                                                    echo "<span class='badge badge-soft-secondary px-2 py-1 rounded-pill me-1'><i class='fa-solid fa-arrow-right-to-bracket me-1'></i>Login</span> " . $act_text;
+                                                } else {
+                                                    echo "<span class='fw-medium text-dark'>" . $act_text . "</span>";
+                                                }
+                                            ?>
+                                        </td>
+                                        <td>
+                                            <?php if ($act['against_to'] && $act['against_to'] !== 'N/A'): ?>
+                                                <span class="badge bg-light text-dark border px-2 py-1 rounded-pill">
+                                                    <?= htmlspecialchars($act['against_to']) ?>
+                                                </span>
+                                            <?php else: ?>
+                                                <span class="text-muted small">N/A</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td>
+                                            <span class="badge bg-secondary-subtle text-secondary rounded-pill px-2 py-1">
+                                                <?= htmlspecialchars($act['against_role'] ?: 'System') ?>
+                                            </span>
+                                        </td>
+                                        <td class="font-monospace text-muted small">
+                                            <?= htmlspecialchars($act['station_ip'] ?: '127.0.0.1') ?>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                    <?php endif; ?>
+                </div>
+
+                <!-- Tab 3 Content: Salary & Advances -->
+                <div class="tab-pane fade" id="tab-salary" role="tabpanel">
+                    <?php
+                    $staff_type = 'manager';
+                    $staff_id = (int)$mgr['id'];
+                    $staff_name = $mgr['full_name'];
+                    $monthly_sal = (int)($mgr['monthly_salary'] ?? 0);
+                    $joined_date = $mgr['created_at'];
+                    require __DIR__ . '/staff_salary_view.php';
+                    ?>
+                </div>
+
+            </div>
         </div>
-        <?php endif; ?>
     </div>
 </div>
 
@@ -492,15 +934,34 @@ foreach ($activities as $act) {
 
 <script>
 $(document).ready(function() {
+    if ($('#managerRecoveryTable').length) {
+        $('#managerRecoveryTable').DataTable({
+            dom: "<'row mb-3'<'col-sm-6'B><'col-sm-6 text-end'f>>" +
+                 "<'row'<'col-sm-12'tr>>" +
+                 "<'row mt-3'<'col-sm-5'i><'col-sm-7'p>>",
+            buttons: [
+                { extend: 'excel', text: '<i class="fa-solid fa-file-excel me-1"></i> Excel', className: 'btn btn-sm btn-outline-success' },
+                { extend: 'csv', text: '<i class="fa-solid fa-file-csv me-1"></i> CSV', className: 'btn btn-sm btn-outline-primary' },
+                { extend: 'print', text: '<i class="fa-solid fa-print me-1"></i> Print', className: 'btn btn-sm btn-outline-dark' }
+            ],
+            order: [[0, 'desc']],
+            pageLength: 25,
+            language: {
+                search: "_INPUT_",
+                searchPlaceholder: "Search recoveries, username, package..."
+            }
+        });
+    }
+
     if ($('#managerLogsTable').length) {
         $('#managerLogsTable').DataTable({
             dom: "<'row mb-3'<'col-sm-6'B><'col-sm-6 text-end'f>>" +
                  "<'row'<'col-sm-12'tr>>" +
                  "<'row mt-3'<'col-sm-5'i><'col-sm-7'p>>",
             buttons: [
-                { extend: 'excel', text: '<i class="fa-solid fa-file-excel me-1"></i> Excel', className: 'btn btn-sm btn-dark' },
-                { extend: 'csv', text: '<i class="fa-solid fa-file-csv me-1"></i> CSV', className: 'btn btn-sm btn-dark' },
-                { extend: 'print', text: '<i class="fa-solid fa-print me-1"></i> Print', className: 'btn btn-sm btn-dark' }
+                { extend: 'excel', text: '<i class="fa-solid fa-file-excel me-1"></i> Excel', className: 'btn btn-sm btn-outline-success' },
+                { extend: 'csv', text: '<i class="fa-solid fa-file-csv me-1"></i> CSV', className: 'btn btn-sm btn-outline-primary' },
+                { extend: 'print', text: '<i class="fa-solid fa-print me-1"></i> Print', className: 'btn btn-sm btn-outline-dark' }
             ],
             order: [[0, 'desc']],
             pageLength: 25,
@@ -510,6 +971,11 @@ $(document).ready(function() {
             }
         });
     }
+
+    // Auto-adjust DataTables on tab switch
+    $('button[data-bs-toggle="tab"]').on('shown.bs.tab', function (e) {
+        $($.fn.dataTable.tables(true)).DataTable().columns.adjust();
+    });
 });
 </script>
 
