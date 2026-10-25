@@ -61,16 +61,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Positive = charge subscriber (balance minus), Negative = refund subscriber (balance plus)
             $net_adjustment = round($new_total_cost - $old_remaining_credit, 2);
         } else {
-            $days = (int)$pkg['validity_days'];
-            if ($current_expiry > $now) {
-                // Active: Extend from current expiry
-                $expiry_date = date('Y-m-d H:i:s', strtotime("+$days days", $current_expiry));
-            } else {
-                // Expired: Extend from now
+            $days = (int)(($pkg['validity_days'] ?? 0) > 0 ? $pkg['validity_days'] : 30);
+            $package_changed = ($package_id !== (int)$uData['package_id']);
+
+            if ($package_changed && $current_expiry > $now) {
+                // Package upgraded/changed mid-cycle!
+                // Start new package today for full validity
                 $expiry_date = date('Y-m-d H:i:s', strtotime("+$days days", $now));
+                $new_exp_ts = strtotime($expiry_date);
+
+                $cur_pq = $pdo->prepare("SELECT price, validity_days FROM packages WHERE id = ?");
+                $cur_pq->execute([$uData['package_id']]);
+                $cur_pkg = $cur_pq->fetch();
+                $cur_price = (float)($cur_pkg['price'] ?? $pkg['price']);
+                $cur_val = (int)(($cur_pkg['validity_days'] ?? 0) > 0 ? $cur_pkg['validity_days'] : 30);
+                $cur_daily = $cur_price / $cur_val;
+                $old_remaining_credit = (($current_expiry - $now) / 86400) * $cur_daily;
+
+                $new_total_cost = (float)$pkg['price'];
+                $net_adjustment = round($new_total_cost - $old_remaining_credit, 2);
+            } else {
+                if ($current_expiry > $now) {
+                    $expiry_date = date('Y-m-d H:i:s', strtotime("+$days days", $current_expiry));
+                } else {
+                    $expiry_date = date('Y-m-d H:i:s', strtotime("+$days days", $now));
+                }
+                $new_exp_ts = strtotime($expiry_date);
+                $net_adjustment = (float)$pkg['price'];
             }
-            $new_exp_ts = strtotime($expiry_date);
-            $net_adjustment = (float)$pkg['price'];
         }
         
         $current_bal = (float)$uData['balance'];
@@ -176,8 +194,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ->execute([$client_id, $actor_mgr_id, $act_dealer_id, $actor_name, $u, $act_log_text]);
             
         if ($net_adjustment > 0) {
+            if (!empty($package_changed) && !empty($old_remaining_credit) && $old_remaining_credit > 0) {
+                $ledger_desc = "Package Upgraded to {$pkg['name']} (Full Month Rs. " . number_format($new_total_cost, 2) . " minus Unused Credit Rs. " . number_format($old_remaining_credit, 2) . ") by $actor_role ($actor_name)";
+            } else {
+                $ledger_desc = "Package Renewed: {$pkg['name']} by $actor_role ($actor_name)";
+            }
             $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'debit', ?, ?, ?)")
-                ->execute([$client_id, $u, $net_adjustment, $new_bal, "Package Renewed: " . $pkg['name'] . " by $actor_role ($actor_name)"]);
+                ->execute([$client_id, $u, $net_adjustment, $new_bal, $ledger_desc]);
         } elseif ($net_adjustment < 0) {
             $abs_refund = abs($net_adjustment);
             $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'credit', ?, ?, ?)")

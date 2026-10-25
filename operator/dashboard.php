@@ -1680,7 +1680,7 @@ $map_subscribers = $pdo->query("
 
 <?php
 // Fetch users and packages for the renew modal
-$renewUsers = $pdo->query("SELECT id, username, full_name, status, expiry_date, package_id FROM subscribers WHERE client_id = $client_id ORDER BY username ASC")->fetchAll();
+$renewUsers = $pdo->query("SELECT s.id, s.username, s.full_name, s.status, s.expiry_date, s.package_id, s.balance, p.price as pkg_price, p.validity_days as pkg_val FROM subscribers s LEFT JOIN packages p ON s.package_id = p.id WHERE s.client_id = $client_id ORDER BY s.username ASC")->fetchAll();
 $renewPackages = $pdo->query("SELECT id, name, price, validity_days FROM packages WHERE client_id = $client_id OR client_id = 0 ORDER BY name ASC")->fetchAll();
 ?>
 <!-- Activate/Renew User Modal -->
@@ -1704,7 +1704,10 @@ $renewPackages = $pdo->query("SELECT id, name, price, validity_days FROM package
                                 data-fullname="<?= htmlspecialchars($ru['full_name']) ?>"
                                 data-status="<?= $ru['status'] ?>"
                                 data-expiry="<?= $ru['expiry_date'] ?>"
-                                data-pkg="<?= $ru['package_id'] ?>">
+                                data-pkg="<?= $ru['package_id'] ?>"
+                                data-curpkgprice="<?= (float)($ru['pkg_price'] ?? 0) ?>"
+                                data-curpkgval="<?= (int)(($ru['pkg_val'] ?? 0) > 0 ? $ru['pkg_val'] : 30) ?>"
+                                data-curbal="<?= (float)($ru['balance'] ?? 0) ?>">
                                 <?= htmlspecialchars($ru['username']) ?> (<?= htmlspecialchars($ru['full_name']) ?>)
                             </option>
                         <?php endforeach; ?>
@@ -1852,6 +1855,34 @@ function updateRenewDetails() {
 
     var statusHtml = status === 'active' ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-danger">Disabled</span>';
 
+    var curPkgPrice = parseFloat(uOpt.getAttribute('data-curpkgprice') || 0);
+    var curPkgVal = parseInt(uOpt.getAttribute('data-curpkgval') || 30);
+    var curBal = parseFloat(uOpt.getAttribute('data-curbal') || 0);
+
+    var now = new Date();
+    var cd = (curExp && curExp !== "" && curExp !== "null" && curExp !== "0000-00-00 00:00:00") ? new Date(curExp) : null;
+    var isUserActive = (cd && cd > now);
+    var isPkgChanged = (uPkgId && pkgSelect.value && uPkgId != pkgSelect.value);
+
+    var oldCredit = 0;
+    var remDays = 0;
+    if (isUserActive && cd) {
+        remDays = Math.round(((cd - now) / 86400000) * 10) / 10;
+        var oldDaily = curPkgPrice / (curPkgVal > 0 ? curPkgVal : 30);
+        oldCredit = Math.round(((cd - now) / 86400000) * oldDaily * 100) / 100;
+    }
+
+    var netPayable = parseFloat(pPrice);
+    var adjustmentRow = '';
+    if (isPkgChanged && oldCredit > 0) {
+        netPayable = Math.max(0, Math.round(parseFloat(pPrice) - oldCredit));
+        adjustmentRow = `
+            <tr><td class="fw-bold ps-3 text-warning"><i class="fa-solid fa-arrow-up-right-dots me-1"></i> Package Change Adjustment</td><td><span class="badge bg-warning text-dark fw-bold">Upgrade Credit Applied</span></td></tr>
+            <tr><td class="fw-bold ps-3">Old Unused Credit</td><td class="text-success fw-bold">- Rs ${oldCredit.toFixed(2)} (${remDays} days left)</td></tr>
+            <tr><td class="fw-bold ps-3">Net Charge to Balance</td><td class="text-primary fw-bold fs-6">Rs ${netPayable.toFixed(2)}</td></tr>
+        `;
+    }
+
     tbody.innerHTML = `
         <tr><td class="fw-bold ps-3">Username & ID</td><td>${username} (#${uid})</td></tr>
         <tr><td class="fw-bold ps-3">User Status</td><td>${statusHtml}</td></tr>
@@ -1860,6 +1891,7 @@ function updateRenewDetails() {
         <tr><td class="fw-bold ps-3">Package</td><td><span class="badge bg-primary bg-opacity-10 text-primary">${pName}</span></td></tr>
         <tr><td class="fw-bold ps-3">Package Duration</td><td>${pDur} Days</td></tr>
         <tr><td class="fw-bold ps-3">Package Price</td><td class="text-success fw-bold">Rs ${pPrice}</td></tr>
+        ${adjustmentRow}
     `;
 }
 
