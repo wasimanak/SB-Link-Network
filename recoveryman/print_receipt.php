@@ -17,21 +17,33 @@ $custom_date = '';
 $paid_amount = isset($_GET['paid']) ? (float)$_GET['paid'] : 0;
 $type = isset($_GET['type']) ? $_GET['type'] : 'renew'; // renew or collect
 
-// Authentication Check: RecoveryMan, Operator, or Admin
+// Authentication Check: RecoveryMan, Operator, Admin, or Secure Public Link
 $is_authenticated = false;
-if ($rm_id > 0) {
-    $is_authenticated = true;
-} elseif (!empty($_SESSION['operator_logged_in']) || !empty($_SESSION['operator_id'])) {
-    $client_id = (int)$_SESSION['operator_id'];
-    if (!empty($_SESSION['is_manager'])) {
-        $rm_name = !empty($_SESSION['manager_name']) ? $_SESSION['manager_name'] . ' (Manager)' : 'Manager';
-    } else {
-        $rm_name = !empty($_SESSION['operator_name']) ? $_SESSION['operator_name'] . ' (Admin)' : 'Admin';
+$is_public_view = false;
+$token = $_GET['token'] ?? '';
+if (!empty($token) && !empty($sub_id)) {
+    $expected_token = md5($sub_id . '_receipt_secure_sblink');
+    if (hash_equals($expected_token, $token)) {
+        $is_authenticated = true;
+        $is_public_view = true;
     }
-    $is_authenticated = true;
-} elseif (!empty($_SESSION['admin_logged_in'])) {
-    $rm_name = 'Admin';
-    $is_authenticated = true;
+}
+
+if (!$is_authenticated) {
+    if ($rm_id > 0) {
+        $is_authenticated = true;
+    } elseif (!empty($_SESSION['operator_logged_in']) || !empty($_SESSION['operator_id'])) {
+        $client_id = (int)$_SESSION['operator_id'];
+        if (!empty($_SESSION['is_manager'])) {
+            $rm_name = !empty($_SESSION['manager_name']) ? $_SESSION['manager_name'] . ' (Manager)' : 'Manager';
+        } else {
+            $rm_name = !empty($_SESSION['operator_name']) ? $_SESSION['operator_name'] . ' (Admin)' : 'Admin';
+        }
+        $is_authenticated = true;
+    } elseif (!empty($_SESSION['admin_logged_in'])) {
+        $rm_name = 'Admin';
+        $is_authenticated = true;
+    }
 }
 
 if (!$is_authenticated) {
@@ -165,6 +177,9 @@ if ($rm_id > 0) {
         }
     }
 }
+if ($is_public_view && empty($_SESSION['rm_name']) && empty($_SESSION['operator_name']) && empty($_SESSION['admin_logged_in']) && $rm_name === 'Recovery Agent') {
+    $rm_name = 'Authorized Agent';
+}
 
 // 3. Fetch Operator / Company Details
 $operator = null;
@@ -228,38 +243,62 @@ $cust_phone = !empty($sub['mobile']) ? $sub['mobile'] : ($sub['phone'] ?? '');
 $wa_number = '';
 if (!empty($cust_phone)) {
     $clean = preg_replace('/[^0-9]/', '', $cust_phone);
-    if (substr($clean, 0, 1) === '0') {
+    if (strpos($clean, '0092') === 0) {
+        $wa_number = substr($clean, 2);
+    } elseif (strpos($clean, '92') === 0) {
+        $wa_number = $clean;
+    } elseif (strpos($clean, '0') === 0) {
         $wa_number = '92' . substr($clean, 1);
+    } elseif (strlen($clean) === 10 && strpos($clean, '3') === 0) {
+        $wa_number = '92' . $clean;
     } else {
         $wa_number = $clean;
     }
 }
 
+// Generate Secure Public Receipt URL for WhatsApp Link
+$public_token = md5($sub_id . '_receipt_secure_sblink');
+$proto = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' || ($_SERVER['SERVER_PORT'] ?? 80) == 443) ? 'https://' : 'http://';
+$host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+$current_script = $_SERVER['SCRIPT_NAME'] ?? '/recoveryman/print_receipt.php';
+$extra_params = '';
+if ($ledger_id > 0) {
+    $extra_params .= "&ledger_id={$ledger_id}";
+} elseif (isset($_GET['paid'])) {
+    $extra_params .= "&paid=" . urlencode((string)$paid_amount);
+}
+$public_receipt_url = $proto . $host . $current_script . "?sub_id={$sub_id}&token={$public_token}" . $extra_params;
+
 // WhatsApp Text Receipt
 $wa_text = "*PAYMENT RECEIPT*\n";
 $wa_text .= "--------------------------------\n";
 $wa_text .= "*{$company_name}*\n";
-$wa_text .= "Phone: {$company_phone}\n";
+if (!empty($company_phone) && $company_phone !== 'N/A') {
+    $wa_text .= "Helpline: {$company_phone}\n";
+}
 $wa_text .= "--------------------------------\n";
-$wa_text .= "Date: {$date}\n";
 $wa_text .= "Invoice#: {$invoice_number}\n";
+$wa_text .= "Date: {$date}\n";
 $wa_text .= "User: {$sub['username']}\n";
 if (!empty($sub['full_name'])) {
     $wa_text .= "Name: {$sub['full_name']}\n";
 }
 if (!empty($sub['package_name'])) {
-    $wa_text .= "Package: {$sub['package_name']}\n";
+    $wa_text .= "Plan: {$sub['package_name']}\n";
 }
 if (!empty($sub['expiry_date'])) {
     $wa_text .= "New Expiry: " . date('d M Y', strtotime($sub['expiry_date'])) . "\n";
 }
-$wa_text .= "Paid Amount: Rs. " . number_format($paid_amount, 0) . "\n";
+$wa_text .= "Amount Paid: Rs. " . number_format($paid_amount, 0) . "\n";
 if ($due_amount > 0) {
-    $wa_text .= "Due Balance: - Rs. " . number_format($due_amount, 0) . "\n";
+    $wa_text .= "Remaining Due: - Rs. " . number_format($due_amount, 0) . "\n";
 } elseif ($adv_amount > 0) {
     $wa_text .= "Adv Balance: Rs. " . number_format($adv_amount, 0) . "\n";
 }
 $wa_text .= "Agent: {$rm_name}\n";
+$wa_text .= "--------------------------------\n";
+$wa_text .= "📄 View/Download PDF Receipt:\n";
+$wa_text .= "{$public_receipt_url}\n";
 $wa_text .= "--------------------------------\n";
 $wa_text .= "Thank you for your payment!";
 $wa_text_encoded = urlencode($wa_text);
@@ -762,12 +801,32 @@ $wa_text_encoded = urlencode($wa_text);
 <body>
 
     <!-- Top Success Confirmation -->
+    <?php if($is_public_view): ?>
+    <div class="alert-top no-print" style="background: #e0f2fe; color: #0369a1; border-color: #bae6fd;">
+        <i class="fa-solid fa-receipt me-1 text-primary"></i>
+        Official Customer Payment Receipt
+    </div>
+    <?php else: ?>
     <div class="alert-top no-print">
         <i class="fa-solid fa-circle-check me-1 text-success"></i>
         <?= !empty($ledger_id) ? 'Official Receipt (Transaction Copy)' : (($type === 'renew') ? 'Package Renewed &amp; Activated!' : 'Payment Collected Successfully!') ?>
     </div>
+    <?php endif; ?>
 
     <!-- Screen Action Toolbar -->
+    <?php if($is_public_view): ?>
+    <div class="no-print-toolbar" style="max-width: 380px;">
+        <button type="button" class="btn-action btn-pdf" id="btnDownloadPdf" onclick="downloadPDF()" style="grid-column: span 1;">
+            <i class="fa-solid fa-file-pdf"></i> Download PDF
+        </button>
+        <button type="button" class="btn-action btn-gallery" id="btnDownloadImg" onclick="downloadImage()" style="grid-column: span 1;">
+            <i class="fa-solid fa-images"></i> Save Image
+        </button>
+        <button type="button" class="btn-action btn-print" onclick="window.print()" style="grid-column: span 2;">
+            <i class="fa-solid fa-print"></i> Print Receipt
+        </button>
+    </div>
+    <?php else: ?>
     <div class="no-print-toolbar">
         <button type="button" class="btn-action btn-print" id="btnPrintMain" onclick="handlePrintClick()">
             <i class="fa-solid fa-print"></i> Print (80mm)
@@ -799,6 +858,7 @@ $wa_text_encoded = urlencode($wa_text);
             </span>
         </div>
     </div>
+    <?php endif; ?>
 
     <!-- Bluetooth Status Banner -->
     <div id="bleStatusBanner" class="no-print" style="display:none; width: 360px; max-width: 95vw; background:#eff6ff; color:#1e40af; border:1px solid #bfdbfe; font-size:12px; font-weight:700; padding:8px 12px; border-radius:10px; margin-bottom:12px; text-align:center;">
@@ -984,9 +1044,27 @@ $wa_text_encoded = urlencode($wa_text);
             };
         }
 
+        function cleanWaNumber(num) {
+            if (!num) return '';
+            var clean = String(num).replace(/[^0-9]/g, '');
+            if (clean.indexOf('0092') === 0) {
+                return clean.substring(2);
+            }
+            if (clean.indexOf('92') === 0) {
+                return clean;
+            }
+            if (clean.indexOf('0') === 0) {
+                return '92' + clean.substring(1);
+            }
+            if (clean.length === 10 && clean.indexOf('3') === 0) {
+                return '92' + clean;
+            }
+            return clean;
+        }
+
         function downloadPDF() {
             var element = document.getElementById('receipt-content');
-            var filename = 'Receipt_<?= $sub["username"] ?>_80mm.pdf';
+            var filename = <?= json_encode('Receipt_' . ($sub['username'] ?? 'User') . '_80mm.pdf') ?>;
             var opt = getPDFOptions(filename);
             var btn = document.getElementById('btnDownloadPdf');
             var origHtml = btn ? btn.innerHTML : '';
@@ -1012,55 +1090,54 @@ $wa_text_encoded = urlencode($wa_text);
 
         function shareWhatsApp() {
             var element = document.getElementById('receipt-content');
-            var filename = 'Receipt_<?= $sub["username"] ?>_80mm.pdf';
+            var filename = <?= json_encode('Receipt_' . ($sub['username'] ?? 'User') . '_80mm.pdf') ?>;
             var opt = getPDFOptions(filename);
             var btn = document.getElementById('btnShareWa');
             var origHtml = btn ? btn.innerHTML : '';
+
+            var waNum = <?= json_encode($wa_number) ?>;
+            var waText = <?= json_encode($wa_text) ?>;
+
+            if (!waNum) {
+                var promptNum = prompt("Customer ka WhatsApp number darj karein (e.g. 03001234567):");
+                if (!promptNum) {
+                    return;
+                }
+                waNum = cleanWaNumber(promptNum);
+                if (!waNum || waNum.length < 10) {
+                    alert("Baraye meharbani durust mobile number darj karein.");
+                    return;
+                }
+            }
+
             if (btn) {
                 btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Preparing...';
                 btn.disabled = true;
             }
 
-            html2pdf().set(opt).from(element).output('blob').then(function(blob) {
+            var waUrl = "https://api.whatsapp.com/send?phone=" + encodeURIComponent(waNum) + "&text=" + encodeURIComponent(waText);
+
+            // Step 1: Save PDF to device downloads
+            // Step 2: Open customer direct WhatsApp chat with pre-filled receipt & public PDF link
+            html2pdf().set(opt).from(element).save().then(function() {
                 if (btn) {
                     btn.innerHTML = origHtml;
                     btn.disabled = false;
                 }
-                var file = new File([blob], filename, { type: 'application/pdf' });
-
-                if (navigator.canShare && navigator.canShare({ files: [file] })) {
-                    navigator.share({
-                        files: [file],
-                        title: 'Payment Receipt - <?= htmlspecialchars($sub["username"]) ?>'
-                    }).catch(function(error) {
-                        console.log('Share canceled or failed:', error);
-                    });
-                } else {
-                    // Download the file
-                    var url = URL.createObjectURL(blob);
-                    var a = document.createElement('a');
-                    a.href = url;
-                    a.download = filename;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    URL.revokeObjectURL(url);
-
-                    var waNum = '<?= $wa_number ?>';
-                    var waText = '<?= $wa_text_encoded ?>';
-                    if (waNum) {
-                        window.open('https://api.whatsapp.com/send?phone=' + waNum + '&text=' + waText, '_blank');
-                    } else {
-                        alert("PDF 80mm receipt download ho gayi hai.");
-                    }
+                var win = window.open(waUrl, '_blank');
+                if (!win || win.closed || typeof win.closed === 'undefined') {
+                    window.location.href = waUrl;
                 }
             }).catch(function(err) {
-                console.error(err);
+                console.error("PDF generation note:", err);
                 if (btn) {
                     btn.innerHTML = origHtml;
                     btn.disabled = false;
                 }
-                alert('Error: ' + err);
+                var win = window.open(waUrl, '_blank');
+                if (!win || win.closed || typeof win.closed === 'undefined') {
+                    window.location.href = waUrl;
+                }
             });
         }
 
@@ -1138,7 +1215,7 @@ $wa_text_encoded = urlencode($wa_text);
                     btn.disabled = false;
                 }
 
-                var filename = 'Receipt_<?= $sub["username"] ?>_80mm_HD.png';
+                var filename = <?= json_encode('Receipt_' . ($sub['username'] ?? 'User') . '_80mm_HD.png') ?>;
 
                 canvas.toBlob(function(blob) {
                     if (!blob) {
