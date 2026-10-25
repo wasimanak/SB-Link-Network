@@ -59,8 +59,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             // Ledger Entry with custom date
             $desc = "Payment collected by {$rm_name} RM" . ($note ? " - Note: $note" : "");
             
-            $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description, created_at) VALUES (?, ?, 'credit', ?, ?, ?, ?)")
-                ->execute([$client_id, $sub_username, $amount, $balAfterPayment, $desc, $payment_date]);
+            $pdo->prepare("INSERT INTO user_ledger (client_id, subscriber_id, username, type, amount, balance_after, description, created_at) VALUES (?, ?, ?, 'credit', ?, ?, ?, ?)")
+                ->execute([$client_id, $sub_id, $sub_username, $amount, $balAfterPayment, $desc, $payment_date]);
+            $new_ledger_id = (int)$pdo->lastInsertId();
                 
             // Update RM Cash in Hand
             $pdo->prepare("UPDATE recovery_men SET cash_in_hand = cash_in_hand + ? WHERE id = ?")->execute([$amount, $rm_id]);
@@ -73,7 +74,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $pdo->commit();
             $sq = urlencode($_GET['search_query'] ?? '');
             $ret = urlencode('dashboard.php' . ($sq ? "?search_query=$sq" : ''));
-            $target_url = "print_receipt.php?sub_id={$sub_id}&paid={$amount}&type=collect&return={$ret}";
+            $target_url = "print_receipt.php?sub_id={$sub_id}&ledger_id={$new_ledger_id}&paid={$amount}&type=collect&return={$ret}";
             $json_alert = json_encode("Payment Collected Successfully!");
             echo "<!DOCTYPE html>
 <html>
@@ -194,6 +195,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         
         // Step A: Charge the Net Package Charge
         $bal_after_charge = round($current_bal - $net_package_charge, 2);
+        $new_ledger_id = 0;
         if ($net_package_charge > 0) {
             if ($package_changed && $old_remaining_credit > 0) {
                 $rem_days_str = round(($current_expiry - $now) / 86400, 1);
@@ -201,14 +203,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             } else {
                 $charge_desc = "Package Renewal: {$targetPkg['name']} by RM {$rm_name}";
             }
-            $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'debit', ?, ?, ?)")
-                ->execute([$client_id, $sub_username, $net_package_charge, $bal_after_charge, $charge_desc]);
+            $pdo->prepare("INSERT INTO user_ledger (client_id, subscriber_id, username, type, amount, balance_after, description) VALUES (?, ?, ?, 'debit', ?, ?, ?)")
+                ->execute([$client_id, $sub_id, $sub_username, $net_package_charge, $bal_after_charge, $charge_desc]);
+            $new_ledger_id = (int)$pdo->lastInsertId();
         } elseif ($net_package_charge < 0) {
             // Downgrade credit refund
             $abs_refund = abs($net_package_charge);
             $charge_desc = "Package Downgrade Credit: {$targetPkg['name']} (Unused Credit Rs. " . number_format($old_remaining_credit, 2) . " covered new package) by RM {$rm_name}";
-            $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'credit', ?, ?, ?)")
-                ->execute([$client_id, $sub_username, $abs_refund, $bal_after_charge, $charge_desc]);
+            $pdo->prepare("INSERT INTO user_ledger (client_id, subscriber_id, username, type, amount, balance_after, description) VALUES (?, ?, ?, 'credit', ?, ?, ?)")
+                ->execute([$client_id, $sub_id, $sub_username, $abs_refund, $bal_after_charge, $charge_desc]);
+            $new_ledger_id = (int)$pdo->lastInsertId();
         }
 
         // Step B: Add the Cash Collected
@@ -216,8 +220,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         if ($amount > 0) {
             $final_bal = round($bal_after_charge + $amount, 2);
             $payment_desc = "Cash collected by {$rm_name} RM" . ($note ? " - Note: $note" : "");
-            $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'credit', ?, ?, ?)")
-                ->execute([$client_id, $sub_username, $amount, $final_bal, $payment_desc]);
+            $pdo->prepare("INSERT INTO user_ledger (client_id, subscriber_id, username, type, amount, balance_after, description) VALUES (?, ?, ?, 'credit', ?, ?, ?)")
+                ->execute([$client_id, $sub_id, $sub_username, $amount, $final_bal, $payment_desc]);
+            $new_ledger_id = (int)$pdo->lastInsertId();
                 
             // Update Recovery Man's Cash in Hand
             $pdo->prepare("UPDATE recovery_men SET cash_in_hand = cash_in_hand + ? WHERE id = ?")->execute([$amount, $rm_id]);
@@ -303,7 +308,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $alert_msg .= "Net Charged: Rs. " . number_format($net_package_charge, 2) . "\nCollected: Rs. " . number_format($amount, 2) . "\nNew Balance: Rs. " . number_format($final_bal, 2) . "\nExpiry: " . date('d M Y', $new_expiry_time);
         $sq = urlencode($_GET['search_query'] ?? '');
         $ret = urlencode('dashboard.php' . ($sq ? "?search_query=$sq" : ''));
-        $target_url = "print_receipt.php?sub_id={$sub_id}&paid={$amount}&type=renew&return={$ret}";
+        $target_url = "print_receipt.php?sub_id={$sub_id}&ledger_id={$new_ledger_id}&paid={$amount}&type=renew&return={$ret}";
         $json_alert = json_encode($alert_msg);
         echo "<!DOCTYPE html>
 <html>

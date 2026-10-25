@@ -11,6 +11,13 @@ $rm_name = $_SESSION['rm_name'] ?? 'Recovery Agent';
 $return_url = !empty($_GET['return']) ? $_GET['return'] : 'dashboard.php';
 $sub_id = isset($_GET['sub_id']) ? (int)$_GET['sub_id'] : 0;
 $ledger_id = isset($_GET['ledger_id']) ? (int)$_GET['ledger_id'] : 0;
+if ($ledger_id <= 0) {
+    if (!empty($_GET['inv'])) {
+        $ledger_id = (int)preg_replace('/[^0-9]/', '', $_GET['inv']);
+    } elseif (!empty($_GET['invoice_no'])) {
+        $ledger_id = (int)preg_replace('/[^0-9]/', '', $_GET['invoice_no']);
+    }
+}
 $username = isset($_GET['username']) ? trim($_GET['username']) : '';
 $transaction_desc = '';
 $custom_date = '';
@@ -71,6 +78,9 @@ if ($ledger_id > 0) {
                 $rm_name = trim($m_col[1]);
             }
 
+            if ($sub_id <= 0 && !empty($ledger_entry['subscriber_id'])) {
+                $sub_id = (int)$ledger_entry['subscriber_id'];
+            }
             if ($sub_id <= 0 && !empty($ledger_entry['username'])) {
                 $username = $ledger_entry['username'];
             }
@@ -182,20 +192,65 @@ $company_name = !empty($operator['company_name']) ? $operator['company_name'] : 
 $company_phone = !empty($operator['phone']) ? $operator['phone'] : 'N/A';
 $date = !empty($custom_date) ? $custom_date : date('d M Y h:i A');
 
-// 4. Fetch Latest Transaction ID for Invoice#
+// 4. Fetch or Create Permanent Transaction Record in user_ledger for Invoice#
 if (empty($invoice_id)) {
-try {
-    if (!empty($sub['username'])) {
-        $invStmt = $pdo->prepare("SELECT id FROM user_ledger WHERE username = ? ORDER BY id DESC LIMIT 1");
-        $invStmt->execute([$sub['username']]);
-        $invoice_id = $invStmt->fetchColumn();
+    try {
+        // Search by subscriber_id or username in user_ledger
+        $invStmt = $pdo->prepare("
+            SELECT id, created_at, amount, description, type 
+            FROM user_ledger 
+            WHERE (subscriber_id = ? OR username = ?) 
+            ORDER BY id DESC LIMIT 1
+        ");
+        $invStmt->execute([$sub_id, $sub['username']]);
+        $existing_ledger = $invStmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($existing_ledger) {
+            $invoice_id = (int)$existing_ledger['id'];
+            if (empty($custom_date) && !empty($existing_ledger['created_at'])) {
+                $custom_date = date('d M Y h:i A', strtotime($existing_ledger['created_at']));
+                $date = $custom_date;
+            }
+            if (!isset($_GET['paid']) && empty($paid_amount)) {
+                $paid_amount = (float)$existing_ledger['amount'];
+            }
+            if (empty($transaction_desc) && !empty($existing_ledger['description'])) {
+                $transaction_desc = $existing_ledger['description'];
+            }
+        } else {
+            // No ledger entry exists yet in DB: Save a permanent initial billing/receipt invoice in user_ledger
+            $auto_type = ($sub['balance'] < 0) ? 'debit' : 'credit';
+            $auto_amount = ($paid_amount > 0) ? $paid_amount : (float)($sub['package_price'] ?? 0);
+            $auto_desc = "Official Billing Invoice - " . (!empty($sub['package_name']) ? $sub['package_name'] : 'Subscription');
+            $auto_created = !empty($sub['created_at']) ? $sub['created_at'] : date('Y-m-d H:i:s');
+
+            $insLedger = $pdo->prepare("
+                INSERT INTO user_ledger (client_id, subscriber_id, username, type, amount, balance_after, description, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ");
+            $insLedger->execute([
+                $client_id,
+                $sub_id,
+                $sub['username'],
+                $auto_type,
+                $auto_amount,
+                $sub['balance'],
+                $auto_desc,
+                $auto_created
+            ]);
+            $invoice_id = (int)$pdo->lastInsertId();
+            if (empty($custom_date)) {
+                $custom_date = date('d M Y h:i A', strtotime($auto_created));
+                $date = $custom_date;
+            }
+        }
+    } catch (Exception $e) {
+        $invoice_id = $sub_id; // Safe permanent fallback: use subscriber ID so it NEVER changes randomly
     }
-} catch (Exception $e) {
-    $invoice_id = 0;
 }
-}
+
 if (!$invoice_id) {
-    $invoice_id = rand(10000, 99999);
+    $invoice_id = $sub_id; // Guarantee permanent consistency
 }
 $invoice_number = "INV-" . str_pad($invoice_id, 6, "0", STR_PAD_LEFT);
 
