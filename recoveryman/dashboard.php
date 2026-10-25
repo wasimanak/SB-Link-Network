@@ -604,6 +604,9 @@ function formatBytes($bytes) {
         .shadow-2xs { box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
         .btn-touch { font-size: 0.75rem; min-height: 46px; transition: all 0.15s ease; }
         .btn-touch:hover { transform: translateY(-2px); }
+        .copy-username-badge { cursor: pointer !important; transition: all 0.15s ease-in-out; -webkit-user-select: text !important; user-select: text !important; }
+        .copy-username-badge:hover { transform: translateY(-1px); box-shadow: 0 4px 10px rgba(0,0,0,0.25) !important; filter: brightness(1.2); }
+        .copy-username-badge:active { transform: scale(0.95); }
     </style>
 </head>
 <body>
@@ -681,8 +684,8 @@ function formatBytes($bytes) {
                                                     <h5 class="fw-bold mb-0 text-dark text-truncate" title="<?= htmlspecialchars($u['full_name']) ?>" style="font-size: 1.1rem; line-height: 1.25;">
                                                         <?= htmlspecialchars($u['full_name'] ?: $u['username']) ?>
                                                     </h5>
-                                                    <span class="badge bg-dark text-warning font-monospace px-2 py-1 rounded-pill shadow-xs border border-dark" style="font-size: 0.82rem; letter-spacing: 0.5px;">
-                                                        <i class="fa-solid fa-at text-warning me-1"></i><?= htmlspecialchars($u['username']) ?></span>
+                                                    <span class="badge bg-dark text-warning font-monospace px-2 py-1 rounded-pill shadow-xs border border-dark copy-username-badge" style="font-size: 0.82rem; letter-spacing: 0.5px;" title="Click to copy username" onclick="copyUsername('<?= htmlspecialchars($u['username'], ENT_QUOTES) ?>', this)">
+                                                        <i class="fa-solid fa-at text-warning me-1"></i><?= htmlspecialchars($u['username']) ?><i class="fa-regular fa-copy ms-1 text-white-50" style="font-size: 0.75rem;"></i></span>
                                                     <a href="print_receipt.php?sub_id=<?= $u['id'] ?>&return=<?= urlencode('dashboard.php' . (!empty($_GET['search_query']) ? '?search_query=' . urlencode($_GET['search_query']) : '')) ?>" target="_blank" class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 rounded-pill px-2 py-1 text-decoration-none fw-bold" style="font-size: 0.8rem;" title="Print Receipt"><i class="fa-solid fa-receipt me-1"></i> Receipt</a><span style="display:none;"
                                                     </span>
                                                 </div>
@@ -854,7 +857,7 @@ function formatBytes($bytes) {
                                             
                                             <div class="modal-body p-4 text-start">
                                                 <div class="alert alert-success bg-opacity-10 text-success border-success border-opacity-25 py-2 mb-3">
-                                                    <strong>User:</strong> <?= htmlspecialchars($u['username']) ?><br>
+                                                    <strong>User:</strong> <span class="badge bg-dark text-warning font-monospace px-2 py-1 rounded-pill copy-username-badge ms-1" title="Click to copy username" onclick="copyUsername('<?= htmlspecialchars($u['username'], ENT_QUOTES) ?>', this)"><i class="fa-solid fa-at text-warning me-1"></i><?= htmlspecialchars($u['username']) ?><i class="fa-regular fa-copy ms-1 text-white-50" style="font-size: 0.75rem;"></i></span><br>
                                                     <strong>Current Balance:</strong> Rs. <?= number_format($u['balance'], 0) ?>
                                                 </div>
                                                 
@@ -945,8 +948,8 @@ function formatBytes($bytes) {
                                                     <h5 class="fw-bold mb-0 text-dark text-truncate" title="<?= htmlspecialchars($u['full_name']) ?>" style="font-size: 1.1rem; line-height: 1.25;">
                                                         <?= htmlspecialchars($u['full_name'] ?: $u['username']) ?>
                                                     </h5>
-                                                    <span class="badge bg-dark text-warning font-monospace px-2 py-1 rounded-pill shadow-xs border border-dark" style="font-size: 0.82rem; letter-spacing: 0.5px;">
-                                                        <i class="fa-solid fa-at text-warning me-1"></i><?= htmlspecialchars($u['username']) ?></span>
+                                                    <span class="badge bg-dark text-warning font-monospace px-2 py-1 rounded-pill shadow-xs border border-dark copy-username-badge" style="font-size: 0.82rem; letter-spacing: 0.5px;" title="Click to copy username" onclick="copyUsername('<?= htmlspecialchars($u['username'], ENT_QUOTES) ?>', this)">
+                                                        <i class="fa-solid fa-at text-warning me-1"></i><?= htmlspecialchars($u['username']) ?><i class="fa-regular fa-copy ms-1 text-white-50" style="font-size: 0.75rem;"></i></span>
                                                     <a href="print_receipt.php?sub_id=<?= $u['id'] ?>&return=<?= urlencode('dashboard.php' . (!empty($_GET['search_query']) ? '?search_query=' . urlencode($_GET['search_query']) : '')) ?>" target="_blank" class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 rounded-pill px-2 py-1 text-decoration-none fw-bold" style="font-size: 0.8rem;" title="Print Receipt"><i class="fa-solid fa-receipt me-1"></i> Receipt</a><span style="display:none;"
                                                     </span>
                                                 </div>
@@ -1118,7 +1121,7 @@ function formatBytes($bytes) {
                                             
                                             <div class="modal-body p-4 text-start">
                                                 <div class="alert alert-success bg-opacity-10 text-success border-success border-opacity-25 py-2 mb-3">
-                                                    <strong>User:</strong> <?= htmlspecialchars($u['username']) ?><br>
+                                                    <strong>User:</strong> <span class="badge bg-dark text-warning font-monospace px-2 py-1 rounded-pill copy-username-badge ms-1" title="Click to copy username" onclick="copyUsername('<?= htmlspecialchars($u['username'], ENT_QUOTES) ?>', this)"><i class="fa-solid fa-at text-warning me-1"></i><?= htmlspecialchars($u['username']) ?><i class="fa-regular fa-copy ms-1 text-white-50" style="font-size: 0.75rem;"></i></span><br>
                                                     <strong>Current Balance:</strong> Rs. <?= number_format($u['balance'], 0) ?>
                                                 </div>
                                                 
@@ -1176,7 +1179,7 @@ function formatBytes($bytes) {
                 <div class="d-flex justify-content-between align-items-center mb-2">
                     <div>
                         <h5 class="fw-bold text-dark mb-0" id="up_fullname"></h5>
-                        <span class="badge bg-primary font-monospace" id="up_username"></span>
+                        <span class="badge bg-primary font-monospace copy-username-badge" id="up_username" title="Click to copy username" onclick="copyUsername(this.innerText, this)"></span>
                     </div>
                     <div class="text-end">
                         <span class="small text-muted fw-bold">Current Balance</span>
@@ -1275,7 +1278,7 @@ function formatBytes($bytes) {
             <div class="tab-pane fade show active" id="payment" role="tabpanel">
                 <div class="text-center mb-4">
                     <h4 class="fw-bold text-dark mb-1" id="m_fullname"></h4>
-                    <span class="badge bg-primary mb-2" id="m_username"></span>
+                    <span class="badge bg-primary mb-2 copy-username-badge" id="m_username" title="Click to copy username" onclick="copyUsername(this.innerText, this)"></span>
                     <div class="p-3 bg-white border rounded shadow-sm d-inline-block mt-2">
                         <div class="text-secondary small fw-bold">Current Balance</div>
                         <h3 class="mb-0 fw-bold" id="m_balance"></h3>
@@ -2026,6 +2029,83 @@ function searchEditMapLocation() {
 $('#editUserModal').on('shown.bs.modal', function () {
     initEditUserMapPicker();
 });
+
+// Copy Username to Clipboard with Visual & Toast Feedback
+function copyUsername(text, elem) {
+    if (!text && elem) {
+        text = elem.getAttribute('data-username') || elem.innerText || '';
+    }
+    if (!text) return;
+
+    // Clean username (remove any leading @ or whitespace)
+    text = String(text).replace(/^@/, '').trim();
+
+    function doFeedback() {
+        showCopyFeedback(elem, text);
+    }
+
+    if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(doFeedback).catch(function() {
+            fallbackCopy(text, elem);
+        });
+    } else {
+        fallbackCopy(text, elem);
+    }
+}
+
+function fallbackCopy(text, elem) {
+    var ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.left = "-999999px";
+    ta.style.top = "-999999px";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try {
+        document.execCommand('copy');
+        showCopyFeedback(elem, text);
+    } catch (e) {
+        prompt("Copy username:", text);
+    }
+    document.body.removeChild(ta);
+}
+
+function showCopyFeedback(elem, text) {
+    // 1. Element visual animation & checkmark
+    if (elem) {
+        if (!elem.getAttribute('data-orig-html')) {
+            elem.setAttribute('data-orig-html', elem.innerHTML);
+        }
+        var origHtml = elem.getAttribute('data-orig-html');
+        elem.innerHTML = '<i class="fa-solid fa-check text-success me-1"></i>Copied!';
+        elem.style.borderColor = '#22c55e';
+        setTimeout(function() {
+            elem.innerHTML = origHtml;
+            elem.style.borderColor = '';
+        }, 1500);
+    }
+
+    // 2. Global Floating Toast Notification
+    var toast = document.getElementById('copyToastNotification');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'copyToastNotification';
+        toast.style.cssText = 'position:fixed; bottom:25px; left:50%; transform:translateX(-50%) translateY(100px); opacity:0; background:#0f172a; color:#f8fafc; font-weight:700; font-size:13.5px; padding:10px 20px; border-radius:50px; box-shadow:0 12px 30px rgba(0,0,0,0.35); z-index:999999; display:flex; align-items:center; gap:8px; pointer-events:none; transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1); border:1px solid #334155;';
+        document.body.appendChild(toast);
+    }
+
+    var safeText = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    toast.innerHTML = '<i class="fa-solid fa-circle-check text-success fs-6"></i> Copied to clipboard: <span style="color:#fde047; font-family:monospace; margin-left:2px;">' + safeText + '</span>';
+    toast.style.transform = 'translateX(-50%) translateY(0)';
+    toast.style.opacity = '1';
+
+    if (window._copyToastTimer) clearTimeout(window._copyToastTimer);
+    window._copyToastTimer = setTimeout(function() {
+        toast.style.transform = 'translateX(-50%) translateY(100px)';
+        toast.style.opacity = '0';
+    }, 2000);
+}
 </script>
 
 <style>
