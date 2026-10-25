@@ -263,7 +263,7 @@ if (!empty($sub['expiry_date'])) {
 }
 $wa_text .= "Amount Paid: Rs. " . number_format($paid_amount, 0) . "\n";
 if ($due_amount > 0) {
-    $wa_text .= "Remaining Due: - Rs. " . number_format($due_amount, 0) . "\n";
+    $wa_text .= "Remaining Due: Rs. -(" . number_format($due_amount, 0) . ")\n";
 } elseif ($adv_amount > 0) {
     $wa_text .= "Adv Balance: Rs. " . number_format($adv_amount, 0) . "\n";
 }
@@ -930,7 +930,7 @@ $wa_text_encoded = urlencode($wa_text);
                 <?php if($due_amount > 0): ?>
                 <div class="receipt-row receipt-row-due">
                     <span class="label">Remaining Due:</span>
-                    <span class="val font-mono">- Rs. <?= number_format($due_amount, 0) ?></span>
+                    <span class="val font-mono">Rs. -(<?= number_format($due_amount, 0) ?>)</span>
                 </div>
                 <div style="font-size: 11.5px; color: #000000; font-weight: 800; margin-top: 2px;">
                     * Kindly clear pending due at your earliest.
@@ -1635,7 +1635,7 @@ $wa_text_encoded = urlencode($wa_text);
             // Balance
             <?php if($due_amount > 0): ?>
             bytes.push(0x1B, 0x45, 0x01);
-            pushStr(padLine("Remaining Due:", <?= json_encode('- Rs. ' . number_format($due_amount, 0)) ?>));
+            pushStr(padLine("Remaining Due:", <?= json_encode('Rs. -(' . number_format($due_amount, 0) . ')') ?>));
             bytes.push(0x1B, 0x45, 0x00);
             pushStr("* Kindly clear pending due at your earliest.\n");
             <?php elseif($adv_amount > 0): ?>
