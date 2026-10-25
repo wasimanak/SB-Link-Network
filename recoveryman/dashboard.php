@@ -620,31 +620,33 @@ function formatBytes($bytes) {
                 <?php if($search_results): ?>
                     <div class="row g-3 mb-4">
                         <?php foreach($search_results as $u): ?>
-<div class="col-12 col-md-6 col-lg-6 col-xl-4 d-flex">
+                            <div class="col-12">
                             <div class="card sub-card w-100 border-0 shadow-sm rounded-4 mb-3 overflow-hidden bg-white d-flex flex-column <?= $u['live_ip'] ? 'border-start border-4 border-success' : (($u['balance'] < 0) ? 'border-start border-4 border-danger' : 'border-start border-4 border-primary') ?>">
                                 <!-- Card Header: User Identity & Status -->
                                 <div class="card-body p-3 pb-2 flex-grow-1">
-                                    <div class="d-flex justify-content-between align-items-start mb-2">
-                                        <div class="d-flex align-items-center gap-2 overflow-hidden">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <div class="d-flex align-items-center gap-3 overflow-hidden">
                                             <div class="sub-avatar shadow-sm flex-shrink-0">
                                                 <i class="fa-solid fa-user"></i>
                                             </div>
                                             <div class="overflow-hidden">
-                                                <h5 class="fw-bold mb-1 text-dark text-truncate" title="<?= htmlspecialchars($u['full_name']) ?>" style="font-size: 1.05rem; line-height: 1.25;">
-                                                    <?= htmlspecialchars($u['full_name'] ?: $u['username']) ?>
-                                                </h5>
-                                                <span class="badge bg-dark text-warning font-monospace px-2 py-1 rounded-pill shadow-xs border border-dark" style="font-size: 0.82rem; letter-spacing: 0.5px;">
-                                                    <i class="fa-solid fa-at text-warning me-1"></i><?= htmlspecialchars($u['username']) ?>
-                                                </span>
+                                                <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+                                                    <h5 class="fw-bold mb-0 text-dark text-truncate" title="<?= htmlspecialchars($u['full_name']) ?>" style="font-size: 1.1rem; line-height: 1.25;">
+                                                        <?= htmlspecialchars($u['full_name'] ?: $u['username']) ?>
+                                                    </h5>
+                                                    <span class="badge bg-dark text-warning font-monospace px-2 py-1 rounded-pill shadow-xs border border-dark" style="font-size: 0.82rem; letter-spacing: 0.5px;">
+                                                        <i class="fa-solid fa-at text-warning me-1"></i><?= htmlspecialchars($u['username']) ?>
+                                                    </span>
+                                                </div>
                                             </div>
                                         </div>
                                         <div class="flex-shrink-0 ms-2">
                                             <?php if($u['live_ip']): ?>
-                                                <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill px-3 py-1 fw-bold" style="font-size: 0.75rem;">
+                                                <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill px-3 py-1 fw-bold" style="font-size: 0.78rem;">
                                                     <i class="fa-solid fa-circle text-success me-1 fa-beat-fade" style="font-size: 0.45rem;"></i> Online
                                                 </span>
                                             <?php else: ?>
-                                                <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 rounded-pill px-3 py-1 fw-bold" style="font-size: 0.75rem;">
+                                                <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 rounded-pill px-3 py-1 fw-bold" style="font-size: 0.78rem;">
                                                     <i class="fa-regular fa-circle text-muted me-1" style="font-size: 0.45rem;"></i> Offline
                                                 </span>
                                             <?php endif; ?>
@@ -675,10 +677,10 @@ function formatBytes($bytes) {
                                         </div>
                                     </div>
 
-                                    <!-- Details Metric Grid -->
+                                    <!-- Details Metric Grid (4 metrics in 1 row on md/lg, 2x2 on mobile) -->
                                     <div class="row g-2 text-secondary small mb-3">
                                         <!-- Expiry -->
-                                        <div class="col-6">
+                                        <div class="col-6 col-md-3">
                                             <div class="p-2 rounded-3 bg-white border shadow-2xs h-100 d-flex align-items-center gap-2">
                                                 <div class="p-2 rounded-circle bg-danger bg-opacity-10 text-danger flex-shrink-0" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;">
                                                     <i class="fa-regular fa-calendar-xmark" style="font-size: 0.85rem;"></i>
@@ -692,7 +694,7 @@ function formatBytes($bytes) {
                                             </div>
                                         </div>
                                         <!-- Phone -->
-                                        <div class="col-6">
+                                        <div class="col-6 col-md-3">
                                             <div class="p-2 rounded-3 bg-white border shadow-2xs h-100 d-flex align-items-center gap-2">
                                                 <div class="p-2 rounded-circle bg-primary bg-opacity-10 text-primary flex-shrink-0" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;">
                                                     <i class="fa-solid fa-phone" style="font-size: 0.85rem;"></i>
@@ -710,7 +712,7 @@ function formatBytes($bytes) {
                                             </div>
                                         </div>
                                         <!-- Download -->
-                                        <div class="col-6">
+                                        <div class="col-6 col-md-3">
                                             <div class="p-2 rounded-3 bg-white border shadow-2xs h-100 d-flex align-items-center gap-2">
                                                 <div class="p-2 rounded-circle bg-success bg-opacity-10 text-success flex-shrink-0" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;">
                                                     <i class="fa-solid fa-arrow-down" style="font-size: 0.85rem;"></i>
@@ -722,7 +724,7 @@ function formatBytes($bytes) {
                                             </div>
                                         </div>
                                         <!-- Upload -->
-                                        <div class="col-6">
+                                        <div class="col-6 col-md-3">
                                             <div class="p-2 rounded-3 bg-white border shadow-2xs h-100 d-flex align-items-center gap-2">
                                                 <div class="p-2 rounded-circle bg-info bg-opacity-10 text-info flex-shrink-0" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;">
                                                     <i class="fa-solid fa-arrow-up" style="font-size: 0.85rem;"></i>
@@ -746,28 +748,28 @@ function formatBytes($bytes) {
                                 <div class="card-footer bg-white border-top p-2 pt-2 pb-2 mt-auto">
                                     <div class="row g-2">
                                         <div class="col-3">
-                                            <button class="btn btn-success btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column align-items-center justify-content-center btn-touch" 
+                                            <button class="btn btn-success btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column flex-sm-row align-items-center justify-content-center gap-1 gap-sm-2 btn-touch" 
                                                 data-bs-toggle="modal" data-bs-target="#collectModal<?= $u['id'] ?>">
-                                                <i class="fa-solid fa-hand-holding-dollar fs-6 mb-1"></i>
+                                                <i class="fa-solid fa-hand-holding-dollar fs-6 mb-1 mb-sm-0"></i>
                                                 <span>Collect</span>
                                             </button>
                                         </div>
                                         <div class="col-3">
-                                            <button class="btn btn-danger btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column align-items-center justify-content-center btn-touch" 
+                                            <button class="btn btn-danger btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column flex-sm-row align-items-center justify-content-center gap-1 gap-sm-2 btn-touch" 
                                                 onclick="openCollectModal('<?= $u['username'] ?>', <?= $u['id'] ?>, '<?= addslashes($u['full_name']) ?>', '<?= $u['balance'] ?>', '<?= $u['package_id'] ?? 0 ?>', '<?= (float)($u['package_price'] ?? 0) ?>', '<?= (int)(($u['package_validity'] ?? 0) > 0 ? $u['package_validity'] : 30) ?>', '<?= $u['expiry_date'] ?? '' ?>')">
-                                                <i class="fa-solid fa-rotate fs-6 mb-1"></i>
+                                                <i class="fa-solid fa-rotate fs-6 mb-1 mb-sm-0"></i>
                                                 <span>Renew</span>
                                             </button>
                                         </div>
                                         <div class="col-3">
-                                            <button class="btn btn-warning text-dark btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column align-items-center justify-content-center btn-touch" 
+                                            <button class="btn btn-warning text-dark btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column flex-sm-row align-items-center justify-content-center gap-1 gap-sm-2 btn-touch" 
                                                 onclick="openUpgradeModal('<?= $u['username'] ?>', <?= $u['id'] ?>, '<?= addslashes($u['full_name']) ?>', '<?= $u['balance'] ?>', '<?= $u['package_id'] ?? 0 ?>', '<?= (float)($u['package_price'] ?? 0) ?>', '<?= (int)(($u['package_validity'] ?? 0) > 0 ? $u['package_validity'] : 30) ?>', '<?= $u['expiry_date'] ?? '' ?>', '<?= addslashes($u['package_name'] ?? '') ?>')">
-                                                <i class="fa-solid fa-arrow-up-right-dots fs-6 mb-1"></i>
+                                                <i class="fa-solid fa-arrow-up-right-dots fs-6 mb-1 mb-sm-0"></i>
                                                 <span>Upgrade</span>
                                             </button>
                                         </div>
                                         <div class="col-3">
-                                            <button type="button" class="btn btn-outline-primary btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column align-items-center justify-content-center btn-touch" 
+                                            <button type="button" class="btn btn-outline-primary btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column flex-sm-row align-items-center justify-content-center gap-1 gap-sm-2 btn-touch" 
                                                 onclick="openEditUserModal(this)"
                                                 data-id="<?= $u['id'] ?>"
                                                 data-username="<?= htmlspecialchars($u['username']) ?>"
@@ -781,7 +783,7 @@ function formatBytes($bytes) {
                                                 data-address="<?= htmlspecialchars($u['address'] ?? '') ?>"
                                                 data-latitude="<?= htmlspecialchars($u['latitude'] ?? '') ?>"
                                                 data-longitude="<?= htmlspecialchars($u['longitude'] ?? '') ?>">
-                                                <i class="fa-solid fa-user-pen fs-6 mb-1"></i>
+                                                <i class="fa-solid fa-user-pen fs-6 mb-1 mb-sm-0"></i>
                                                 <span>Edit</span>
                                             </button>
                                         </div>
@@ -881,31 +883,33 @@ function formatBytes($bytes) {
                 <?php if($expired_users): ?>
                     <div class="row g-3 mb-4">
                         <?php foreach($expired_users as $u): ?>
-                        <div class="col-12 col-md-6 col-lg-6 col-xl-4 d-flex">
+                            <div class="col-12">
                             <div class="card sub-card w-100 border-0 shadow-sm rounded-4 mb-3 overflow-hidden bg-white d-flex flex-column <?= $u['live_ip'] ? 'border-start border-4 border-success' : (($u['balance'] < 0) ? 'border-start border-4 border-danger' : 'border-start border-4 border-primary') ?>">
                                 <!-- Card Header: User Identity & Status -->
                                 <div class="card-body p-3 pb-2 flex-grow-1">
-                                    <div class="d-flex justify-content-between align-items-start mb-2">
-                                        <div class="d-flex align-items-center gap-2 overflow-hidden">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <div class="d-flex align-items-center gap-3 overflow-hidden">
                                             <div class="sub-avatar shadow-sm flex-shrink-0">
                                                 <i class="fa-solid fa-user"></i>
                                             </div>
                                             <div class="overflow-hidden">
-                                                <h5 class="fw-bold mb-1 text-dark text-truncate" title="<?= htmlspecialchars($u['full_name']) ?>" style="font-size: 1.05rem; line-height: 1.25;">
-                                                    <?= htmlspecialchars($u['full_name'] ?: $u['username']) ?>
-                                                </h5>
-                                                <span class="badge bg-dark text-warning font-monospace px-2 py-1 rounded-pill shadow-xs border border-dark" style="font-size: 0.82rem; letter-spacing: 0.5px;">
-                                                    <i class="fa-solid fa-at text-warning me-1"></i><?= htmlspecialchars($u['username']) ?>
-                                                </span>
+                                                <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+                                                    <h5 class="fw-bold mb-0 text-dark text-truncate" title="<?= htmlspecialchars($u['full_name']) ?>" style="font-size: 1.1rem; line-height: 1.25;">
+                                                        <?= htmlspecialchars($u['full_name'] ?: $u['username']) ?>
+                                                    </h5>
+                                                    <span class="badge bg-dark text-warning font-monospace px-2 py-1 rounded-pill shadow-xs border border-dark" style="font-size: 0.82rem; letter-spacing: 0.5px;">
+                                                        <i class="fa-solid fa-at text-warning me-1"></i><?= htmlspecialchars($u['username']) ?>
+                                                    </span>
+                                                </div>
                                             </div>
                                         </div>
                                         <div class="flex-shrink-0 ms-2">
                                             <?php if($u['live_ip']): ?>
-                                                <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill px-3 py-1 fw-bold" style="font-size: 0.75rem;">
+                                                <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill px-3 py-1 fw-bold" style="font-size: 0.78rem;">
                                                     <i class="fa-solid fa-circle text-success me-1 fa-beat-fade" style="font-size: 0.45rem;"></i> Online
                                                 </span>
                                             <?php else: ?>
-                                                <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 rounded-pill px-3 py-1 fw-bold" style="font-size: 0.75rem;">
+                                                <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 rounded-pill px-3 py-1 fw-bold" style="font-size: 0.78rem;">
                                                     <i class="fa-regular fa-circle text-muted me-1" style="font-size: 0.45rem;"></i> Offline
                                                 </span>
                                             <?php endif; ?>
@@ -936,10 +940,10 @@ function formatBytes($bytes) {
                                         </div>
                                     </div>
 
-                                    <!-- Details Metric Grid -->
+                                    <!-- Details Metric Grid (4 metrics in 1 row on md/lg, 2x2 on mobile) -->
                                     <div class="row g-2 text-secondary small mb-3">
                                         <!-- Expiry -->
-                                        <div class="col-6">
+                                        <div class="col-6 col-md-3">
                                             <div class="p-2 rounded-3 bg-white border shadow-2xs h-100 d-flex align-items-center gap-2">
                                                 <div class="p-2 rounded-circle bg-danger bg-opacity-10 text-danger flex-shrink-0" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;">
                                                     <i class="fa-regular fa-calendar-xmark" style="font-size: 0.85rem;"></i>
@@ -953,7 +957,7 @@ function formatBytes($bytes) {
                                             </div>
                                         </div>
                                         <!-- Phone -->
-                                        <div class="col-6">
+                                        <div class="col-6 col-md-3">
                                             <div class="p-2 rounded-3 bg-white border shadow-2xs h-100 d-flex align-items-center gap-2">
                                                 <div class="p-2 rounded-circle bg-primary bg-opacity-10 text-primary flex-shrink-0" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;">
                                                     <i class="fa-solid fa-phone" style="font-size: 0.85rem;"></i>
@@ -971,7 +975,7 @@ function formatBytes($bytes) {
                                             </div>
                                         </div>
                                         <!-- Download -->
-                                        <div class="col-6">
+                                        <div class="col-6 col-md-3">
                                             <div class="p-2 rounded-3 bg-white border shadow-2xs h-100 d-flex align-items-center gap-2">
                                                 <div class="p-2 rounded-circle bg-success bg-opacity-10 text-success flex-shrink-0" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;">
                                                     <i class="fa-solid fa-arrow-down" style="font-size: 0.85rem;"></i>
@@ -983,7 +987,7 @@ function formatBytes($bytes) {
                                             </div>
                                         </div>
                                         <!-- Upload -->
-                                        <div class="col-6">
+                                        <div class="col-6 col-md-3">
                                             <div class="p-2 rounded-3 bg-white border shadow-2xs h-100 d-flex align-items-center gap-2">
                                                 <div class="p-2 rounded-circle bg-info bg-opacity-10 text-info flex-shrink-0" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;">
                                                     <i class="fa-solid fa-arrow-up" style="font-size: 0.85rem;"></i>
@@ -1007,28 +1011,28 @@ function formatBytes($bytes) {
                                 <div class="card-footer bg-white border-top p-2 pt-2 pb-2 mt-auto">
                                     <div class="row g-2">
                                         <div class="col-3">
-                                            <button class="btn btn-success btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column align-items-center justify-content-center btn-touch" 
+                                            <button class="btn btn-success btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column flex-sm-row align-items-center justify-content-center gap-1 gap-sm-2 btn-touch" 
                                                 data-bs-toggle="modal" data-bs-target="#collectModal<?= $u['id'] ?>">
-                                                <i class="fa-solid fa-hand-holding-dollar fs-6 mb-1"></i>
+                                                <i class="fa-solid fa-hand-holding-dollar fs-6 mb-1 mb-sm-0"></i>
                                                 <span>Collect</span>
                                             </button>
                                         </div>
                                         <div class="col-3">
-                                            <button class="btn btn-danger btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column align-items-center justify-content-center btn-touch" 
+                                            <button class="btn btn-danger btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column flex-sm-row align-items-center justify-content-center gap-1 gap-sm-2 btn-touch" 
                                                 onclick="openCollectModal('<?= $u['username'] ?>', <?= $u['id'] ?>, '<?= addslashes($u['full_name']) ?>', '<?= $u['balance'] ?>', '<?= $u['package_id'] ?? 0 ?>', '<?= (float)($u['package_price'] ?? 0) ?>', '<?= (int)(($u['package_validity'] ?? 0) > 0 ? $u['package_validity'] : 30) ?>', '<?= $u['expiry_date'] ?? '' ?>')">
-                                                <i class="fa-solid fa-rotate fs-6 mb-1"></i>
+                                                <i class="fa-solid fa-rotate fs-6 mb-1 mb-sm-0"></i>
                                                 <span>Renew</span>
                                             </button>
                                         </div>
                                         <div class="col-3">
-                                            <button class="btn btn-warning text-dark btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column align-items-center justify-content-center btn-touch" 
+                                            <button class="btn btn-warning text-dark btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column flex-sm-row align-items-center justify-content-center gap-1 gap-sm-2 btn-touch" 
                                                 onclick="openUpgradeModal('<?= $u['username'] ?>', <?= $u['id'] ?>, '<?= addslashes($u['full_name']) ?>', '<?= $u['balance'] ?>', '<?= $u['package_id'] ?? 0 ?>', '<?= (float)($u['package_price'] ?? 0) ?>', '<?= (int)(($u['package_validity'] ?? 0) > 0 ? $u['package_validity'] : 30) ?>', '<?= $u['expiry_date'] ?? '' ?>', '<?= addslashes($u['package_name'] ?? '') ?>')">
-                                                <i class="fa-solid fa-arrow-up-right-dots fs-6 mb-1"></i>
+                                                <i class="fa-solid fa-arrow-up-right-dots fs-6 mb-1 mb-sm-0"></i>
                                                 <span>Upgrade</span>
                                             </button>
                                         </div>
                                         <div class="col-3">
-                                            <button type="button" class="btn btn-outline-primary btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column align-items-center justify-content-center btn-touch" 
+                                            <button type="button" class="btn btn-outline-primary btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column flex-sm-row align-items-center justify-content-center gap-1 gap-sm-2 btn-touch" 
                                                 onclick="openEditUserModal(this)"
                                                 data-id="<?= $u['id'] ?>"
                                                 data-username="<?= htmlspecialchars($u['username']) ?>"
@@ -1042,7 +1046,7 @@ function formatBytes($bytes) {
                                                 data-address="<?= htmlspecialchars($u['address'] ?? '') ?>"
                                                 data-latitude="<?= htmlspecialchars($u['latitude'] ?? '') ?>"
                                                 data-longitude="<?= htmlspecialchars($u['longitude'] ?? '') ?>">
-                                                <i class="fa-solid fa-user-pen fs-6 mb-1"></i>
+                                                <i class="fa-solid fa-user-pen fs-6 mb-1 mb-sm-0"></i>
                                                 <span>Edit</span>
                                             </button>
                                         </div>
