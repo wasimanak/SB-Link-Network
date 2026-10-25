@@ -6,17 +6,17 @@ require_once 'header.php';
 $report_filter = $_GET['report'] ?? 'all';
 $filter_sql = "";
 if ($report_filter == 'expired') {
-    $filter_sql = " AND expiry_date < NOW() AND status='active'";
+    $filter_sql = " AND (s.status = 'expired' OR (s.expiry_date IS NOT NULL AND s.expiry_date < NOW())) AND s.status != 'disabled'";
 } elseif ($report_filter == 'expiring_1') {
-    $filter_sql = " AND expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 1 DAY) AND status='active'";
+    $filter_sql = " AND s.status = 'active' AND s.expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 1 DAY)";
 } elseif ($report_filter == 'expiring_3') {
-    $filter_sql = " AND expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 3 DAY) AND status='active'";
+    $filter_sql = " AND s.status = 'active' AND s.expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 3 DAY)";
 } elseif ($report_filter == 'expiring_1w') {
-    $filter_sql = " AND expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 7 DAY) AND status='active'";
+    $filter_sql = " AND s.status = 'active' AND s.expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 7 DAY)";
 } elseif ($report_filter == 'expiring_2w') {
-    $filter_sql = " AND expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 14 DAY) AND status='active'";
+    $filter_sql = " AND s.status = 'active' AND s.expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 14 DAY)";
 } elseif ($report_filter == 'disabled') {
-    $filter_sql = " AND status != 'active'";
+    $filter_sql = " AND s.status = 'disabled'";
 }
 
 $subsStmt = $pdo->prepare("
@@ -35,17 +35,17 @@ $subs = $subsStmt->fetchAll(PDO::FETCH_ASSOC);
 $statsStmt = $pdo->prepare("
     SELECT 
         COUNT(*) as total_users,
-        SUM(CASE WHEN status = 'active' AND (expiry_date IS NULL OR expiry_date > NOW()) THEN 1 ELSE 0 END) as active_users,
-        SUM(CASE WHEN status = 'active' AND expiry_date < NOW() THEN 1 ELSE 0 END) as expired_users,
-        SUM(CASE WHEN status != 'active' THEN 1 ELSE 0 END) as disabled_users,
-        SUM(CASE WHEN service_type = 'pppoe' THEN 1 ELSE 0 END) as pppoe_users,
-        SUM(CASE WHEN service_type = 'hotspot' THEN 1 ELSE 0 END) as hotspot_users,
-        SUM(CASE WHEN expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 1 DAY) THEN 1 ELSE 0 END) as expiring_1d,
-        SUM(CASE WHEN expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 3 DAY) THEN 1 ELSE 0 END) as expiring_3d,
-        SUM(CASE WHEN expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 7 DAY) THEN 1 ELSE 0 END) as expiring_1w,
-        SUM(CASE WHEN expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 14 DAY) THEN 1 ELSE 0 END) as expiring_2w
-    FROM subscribers 
-    WHERE dealer_id = ?
+        SUM(CASE WHEN s.status = 'active' AND (s.expiry_date IS NULL OR s.expiry_date > NOW()) THEN 1 ELSE 0 END) as active_users,
+        SUM(CASE WHEN (s.status = 'expired' OR (s.expiry_date IS NOT NULL AND s.expiry_date < NOW())) AND s.status != 'disabled' THEN 1 ELSE 0 END) as expired_users,
+        SUM(CASE WHEN s.status = 'disabled' THEN 1 ELSE 0 END) as disabled_users,
+        SUM(CASE WHEN s.service_type = 'pppoe' THEN 1 ELSE 0 END) as pppoe_users,
+        SUM(CASE WHEN s.service_type = 'hotspot' THEN 1 ELSE 0 END) as hotspot_users,
+        SUM(CASE WHEN s.status = 'active' AND s.expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 1 DAY) THEN 1 ELSE 0 END) as expiring_1d,
+        SUM(CASE WHEN s.status = 'active' AND s.expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 3 DAY) THEN 1 ELSE 0 END) as expiring_3d,
+        SUM(CASE WHEN s.status = 'active' AND s.expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 7 DAY) THEN 1 ELSE 0 END) as expiring_1w,
+        SUM(CASE WHEN s.status = 'active' AND s.expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 14 DAY) THEN 1 ELSE 0 END) as expiring_2w
+    FROM subscribers s 
+    WHERE s.dealer_id = ?
 ");
 $statsStmt->execute([$dealer_id]);
 $s = $statsStmt->fetch(PDO::FETCH_ASSOC);
@@ -287,10 +287,10 @@ $dealer_activities = $alogsStmt->fetchAll(PDO::FETCH_ASSOC);
                     <td>
                         <?php if($s['expiry_date']): ?>
                             <?php 
-                                $is_expired = strtotime($s['expiry_date']) < time(); 
+                                $is_expired = ($s['status'] === 'expired') || (strtotime($s['expiry_date']) < time()); 
                                 $badge_class = $is_expired ? 'badge-soft-danger' : 'badge-soft-success';
                             ?>
-                            <span class="badge <?= $badge_class ?> px-3 py-2"><?= date('d M Y, h:i A', strtotime($s['expiry_date'])) ?></span>
+                            <span class="badge <?= $badge_class ?> px-3 py-2"><?= $is_expired ? 'Expired (' . date('d M Y', strtotime($s['expiry_date'])) . ')' : 'Valid (' . date('d M Y', strtotime($s['expiry_date'])) . ')' ?></span>
                         <?php else: ?>
                             <span class="badge badge-soft-secondary px-3 py-2">N/A</span>
                         <?php endif; ?>
