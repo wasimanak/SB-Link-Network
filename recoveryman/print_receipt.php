@@ -2,7 +2,7 @@
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
-require_once '../config/db.php';
+require_once __DIR__ . '/../config/db.php';
 
 // Safe default values
 $client_id = (int)($_SESSION['client_id'] ?? 0);
@@ -17,9 +17,13 @@ $type = isset($_GET['type']) ? $_GET['type'] : 'renew'; // renew or collect
 $is_authenticated = false;
 if ($rm_id > 0) {
     $is_authenticated = true;
-} elseif (!empty($_SESSION['operator_id'])) {
+} elseif (!empty($_SESSION['operator_logged_in']) || !empty($_SESSION['operator_id'])) {
     $client_id = (int)$_SESSION['operator_id'];
-    $rm_name = $_SESSION['operator_name'] ?? 'Office / Operator';
+    if (!empty($_SESSION['is_manager'])) {
+        $rm_name = !empty($_SESSION['manager_name']) ? $_SESSION['manager_name'] . ' (Manager)' : 'Manager';
+    } else {
+        $rm_name = !empty($_SESSION['operator_name']) ? $_SESSION['operator_name'] . ' (Admin)' : 'Admin';
+    }
     $is_authenticated = true;
 } elseif (!empty($_SESSION['admin_logged_in'])) {
     $rm_name = 'Admin';
@@ -144,6 +148,9 @@ $invoice_number = "INV-" . str_pad($invoice_id, 6, "0", STR_PAD_LEFT);
 
 // Financial amounts
 $package_price = (float)($sub['package_price'] ?? 0);
+if ($paid_amount <= 0 && $type === 'renew') {
+    $paid_amount = $package_price;
+}
 $due_amount = $sub['balance'] < 0 ? abs((float)$sub['balance']) : 0;
 $adv_amount = $sub['balance'] > 0 ? (float)$sub['balance'] : 0;
 
@@ -439,7 +446,7 @@ $wa_text_encoded = urlencode($wa_text);
             <i class="fa-brands fa-whatsapp"></i> WhatsApp Share
         </button>
         <a href="<?= htmlspecialchars($return_url) ?>" class="btn-action btn-back">
-            <i class="fa-solid fa-arrow-left"></i> Dashboard
+            <i class="fa-solid fa-arrow-left"></i> Back
         </a>
     </div>
 
