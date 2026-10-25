@@ -796,17 +796,17 @@ function formatBytes($bytes) {
                                 <div class="card-footer bg-white border-top p-2 pt-2 pb-2 mt-auto">
                                     <div class="row g-2">
                                         <div class="col-3">
-                                            <button class="btn btn-success btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column flex-sm-row align-items-center justify-content-center gap-1 gap-sm-2 btn-touch" 
-                                                data-bs-toggle="modal" data-bs-target="#collectModal<?= $u['id'] ?>">
-                                                <i class="fa-solid fa-hand-holding-dollar fs-6 mb-1 mb-sm-0"></i>
-                                                <span>Collect</span>
-                                            </button>
-                                        </div>
-                                        <div class="col-3">
                                             <button class="btn btn-danger btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column flex-sm-row align-items-center justify-content-center gap-1 gap-sm-2 btn-touch" 
                                                 onclick="openCollectModal('<?= $u['username'] ?>', <?= $u['id'] ?>, '<?= addslashes($u['full_name']) ?>', '<?= $u['balance'] ?>', '<?= $u['package_id'] ?? 0 ?>', '<?= (float)($u['package_price'] ?? 0) ?>', '<?= (int)(($u['package_validity'] ?? 0) > 0 ? $u['package_validity'] : 30) ?>', '<?= $u['expiry_date'] ?? '' ?>')">
                                                 <i class="fa-solid fa-rotate fs-6 mb-1 mb-sm-0"></i>
                                                 <span>Renew</span>
+                                            </button>
+                                        </div>
+                                        <div class="col-3">
+                                            <button class="btn btn-success btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column flex-sm-row align-items-center justify-content-center gap-1 gap-sm-2 btn-touch" 
+                                                data-bs-toggle="modal" data-bs-target="#collectModal<?= $u['id'] ?>">
+                                                <i class="fa-solid fa-hand-holding-dollar fs-6 mb-1 mb-sm-0"></i>
+                                                <span>Collect</span>
                                             </button>
                                         </div>
                                         <div class="col-3">
@@ -1060,17 +1060,17 @@ function formatBytes($bytes) {
                                 <div class="card-footer bg-white border-top p-2 pt-2 pb-2 mt-auto">
                                     <div class="row g-2">
                                         <div class="col-3">
-                                            <button class="btn btn-success btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column flex-sm-row align-items-center justify-content-center gap-1 gap-sm-2 btn-touch" 
-                                                data-bs-toggle="modal" data-bs-target="#collectModal<?= $u['id'] ?>">
-                                                <i class="fa-solid fa-hand-holding-dollar fs-6 mb-1 mb-sm-0"></i>
-                                                <span>Collect</span>
-                                            </button>
-                                        </div>
-                                        <div class="col-3">
                                             <button class="btn btn-danger btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column flex-sm-row align-items-center justify-content-center gap-1 gap-sm-2 btn-touch" 
                                                 onclick="openCollectModal('<?= $u['username'] ?>', <?= $u['id'] ?>, '<?= addslashes($u['full_name']) ?>', '<?= $u['balance'] ?>', '<?= $u['package_id'] ?? 0 ?>', '<?= (float)($u['package_price'] ?? 0) ?>', '<?= (int)(($u['package_validity'] ?? 0) > 0 ? $u['package_validity'] : 30) ?>', '<?= $u['expiry_date'] ?? '' ?>')">
                                                 <i class="fa-solid fa-rotate fs-6 mb-1 mb-sm-0"></i>
                                                 <span>Renew</span>
+                                            </button>
+                                        </div>
+                                        <div class="col-3">
+                                            <button class="btn btn-success btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column flex-sm-row align-items-center justify-content-center gap-1 gap-sm-2 btn-touch" 
+                                                data-bs-toggle="modal" data-bs-target="#collectModal<?= $u['id'] ?>">
+                                                <i class="fa-solid fa-hand-holding-dollar fs-6 mb-1 mb-sm-0"></i>
+                                                <span>Collect</span>
                                             </button>
                                         </div>
                                         <div class="col-3">
@@ -1479,6 +1479,8 @@ function openCollectModal(username, id, fullname, balance, pkgId, pkgPrice, pkgV
     if (pkgSelect) pkgSelect.value = '';
     
     updatePkgAmount();
+    const amountInput = document.getElementById('m_amount');
+    if (amountInput) amountInput.value = '';
 
     // Switch to payment tab by default
     var triggerEl = document.querySelector('#payment-tab');
@@ -1541,7 +1543,8 @@ function updatePkgAmount() {
             '</div>';
         }
     } else {
-        amountInput.value = targetPrice > 0 ? targetPrice : '';
+        amountInput.value = '';
+        amountInput.placeholder = targetPrice > 0 ? 'e.g. ' + targetPrice : 'e.g. 1500';
         if (previewDiv) {
             previewDiv.innerHTML = '';
         }
