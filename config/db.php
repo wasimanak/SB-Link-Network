@@ -52,55 +52,47 @@ try {
             $pdo->exec("UPDATE global_settings SET setting_value = 'NetBee' WHERE setting_key = 'app_name' AND setting_value LIKE '%SB%Link%'");
         } catch (Exception $e) {}
 
-        // Auto-upgrade schema for Team Staff Salaries & Ledger
-        try {
-            $pdo->exec("ALTER TABLE `recovery_men` ADD COLUMN IF NOT EXISTS `monthly_salary` INT NOT NULL DEFAULT 0");
-        } catch (Exception $e) {
-            try { $pdo->exec("ALTER TABLE `recovery_men` ADD COLUMN `monthly_salary` INT NOT NULL DEFAULT 0"); } catch (Exception $e2) {}
+        // Auto-upgrade schema for Team Staff Salaries & Ledger (Version-guarded to prevent metadata locks on every web hit)
+        static $schema_checked = false;
+        if (!$schema_checked) {
+            $schema_checked = true;
+            try {
+                $verStmt = $pdo->query("SELECT setting_value FROM global_settings WHERE setting_key = 'sys_schema_ver'");
+                $ver = $verStmt ? $verStmt->fetchColumn() : null;
+                if ($ver !== '5') {
+                    try { $pdo->exec("ALTER TABLE `recovery_men` ADD COLUMN IF NOT EXISTS `monthly_salary` INT NOT NULL DEFAULT 0"); } catch (Exception $e) {}
+                    try { $pdo->exec("ALTER TABLE `linemen` ADD COLUMN IF NOT EXISTS `status` ENUM('active', 'disabled') DEFAULT 'active'"); } catch (Exception $e) {}
+                    try { $pdo->exec("ALTER TABLE `linemen` ADD COLUMN IF NOT EXISTS `can_create_users` TINYINT(1) DEFAULT 1"); } catch (Exception $e) {}
+                    try { $pdo->exec("ALTER TABLE `linemen` ADD COLUMN IF NOT EXISTS `monthly_salary` INT NOT NULL DEFAULT 0"); } catch (Exception $e) {}
+                    try { $pdo->exec("ALTER TABLE `managers` ADD COLUMN IF NOT EXISTS `monthly_salary` INT NOT NULL DEFAULT 0"); } catch (Exception $e) {}
+                    try { $pdo->exec("ALTER TABLE `clients` ADD COLUMN IF NOT EXISTS `photo` VARCHAR(255) DEFAULT NULL"); } catch (Exception $e) {}
+                    try {
+                        $pdo->exec("CREATE TABLE IF NOT EXISTS `staff_salary_ledger` (
+                            `id` INT AUTO_INCREMENT PRIMARY KEY,
+                            `client_id` INT NOT NULL,
+                            `staff_type` ENUM('recoveryman', 'lineman', 'manager', 'staff') NOT NULL,
+                            `staff_id` INT NOT NULL,
+                            `staff_name` VARCHAR(100) NOT NULL,
+                            `trans_type` ENUM('salary_accrual', 'advance_payment', 'salary_payment', 'bonus', 'deduction') NOT NULL,
+                            `amount` INT NOT NULL,
+                            `direction` ENUM('credit', 'debit') NOT NULL,
+                            `balance_after` INT NOT NULL,
+                            `payment_method` VARCHAR(50) DEFAULT 'Cash',
+                            `reference_no` VARCHAR(100) DEFAULT NULL,
+                            `expense_id` INT DEFAULT NULL,
+                            `notes` TEXT DEFAULT NULL,
+                            `trans_date` DATE NOT NULL,
+                            `created_by` VARCHAR(100) DEFAULT 'Operator',
+                            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            INDEX `idx_staff_lookup` (`client_id`, `staff_type`, `staff_id`),
+                            INDEX `idx_trans_date` (`trans_date`),
+                            INDEX `idx_exp_id` (`expense_id`)
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+                    } catch (Exception $e) {}
+                    $pdo->exec("INSERT INTO global_settings (setting_key, setting_value) VALUES ('sys_schema_ver', '5') ON DUPLICATE KEY UPDATE setting_value = '5'");
+                }
+            } catch (Exception $e) {}
         }
-        try {
-            $pdo->exec("ALTER TABLE `linemen` ADD COLUMN IF NOT EXISTS `status` ENUM('active', 'disabled') DEFAULT 'active'");
-        } catch (Exception $e) {
-            try { $pdo->exec("ALTER TABLE `linemen` ADD COLUMN `status` ENUM('active', 'disabled') DEFAULT 'active'"); } catch (Exception $e2) {}
-        }
-        try {
-            $pdo->exec("ALTER TABLE `linemen` ADD COLUMN IF NOT EXISTS `can_create_users` TINYINT(1) DEFAULT 1");
-        } catch (Exception $e) {
-            try { $pdo->exec("ALTER TABLE `linemen` ADD COLUMN `can_create_users` TINYINT(1) DEFAULT 1"); } catch (Exception $e2) {}
-        }
-        try {
-            $pdo->exec("ALTER TABLE `linemen` ADD COLUMN IF NOT EXISTS `monthly_salary` INT NOT NULL DEFAULT 0");
-        } catch (Exception $e) {
-            try { $pdo->exec("ALTER TABLE `linemen` ADD COLUMN `monthly_salary` INT NOT NULL DEFAULT 0"); } catch (Exception $e2) {}
-        }
-        try {
-            $pdo->exec("ALTER TABLE `managers` ADD COLUMN IF NOT EXISTS `monthly_salary` INT NOT NULL DEFAULT 0");
-        } catch (Exception $e) {
-            try { $pdo->exec("ALTER TABLE `managers` ADD COLUMN `monthly_salary` INT NOT NULL DEFAULT 0"); } catch (Exception $e2) {}
-        }
-        try {
-            $pdo->exec("CREATE TABLE IF NOT EXISTS `staff_salary_ledger` (
-                `id` INT AUTO_INCREMENT PRIMARY KEY,
-                `client_id` INT NOT NULL,
-                `staff_type` ENUM('recoveryman', 'lineman', 'manager', 'staff') NOT NULL,
-                `staff_id` INT NOT NULL,
-                `staff_name` VARCHAR(100) NOT NULL,
-                `trans_type` ENUM('salary_accrual', 'advance_payment', 'salary_payment', 'bonus', 'deduction') NOT NULL,
-                `amount` INT NOT NULL,
-                `direction` ENUM('credit', 'debit') NOT NULL,
-                `balance_after` INT NOT NULL,
-                `payment_method` VARCHAR(50) DEFAULT 'Cash',
-                `reference_no` VARCHAR(100) DEFAULT NULL,
-                `expense_id` INT DEFAULT NULL,
-                `notes` TEXT DEFAULT NULL,
-                `trans_date` DATE NOT NULL,
-                `created_by` VARCHAR(100) DEFAULT 'Operator',
-                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                INDEX `idx_staff_lookup` (`client_id`, `staff_type`, `staff_id`),
-                INDEX `idx_trans_date` (`trans_date`),
-                INDEX `idx_exp_id` (`expense_id`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
-        } catch (Exception $e) {}
         
     } catch (Exception $e) {
         // Fallback silently if table doesn't exist yet

@@ -26,12 +26,9 @@ try {
     $nasStmt = $pdo->query("SELECT COUNT(*) FROM nas");
     $totalRouters = (int)$nasStmt->fetchColumn();
 
-    // 3. System-wide Subscriber Count
+    // 3. System-wide Subscriber Count (Live Active PPPoE/Hotspot sessions)
     $checkStmt = $pdo->query("SELECT COUNT(DISTINCT username) FROM radacct WHERE acctstoptime IS NULL");
     $activeSubscribers = (int)$checkStmt->fetchColumn();
-
-    $allSubStmt = $pdo->query("SELECT COUNT(DISTINCT username) FROM radacct");
-    $totalSubscribers = (int)$allSubStmt->fetchColumn();
     
     // Server Health Card
     $os = php_uname('s');

@@ -384,12 +384,12 @@ $online_users = $pdo->query("SELECT COUNT(DISTINCT username) FROM radacct WHERE 
 $offline_users = max(0, $total_users - $online_users);
 $expired_online_users = $pdo->query("SELECT COUNT(DISTINCT s.username) FROM subscribers s JOIN radacct r ON s.username = r.username COLLATE utf8mb4_general_ci WHERE s.client_id = $client_id AND r.acctstoptime IS NULL AND s.expiry_date < NOW() AND s.expiry_date > '2000-01-01'")->fetchColumn() ?: 0;
 
-// Mutually Exclusive Slices for the Doughnut Chart
-$chart_online = $online_users;
-$chart_expired = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND expiry_date < NOW() AND expiry_date > '2000-01-01' AND username NOT IN (SELECT username FROM radacct WHERE acctstoptime IS NULL)")->fetchColumn();
-$chart_disabled = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND LOWER(status) = 'disabled' AND username NOT IN (SELECT username FROM radacct WHERE acctstoptime IS NULL)")->fetchColumn();
-$chart_active = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND LOWER(status) != 'disabled' AND (expiry_date >= NOW() OR expiry_date IS NULL OR expiry_date < '2000-01-01') AND username NOT IN (SELECT username FROM radacct WHERE acctstoptime IS NULL)")->fetchColumn();
-$chart_others = max(0, $total_users - ($chart_online + $chart_expired + $chart_disabled + $chart_active));
+// Mutually Exclusive Slices for the Doughnut Chart (In-memory optimized calculation)
+$chart_online = (int)$online_users;
+$chart_expired = max(0, (int)$expired - (int)$expired_online_users);
+$chart_disabled = (int)$disabled_users;
+$chart_active = max(0, (int)$active_users - max(0, $chart_online - (int)$expired_online_users));
+$chart_others = max(0, (int)$total_users - ($chart_online + $chart_expired + $chart_disabled + $chart_active));
 
 // Expirations (Detailed)
 $expiring_1d = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 1 DAY)")->fetchColumn();
