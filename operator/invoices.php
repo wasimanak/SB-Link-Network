@@ -349,7 +349,10 @@ foreach($invoices as $inv) {
                         </span>
                     </td>
                     <td class="text-end">
-                        <button class="btn btn-sm btn-outline-primary rounded-pill px-3 py-1 fw-semibold" onclick='printInvoice(<?= json_encode($inv) ?>, <?= json_encode($operator) ?>)'>
+                        <a href="print_receipt.php?ledger_id=<?= $inv['id'] ?>&return=invoices.php" target="_blank" class="btn btn-sm btn-primary rounded-pill px-3 py-1 fw-bold me-1" title="Print 80mm Thermal Receipt">
+                            <i class="fa-solid fa-receipt me-1"></i> 80mm
+                        </a>
+                        <button class="btn btn-sm btn-outline-secondary rounded-pill px-3 py-1 fw-semibold" onclick='printInvoice(<?= json_encode($inv) ?>, <?= json_encode($operator) ?>)' title="Standard A4 Invoice">
                             <i class="fa-solid fa-print me-1"></i> Print
                         </button>
                     </td>

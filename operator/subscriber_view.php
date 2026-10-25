@@ -1116,6 +1116,7 @@ if ($last_debit) {
                 <!-- Modals Triggers -->
                 <button type="button" class="btn-pill" data-bs-toggle="modal" data-bs-target="#paymentModal"><i class="fa-brands fa-paypal"></i> Payment</button>
                 <button type="button" class="btn-pill" data-bs-toggle="modal" data-bs-target="#renewModal"><i class="fa-solid fa-rotate"></i> Renew</button>
+                <a href="print_receipt.php?sub_id=<?= $id ?>&return=<?= urlencode('subscriber_view.php?id=' . $id) ?>" target="_blank" class="btn-pill text-primary fw-bold"><i class="fa-solid fa-receipt text-primary"></i> Print Receipt</a>
                 <button type="button" class="btn-pill" onclick="alert('User Password: <?= htmlspecialchars($user['password']) ?>')"><i class="fa-solid fa-lock"></i> Toggle Password</button>
                 <button type="button" class="btn-pill dark" data-bs-toggle="modal" data-bs-target="#editProfileModal"><i class="fa-solid fa-user-pen"></i> Edit Profile</button>
                 <form method="POST" enctype="multipart/form-data" id="photoForm" style="display:none;">
@@ -1339,6 +1340,7 @@ if ($last_debit) {
                                             <th>Description</th>
                                             <th>Amount</th>
                                             <th>Balance After</th>
+                                            <th class="text-end">Receipt</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -1350,6 +1352,11 @@ if ($last_debit) {
                                                     <?= $l['type'] == 'credit' ? '+' : '-' ?> Rs <?= number_format($l['amount'], 0) ?>
                                                 </td>
                                                 <td class="fw-bold">Rs <?= number_format($l['balance_after'], 0) ?></td>
+                                                <td class="text-end">
+                                                    <a href="print_receipt.php?ledger_id=<?= $l['id'] ?>&sub_id=<?= $id ?>&return=<?= urlencode('subscriber_view.php?id=' . $id) ?>" target="_blank" class="btn btn-sm btn-outline-primary rounded-pill px-3 py-1 fw-bold" style="font-size: 0.78rem;">
+                                                        <i class="fa-solid fa-print me-1"></i> Receipt
+                                                    </a>
+                                                </td>
                                             </tr>
                                         <?php endforeach; ?>
                                     </tbody>

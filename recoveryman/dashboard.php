@@ -682,7 +682,8 @@ function formatBytes($bytes) {
                                                         <?= htmlspecialchars($u['full_name'] ?: $u['username']) ?>
                                                     </h5>
                                                     <span class="badge bg-dark text-warning font-monospace px-2 py-1 rounded-pill shadow-xs border border-dark" style="font-size: 0.82rem; letter-spacing: 0.5px;">
-                                                        <i class="fa-solid fa-at text-warning me-1"></i><?= htmlspecialchars($u['username']) ?>
+                                                        <i class="fa-solid fa-at text-warning me-1"></i><?= htmlspecialchars($u['username']) ?></span>
+                                                    <a href="print_receipt.php?sub_id=<?= $u['id'] ?>&return=<?= urlencode('dashboard.php' . (!empty($_GET['search_query']) ? '?search_query=' . urlencode($_GET['search_query']) : '')) ?>" target="_blank" class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 rounded-pill px-2 py-1 text-decoration-none fw-bold" style="font-size: 0.8rem;" title="Print Receipt"><i class="fa-solid fa-receipt me-1"></i> Receipt</a><span style="display:none;"
                                                     </span>
                                                 </div>
                                             </div>
@@ -945,7 +946,8 @@ function formatBytes($bytes) {
                                                         <?= htmlspecialchars($u['full_name'] ?: $u['username']) ?>
                                                     </h5>
                                                     <span class="badge bg-dark text-warning font-monospace px-2 py-1 rounded-pill shadow-xs border border-dark" style="font-size: 0.82rem; letter-spacing: 0.5px;">
-                                                        <i class="fa-solid fa-at text-warning me-1"></i><?= htmlspecialchars($u['username']) ?>
+                                                        <i class="fa-solid fa-at text-warning me-1"></i><?= htmlspecialchars($u['username']) ?></span>
+                                                    <a href="print_receipt.php?sub_id=<?= $u['id'] ?>&return=<?= urlencode('dashboard.php' . (!empty($_GET['search_query']) ? '?search_query=' . urlencode($_GET['search_query']) : '')) ?>" target="_blank" class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 rounded-pill px-2 py-1 text-decoration-none fw-bold" style="font-size: 0.8rem;" title="Print Receipt"><i class="fa-solid fa-receipt me-1"></i> Receipt</a><span style="display:none;"
                                                     </span>
                                                 </div>
                                             </div>

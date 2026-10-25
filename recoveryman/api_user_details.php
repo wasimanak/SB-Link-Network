@@ -30,6 +30,7 @@ foreach ($ledger as $l) {
             <div class='text-end'>
                 <div class='fw-bold {$color}'><i class='fa-solid {$icon} me-1'></i> {$sign} Rs. {$l['amount']}</div>
                 <div class='text-secondary' style='font-size:0.75rem;'>Bal: Rs. {$l['balance_after']}</div>
+                <a href='print_receipt.php?ledger_id={$l['id']}&return=dashboard.php' target='_blank' class='btn btn-sm btn-outline-primary rounded-pill px-2 py-0 mt-1 fw-bold' style='font-size:0.72rem;'><i class='fa-solid fa-print me-1'></i> Print Receipt</a>
             </div>
           </li>";
 }
