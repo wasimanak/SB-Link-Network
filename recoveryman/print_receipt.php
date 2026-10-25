@@ -10,6 +10,10 @@ $rm_id = (int)($_SESSION['rm_id'] ?? 0);
 $rm_name = $_SESSION['rm_name'] ?? 'Recovery Agent';
 $return_url = !empty($_GET['return']) ? $_GET['return'] : 'dashboard.php';
 $sub_id = isset($_GET['sub_id']) ? (int)$_GET['sub_id'] : 0;
+$ledger_id = isset($_GET['ledger_id']) ? (int)$_GET['ledger_id'] : 0;
+$username = isset($_GET['username']) ? trim($_GET['username']) : '';
+$transaction_desc = '';
+$custom_date = '';
 $paid_amount = isset($_GET['paid']) ? (float)$_GET['paid'] : 0;
 $type = isset($_GET['type']) ? $_GET['type'] : 'renew'; // renew or collect
 
@@ -40,6 +44,54 @@ if (!$is_authenticated) {
     echo "<a href='login.php' class='btn btn-primary rounded-pill px-4'>Go to Login</a>";
     echo "</div></body></html>";
     exit;
+}
+
+// If ledger_id is provided, fetch exact transaction record
+$invoice_id = 0;
+if ($ledger_id > 0) {
+    try {
+        $lStmt = $pdo->prepare("SELECT * FROM user_ledger WHERE id = ?");
+        $lStmt->execute([$ledger_id]);
+        $ledger_entry = $lStmt->fetch(PDO::FETCH_ASSOC);
+        if ($ledger_entry) {
+            $invoice_id = (int)$ledger_entry['id'];
+            $custom_date = date('d M Y h:i A', strtotime($ledger_entry['created_at']));
+            $paid_amount = (float)$ledger_entry['amount'];
+            $transaction_desc = $ledger_entry['description'];
+
+            if ($ledger_entry['type'] === 'debit' || stripos($ledger_entry['description'], 'renew') !== false || stripos($ledger_entry['description'], 'package') !== false) {
+                $type = 'renew';
+            } else {
+                $type = 'collect';
+            }
+
+            if (preg_match('/by\s+([A-Za-z0-9_\-\s\(\)]+)/i', $ledger_entry['description'], $m_by)) {
+                $rm_name = trim($m_by[1]);
+            } elseif (preg_match('/collected\s+by\s+([A-Za-z0-9_\-\s\(\)]+)/i', $ledger_entry['description'], $m_col)) {
+                $rm_name = trim($m_col[1]);
+            }
+
+            if ($sub_id <= 0 && !empty($ledger_entry['username'])) {
+                $username = $ledger_entry['username'];
+            }
+        }
+    } catch (Exception $e) {}
+}
+
+// Lookup subscriber by username if sub_id not provided
+if ($sub_id <= 0 && !empty($username)) {
+    try {
+        if ($client_id > 0) {
+            $subLookup = $pdo->prepare("SELECT id FROM subscribers WHERE username = ? AND client_id = ? LIMIT 1");
+            $subLookup->execute([$username, $client_id]);
+            $sub_id = (int)$subLookup->fetchColumn();
+        }
+        if ($sub_id <= 0) {
+            $subLookup = $pdo->prepare("SELECT id FROM subscribers WHERE username = ? LIMIT 1");
+            $subLookup->execute([$username]);
+            $sub_id = (int)$subLookup->fetchColumn();
+        }
+    } catch (Exception $e) {}
 }
 
 if ($sub_id <= 0) {
@@ -128,10 +180,10 @@ if ($client_id > 0) {
 
 $company_name = !empty($operator['company_name']) ? $operator['company_name'] : (defined('BRAND_NAME') ? BRAND_NAME : 'SB Link Network');
 $company_phone = !empty($operator['phone']) ? $operator['phone'] : 'N/A';
-$date = date('d M Y h:i A');
+$date = !empty($custom_date) ? $custom_date : date('d M Y h:i A');
 
 // 4. Fetch Latest Transaction ID for Invoice#
-$invoice_id = 0;
+if (empty($invoice_id)) {
 try {
     if (!empty($sub['username'])) {
         $invStmt = $pdo->prepare("SELECT id FROM user_ledger WHERE username = ? ORDER BY id DESC LIMIT 1");
@@ -140,6 +192,7 @@ try {
     }
 } catch (Exception $e) {
     $invoice_id = 0;
+}
 }
 if (!$invoice_id) {
     $invoice_id = rand(10000, 99999);
@@ -431,7 +484,7 @@ $wa_text_encoded = urlencode($wa_text);
     <!-- Top Success Confirmation -->
     <div class="alert-top no-print">
         <i class="fa-solid fa-circle-check me-1 text-success"></i>
-        <?= ($type === 'renew') ? 'Package Renewed &amp; Activated!' : 'Payment Collected Successfully!' ?>
+        <?= !empty($ledger_id) ? 'Official Receipt (Transaction Copy)' : (($type === 'renew') ? 'Package Renewed &amp; Activated!' : 'Payment Collected Successfully!') ?>
     </div>
 
     <!-- Screen Action Toolbar -->
@@ -495,6 +548,14 @@ $wa_text_encoded = urlencode($wa_text);
             <div class="receipt-row">
                 <span class="label">Collected By:</span>
                 <span class="val"><?= htmlspecialchars($rm_name) ?></span>
+            </div>
+            <?php if (!empty($transaction_desc)): ?>
+            <div class="receipt-row">
+                <span class="label">Particulars:</span>
+                <span class="val" style="font-size: 11px; max-width: 170px;"><?= htmlspecialchars($transaction_desc) ?></span>
+            </div>
+            <?php endif; ?>
+            <div style="display:none;">
             </div>
 
             <div class="divider-dashed"></div>

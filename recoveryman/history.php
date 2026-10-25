@@ -118,7 +118,8 @@ $created_users = $createdUsersStmt->fetchAll(PDO::FETCH_ASSOC);
                                 <div class="text-secondary small fw-bold" style="font-size: 0.75rem;"><i class="fa-regular fa-clock me-1"></i> <?= date('d M Y, h:i A', strtotime($uc['created_at'])) ?></div>
                             </div>
                             <div class="text-end ms-2">
-                                <h5 class="fw-bold text-success mb-0">+ Rs. <br class="d-md-none"><span class="fs-4"><?= number_format($uc['amount']) ?></span></h5>
+                                <h5 class="fw-bold text-success mb-1">+ Rs. <span class="fs-5"><?= number_format($uc['amount']) ?></span></h5>
+                                <a href="print_receipt.php?ledger_id=<?= $uc['id'] ?>&return=history.php" class="btn btn-sm btn-outline-success rounded-pill px-3 py-1 fw-bold" style="font-size:0.75rem;"><i class="fa-solid fa-print me-1"></i> Receipt</a>
                             </div>
                         </div>
                     </div>
@@ -212,6 +213,11 @@ $created_users = $createdUsersStmt->fetchAll(PDO::FETCH_ASSOC);
                                 </h6>
                                 <div class="text-muted small mb-1" style="white-space: normal; line-height: 1.3;"><?= htmlspecialchars($act['activity']) ?></div>
                                 <div class="text-secondary small fw-bold" style="font-size: 0.75rem;"><i class="fa-regular fa-clock me-1"></i> <?= date('d M Y, h:i A', strtotime($act['created_at'])) ?></div>
+                            <?php if(!empty($act['against_to']) && ($act['against_role'] ?? '') === 'User'): ?>
+                                <div class="mt-2">
+                                    <a href="print_receipt.php?username=<?= urlencode($act['against_to']) ?>&return=history.php" class="btn btn-sm btn-outline-warning text-dark rounded-pill px-3 py-1 fw-bold" style="font-size:0.75rem;"><i class="fa-solid fa-print me-1"></i> Print Receipt</a>
+                                </div>
+                            <?php endif; ?>
                             </div>
                         </div>
                     </div>
