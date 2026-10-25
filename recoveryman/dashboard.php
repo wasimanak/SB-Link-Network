@@ -551,9 +551,12 @@ function formatBytes($bytes) {
         .top-navbar { background: #0f172a; color: white; padding: 15px 20px; border-bottom: 3px solid #dc2626; display: flex; justify-content: space-between; align-items: center; }
         .card-custom { border: none; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); margin-bottom: 20px; }
         .btn-action-sm { font-size: 0.8rem; padding: 0.3rem 0.5rem; }
-        .sub-card { transition: transform 0.2s ease, box-shadow 0.2s ease; border: 1px solid #e2e8f0; }
-        .sub-card:hover { transform: translateY(-2px); box-shadow: 0 10px 20px -5px rgba(0, 0, 0, 0.08) !important; }
-        .sub-avatar { width: 38px; height: 38px; border-radius: 10px; background: linear-gradient(135deg, #eff6ff, #dbeafe); color: #2563eb; display: flex; align-items: center; justify-content: center; font-size: 1rem; font-weight: 700; }
+        .sub-card { transition: transform 0.2s ease, box-shadow 0.2s ease; border: 1px solid #e2e8f0; background: #ffffff; }
+        .sub-card:hover { transform: translateY(-3px); box-shadow: 0 12px 24px -6px rgba(0, 0, 0, 0.1) !important; }
+        .sub-avatar { width: 46px; height: 46px; border-radius: 14px; background: linear-gradient(135deg, #1e293b, #334155); color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; font-weight: 700; box-shadow: 0 4px 8px rgba(0,0,0,0.12); }
+        .shadow-2xs { box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+        .btn-touch { font-size: 0.75rem; min-height: 46px; transition: all 0.15s ease; }
+        .btn-touch:hover { transform: translateY(-2px); }
     </style>
 </head>
 <body>
@@ -615,159 +618,173 @@ function formatBytes($bytes) {
 <!-- Search Results -->
             <?php if(isset($_GET['search_query'])): ?>
                 <?php if($search_results): ?>
-                    <div class="list-group shadow-sm border-0 rounded-4 mb-4">
+                    <div class="row g-3 mb-4">
                         <?php foreach($search_results as $u): ?>
-<div class="card sub-card border-0 shadow-sm rounded-4 mb-3 overflow-hidden bg-white <?= $u['live_ip'] ? 'border-start border-4 border-success' : (($u['balance'] < 0) ? 'border-start border-4 border-danger' : 'border-start border-4 border-primary') ?>">
-                            <!-- Card Header: User Identity & Connection Status -->
-                            <div class="card-body p-3 pb-2">
-                                <div class="d-flex justify-content-between align-items-center mb-2">
-                                    <div class="d-flex align-items-center gap-2">
-                                        <div class="sub-avatar shadow-sm">
-                                            <i class="fa-solid fa-user"></i>
+<div class="col-12 col-md-6 col-lg-6 col-xl-4 d-flex">
+                            <div class="card sub-card w-100 border-0 shadow-sm rounded-4 mb-3 overflow-hidden bg-white d-flex flex-column <?= $u['live_ip'] ? 'border-start border-4 border-success' : (($u['balance'] < 0) ? 'border-start border-4 border-danger' : 'border-start border-4 border-primary') ?>">
+                                <!-- Card Header: User Identity & Status -->
+                                <div class="card-body p-3 pb-2 flex-grow-1">
+                                    <div class="d-flex justify-content-between align-items-start mb-2">
+                                        <div class="d-flex align-items-center gap-2 overflow-hidden">
+                                            <div class="sub-avatar shadow-sm flex-shrink-0">
+                                                <i class="fa-solid fa-user"></i>
+                                            </div>
+                                            <div class="overflow-hidden">
+                                                <h5 class="fw-bold mb-1 text-dark text-truncate" title="<?= htmlspecialchars($u['full_name']) ?>" style="font-size: 1.05rem; line-height: 1.25;">
+                                                    <?= htmlspecialchars($u['full_name'] ?: $u['username']) ?>
+                                                </h5>
+                                                <span class="badge bg-dark text-warning font-monospace px-2 py-1 rounded-pill shadow-xs border border-dark" style="font-size: 0.82rem; letter-spacing: 0.5px;">
+                                                    <i class="fa-solid fa-at text-warning me-1"></i><?= htmlspecialchars($u['username']) ?>
+                                                </span>
+                                            </div>
                                         </div>
-                                        <div>
-                                            <h6 class="fw-bold mb-0 text-dark" style="font-size:0.95rem;">
-                                                <?= htmlspecialchars($u['full_name'] ?: $u['username']) ?>
-                                            </h6>
-                                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle font-monospace px-2 py-0" style="font-size:0.75rem;">
-                                                <?= htmlspecialchars($u['username']) ?>
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <?php if($u['live_ip']): ?>
-                                            <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2 py-1" style="font-size:0.75rem;">
-                                                <i class="fa-solid fa-circle text-success me-1" style="font-size:0.45rem;"></i> Online
-                                            </span>
-                                        <?php else: ?>
-                                            <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle rounded-pill px-2 py-1" style="font-size:0.75rem;">
-                                                <i class="fa-regular fa-circle text-muted me-1" style="font-size:0.45rem;"></i> Offline
-                                            </span>
-                                        <?php endif; ?>
-                                    </div>
-                                </div>
-
-                                <!-- Package & Balance Strip -->
-                                <div class="p-2 px-3 rounded-3 bg-light border d-flex justify-content-between align-items-center mb-3">
-                                    <div class="small fw-bold text-secondary text-truncate me-2">
-                                        <i class="fa-solid fa-box text-primary me-1"></i> <?= htmlspecialchars($u['package_name']) ?>
-                                        <span class="text-muted ms-1">(Rs. <?= number_format($u['package_price'], 0) ?>)</span>
-                                    </div>
-                                    <div class="flex-shrink-0">
-                                        <?php if($u['balance'] < 0): ?>
-                                            <span class="badge bg-danger rounded-pill px-2 py-1 shadow-sm">
-                                                <i class="fa-solid fa-circle-exclamation me-1"></i> Due: Rs. <?= number_format(abs($u['balance']), 0) ?>
-                                            </span>
-                                        <?php elseif($u['balance'] > 0): ?>
-                                            <span class="badge bg-success rounded-pill px-2 py-1 shadow-sm">
-                                                <i class="fa-solid fa-wallet me-1"></i> Adv: Rs. <?= number_format($u['balance'], 0) ?>
-                                            </span>
-                                        <?php else: ?>
-                                            <span class="badge bg-white text-secondary border rounded-pill px-2 py-1">
-                                                Rs. 0
-                                            </span>
-                                        <?php endif; ?>
-                                    </div>
-                                </div>
-
-                                <!-- Details Grid -->
-                                <div class="row g-2 text-secondary small mb-2">
-                                    <div class="col-6">
-                                        <div class="p-2 rounded-2 bg-light bg-opacity-50 border border-light-subtle h-100">
-                                            <span class="text-muted text-uppercase fw-bold d-block" style="font-size:0.65rem;">
-                                                <i class="fa-regular fa-calendar-xmark text-danger me-1"></i> Expiry Date
-                                            </span>
-                                            <strong class="<?= (strtotime($u['expiry_date']) < time()) ? 'text-danger' : 'text-dark' ?>">
-                                                <?= $u['expiry_date'] ? date('d M Y', strtotime($u['expiry_date'])) : 'N/A' ?>
-                                            </strong>
-                                        </div>
-                                    </div>
-                                    <div class="col-6">
-                                        <div class="p-2 rounded-2 bg-light bg-opacity-50 border border-light-subtle h-100">
-                                            <span class="text-muted text-uppercase fw-bold d-block" style="font-size:0.65rem;">
-                                                <i class="fa-solid fa-phone text-primary me-1"></i> Phone
-                                            </span>
-                                            <?php if(!empty($u['phone'])): ?>
-                                                <a href="tel:<?= htmlspecialchars($u['phone']) ?>" class="text-decoration-none fw-bold text-dark">
-                                                    <?= htmlspecialchars($u['phone']) ?>
-                                                </a>
+                                        <div class="flex-shrink-0 ms-2">
+                                            <?php if($u['live_ip']): ?>
+                                                <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill px-3 py-1 fw-bold" style="font-size: 0.75rem;">
+                                                    <i class="fa-solid fa-circle text-success me-1 fa-beat-fade" style="font-size: 0.45rem;"></i> Online
+                                                </span>
                                             <?php else: ?>
-                                                <span class="text-muted">N/A</span>
+                                                <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 rounded-pill px-3 py-1 fw-bold" style="font-size: 0.75rem;">
+                                                    <i class="fa-regular fa-circle text-muted me-1" style="font-size: 0.45rem;"></i> Offline
+                                                </span>
                                             <?php endif; ?>
                                         </div>
                                     </div>
-                                    <div class="col-6">
-                                        <div class="p-2 rounded-2 bg-light bg-opacity-50 border border-light-subtle h-100">
-                                            <span class="text-muted text-uppercase fw-bold d-block" style="font-size:0.65rem;">
-                                                <i class="fa-solid fa-arrow-down text-success me-1"></i> Download
-                                            </span>
-                                            <strong class="text-dark"><?= formatBytes($u['download_bytes'] ?? 0) ?></strong>
-                                        </div>
-                                    </div>
-                                    <div class="col-6">
-                                        <div class="p-2 rounded-2 bg-light bg-opacity-50 border border-light-subtle h-100">
-                                            <span class="text-muted text-uppercase fw-bold d-block" style="font-size:0.65rem;">
-                                                <i class="fa-solid fa-arrow-up text-primary me-1"></i> Upload
-                                            </span>
-                                            <strong class="text-dark"><?= formatBytes($u['upload_bytes'] ?? 0) ?></strong>
-                                        </div>
-                                    </div>
-                                    <?php if(!empty($u['address'])): ?>
-                                    <div class="col-12 mt-1">
-                                        <div class="px-2 py-1 text-muted small text-truncate" title="<?= htmlspecialchars($u['address']) ?>" style="font-size:0.75rem;">
-                                            <i class="fa-solid fa-location-dot text-danger me-1"></i> <?= htmlspecialchars($u['address']) ?>
-                                        </div>
-                                    </div>
-                                    <?php endif; ?>
-                                </div>
-                            </div>
 
-                            <!-- Card Actions: Arranged in a clean, high-visibility 4-button grid -->
-                            <div class="card-footer bg-white border-top p-2 pt-2 pb-3">
-                                <div class="row g-2">
-                                    <div class="col-3">
-                                        <button class="btn btn-success btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column align-items-center justify-content-center" 
-                                            data-bs-toggle="modal" data-bs-target="#collectModal<?= $u['id'] ?>"
-                                            style="font-size:0.75rem; min-height:46px;">
-                                            <i class="fa-solid fa-hand-holding-dollar fs-6 mb-1"></i>
-                                            <span>Collect</span>
-                                        </button>
+                                    <!-- Package & Balance Highlight Strip -->
+                                    <div class="p-2 px-3 rounded-3 bg-light border d-flex justify-content-between align-items-center mb-3">
+                                        <div class="small fw-bold text-dark text-truncate me-2">
+                                            <i class="fa-solid fa-bolt text-warning me-1 fs-6"></i>
+                                            <span><?= htmlspecialchars($u['package_name']) ?></span>
+                                            <span class="text-muted fw-normal ms-1">(Rs. <?= number_format($u['package_price'], 0) ?>)</span>
+                                        </div>
+                                        <div class="flex-shrink-0">
+                                            <?php if($u['balance'] < 0): ?>
+                                                <span class="badge bg-danger rounded-pill px-2 py-1 shadow-sm fw-bold" style="font-size: 0.8rem;">
+                                                    <i class="fa-solid fa-triangle-exclamation me-1"></i> Due: Rs. <?= number_format(abs($u['balance']), 0) ?>
+                                                </span>
+                                            <?php elseif($u['balance'] > 0): ?>
+                                                <span class="badge bg-success rounded-pill px-2 py-1 shadow-sm fw-bold" style="font-size: 0.8rem;">
+                                                    <i class="fa-solid fa-wallet me-1"></i> Adv: Rs. <?= number_format($u['balance'], 0) ?>
+                                                </span>
+                                            <?php else: ?>
+                                                <span class="badge bg-white text-secondary border rounded-pill px-2 py-1 fw-bold" style="font-size: 0.78rem;">
+                                                    <i class="fa-solid fa-check text-success me-1"></i> Clear (Rs. 0)
+                                                </span>
+                                            <?php endif; ?>
+                                        </div>
                                     </div>
-                                    <div class="col-3">
-                                        <button class="btn btn-danger btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column align-items-center justify-content-center" 
-                                            onclick="openCollectModal('<?= $u['username'] ?>', <?= $u['id'] ?>, '<?= addslashes($u['full_name']) ?>', '<?= $u['balance'] ?>', '<?= $u['package_id'] ?? 0 ?>', '<?= (float)($u['package_price'] ?? 0) ?>', '<?= (int)(($u['package_validity'] ?? 0) > 0 ? $u['package_validity'] : 30) ?>', '<?= $u['expiry_date'] ?? '' ?>')"
-                                            style="font-size:0.75rem; min-height:46px;">
-                                            <i class="fa-solid fa-rotate fs-6 mb-1"></i>
-                                            <span>Renew</span>
-                                        </button>
+
+                                    <!-- Details Metric Grid -->
+                                    <div class="row g-2 text-secondary small mb-3">
+                                        <!-- Expiry -->
+                                        <div class="col-6">
+                                            <div class="p-2 rounded-3 bg-white border shadow-2xs h-100 d-flex align-items-center gap-2">
+                                                <div class="p-2 rounded-circle bg-danger bg-opacity-10 text-danger flex-shrink-0" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;">
+                                                    <i class="fa-regular fa-calendar-xmark" style="font-size: 0.85rem;"></i>
+                                                </div>
+                                                <div class="overflow-hidden">
+                                                    <span class="text-muted text-uppercase fw-bold d-block" style="font-size: 0.65rem;">Expiry Date</span>
+                                                    <strong class="<?= (strtotime($u['expiry_date']) < time()) ? 'text-danger fw-bold' : 'text-dark fw-bold' ?>" style="font-size: 0.85rem;">
+                                                        <?= $u['expiry_date'] ? date('d M Y', strtotime($u['expiry_date'])) : 'N/A' ?>
+                                                    </strong>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <!-- Phone -->
+                                        <div class="col-6">
+                                            <div class="p-2 rounded-3 bg-white border shadow-2xs h-100 d-flex align-items-center gap-2">
+                                                <div class="p-2 rounded-circle bg-primary bg-opacity-10 text-primary flex-shrink-0" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;">
+                                                    <i class="fa-solid fa-phone" style="font-size: 0.85rem;"></i>
+                                                </div>
+                                                <div class="overflow-hidden">
+                                                    <span class="text-muted text-uppercase fw-bold d-block" style="font-size: 0.65rem;">Phone</span>
+                                                    <?php if(!empty($u['phone'])): ?>
+                                                        <a href="tel:<?= htmlspecialchars($u['phone']) ?>" class="text-decoration-none fw-bold text-dark d-block text-truncate" style="font-size: 0.85rem;" title="Call Customer">
+                                                            <?= htmlspecialchars($u['phone']) ?>
+                                                        </a>
+                                                    <?php else: ?>
+                                                        <span class="text-muted" style="font-size: 0.85rem;">N/A</span>
+                                                    <?php endif; ?>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <!-- Download -->
+                                        <div class="col-6">
+                                            <div class="p-2 rounded-3 bg-white border shadow-2xs h-100 d-flex align-items-center gap-2">
+                                                <div class="p-2 rounded-circle bg-success bg-opacity-10 text-success flex-shrink-0" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;">
+                                                    <i class="fa-solid fa-arrow-down" style="font-size: 0.85rem;"></i>
+                                                </div>
+                                                <div class="overflow-hidden">
+                                                    <span class="text-muted text-uppercase fw-bold d-block" style="font-size: 0.65rem;">Download</span>
+                                                    <strong class="text-dark fw-bold" style="font-size: 0.85rem;"><?= formatBytes($u['download_bytes'] ?? 0) ?></strong>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <!-- Upload -->
+                                        <div class="col-6">
+                                            <div class="p-2 rounded-3 bg-white border shadow-2xs h-100 d-flex align-items-center gap-2">
+                                                <div class="p-2 rounded-circle bg-info bg-opacity-10 text-info flex-shrink-0" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;">
+                                                    <i class="fa-solid fa-arrow-up" style="font-size: 0.85rem;"></i>
+                                                </div>
+                                                <div class="overflow-hidden">
+                                                    <span class="text-muted text-uppercase fw-bold d-block" style="font-size: 0.65rem;">Upload</span>
+                                                    <strong class="text-dark fw-bold" style="font-size: 0.85rem;"><?= formatBytes($u['upload_bytes'] ?? 0) ?></strong>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <!-- Address -->
+                                        <div class="col-12 mt-1">
+                                            <div class="p-2 px-3 rounded-2 bg-light border-0 text-muted small text-truncate" title="<?= htmlspecialchars($u['address'] ?: 'N/A') ?>" style="font-size: 0.78rem;">
+                                                <i class="fa-solid fa-location-dot text-danger me-1"></i> <strong>Address:</strong> <?= htmlspecialchars($u['address'] ?: 'N/A') ?>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div class="col-3">
-                                        <button class="btn btn-warning text-dark btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column align-items-center justify-content-center" 
-                                            onclick="openUpgradeModal('<?= $u['username'] ?>', <?= $u['id'] ?>, '<?= addslashes($u['full_name']) ?>', '<?= $u['balance'] ?>', '<?= $u['package_id'] ?? 0 ?>', '<?= (float)($u['package_price'] ?? 0) ?>', '<?= (int)(($u['package_validity'] ?? 0) > 0 ? $u['package_validity'] : 30) ?>', '<?= $u['expiry_date'] ?? '' ?>', '<?= addslashes($u['package_name'] ?? '') ?>')"
-                                            style="font-size:0.75rem; min-height:46px;">
-                                            <i class="fa-solid fa-arrow-up-right-dots fs-6 mb-1"></i>
-                                            <span>Upgrade</span>
-                                        </button>
-                                    </div>
-                                    <div class="col-3">
-                                        <button type="button" class="btn btn-outline-primary btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column align-items-center justify-content-center" 
-                                            onclick="openEditUserModal(this)"
-                                            data-id="<?= $u['id'] ?>"
-                                            data-username="<?= htmlspecialchars($u['username']) ?>"
-                                            data-fullname="<?= htmlspecialchars($u['full_name'] ?? '') ?>"
-                                            data-nationalid="<?= htmlspecialchars($u['national_id'] ?? '') ?>"
-                                            data-password="<?= htmlspecialchars($u['password'] ?? '') ?>"
-                                            data-mobile="<?= htmlspecialchars($u['mobile'] ?? '') ?>"
-                                            data-phone="<?= htmlspecialchars($u['phone'] ?? '') ?>"
-                                            data-email="<?= htmlspecialchars($u['email'] ?? '') ?>"
-                                            data-subarea="<?= htmlspecialchars($u['subarea'] ?? '') ?>"
-                                            data-address="<?= htmlspecialchars($u['address'] ?? '') ?>"
-                                            data-latitude="<?= htmlspecialchars($u['latitude'] ?? '') ?>"
-                                            data-longitude="<?= htmlspecialchars($u['longitude'] ?? '') ?>"
-                                            style="font-size:0.75rem; min-height:46px;">
-                                            <i class="fa-solid fa-user-pen fs-6 mb-1"></i>
-                                            <span>Edit</span>
-                                        </button>
+                                </div>
+
+                                <!-- Card Actions Toolbar: Balanced 4-Button Grid -->
+                                <div class="card-footer bg-white border-top p-2 pt-2 pb-2 mt-auto">
+                                    <div class="row g-2">
+                                        <div class="col-3">
+                                            <button class="btn btn-success btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column align-items-center justify-content-center btn-touch" 
+                                                data-bs-toggle="modal" data-bs-target="#collectModal<?= $u['id'] ?>">
+                                                <i class="fa-solid fa-hand-holding-dollar fs-6 mb-1"></i>
+                                                <span>Collect</span>
+                                            </button>
+                                        </div>
+                                        <div class="col-3">
+                                            <button class="btn btn-danger btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column align-items-center justify-content-center btn-touch" 
+                                                onclick="openCollectModal('<?= $u['username'] ?>', <?= $u['id'] ?>, '<?= addslashes($u['full_name']) ?>', '<?= $u['balance'] ?>', '<?= $u['package_id'] ?? 0 ?>', '<?= (float)($u['package_price'] ?? 0) ?>', '<?= (int)(($u['package_validity'] ?? 0) > 0 ? $u['package_validity'] : 30) ?>', '<?= $u['expiry_date'] ?? '' ?>')">
+                                                <i class="fa-solid fa-rotate fs-6 mb-1"></i>
+                                                <span>Renew</span>
+                                            </button>
+                                        </div>
+                                        <div class="col-3">
+                                            <button class="btn btn-warning text-dark btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column align-items-center justify-content-center btn-touch" 
+                                                onclick="openUpgradeModal('<?= $u['username'] ?>', <?= $u['id'] ?>, '<?= addslashes($u['full_name']) ?>', '<?= $u['balance'] ?>', '<?= $u['package_id'] ?? 0 ?>', '<?= (float)($u['package_price'] ?? 0) ?>', '<?= (int)(($u['package_validity'] ?? 0) > 0 ? $u['package_validity'] : 30) ?>', '<?= $u['expiry_date'] ?? '' ?>', '<?= addslashes($u['package_name'] ?? '') ?>')">
+                                                <i class="fa-solid fa-arrow-up-right-dots fs-6 mb-1"></i>
+                                                <span>Upgrade</span>
+                                            </button>
+                                        </div>
+                                        <div class="col-3">
+                                            <button type="button" class="btn btn-outline-primary btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column align-items-center justify-content-center btn-touch" 
+                                                onclick="openEditUserModal(this)"
+                                                data-id="<?= $u['id'] ?>"
+                                                data-username="<?= htmlspecialchars($u['username']) ?>"
+                                                data-fullname="<?= htmlspecialchars($u['full_name'] ?? '') ?>"
+                                                data-nationalid="<?= htmlspecialchars($u['national_id'] ?? '') ?>"
+                                                data-password="<?= htmlspecialchars($u['password'] ?? '') ?>"
+                                                data-mobile="<?= htmlspecialchars($u['mobile'] ?? '') ?>"
+                                                data-phone="<?= htmlspecialchars($u['phone'] ?? '') ?>"
+                                                data-email="<?= htmlspecialchars($u['email'] ?? '') ?>"
+                                                data-subarea="<?= htmlspecialchars($u['subarea'] ?? '') ?>"
+                                                data-address="<?= htmlspecialchars($u['address'] ?? '') ?>"
+                                                data-latitude="<?= htmlspecialchars($u['latitude'] ?? '') ?>"
+                                                data-longitude="<?= htmlspecialchars($u['longitude'] ?? '') ?>">
+                                                <i class="fa-solid fa-user-pen fs-6 mb-1"></i>
+                                                <span>Edit</span>
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -814,7 +831,6 @@ function formatBytes($bytes) {
                                     </div>
                                 </div>
                             </div>
-                        </div>
 <?php endforeach; ?>
                     </div>
                 <?php else: ?>
@@ -863,159 +879,173 @@ function formatBytes($bytes) {
 
 <h5 class="fw-bold mt-5 border-bottom pb-2 mb-3 <?= ($filter==='expired')?'text-danger':'text-primary' ?>"><i class="fa-solid <?= ($filter==='expired')?'fa-triangle-exclamation':'fa-clock-rotate-left' ?> me-2"></i> <?= htmlspecialchars($filter_title) ?></h5>
                 <?php if($expired_users): ?>
-                    <div class="list-group border-0 mb-4">
+                    <div class="row g-3 mb-4">
                         <?php foreach($expired_users as $u): ?>
-                        <div class="card sub-card border-0 shadow-sm rounded-4 mb-3 overflow-hidden bg-white <?= $u['live_ip'] ? 'border-start border-4 border-success' : (($u['balance'] < 0) ? 'border-start border-4 border-danger' : 'border-start border-4 border-primary') ?>">
-                            <!-- Card Header: User Identity & Connection Status -->
-                            <div class="card-body p-3 pb-2">
-                                <div class="d-flex justify-content-between align-items-center mb-2">
-                                    <div class="d-flex align-items-center gap-2">
-                                        <div class="sub-avatar shadow-sm">
-                                            <i class="fa-solid fa-user"></i>
+                        <div class="col-12 col-md-6 col-lg-6 col-xl-4 d-flex">
+                            <div class="card sub-card w-100 border-0 shadow-sm rounded-4 mb-3 overflow-hidden bg-white d-flex flex-column <?= $u['live_ip'] ? 'border-start border-4 border-success' : (($u['balance'] < 0) ? 'border-start border-4 border-danger' : 'border-start border-4 border-primary') ?>">
+                                <!-- Card Header: User Identity & Status -->
+                                <div class="card-body p-3 pb-2 flex-grow-1">
+                                    <div class="d-flex justify-content-between align-items-start mb-2">
+                                        <div class="d-flex align-items-center gap-2 overflow-hidden">
+                                            <div class="sub-avatar shadow-sm flex-shrink-0">
+                                                <i class="fa-solid fa-user"></i>
+                                            </div>
+                                            <div class="overflow-hidden">
+                                                <h5 class="fw-bold mb-1 text-dark text-truncate" title="<?= htmlspecialchars($u['full_name']) ?>" style="font-size: 1.05rem; line-height: 1.25;">
+                                                    <?= htmlspecialchars($u['full_name'] ?: $u['username']) ?>
+                                                </h5>
+                                                <span class="badge bg-dark text-warning font-monospace px-2 py-1 rounded-pill shadow-xs border border-dark" style="font-size: 0.82rem; letter-spacing: 0.5px;">
+                                                    <i class="fa-solid fa-at text-warning me-1"></i><?= htmlspecialchars($u['username']) ?>
+                                                </span>
+                                            </div>
                                         </div>
-                                        <div>
-                                            <h6 class="fw-bold mb-0 text-dark" style="font-size:0.95rem;">
-                                                <?= htmlspecialchars($u['full_name'] ?: $u['username']) ?>
-                                            </h6>
-                                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle font-monospace px-2 py-0" style="font-size:0.75rem;">
-                                                <?= htmlspecialchars($u['username']) ?>
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <?php if($u['live_ip']): ?>
-                                            <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2 py-1" style="font-size:0.75rem;">
-                                                <i class="fa-solid fa-circle text-success me-1" style="font-size:0.45rem;"></i> Online
-                                            </span>
-                                        <?php else: ?>
-                                            <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle rounded-pill px-2 py-1" style="font-size:0.75rem;">
-                                                <i class="fa-regular fa-circle text-muted me-1" style="font-size:0.45rem;"></i> Offline
-                                            </span>
-                                        <?php endif; ?>
-                                    </div>
-                                </div>
-
-                                <!-- Package & Balance Strip -->
-                                <div class="p-2 px-3 rounded-3 bg-light border d-flex justify-content-between align-items-center mb-3">
-                                    <div class="small fw-bold text-secondary text-truncate me-2">
-                                        <i class="fa-solid fa-box text-primary me-1"></i> <?= htmlspecialchars($u['package_name']) ?>
-                                        <span class="text-muted ms-1">(Rs. <?= number_format($u['package_price'], 0) ?>)</span>
-                                    </div>
-                                    <div class="flex-shrink-0">
-                                        <?php if($u['balance'] < 0): ?>
-                                            <span class="badge bg-danger rounded-pill px-2 py-1 shadow-sm">
-                                                <i class="fa-solid fa-circle-exclamation me-1"></i> Due: Rs. <?= number_format(abs($u['balance']), 0) ?>
-                                            </span>
-                                        <?php elseif($u['balance'] > 0): ?>
-                                            <span class="badge bg-success rounded-pill px-2 py-1 shadow-sm">
-                                                <i class="fa-solid fa-wallet me-1"></i> Adv: Rs. <?= number_format($u['balance'], 0) ?>
-                                            </span>
-                                        <?php else: ?>
-                                            <span class="badge bg-white text-secondary border rounded-pill px-2 py-1">
-                                                Rs. 0
-                                            </span>
-                                        <?php endif; ?>
-                                    </div>
-                                </div>
-
-                                <!-- Details Grid -->
-                                <div class="row g-2 text-secondary small mb-2">
-                                    <div class="col-6">
-                                        <div class="p-2 rounded-2 bg-light bg-opacity-50 border border-light-subtle h-100">
-                                            <span class="text-muted text-uppercase fw-bold d-block" style="font-size:0.65rem;">
-                                                <i class="fa-regular fa-calendar-xmark text-danger me-1"></i> Expiry Date
-                                            </span>
-                                            <strong class="<?= (strtotime($u['expiry_date']) < time()) ? 'text-danger' : 'text-dark' ?>">
-                                                <?= $u['expiry_date'] ? date('d M Y', strtotime($u['expiry_date'])) : 'N/A' ?>
-                                            </strong>
-                                        </div>
-                                    </div>
-                                    <div class="col-6">
-                                        <div class="p-2 rounded-2 bg-light bg-opacity-50 border border-light-subtle h-100">
-                                            <span class="text-muted text-uppercase fw-bold d-block" style="font-size:0.65rem;">
-                                                <i class="fa-solid fa-phone text-primary me-1"></i> Phone
-                                            </span>
-                                            <?php if(!empty($u['phone'])): ?>
-                                                <a href="tel:<?= htmlspecialchars($u['phone']) ?>" class="text-decoration-none fw-bold text-dark">
-                                                    <?= htmlspecialchars($u['phone']) ?>
-                                                </a>
+                                        <div class="flex-shrink-0 ms-2">
+                                            <?php if($u['live_ip']): ?>
+                                                <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill px-3 py-1 fw-bold" style="font-size: 0.75rem;">
+                                                    <i class="fa-solid fa-circle text-success me-1 fa-beat-fade" style="font-size: 0.45rem;"></i> Online
+                                                </span>
                                             <?php else: ?>
-                                                <span class="text-muted">N/A</span>
+                                                <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 rounded-pill px-3 py-1 fw-bold" style="font-size: 0.75rem;">
+                                                    <i class="fa-regular fa-circle text-muted me-1" style="font-size: 0.45rem;"></i> Offline
+                                                </span>
                                             <?php endif; ?>
                                         </div>
                                     </div>
-                                    <div class="col-6">
-                                        <div class="p-2 rounded-2 bg-light bg-opacity-50 border border-light-subtle h-100">
-                                            <span class="text-muted text-uppercase fw-bold d-block" style="font-size:0.65rem;">
-                                                <i class="fa-solid fa-arrow-down text-success me-1"></i> Download
-                                            </span>
-                                            <strong class="text-dark"><?= formatBytes($u['download_bytes'] ?? 0) ?></strong>
-                                        </div>
-                                    </div>
-                                    <div class="col-6">
-                                        <div class="p-2 rounded-2 bg-light bg-opacity-50 border border-light-subtle h-100">
-                                            <span class="text-muted text-uppercase fw-bold d-block" style="font-size:0.65rem;">
-                                                <i class="fa-solid fa-arrow-up text-primary me-1"></i> Upload
-                                            </span>
-                                            <strong class="text-dark"><?= formatBytes($u['upload_bytes'] ?? 0) ?></strong>
-                                        </div>
-                                    </div>
-                                    <?php if(!empty($u['address'])): ?>
-                                    <div class="col-12 mt-1">
-                                        <div class="px-2 py-1 text-muted small text-truncate" title="<?= htmlspecialchars($u['address']) ?>" style="font-size:0.75rem;">
-                                            <i class="fa-solid fa-location-dot text-danger me-1"></i> <?= htmlspecialchars($u['address']) ?>
-                                        </div>
-                                    </div>
-                                    <?php endif; ?>
-                                </div>
-                            </div>
 
-                            <!-- Card Actions: Arranged in a clean, high-visibility 4-button grid -->
-                            <div class="card-footer bg-white border-top p-2 pt-2 pb-3">
-                                <div class="row g-2">
-                                    <div class="col-3">
-                                        <button class="btn btn-success btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column align-items-center justify-content-center" 
-                                            data-bs-toggle="modal" data-bs-target="#collectModal<?= $u['id'] ?>"
-                                            style="font-size:0.75rem; min-height:46px;">
-                                            <i class="fa-solid fa-hand-holding-dollar fs-6 mb-1"></i>
-                                            <span>Collect</span>
-                                        </button>
+                                    <!-- Package & Balance Highlight Strip -->
+                                    <div class="p-2 px-3 rounded-3 bg-light border d-flex justify-content-between align-items-center mb-3">
+                                        <div class="small fw-bold text-dark text-truncate me-2">
+                                            <i class="fa-solid fa-bolt text-warning me-1 fs-6"></i>
+                                            <span><?= htmlspecialchars($u['package_name']) ?></span>
+                                            <span class="text-muted fw-normal ms-1">(Rs. <?= number_format($u['package_price'], 0) ?>)</span>
+                                        </div>
+                                        <div class="flex-shrink-0">
+                                            <?php if($u['balance'] < 0): ?>
+                                                <span class="badge bg-danger rounded-pill px-2 py-1 shadow-sm fw-bold" style="font-size: 0.8rem;">
+                                                    <i class="fa-solid fa-triangle-exclamation me-1"></i> Due: Rs. <?= number_format(abs($u['balance']), 0) ?>
+                                                </span>
+                                            <?php elseif($u['balance'] > 0): ?>
+                                                <span class="badge bg-success rounded-pill px-2 py-1 shadow-sm fw-bold" style="font-size: 0.8rem;">
+                                                    <i class="fa-solid fa-wallet me-1"></i> Adv: Rs. <?= number_format($u['balance'], 0) ?>
+                                                </span>
+                                            <?php else: ?>
+                                                <span class="badge bg-white text-secondary border rounded-pill px-2 py-1 fw-bold" style="font-size: 0.78rem;">
+                                                    <i class="fa-solid fa-check text-success me-1"></i> Clear (Rs. 0)
+                                                </span>
+                                            <?php endif; ?>
+                                        </div>
                                     </div>
-                                    <div class="col-3">
-                                        <button class="btn btn-danger btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column align-items-center justify-content-center" 
-                                            onclick="openCollectModal('<?= $u['username'] ?>', <?= $u['id'] ?>, '<?= addslashes($u['full_name']) ?>', '<?= $u['balance'] ?>', '<?= $u['package_id'] ?? 0 ?>', '<?= (float)($u['package_price'] ?? 0) ?>', '<?= (int)(($u['package_validity'] ?? 0) > 0 ? $u['package_validity'] : 30) ?>', '<?= $u['expiry_date'] ?? '' ?>')"
-                                            style="font-size:0.75rem; min-height:46px;">
-                                            <i class="fa-solid fa-rotate fs-6 mb-1"></i>
-                                            <span>Renew</span>
-                                        </button>
+
+                                    <!-- Details Metric Grid -->
+                                    <div class="row g-2 text-secondary small mb-3">
+                                        <!-- Expiry -->
+                                        <div class="col-6">
+                                            <div class="p-2 rounded-3 bg-white border shadow-2xs h-100 d-flex align-items-center gap-2">
+                                                <div class="p-2 rounded-circle bg-danger bg-opacity-10 text-danger flex-shrink-0" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;">
+                                                    <i class="fa-regular fa-calendar-xmark" style="font-size: 0.85rem;"></i>
+                                                </div>
+                                                <div class="overflow-hidden">
+                                                    <span class="text-muted text-uppercase fw-bold d-block" style="font-size: 0.65rem;">Expiry Date</span>
+                                                    <strong class="<?= (strtotime($u['expiry_date']) < time()) ? 'text-danger fw-bold' : 'text-dark fw-bold' ?>" style="font-size: 0.85rem;">
+                                                        <?= $u['expiry_date'] ? date('d M Y', strtotime($u['expiry_date'])) : 'N/A' ?>
+                                                    </strong>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <!-- Phone -->
+                                        <div class="col-6">
+                                            <div class="p-2 rounded-3 bg-white border shadow-2xs h-100 d-flex align-items-center gap-2">
+                                                <div class="p-2 rounded-circle bg-primary bg-opacity-10 text-primary flex-shrink-0" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;">
+                                                    <i class="fa-solid fa-phone" style="font-size: 0.85rem;"></i>
+                                                </div>
+                                                <div class="overflow-hidden">
+                                                    <span class="text-muted text-uppercase fw-bold d-block" style="font-size: 0.65rem;">Phone</span>
+                                                    <?php if(!empty($u['phone'])): ?>
+                                                        <a href="tel:<?= htmlspecialchars($u['phone']) ?>" class="text-decoration-none fw-bold text-dark d-block text-truncate" style="font-size: 0.85rem;" title="Call Customer">
+                                                            <?= htmlspecialchars($u['phone']) ?>
+                                                        </a>
+                                                    <?php else: ?>
+                                                        <span class="text-muted" style="font-size: 0.85rem;">N/A</span>
+                                                    <?php endif; ?>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <!-- Download -->
+                                        <div class="col-6">
+                                            <div class="p-2 rounded-3 bg-white border shadow-2xs h-100 d-flex align-items-center gap-2">
+                                                <div class="p-2 rounded-circle bg-success bg-opacity-10 text-success flex-shrink-0" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;">
+                                                    <i class="fa-solid fa-arrow-down" style="font-size: 0.85rem;"></i>
+                                                </div>
+                                                <div class="overflow-hidden">
+                                                    <span class="text-muted text-uppercase fw-bold d-block" style="font-size: 0.65rem;">Download</span>
+                                                    <strong class="text-dark fw-bold" style="font-size: 0.85rem;"><?= formatBytes($u['download_bytes'] ?? 0) ?></strong>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <!-- Upload -->
+                                        <div class="col-6">
+                                            <div class="p-2 rounded-3 bg-white border shadow-2xs h-100 d-flex align-items-center gap-2">
+                                                <div class="p-2 rounded-circle bg-info bg-opacity-10 text-info flex-shrink-0" style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;">
+                                                    <i class="fa-solid fa-arrow-up" style="font-size: 0.85rem;"></i>
+                                                </div>
+                                                <div class="overflow-hidden">
+                                                    <span class="text-muted text-uppercase fw-bold d-block" style="font-size: 0.65rem;">Upload</span>
+                                                    <strong class="text-dark fw-bold" style="font-size: 0.85rem;"><?= formatBytes($u['upload_bytes'] ?? 0) ?></strong>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <!-- Address -->
+                                        <div class="col-12 mt-1">
+                                            <div class="p-2 px-3 rounded-2 bg-light border-0 text-muted small text-truncate" title="<?= htmlspecialchars($u['address'] ?: 'N/A') ?>" style="font-size: 0.78rem;">
+                                                <i class="fa-solid fa-location-dot text-danger me-1"></i> <strong>Address:</strong> <?= htmlspecialchars($u['address'] ?: 'N/A') ?>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div class="col-3">
-                                        <button class="btn btn-warning text-dark btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column align-items-center justify-content-center" 
-                                            onclick="openUpgradeModal('<?= $u['username'] ?>', <?= $u['id'] ?>, '<?= addslashes($u['full_name']) ?>', '<?= $u['balance'] ?>', '<?= $u['package_id'] ?? 0 ?>', '<?= (float)($u['package_price'] ?? 0) ?>', '<?= (int)(($u['package_validity'] ?? 0) > 0 ? $u['package_validity'] : 30) ?>', '<?= $u['expiry_date'] ?? '' ?>', '<?= addslashes($u['package_name'] ?? '') ?>')"
-                                            style="font-size:0.75rem; min-height:46px;">
-                                            <i class="fa-solid fa-arrow-up-right-dots fs-6 mb-1"></i>
-                                            <span>Upgrade</span>
-                                        </button>
-                                    </div>
-                                    <div class="col-3">
-                                        <button type="button" class="btn btn-outline-primary btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column align-items-center justify-content-center" 
-                                            onclick="openEditUserModal(this)"
-                                            data-id="<?= $u['id'] ?>"
-                                            data-username="<?= htmlspecialchars($u['username']) ?>"
-                                            data-fullname="<?= htmlspecialchars($u['full_name'] ?? '') ?>"
-                                            data-nationalid="<?= htmlspecialchars($u['national_id'] ?? '') ?>"
-                                            data-password="<?= htmlspecialchars($u['password'] ?? '') ?>"
-                                            data-mobile="<?= htmlspecialchars($u['mobile'] ?? '') ?>"
-                                            data-phone="<?= htmlspecialchars($u['phone'] ?? '') ?>"
-                                            data-email="<?= htmlspecialchars($u['email'] ?? '') ?>"
-                                            data-subarea="<?= htmlspecialchars($u['subarea'] ?? '') ?>"
-                                            data-address="<?= htmlspecialchars($u['address'] ?? '') ?>"
-                                            data-latitude="<?= htmlspecialchars($u['latitude'] ?? '') ?>"
-                                            data-longitude="<?= htmlspecialchars($u['longitude'] ?? '') ?>"
-                                            style="font-size:0.75rem; min-height:46px;">
-                                            <i class="fa-solid fa-user-pen fs-6 mb-1"></i>
-                                            <span>Edit</span>
-                                        </button>
+                                </div>
+
+                                <!-- Card Actions Toolbar: Balanced 4-Button Grid -->
+                                <div class="card-footer bg-white border-top p-2 pt-2 pb-2 mt-auto">
+                                    <div class="row g-2">
+                                        <div class="col-3">
+                                            <button class="btn btn-success btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column align-items-center justify-content-center btn-touch" 
+                                                data-bs-toggle="modal" data-bs-target="#collectModal<?= $u['id'] ?>">
+                                                <i class="fa-solid fa-hand-holding-dollar fs-6 mb-1"></i>
+                                                <span>Collect</span>
+                                            </button>
+                                        </div>
+                                        <div class="col-3">
+                                            <button class="btn btn-danger btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column align-items-center justify-content-center btn-touch" 
+                                                onclick="openCollectModal('<?= $u['username'] ?>', <?= $u['id'] ?>, '<?= addslashes($u['full_name']) ?>', '<?= $u['balance'] ?>', '<?= $u['package_id'] ?? 0 ?>', '<?= (float)($u['package_price'] ?? 0) ?>', '<?= (int)(($u['package_validity'] ?? 0) > 0 ? $u['package_validity'] : 30) ?>', '<?= $u['expiry_date'] ?? '' ?>')">
+                                                <i class="fa-solid fa-rotate fs-6 mb-1"></i>
+                                                <span>Renew</span>
+                                            </button>
+                                        </div>
+                                        <div class="col-3">
+                                            <button class="btn btn-warning text-dark btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column align-items-center justify-content-center btn-touch" 
+                                                onclick="openUpgradeModal('<?= $u['username'] ?>', <?= $u['id'] ?>, '<?= addslashes($u['full_name']) ?>', '<?= $u['balance'] ?>', '<?= $u['package_id'] ?? 0 ?>', '<?= (float)($u['package_price'] ?? 0) ?>', '<?= (int)(($u['package_validity'] ?? 0) > 0 ? $u['package_validity'] : 30) ?>', '<?= $u['expiry_date'] ?? '' ?>', '<?= addslashes($u['package_name'] ?? '') ?>')">
+                                                <i class="fa-solid fa-arrow-up-right-dots fs-6 mb-1"></i>
+                                                <span>Upgrade</span>
+                                            </button>
+                                        </div>
+                                        <div class="col-3">
+                                            <button type="button" class="btn btn-outline-primary btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column align-items-center justify-content-center btn-touch" 
+                                                onclick="openEditUserModal(this)"
+                                                data-id="<?= $u['id'] ?>"
+                                                data-username="<?= htmlspecialchars($u['username']) ?>"
+                                                data-fullname="<?= htmlspecialchars($u['full_name'] ?? '') ?>"
+                                                data-nationalid="<?= htmlspecialchars($u['national_id'] ?? '') ?>"
+                                                data-password="<?= htmlspecialchars($u['password'] ?? '') ?>"
+                                                data-mobile="<?= htmlspecialchars($u['mobile'] ?? '') ?>"
+                                                data-phone="<?= htmlspecialchars($u['phone'] ?? '') ?>"
+                                                data-email="<?= htmlspecialchars($u['email'] ?? '') ?>"
+                                                data-subarea="<?= htmlspecialchars($u['subarea'] ?? '') ?>"
+                                                data-address="<?= htmlspecialchars($u['address'] ?? '') ?>"
+                                                data-latitude="<?= htmlspecialchars($u['latitude'] ?? '') ?>"
+                                                data-longitude="<?= htmlspecialchars($u['longitude'] ?? '') ?>">
+                                                <i class="fa-solid fa-user-pen fs-6 mb-1"></i>
+                                                <span>Edit</span>
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -1062,7 +1092,6 @@ function formatBytes($bytes) {
                                     </div>
                                 </div>
                             </div>
-                        </div>
                         <?php endforeach; ?>
                     </div>
                 <?php else: ?>
