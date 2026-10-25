@@ -262,7 +262,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $pdo->prepare("INSERT INTO activity_logs (client_id, dealer_id, by_user, against_to, against_role, activity) VALUES (?, ?, 'Admin', ?, 'User', 'Package Renewed & Expiry Updated')")->execute([$client_id, $act_dealer_id, $u]);
                     $pdo->commit();
                     $ret = urlencode("subscribers.php");
-                    $paid_val = ($net_adjustment > 0) ? $net_adjustment : (float)$pkg['price'];
+                    $paid_val = ($cur_bal > 0) ? min((float)$cur_bal, (float)$net_adjustment) : 0;
                     $target_url = "print_receipt.php?sub_id={$id}&paid={$paid_val}&type=renew&return={$ret}";
                     $json_alert = json_encode("Subscriber renewed and expiry updated successfully! Opening 80mm Print Receipt...");
                     echo "<!DOCTYPE html>

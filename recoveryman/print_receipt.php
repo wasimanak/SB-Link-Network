@@ -201,11 +201,27 @@ $invoice_number = "INV-" . str_pad($invoice_id, 6, "0", STR_PAD_LEFT);
 
 // Financial amounts
 $package_price = (float)($sub['package_price'] ?? 0);
-if ($paid_amount <= 0 && $type === 'renew') {
-    $paid_amount = $package_price;
-}
+// Actual cash received is displayed; no forced overwrite
+// Preserve actual collected amount
+//
 $due_amount = $sub['balance'] < 0 ? abs((float)$sub['balance']) : 0;
 $adv_amount = $sub['balance'] > 0 ? (float)$sub['balance'] : 0;
+
+// If paid was not explicitly supplied in URL and not from ledger, determine actual payment
+if (!isset($_GET['paid']) && $ledger_id <= 0) {
+    if ($due_amount > 0) {
+        $paid_amount = 0;
+    } else {
+        try {
+            $lastPayStmt = $pdo->prepare("SELECT amount FROM user_ledger WHERE username = ? AND type = 'credit' ORDER BY id DESC LIMIT 1");
+            $lastPayStmt->execute([$sub['username']]);
+            $lastPay = $lastPayStmt->fetchColumn();
+            $paid_amount = ($lastPay !== false) ? (float)$lastPay : 0;
+        } catch (Exception $e) {
+            $paid_amount = 0;
+        }
+    }
+}
 
 // Customer Phone Logic
 $cust_phone = !empty($sub['mobile']) ? $sub['mobile'] : ($sub['phone'] ?? '');
@@ -239,7 +255,7 @@ if (!empty($sub['expiry_date'])) {
 }
 $wa_text .= "Paid Amount: Rs. " . number_format($paid_amount, 0) . "\n";
 if ($due_amount > 0) {
-    $wa_text .= "Due Balance: Rs. " . number_format($due_amount, 0) . "\n";
+    $wa_text .= "Due Balance: - Rs. " . number_format($due_amount, 0) . "\n";
 } elseif ($adv_amount > 0) {
     $wa_text .= "Adv Balance: Rs. " . number_format($adv_amount, 0) . "\n";
 }
@@ -351,6 +367,20 @@ $wa_text_encoded = urlencode($wa_text);
         .receipt-row-highlight .val {
             font-size: 13px !important;
             font-weight: 800 !important;
+        }
+
+        /* Due Amount Row: Bold and Larger */
+        .receipt-row-due {
+            font-size: 14px !important;
+            padding: 3px 0 !important;
+        }
+        .receipt-row-due .label {
+            font-size: 13.5px !important;
+            font-weight: 800 !important;
+        }
+        .receipt-row-due .val {
+            font-size: 14px !important;
+            font-weight: 900 !important;
         }
 
         /* Section Subheading */
@@ -584,6 +614,13 @@ $wa_text_encoded = urlencode($wa_text);
             font-weight: 800 !important;
         }
 
+        .thermal-export-canvas .receipt-row-due,
+        .thermal-export-canvas .receipt-row-due .label,
+        .thermal-export-canvas .receipt-row-due .val {
+            font-size: 19px !important;
+            font-weight: 900 !important;
+        }
+
         .thermal-export-canvas .section-tag {
             font-size: 12.5px !important;
             font-weight: 900 !important;
@@ -743,9 +780,9 @@ $wa_text_encoded = urlencode($wa_text);
             <!-- Balance Status -->
             <div style="padding-top: 2px;">
                 <?php if($due_amount > 0): ?>
-                <div class="receipt-row">
-                    <span class="label fw-bold">Remaining Due:</span>
-                    <span class="val fw-bold font-mono">Rs. <?= number_format($due_amount, 0) ?></span>
+                <div class="receipt-row receipt-row-due" style="font-size: 14px; padding: 3px 0; margin-top: 2px;">
+                    <span class="label fw-bold" style="font-size: 13.5px; font-weight: 800;">Remaining Due:</span>
+                    <span class="val fw-bold font-mono" style="font-size: 14px; font-weight: 900;">- Rs. <?= number_format($due_amount, 0) ?></span>
                 </div>
                 <div style="font-size: 12px; color: #000000; font-weight: 700; margin-top: 1px;">
                     * Kindly clear pending due at your earliest.

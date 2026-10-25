@@ -690,7 +690,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 $ret = urlencode("subscriber_view.php?id=$id");
-                $paid_val = ($net_adjustment > 0) ? $net_adjustment : (float)$pkg['price'];
+                $paid_val = ($current_bal > 0) ? min((float)$current_bal, (float)$net_adjustment) : 0;
                 $target_url = "print_receipt.php?sub_id={$id}&paid={$paid_val}&type=renew&return={$ret}";
                 $json_alert = json_encode($alert_msg);
 
