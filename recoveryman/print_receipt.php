@@ -280,7 +280,7 @@ $wa_text_encoded = urlencode($wa_text);
            ========================================================= */
         @page {
             size: 80mm auto;
-            margin: 3mm 4mm 5mm 4mm;
+            margin: 0;
         }
 
         * {
@@ -338,22 +338,27 @@ $wa_text_encoded = urlencode($wa_text);
             display: flex;
             justify-content: space-between;
             align-items: flex-start;
-            padding: 2.5px 0;
+            padding: 2px 0;
             font-size: 12px;
+            width: 100%;
+            box-sizing: border-box;
         }
         .receipt-row .label {
             color: #000000 !important;
             font-weight: 700 !important;
             flex-shrink: 0;
-            margin-right: 8px;
+            margin-right: 6px;
             font-size: 12px;
+            max-width: 52%;
         }
         .receipt-row .val {
             text-align: right;
             word-break: break-word;
+            overflow-wrap: anywhere;
             color: #000000;
             font-size: 12px;
             font-weight: 700;
+            flex: 1;
         }
 
         /* Highlighted rows: New Expiry & Amount Received */
@@ -478,29 +483,31 @@ $wa_text_encoded = urlencode($wa_text);
                 display: none !important;
             }
 
-            body {
+            html, body {
                 background: #fff !important;
-                width: 80mm !important;
-                max-width: 80mm !important;
+                width: 72mm !important;
+                max-width: 72mm !important;
                 margin: 0 auto !important;
                 padding: 0 !important;
             }
 
             .receipt-wrapper {
-                width: 72mm !important;
-                max-width: 72mm !important;
+                width: 70mm !important;
+                max-width: 70mm !important;
                 margin: 0 auto !important;
-                padding: 1mm 2mm 6mm 2mm !important;
+                padding: 1mm 1.5mm 5mm 1.5mm !important;
                 border: none !important;
                 box-shadow: none !important;
                 border-radius: 0 !important;
+                box-sizing: border-box !important;
             }
 
             #receipt-content {
-                width: 72mm !important;
-                max-width: 72mm !important;
+                width: 100% !important;
+                max-width: 100% !important;
                 margin: 0 auto !important;
                 padding: 0 !important;
+                box-sizing: border-box !important;
             }
 
 
@@ -510,9 +517,11 @@ $wa_text_encoded = urlencode($wa_text);
         .amount-box {
             border: 2px solid #000000 !important;
             font-weight: 800 !important;
-            padding: 6px 8px;
+            padding: 4px 6px;
             margin: 6px 0;
             background: #ffffff !important;
+            box-sizing: border-box;
+            width: 100%;
         }
         @media print {
             .amount-box {
@@ -521,22 +530,18 @@ $wa_text_encoded = urlencode($wa_text);
             }
         }
 
-        .qr-section {
-            margin-top: 10px;
-            padding-top: 6px;
+        .barcode-section {
+            margin-top: 8px;
+            padding: 3px 0;
             text-align: center;
+            width: 100%;
+            box-sizing: border-box;
         }
-        .qr-img {
-            width: 85px;
-            height: 85px;
+        #receipt-barcode {
+            max-width: 95%;
+            height: auto;
             display: inline-block;
-            margin-bottom: 3px;
-        }
-        .qr-caption {
-            font-size: 10px;
-            color: #000000 !important;
-            font-weight: 700 !important;
-            letter-spacing: 0.3px;
+            margin: 0 auto;
         }
 
         /* 80mm Thermal Printer Image Export Styles (Pure Black) */
@@ -549,7 +554,7 @@ $wa_text_encoded = urlencode($wa_text);
             max-width: 576px !important;
             height: auto !important;
             background-color: #ffffff !important;
-            padding: 24px 28px 32px 28px !important;
+            padding: 16px 14px 24px 14px !important;
             box-sizing: border-box !important;
             font-family: 'Consolas', 'Courier New', Courier, monospace, sans-serif !important;
             z-index: -9999 !important;
@@ -592,32 +597,38 @@ $wa_text_encoded = urlencode($wa_text);
         }
 
         .thermal-export-canvas .receipt-row {
-            font-size: 15px !important;
-            padding: 3.5px 0 !important;
-            line-height: 1.35 !important;
+            font-size: 14.5px !important;
+            padding: 3px 0 !important;
+            line-height: 1.3 !important;
+            width: 100% !important;
+            box-sizing: border-box !important;
         }
 
         .thermal-export-canvas .receipt-row .label {
-            font-size: 15px !important;
+            font-size: 14.5px !important;
             font-weight: 700 !important;
+            max-width: 52% !important;
         }
 
         .thermal-export-canvas .receipt-row .val {
-            font-size: 15.5px !important;
+            font-size: 14.5px !important;
             font-weight: 700 !important;
+            word-break: break-word !important;
+            overflow-wrap: anywhere !important;
+            flex: 1 !important;
         }
 
         .thermal-export-canvas .receipt-row-highlight,
         .thermal-export-canvas .receipt-row-highlight .label,
         .thermal-export-canvas .receipt-row-highlight .val {
-            font-size: 17px !important;
+            font-size: 15.5px !important;
             font-weight: 800 !important;
         }
 
         .thermal-export-canvas .receipt-row-due,
         .thermal-export-canvas .receipt-row-due .label,
         .thermal-export-canvas .receipt-row-due .val {
-            font-size: 19px !important;
+            font-size: 16px !important;
             font-weight: 900 !important;
         }
 
@@ -628,14 +639,23 @@ $wa_text_encoded = urlencode($wa_text);
             margin-bottom: 4px !important;
         }
 
-        .thermal-export-canvas .qr-img {
-            width: 110px !important;
-            height: 110px !important;
+        .thermal-export-canvas .barcode-section {
+            margin-top: 10px !important;
+            padding: 4px 0 !important;
+            text-align: center !important;
+            width: 100% !important;
+        }
+
+        .thermal-export-canvas #receipt-barcode {
+            width: 340px !important;
+            max-width: 92% !important;
+            height: auto !important;
             display: inline-block !important;
         }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.5/JsBarcode.all.min.js"></script>
 </head>
 <body>
 
@@ -728,7 +748,7 @@ $wa_text_encoded = urlencode($wa_text);
             <?php if (!empty($transaction_desc)): ?>
             <div class="receipt-row">
                 <span class="label">Particulars:</span>
-                <span class="val" style="font-size: 12px; max-width: 170px;"><?= htmlspecialchars($transaction_desc) ?></span>
+                <span class="val" style="font-size: 12px; word-break: break-word; overflow-wrap: anywhere; flex: 1;"><?= htmlspecialchars($transaction_desc) ?></span>
             </div>
             <?php endif; ?>
             <div style="display:none;">
@@ -823,15 +843,9 @@ $wa_text_encoded = urlencode($wa_text);
 
             <div class="divider-double"></div>
 
-            <!-- QR Code Verification Section -->
-            <div class="qr-section">
-                <?php if(!empty($wa_number)): ?>
-                <div>
-                    <img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=<?= urlencode("https://wa.me/{$wa_number}?text=" . $wa_text_encoded) ?>" 
-                         alt="Scan for Receipt" class="qr-img" onerror="this.parentElement.style.display='none'">
-                </div>
-                <div class="qr-caption" style="font-size: 11px; color: #000000; font-weight: 700;">Scan with camera for WhatsApp E-Receipt</div>
-                <?php endif; ?>
+            <!-- Barcode Section (Invoice Number) -->
+            <div class="barcode-section text-center">
+                <svg id="receipt-barcode"></svg>
             </div>
 
             <!-- Footer Notes -->
@@ -955,9 +969,24 @@ $wa_text_encoded = urlencode($wa_text);
                 clone.id = 'receipt-content-thermal-clone';
                 clone.className = 'thermal-export-canvas';
 
-                var qrImg = clone.querySelector('.qr-img');
-                if (qrImg) {
-                    qrImg.crossOrigin = 'anonymous';
+                var cloneBarcode = clone.querySelector('#receipt-barcode');
+                if (cloneBarcode && typeof JsBarcode === 'function') {
+                    try {
+                        JsBarcode(cloneBarcode, "<?= $invoice_number ?>", {
+                            format: "CODE128",
+                            lineColor: "#000000",
+                            width: 2.2,
+                            height: 46,
+                            displayValue: true,
+                            font: "monospace",
+                            fontOptions: "bold",
+                            fontSize: 14,
+                            textMargin: 4,
+                            margin: 0
+                        });
+                    } catch (e) {
+                        console.warn("Clone barcode error:", e);
+                    }
                 }
 
                 document.body.appendChild(clone);
@@ -1321,6 +1350,33 @@ $wa_text_encoded = urlencode($wa_text);
                 }
             }
         }
+
+        function initBarcode() {
+            try {
+                if (typeof JsBarcode === 'function') {
+                    JsBarcode("#receipt-barcode", "<?= $invoice_number ?>", {
+                        format: "CODE128",
+                        lineColor: "#000000",
+                        width: 1.8,
+                        height: 38,
+                        displayValue: true,
+                        font: "monospace",
+                        fontOptions: "bold",
+                        fontSize: 12,
+                        textMargin: 3,
+                        margin: 0
+                    });
+                }
+            } catch (e) {
+                console.warn("Barcode error:", e);
+            }
+        }
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initBarcode);
+        } else {
+            initBarcode();
+        }
+        window.addEventListener('load', initBarcode);
     </script>
 </body>
 </html>
