@@ -659,6 +659,9 @@ function formatBytes($bytes) {
                                     <button class="btn btn-danger btn-sm px-2 py-1 fw-bold shadow-sm mb-1 d-block w-100" onclick="openCollectModal('<?= $u['username'] ?>', <?= $u['id'] ?>, '<?= addslashes($u['full_name']) ?>', '<?= $u['balance'] ?>', '<?= $u['package_id'] ?? 0 ?>', '<?= (float)($u['package_price'] ?? 0) ?>', '<?= (int)(($u['package_validity'] ?? 0) > 0 ? $u['package_validity'] : 30) ?>', '<?= $u['expiry_date'] ?? '' ?>')">
                                         <i class="fa-solid fa-rotate"></i> Renew
                                     </button>
+                                    <button class="btn btn-warning text-dark btn-sm px-2 py-1 fw-bold shadow-sm mb-1 d-block w-100" onclick="openUpgradeModal('<?= $u['username'] ?>', <?= $u['id'] ?>, '<?= addslashes($u['full_name']) ?>', '<?= $u['balance'] ?>', '<?= $u['package_id'] ?? 0 ?>', '<?= (float)($u['package_price'] ?? 0) ?>', '<?= (int)(($u['package_validity'] ?? 0) > 0 ? $u['package_validity'] : 30) ?>', '<?= $u['expiry_date'] ?? '' ?>', '<?= addslashes($u['package_name'] ?? '') ?>')">
+                                        <i class="fa-solid fa-arrow-up-right-dots"></i> Upgrade
+                                    </button>
                                     <button type="button" class="btn btn-primary btn-sm px-2 py-1 fw-bold shadow-sm d-block w-100" 
                                         onclick="openEditUserModal(this)"
                                         data-id="<?= $u['id'] ?>"
@@ -816,6 +819,9 @@ function formatBytes($bytes) {
                                     <button class="btn btn-danger btn-sm px-2 py-1 fw-bold shadow-sm mb-1 d-block w-100" onclick="openCollectModal('<?= $u['username'] ?>', <?= $u['id'] ?>, '<?= addslashes($u['full_name']) ?>', '<?= $u['balance'] ?>', '<?= $u['package_id'] ?? 0 ?>', '<?= (float)($u['package_price'] ?? 0) ?>', '<?= (int)(($u['package_validity'] ?? 0) > 0 ? $u['package_validity'] : 30) ?>', '<?= $u['expiry_date'] ?? '' ?>')">
                                         <i class="fa-solid fa-rotate"></i> Renew
                                     </button>
+                                    <button class="btn btn-warning text-dark btn-sm px-2 py-1 fw-bold shadow-sm mb-1 d-block w-100" onclick="openUpgradeModal('<?= $u['username'] ?>', <?= $u['id'] ?>, '<?= addslashes($u['full_name']) ?>', '<?= $u['balance'] ?>', '<?= $u['package_id'] ?? 0 ?>', '<?= (float)($u['package_price'] ?? 0) ?>', '<?= (int)(($u['package_validity'] ?? 0) > 0 ? $u['package_validity'] : 30) ?>', '<?= $u['expiry_date'] ?? '' ?>', '<?= addslashes($u['package_name'] ?? '') ?>')">
+                                        <i class="fa-solid fa-arrow-up-right-dots"></i> Upgrade
+                                    </button>
                                     <button type="button" class="btn btn-primary btn-sm px-2 py-1 fw-bold shadow-sm d-block w-100" 
                                         onclick="openEditUserModal(this)"
                                         data-id="<?= $u['id'] ?>"
@@ -886,6 +892,100 @@ function formatBytes($bytes) {
             <?php endif; ?>
         </div>
     </div>
+</div>
+
+<!-- Upgrade Package Modal -->
+<div class="modal fade" id="upgradeModal" tabindex="-1" data-bs-backdrop="static">
+  <div class="modal-dialog">
+    <div class="modal-content border-0 rounded-4 shadow-lg overflow-hidden">
+      <div class="modal-header border-bottom px-4 pt-4 pb-3 bg-warning text-dark">
+        <h5 class="modal-title fw-bold">
+            <i class="fa-solid fa-arrow-up-right-dots me-2"></i> Upgrade Package
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST">
+        <input type="hidden" name="action" value="receive_payment">
+        <input type="hidden" name="subscriber_id" id="up_subid">
+        <input type="hidden" name="subscriber_username" id="up_subuser">
+
+        <div class="modal-body p-4 bg-light">
+            <!-- Subscriber Summary Card -->
+            <div class="card border-0 shadow-sm rounded-3 p-3 mb-3 bg-white">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <div>
+                        <h5 class="fw-bold text-dark mb-0" id="up_fullname"></h5>
+                        <span class="badge bg-primary font-monospace" id="up_username"></span>
+                    </div>
+                    <div class="text-end">
+                        <span class="small text-muted fw-bold">Current Balance</span>
+                        <div class="fw-bold fs-6" id="up_balance"></div>
+                    </div>
+                </div>
+                <div class="row g-2 pt-2 border-top text-secondary small">
+                    <div class="col-7">
+                        <i class="fa-solid fa-box text-primary me-1"></i> Current Package: <br>
+                        <strong class="text-dark" id="up_curpkg"></strong>
+                    </div>
+                    <div class="col-5 text-end">
+                        <i class="fa-solid fa-calendar-check text-success me-1"></i> Expiry: <br>
+                        <strong class="text-dark" id="up_curexpiry"></strong>
+                    </div>
+                </div>
+            </div>
+
+            <!-- New Package Selection -->
+            <div class="mb-3 text-start">
+                <label class="form-label fw-bold text-dark small text-uppercase">
+                    <i class="fa-solid fa-arrow-up text-warning me-1"></i> Select New Package to Upgrade <span class="text-danger">*</span>
+                </label>
+                <select name="new_package_id" id="up_newpkg" class="form-select form-select-lg fw-bold text-primary border-warning shadow-sm" required onchange="calcUpgradeAdjustment()">
+                    <option value="">-- Choose New Package --</option>
+                    <?php foreach($all_packages as $pkg): ?>
+                        <option value="<?= $pkg['id'] ?>" data-price="<?= $pkg['price'] ?>" data-days="<?= !empty($pkg['validity_days']) ? $pkg['validity_days'] : 30 ?>" data-name="<?= htmlspecialchars($pkg['name']) ?>">
+                            <?= htmlspecialchars($pkg['name']) ?> &nbsp;|&nbsp; Rs. <?= number_format($pkg['price']) ?> (<?= !empty($pkg['validity_days']) ? $pkg['validity_days'] : 30 ?> Days)
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
+            <!-- Live Pro-Rata Preview Container -->
+            <div id="up_calc_preview" class="mb-3">
+                <div class="alert alert-light border small text-muted text-center py-2 mb-0">
+                    <i class="fa-solid fa-arrow-pointer me-1"></i> Upar se naya package select karein, system automatically unused credit deduct kar dega.
+                </div>
+            </div>
+
+            <!-- Amount to Collect -->
+            <div class="mb-3 text-start">
+                <label class="form-label fw-bold text-dark small text-uppercase">
+                    Amount Received Now (Rs) <span class="text-danger">*</span>
+                </label>
+                <div class="input-group input-group-lg shadow-sm">
+                    <span class="input-group-text bg-white fw-bold text-success">Rs.</span>
+                    <input type="number" step="1" name="amount" id="up_amount" class="form-control fw-bold text-success fs-4" placeholder="0" required>
+                </div>
+                <div class="form-text text-muted small mt-1">
+                    <i class="fa-solid fa-info-circle me-1"></i> Package price minus remaining credit will be charged. Collected cash will be added to balance.
+                </div>
+            </div>
+
+            <!-- Notes -->
+            <div class="mb-2 text-start">
+                <label class="form-label fw-bold text-secondary small">Notes / Remarks (Optional)</label>
+                <input type="text" name="note" id="up_note" class="form-control bg-white" placeholder="e.g. Upgraded package">
+            </div>
+        </div>
+
+        <div class="modal-footer px-4 py-3 bg-white border-top">
+            <button type="button" class="btn btn-light fw-bold px-4 rounded-pill" data-bs-dismiss="modal">Cancel</button>
+            <button type="submit" class="btn btn-warning text-dark fw-bold px-5 rounded-pill shadow-sm">
+                <i class="fa-solid fa-arrow-up-right-dots me-1"></i> Confirm Upgrade
+            </button>
+        </div>
+      </form>
+    </div>
+  </div>
 </div>
 
 <!-- Collect Payment Modal -->
@@ -993,6 +1093,110 @@ let curSubPkgPrice = 0;
 let curSubPkgVal = 30;
 let curSubExpiry = '';
 let curSubBalance = 0;
+
+let upSubPkgId = 0;
+let upSubPkgPrice = 0;
+let upSubPkgVal = 30;
+let upSubExpiry = '';
+let upSubBalance = 0;
+
+function openUpgradeModal(username, id, fullname, balance, pkgId, pkgPrice, pkgVal, expiry, pkgName) {
+    document.getElementById('up_subid').value = id;
+    document.getElementById('up_subuser').value = username;
+    document.getElementById('up_username').innerText = username;
+    document.getElementById('up_fullname').innerText = fullname;
+    
+    let balColor = parseFloat(balance) < 0 ? 'text-danger' : 'text-success';
+    document.getElementById('up_balance').innerHTML = `<span class="${balColor}">Rs. ${balance}</span>`;
+    
+    document.getElementById('up_curpkg').innerText = (pkgName || 'Current Package') + (pkgPrice > 0 ? ' (Rs. ' + Number(pkgPrice).toLocaleString() + ')' : '');
+    
+    if (expiry && expiry !== '0000-00-00 00:00:00') {
+        let expDate = new Date(expiry);
+        document.getElementById('up_curexpiry').innerText = isNaN(expDate.getTime()) ? expiry : expDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    } else {
+        document.getElementById('up_curexpiry').innerText = 'Expired / None';
+    }
+    
+    upSubPkgId = parseInt(pkgId || 0);
+    upSubPkgPrice = parseFloat(pkgPrice || 0);
+    upSubPkgVal = parseInt(pkgVal || 30);
+    upSubExpiry = expiry || '';
+    upSubBalance = parseFloat(balance || 0);
+    
+    const pkgSelect = document.getElementById('up_newpkg');
+    if (pkgSelect) pkgSelect.value = '';
+    
+    document.getElementById('up_amount').value = '';
+    document.getElementById('up_note').value = 'Package Upgrade: ' + (pkgName || 'Old Package');
+    document.getElementById('up_calc_preview').innerHTML = '<div class="alert alert-light border small text-muted text-center py-2 mb-0"><i class="fa-solid fa-arrow-pointer me-1"></i> Upar se naya package select karein, system automatically unused credit deduct kar dega.</div>';
+    
+    var modal = new bootstrap.Modal(document.getElementById('upgradeModal'));
+    modal.show();
+}
+
+function calcUpgradeAdjustment() {
+    const pkgSelect = document.getElementById('up_newpkg');
+    const amountInput = document.getElementById('up_amount');
+    const previewDiv = document.getElementById('up_calc_preview');
+    if (!pkgSelect || !amountInput) return;
+    
+    if (!pkgSelect.value) {
+        amountInput.value = '';
+        if (previewDiv) {
+            previewDiv.innerHTML = '<div class="alert alert-light border small text-muted text-center py-2 mb-0"><i class="fa-solid fa-arrow-pointer me-1"></i> Upar se naya package select karein, system automatically unused credit deduct kar dega.</div>';
+        }
+        return;
+    }
+    
+    const opt = pkgSelect.options[pkgSelect.selectedIndex];
+    const newPrice = parseFloat(opt.dataset.price || 0);
+    const newName = opt.dataset.name || 'New Package';
+    const newDays = parseInt(opt.dataset.days || 30);
+    
+    const now = Math.floor(Date.now() / 1000);
+    let curExpTs = upSubExpiry ? Math.floor(new Date(upSubExpiry).getTime() / 1000) : 0;
+    if (isNaN(curExpTs)) curExpTs = 0;
+    
+    let oldCredit = 0;
+    let remDays = 0;
+    if (curExpTs > now && upSubPkgPrice > 0) {
+        remDays = Math.round(((curExpTs - now) / 86400) * 10) / 10;
+        const oldDaily = upSubPkgPrice / (upSubPkgVal > 0 ? upSubPkgVal : 30);
+        oldCredit = Math.round(((curExpTs - now) / 86400) * oldDaily * 100) / 100;
+    }
+    
+    const netPayable = Math.max(0, Math.round(newPrice - oldCredit));
+    amountInput.value = netPayable;
+    document.getElementById('up_note').value = 'Upgraded to ' + newName;
+    
+    if (previewDiv) {
+        if (oldCredit > 0) {
+            previewDiv.innerHTML = '<div class="alert alert-success border border-success-subtle p-3 rounded-3 text-start mb-0" style="background:#f0fdf4;">' +
+                '<div class="d-flex justify-content-between align-items-center mb-2">' +
+                    '<span class="fw-bold text-dark"><i class="fa-solid fa-calculator text-primary me-1"></i> Pro-Rata Upgrade Calculation</span>' +
+                    '<span class="badge bg-success">' + remDays + ' Days Credit Deducted</span>' +
+                '</div>' +
+                '<div class="text-secondary small">' +
+                    '<div class="d-flex justify-content-between py-1 border-bottom border-success-subtle"><span>New Package Price (' + newDays + ' Days):</span><strong class="text-dark">Rs. ' + newPrice.toLocaleString() + '</strong></div>' +
+                    '<div class="d-flex justify-content-between py-1 border-bottom border-success-subtle"><span>Old Package Unused Credit (' + remDays + ' days left):</span><strong class="text-success">- Rs. ' + oldCredit.toFixed(2) + '</strong></div>' +
+                    '<div class="d-flex justify-content-between pt-2 fs-6"><span><strong>Net Amount to Collect:</strong></span><strong class="text-primary fs-5">Rs. ' + netPayable.toLocaleString() + '</strong></div>' +
+                '</div>' +
+            '</div>';
+        } else {
+            previewDiv.innerHTML = '<div class="alert alert-info border border-info-subtle p-3 rounded-3 text-start mb-0" style="background:#f0f9ff;">' +
+                '<div class="d-flex justify-content-between align-items-center mb-2">' +
+                    '<span class="fw-bold text-dark"><i class="fa-solid fa-info-circle text-info me-1"></i> Standard Upgrade (Package Expired)</span>' +
+                    '<span class="badge bg-secondary">0 Days Left</span>' +
+                '</div>' +
+                '<div class="text-secondary small">' +
+                    '<div class="d-flex justify-content-between py-1 border-bottom border-info-subtle"><span>New Package Price (' + newDays + ' Days):</span><strong class="text-dark">Rs. ' + newPrice.toLocaleString() + '</strong></div>' +
+                    '<div class="d-flex justify-content-between pt-2 fs-6"><span><strong>Net Amount to Collect:</strong></span><strong class="text-primary fs-5">Rs. ' + newPrice.toLocaleString() + '</strong></div>' +
+                '</div>' +
+            '</div>';
+        }
+    }
+}
 
 function openCollectModal(username, id, fullname, balance, pkgId, pkgPrice, pkgVal, expiry) {
     document.getElementById('m_username').innerText = username;
