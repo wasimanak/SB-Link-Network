@@ -394,9 +394,10 @@ $wa_text_encoded = urlencode($wa_text);
             }
 
             .btn-print { background: #0f172a; color: #ffffff; }
+            .btn-gallery { background: #2563eb; color: #ffffff; }
             .btn-pdf { background: #e11d48; color: #ffffff; }
             .btn-whatsapp { background: #16a34a; color: #ffffff; }
-            .btn-back { background: #475569; color: #ffffff; }
+            .btn-back { grid-column: span 2; background: #475569; color: #ffffff; }
 
             .receipt-wrapper {
                 background: #ffffff;
@@ -476,7 +477,88 @@ $wa_text_encoded = urlencode($wa_text);
             color: #333;
             letter-spacing: 0.3px;
         }
+
+        /* 80mm Thermal Printer Image Export Styles (Pure Black) */
+        .thermal-export-canvas {
+            position: fixed !important;
+            left: -9999px !important;
+            top: 0 !important;
+            width: 576px !important;
+            min-width: 576px !important;
+            max-width: 576px !important;
+            height: auto !important;
+            background-color: #ffffff !important;
+            padding: 24px 28px 32px 28px !important;
+            box-sizing: border-box !important;
+            font-family: 'Consolas', 'Courier New', Courier, monospace, sans-serif !important;
+            z-index: -9999 !important;
+            color: #000000 !important;
+        }
+
+        .thermal-export-canvas * {
+            color: #000000 !important;
+            border-color: #000000 !important;
+            background: transparent !important;
+            background-color: transparent !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+        }
+
+        .thermal-export-canvas .amount-box {
+            border: 2px solid #000000 !important;
+            background-color: #ffffff !important;
+            padding: 8px 12px !important;
+            margin: 8px 0 !important;
+        }
+
+        .thermal-export-canvas .divider-dashed {
+            border-bottom: 2px dashed #000000 !important;
+            margin: 8px 0 !important;
+            height: 2px !important;
+        }
+
+        .thermal-export-canvas .divider-double {
+            border-bottom: 4px double #000000 !important;
+            margin: 10px 0 !important;
+            height: 4px !important;
+        }
+
+        .thermal-export-canvas .divider-solid {
+            border-bottom: 2px solid #000000 !important;
+            margin: 8px 0 !important;
+            height: 2px !important;
+        }
+
+        .thermal-export-canvas .receipt-row {
+            font-size: 15px !important;
+            padding: 3.5px 0 !important;
+            line-height: 1.35 !important;
+        }
+
+        .thermal-export-canvas .receipt-row .label {
+            font-size: 15px !important;
+            font-weight: 700 !important;
+        }
+
+        .thermal-export-canvas .receipt-row .val {
+            font-size: 15.5px !important;
+            font-weight: 700 !important;
+        }
+
+        .thermal-export-canvas .section-tag {
+            font-size: 12.5px !important;
+            font-weight: 900 !important;
+            letter-spacing: 1.2px !important;
+            margin-bottom: 4px !important;
+        }
+
+        .thermal-export-canvas .qr-img {
+            width: 110px !important;
+            height: 110px !important;
+            display: inline-block !important;
+        }
     </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 </head>
 <body>
@@ -491,6 +573,9 @@ $wa_text_encoded = urlencode($wa_text);
     <div class="no-print-toolbar">
         <button type="button" class="btn-action btn-print" onclick="window.print()">
             <i class="fa-solid fa-print"></i> Print (80mm)
+        </button>
+        <button type="button" class="btn-action btn-gallery" id="btnDownloadImg" onclick="downloadImage()">
+            <i class="fa-solid fa-images"></i> Download to Gallery
         </button>
         <button type="button" class="btn-action btn-pdf" id="btnDownloadPdf" onclick="downloadPDF()">
             <i class="fa-solid fa-file-pdf"></i> Download PDF
@@ -767,6 +852,94 @@ $wa_text_encoded = urlencode($wa_text);
                 }
                 alert('Error: ' + err);
             });
+        }
+
+        function downloadImage() {
+            var element = document.getElementById('receipt-content');
+            if (!element) return;
+
+            var btn = document.getElementById('btnDownloadImg');
+            var origHtml = btn ? btn.innerHTML : '';
+            if (btn) {
+                btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
+                btn.disabled = true;
+            }
+
+            // 1. Create a specialized 80mm thermal clone offscreen
+            var clone = element.cloneNode(true);
+            clone.id = 'receipt-content-thermal-clone';
+            clone.className = 'thermal-export-canvas';
+
+            // Set image cross-origin if QR exists
+            var qrImg = clone.querySelector('.qr-img');
+            if (qrImg) {
+                qrImg.crossOrigin = 'anonymous';
+            }
+
+            document.body.appendChild(clone);
+
+            // Give browser brief tick to layout the clone
+            setTimeout(function() {
+                html2canvas(clone, {
+                    scale: 2, // 2x high resolution for crisp, needle-sharp thermal printing
+                    backgroundColor: '#ffffff',
+                    useCORS: true,
+                    allowTaint: true,
+                    logging: false,
+                    width: 576,
+                    windowWidth: 576
+                }).then(function(canvas) {
+                    // Clean up clone immediately
+                    if (clone && clone.parentNode) {
+                        clone.parentNode.removeChild(clone);
+                    }
+
+                    if (btn) {
+                        btn.innerHTML = origHtml;
+                        btn.disabled = false;
+                    }
+
+                    var filename = 'Receipt_<?= $sub["username"] ?>_80mm.png';
+
+                    canvas.toBlob(function(blob) {
+                        if (!blob) {
+                            var dataUrl = canvas.toDataURL('image/png');
+                            var a = document.createElement('a');
+                            a.href = dataUrl;
+                            a.download = filename;
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            alert('Receipt image downloaded to Gallery / Downloads!');
+                            return;
+                        }
+
+                        var url = URL.createObjectURL(blob);
+                        var a = document.createElement('a');
+                        a.href = url;
+                        a.download = filename;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+
+                        setTimeout(function() {
+                            URL.revokeObjectURL(url);
+                        }, 3000);
+
+                        alert('Receipt image saved to Gallery / Downloads!');
+                    }, 'image/png', 1.0);
+                }).catch(function(err) {
+                    if (clone && clone.parentNode) {
+                        clone.parentNode.removeChild(clone);
+                    }
+                    if (btn) {
+                        btn.innerHTML = origHtml;
+                        btn.disabled = false;
+                    }
+                    console.error('html2canvas error:', err);
+                    alert('Error creating receipt image: ' + err);
+                });
+            }, 60);
         }
 
         // Automatically trigger print dialog on page load
