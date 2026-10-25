@@ -71,10 +71,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 ->execute([$client_id, $rm_name, $sub_username, $act_msg]);
                 
             $pdo->commit();
+            $sq = urlencode($_GET['search_query'] ?? '');
+            $ret = urlencode('dashboard.php' . ($sq ? "?search_query=$sq" : ''));
             echo "<script>
     alert('Payment Collected Successfully!');
-    var pw = window.open('print_receipt.php?sub_id={$sub_id}&paid={$amount}&type=collect', '_blank');
-    if(pw){ window.location='dashboard.php'; } else { window.location='print_receipt.php?sub_id={$sub_id}&paid={$amount}&type=collect'; }
+    window.location.href = 'print_receipt.php?sub_id={$sub_id}&paid={$amount}&type=collect&return={$ret}';
 </script>";
             exit;
         } else {
@@ -277,11 +278,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $alert_msg .= "Old Unused Credit Adjusted: - Rs. " . number_format($old_remaining_credit, 2) . "\n";
         }
         $alert_msg .= "Net Charged: Rs. " . number_format($net_package_charge, 2) . "\nCollected: Rs. " . number_format($amount, 2) . "\nNew Balance: Rs. " . number_format($final_bal, 2) . "\nExpiry: " . date('d M Y', $new_expiry_time);
-        $sq = urlencode($_GET['search_query']??'');
+        $sq = urlencode($_GET['search_query'] ?? '');
+        $ret = urlencode('dashboard.php' . ($sq ? "?search_query=$sq" : ''));
         echo "<script>
             alert('" . addslashes($alert_msg) . "');
-            var pw = window.open('print_receipt.php?sub_id={$sub_id}&paid={$amount}&type=renew', '_blank');
-            if(pw){ window.location='dashboard.php?search_query=$sq'; } else { window.location='print_receipt.php?sub_id={$sub_id}&paid={$amount}&type=renew'; }
+            window.location.href = 'print_receipt.php?sub_id={$sub_id}&paid={$amount}&type=renew&return={$ret}';
         </script>";
         exit;
     } catch (Exception $e) {
