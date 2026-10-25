@@ -315,7 +315,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     ->execute([$client_id, $sub_user, $actStr]);
                 
                 $pdo->commit();
-                echo "<script>alert('Balance successfully updated for user " . addslashes($sub_user) . "!'); window.location='dashboard.php';</script>";
+                if ($final_amount > 0) {
+                    $ret = urlencode("dashboard.php");
+                    $target_url = "print_receipt.php?sub_id={$sub_id}&paid={$absAmount}&type=collect&return={$ret}";
+                    $json_alert = json_encode("Payment successfully added for user {$sub_user}! Opening 80mm Print Receipt...");
+                    echo "<!DOCTYPE html>
+<html>
+<head>
+    <meta charset='UTF-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+    <title>Payment Added</title>
+    <link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css' rel='stylesheet'>
+    <link rel='stylesheet' href='https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css'>
+</head>
+<body class='bg-light d-flex align-items-center justify-content-center' style='min-height: 100vh;'>
+    <div class='card border-0 shadow-sm rounded-4 p-4 text-center' style='max-width: 440px; width: 92%;'>
+        <div class='spinner-border text-success mb-3' style='width: 3rem; height: 3rem;' role='status'></div>
+        <h4 class='fw-bold text-dark mb-1'><i class='fa-solid fa-circle-check text-success me-2'></i> Payment Added!</h4>
+        <p class='text-muted small mb-3'>Opening 80mm Print Receipt...</p>
+        <a href='{$target_url}' class='btn btn-success fw-bold px-4 py-2 rounded-pill shadow-sm'>
+            <i class='fa-solid fa-print me-1'></i> Open 80mm Receipt Now
+        </a>
+    </div>
+    <script>
+        var alertMsg = {$json_alert};
+        if (alertMsg) alert(alertMsg);
+        window.location.href = '{$target_url}';
+    </script>
+</body>
+</html>";
+                    exit;
+                } else {
+                    echo "<script>alert('Balance successfully updated for user " . addslashes($sub_user) . "!'); window.location='dashboard.php';</script>";
+                    exit;
+                }
                 exit;
             } catch (Exception $e) {
                 $pdo->rollBack();
