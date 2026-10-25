@@ -17,33 +17,21 @@ $custom_date = '';
 $paid_amount = isset($_GET['paid']) ? (float)$_GET['paid'] : 0;
 $type = isset($_GET['type']) ? $_GET['type'] : 'renew'; // renew or collect
 
-// Authentication Check: RecoveryMan, Operator, Admin, or Secure Public Link
+// Authentication Check: RecoveryMan, Operator, or Admin
 $is_authenticated = false;
-$is_public_view = false;
-$token = $_GET['token'] ?? '';
-if (!empty($token) && !empty($sub_id)) {
-    $expected_token = md5($sub_id . '_receipt_secure_sblink');
-    if (hash_equals($expected_token, $token)) {
-        $is_authenticated = true;
-        $is_public_view = true;
+if ($rm_id > 0) {
+    $is_authenticated = true;
+} elseif (!empty($_SESSION['operator_logged_in']) || !empty($_SESSION['operator_id'])) {
+    $client_id = (int)$_SESSION['operator_id'];
+    if (!empty($_SESSION['is_manager'])) {
+        $rm_name = !empty($_SESSION['manager_name']) ? $_SESSION['manager_name'] . ' (Manager)' : 'Manager';
+    } else {
+        $rm_name = !empty($_SESSION['operator_name']) ? $_SESSION['operator_name'] . ' (Admin)' : 'Admin';
     }
-}
-
-if (!$is_authenticated) {
-    if ($rm_id > 0) {
-        $is_authenticated = true;
-    } elseif (!empty($_SESSION['operator_logged_in']) || !empty($_SESSION['operator_id'])) {
-        $client_id = (int)$_SESSION['operator_id'];
-        if (!empty($_SESSION['is_manager'])) {
-            $rm_name = !empty($_SESSION['manager_name']) ? $_SESSION['manager_name'] . ' (Manager)' : 'Manager';
-        } else {
-            $rm_name = !empty($_SESSION['operator_name']) ? $_SESSION['operator_name'] . ' (Admin)' : 'Admin';
-        }
-        $is_authenticated = true;
-    } elseif (!empty($_SESSION['admin_logged_in'])) {
-        $rm_name = 'Admin';
-        $is_authenticated = true;
-    }
+    $is_authenticated = true;
+} elseif (!empty($_SESSION['admin_logged_in'])) {
+    $rm_name = 'Admin';
+    $is_authenticated = true;
 }
 
 if (!$is_authenticated) {
@@ -177,9 +165,6 @@ if ($rm_id > 0) {
         }
     }
 }
-if ($is_public_view && empty($_SESSION['rm_name']) && empty($_SESSION['operator_name']) && empty($_SESSION['admin_logged_in']) && $rm_name === 'Recovery Agent') {
-    $rm_name = 'Authorized Agent';
-}
 
 // 3. Fetch Operator / Company Details
 $operator = null;
@@ -256,19 +241,6 @@ if (!empty($cust_phone)) {
     }
 }
 
-// Generate Secure Public Receipt URL for WhatsApp Link
-$public_token = md5($sub_id . '_receipt_secure_sblink');
-$proto = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' || ($_SERVER['SERVER_PORT'] ?? 80) == 443) ? 'https://' : 'http://';
-$host = $_SERVER['HTTP_HOST'] ?? 'localhost';
-$current_script = $_SERVER['SCRIPT_NAME'] ?? '/recoveryman/print_receipt.php';
-$extra_params = '';
-if ($ledger_id > 0) {
-    $extra_params .= "&ledger_id={$ledger_id}";
-} elseif (isset($_GET['paid'])) {
-    $extra_params .= "&paid=" . urlencode((string)$paid_amount);
-}
-$public_receipt_url = $proto . $host . $current_script . "?sub_id={$sub_id}&token={$public_token}" . $extra_params;
-
 // WhatsApp Text Receipt
 $wa_text = "*PAYMENT RECEIPT*\n";
 $wa_text .= "--------------------------------\n";
@@ -296,9 +268,6 @@ if ($due_amount > 0) {
     $wa_text .= "Adv Balance: Rs. " . number_format($adv_amount, 0) . "\n";
 }
 $wa_text .= "Agent: {$rm_name}\n";
-$wa_text .= "--------------------------------\n";
-$wa_text .= "📄 View/Download PDF Receipt:\n";
-$wa_text .= "{$public_receipt_url}\n";
 $wa_text .= "--------------------------------\n";
 $wa_text .= "Thank you for your payment!";
 $wa_text_encoded = urlencode($wa_text);
@@ -801,32 +770,12 @@ $wa_text_encoded = urlencode($wa_text);
 <body>
 
     <!-- Top Success Confirmation -->
-    <?php if($is_public_view): ?>
-    <div class="alert-top no-print" style="background: #e0f2fe; color: #0369a1; border-color: #bae6fd;">
-        <i class="fa-solid fa-receipt me-1 text-primary"></i>
-        Official Customer Payment Receipt
-    </div>
-    <?php else: ?>
     <div class="alert-top no-print">
         <i class="fa-solid fa-circle-check me-1 text-success"></i>
         <?= !empty($ledger_id) ? 'Official Receipt (Transaction Copy)' : (($type === 'renew') ? 'Package Renewed &amp; Activated!' : 'Payment Collected Successfully!') ?>
     </div>
-    <?php endif; ?>
 
     <!-- Screen Action Toolbar -->
-    <?php if($is_public_view): ?>
-    <div class="no-print-toolbar" style="max-width: 380px;">
-        <button type="button" class="btn-action btn-pdf" id="btnDownloadPdf" onclick="downloadPDF()" style="grid-column: span 1;">
-            <i class="fa-solid fa-file-pdf"></i> Download PDF
-        </button>
-        <button type="button" class="btn-action btn-gallery" id="btnDownloadImg" onclick="downloadImage()" style="grid-column: span 1;">
-            <i class="fa-solid fa-images"></i> Save Image
-        </button>
-        <button type="button" class="btn-action btn-print" onclick="window.print()" style="grid-column: span 2;">
-            <i class="fa-solid fa-print"></i> Print Receipt
-        </button>
-    </div>
-    <?php else: ?>
     <div class="no-print-toolbar">
         <button type="button" class="btn-action btn-print" id="btnPrintMain" onclick="handlePrintClick()">
             <i class="fa-solid fa-print"></i> Print (80mm)
@@ -858,7 +807,6 @@ $wa_text_encoded = urlencode($wa_text);
             </span>
         </div>
     </div>
-    <?php endif; ?>
 
     <!-- Bluetooth Status Banner -->
     <div id="bleStatusBanner" class="no-print" style="display:none; width: 360px; max-width: 95vw; background:#eff6ff; color:#1e40af; border:1px solid #bfdbfe; font-size:12px; font-weight:700; padding:8px 12px; border-radius:10px; margin-bottom:12px; text-align:center;">
