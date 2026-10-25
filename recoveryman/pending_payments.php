@@ -60,10 +60,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 ->execute([$client_id, $rm_name, $sub_username, $act_msg]);
                 
             $pdo->commit();
+            $ret = urlencode('pending_payments.php');
             echo "<script>
                 alert('Payment Collected Successfully!');
-                var pw = window.open('print_receipt.php?sub_id={$sub_id}&paid={$amount}&type=collect', '_blank');
-                if(pw){ window.location='pending_payments.php'; } else { window.location='print_receipt.php?sub_id={$sub_id}&paid={$amount}&type=collect'; }
+                window.location.href = 'print_receipt.php?sub_id={$sub_id}&paid={$amount}&type=collect&return={$ret}';
             </script>";
             exit;
         } else {
