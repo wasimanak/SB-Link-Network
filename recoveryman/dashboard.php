@@ -352,7 +352,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $mobile = trim($_POST['mobile']);
     $address = trim($_POST['address']);
     $package_id = (int)$_POST['package_id'];
-    $amount_collected = (float)$_POST['amount_collected'];
 
     try {
         $pdo->beginTransaction();
@@ -372,48 +371,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         
         $package_price = (float)$pkg['price'];
         
-        // 1 Month Expiry
-        $now = time();
-        $new_expiry_time = strtotime('+1 month', $now);
-        $new_expiry_db = date('Y-m-d H:i:s', $new_expiry_time);
-        $new_expiry_rad = date('d M Y H:i:s', $new_expiry_time);
+        // Default Expired Expiry (1 minute in the past)
+        $past_time = time() - 60;
+        $expiry_db = date('Y-m-d H:i:s', $past_time);
+        $expiry_rad = date('d M Y H:i:s', $past_time);
         
-        // Calculate Initial Balance (Collected - Package Price)
-        $initial_balance = $amount_collected - $package_price;
+        // Initial Balance 0.00
+        $initial_balance = 0.00;
 
-        // Insert Subscriber
-        $insSub = $pdo->prepare("INSERT INTO subscribers (client_id, package_id, username, password, full_name, mobile, address, service_type, status, balance, expiry_date) VALUES (?, ?, ?, ?, ?, ?, ?, 'pppoe', 'active', ?, ?)");
-        $insSub->execute([$client_id, $package_id, $username, $password, $full_name, $mobile, $address, $initial_balance, $new_expiry_db]);
+        // Insert Subscriber as EXPIRED
+        $insSub = $pdo->prepare("INSERT INTO subscribers (client_id, package_id, username, password, full_name, mobile, address, service_type, status, balance, expiry_date) VALUES (?, ?, ?, ?, ?, ?, ?, 'pppoe', 'expired', ?, ?)");
+        $insSub->execute([$client_id, $package_id, $username, $password, $full_name, $mobile, $address, $initial_balance, $expiry_db]);
+        $new_sub_id = (int)$pdo->lastInsertId();
         
-        // Insert RADIUS basics
+        // Insert RADIUS basics with Auth-Type := Reject until renewed
         $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Cleartext-Password', ':=', ?)")->execute([$username, $password]);
-        $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Expiration', ':=', ?)")->execute([$username, $new_expiry_rad]);
+        $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute IN ('Expiration', 'Auth-Type')")->execute([$username]);
+        $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Expiration', ':=', ?)")->execute([$username, $expiry_rad]);
+        $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Auth-Type', ':=', 'Reject')")->execute([$username]);
         
-        if (!empty($pkg['rate_limit']) && $pkg['rate_limit'] !== 'No Limit') {
+        // Radusergroup
+        $pdo->prepare("DELETE FROM radusergroup WHERE username = ?")->execute([$username]);
+        $pdo->prepare("INSERT INTO radusergroup (username, groupname, priority) VALUES (?, ?, 1)")->execute([$username, $pkg['name']]);
+        
+        if (!empty($pkg['rate_limit']) && $pkg['rate_limit'] !== 'No Limit' && $pkg['rate_limit'] !== 'Unlimited') {
+            $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Rate-Limit'")->execute([$username]);
             $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Rate-Limit', '=', ?)")->execute([$username, $pkg['rate_limit']]);
-        }
-        
-        // Ledger Entries
-        // A. Package Charge
-        $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, description, balance_after) VALUES (?, ?, 'debit', ?, ?, ?)")
-            ->execute([$client_id, $username, $package_price, "Account Created. Initial Package Charge ({$pkg['name']})", (0 - $package_price)]);
-            
-        // B. Amount Collected
-        if ($amount_collected > 0) {
-            $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, description, balance_after) VALUES (?, ?, 'credit', ?, ?, ?)")
-                ->execute([$client_id, $username, $amount_collected, "Initial Payment Collected by RM: " . $_SESSION['rm_username'], $initial_balance]);
-                
-            // Update RM Cash
-            $pdo->prepare("UPDATE recovery_men SET cash_in_hand = cash_in_hand + ? WHERE id = ?")->execute([$amount_collected, $rm_id]);
         }
 
         // Activity Log
-        $activity_msg = "Created New User with {$pkg['name']}. Charged: Rs. $package_price. Collected: Rs. $amount_collected. Expiry: " . date('d M Y', $new_expiry_time);
+        $activity_msg = "Created New User '{$username}' with package {$pkg['name']} (Default Expired). Ready for renewal & activation.";
         $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, 'RecoveryMan', ?, 'User', ?)")
             ->execute([$client_id, $rm_name, $username, $activity_msg]);
 
         $pdo->commit();
-        echo "<script>alert('User Created Successfully!\\nExpiry set to 1 Month.\\nBalance: Rs. $initial_balance'); window.location='dashboard.php';</script>";
+        echo "<script>alert('User created successfully in EXPIRED status!\\n\\nSubscribers list me ja kar Renew button dabayein ta k package activate ho aur payment collect ki ja sakay.'); window.location='dashboard.php?search_query=" . urlencode($username) . "';</script>";
         exit;
         
     } catch (Exception $e) {
@@ -1650,7 +1642,7 @@ function stopLiveSpeed() {
                     <input type="text" name="address" class="form-control" placeholder="Street 1, House 2">
                 </div>
                 <div class="col-12">
-                    <label class="form-label fw-bold small text-secondary">Select Package (1 Month Validity)</label>
+                    <label class="form-label fw-bold small text-secondary">Select Package</label>
                     <select name="package_id" class="form-select fw-bold text-primary" required>
                         <option value="">-- Choose Package --</option>
                         <?php foreach($all_packages as $pkg): ?>
@@ -1659,12 +1651,11 @@ function stopLiveSpeed() {
                     </select>
                 </div>
                 <div class="col-12">
-                    <label class="form-label fw-bold small text-secondary">Amount Collected Now (Optional)</label>
-                    <div class="input-group">
-                        <span class="input-group-text bg-white">Rs.</span>
-                        <input type="number" step="0.01" name="amount_collected" class="form-control" value="0" placeholder="0.00">
+                    <div class="alert alert-info border border-info-subtle rounded-3 py-2 px-3 mb-0" style="font-size: 0.84rem; background: #f0f9ff; color: #0369a1;">
+                        <i class="fa-solid fa-circle-info me-1 text-primary"></i>
+                        <strong>Default Status: Expired</strong><br>
+                        Naya user by default <strong>Expired</strong> banega. Account create hone ke baad list se <strong>Renew</strong> button daba kar package activate karein aur payment collect karein.
                     </div>
-                    <small class="text-muted">If you don't collect the full package price, the remaining will be saved as a Minus (-) Balance for this user.</small>
                 </div>
             </div>
         </div>
