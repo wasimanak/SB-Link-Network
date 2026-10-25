@@ -215,7 +215,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } catch (Exception $e) {}
 
         $ret = urlencode($redirect_url);
-        $paid_val = ($net_adjustment > 0) ? $net_adjustment : (float)$pkg['price'];
+        $paid_val = ($current_bal > 0) ? min((float)$current_bal, (float)$net_adjustment) : 0;
         $target_url = "print_receipt.php?sub_id={$user_id}&paid={$paid_val}&type=renew&return={$ret}";
         $json_alert = json_encode("User renewed successfully! Opening 80mm Print Receipt...");
 
