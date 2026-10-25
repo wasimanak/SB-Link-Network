@@ -45,39 +45,42 @@ if ($sub_id <= 0) {
     echo "<div class='card p-4 text-center rounded-4 shadow-sm' style='max-width:400px;'>";
     echo "<h5 class='fw-bold text-danger mb-2'>Invalid Request</h5>";
     echo "<p class='text-muted small mb-3'>No subscriber ID was provided.</p>";
-    echo "<a href='{$return_url}' class='btn btn-secondary rounded-pill px-4'>Back to Dashboard</a>";
+    echo "<a href='" . htmlspecialchars($return_url) . "' class='btn btn-secondary rounded-pill px-4'>Back to Dashboard</a>";
     echo "</div></body></html>";
     exit;
 }
 
-// Fetch Subscriber Details
+// 1. Fetch Subscriber Details
 $sub = null;
-if ($client_id > 0) {
-    $subStmt = $pdo->prepare("
-        SELECT s.id, s.client_id, s.username, s.full_name, s.balance, s.expiry_date, s.mobile, s.phone, s.address, 
-               p.name as package_name, p.price as package_price 
-        FROM subscribers s 
-        LEFT JOIN packages p ON s.package_id = p.id 
-        WHERE s.id = ? AND s.client_id = ?
-    ");
-    $subStmt->execute([$sub_id, $client_id]);
-    $sub = $subStmt->fetch(PDO::FETCH_ASSOC);
-}
-
-// Fallback search by sub_id only if client_id was 0 or not matched
-if (!$sub) {
-    $subStmt = $pdo->prepare("
-        SELECT s.id, s.client_id, s.username, s.full_name, s.balance, s.expiry_date, s.mobile, s.phone, s.address, 
-               p.name as package_name, p.price as package_price 
-        FROM subscribers s 
-        LEFT JOIN packages p ON s.package_id = p.id 
-        WHERE s.id = ?
-    ");
-    $subStmt->execute([$sub_id]);
-    $sub = $subStmt->fetch(PDO::FETCH_ASSOC);
-    if ($sub && $client_id === 0) {
-        $client_id = (int)$sub['client_id'];
+try {
+    if ($client_id > 0) {
+        $subStmt = $pdo->prepare("
+            SELECT s.id, s.client_id, s.username, s.full_name, s.balance, s.expiry_date, s.mobile, s.phone, s.address, 
+                   p.name as package_name, p.price as package_price 
+            FROM subscribers s 
+            LEFT JOIN packages p ON s.package_id = p.id 
+            WHERE s.id = ? AND s.client_id = ?
+        ");
+        $subStmt->execute([$sub_id, $client_id]);
+        $sub = $subStmt->fetch(PDO::FETCH_ASSOC);
     }
+    // Fallback if not found with client_id or client_id is 0
+    if (!$sub) {
+        $subStmt = $pdo->prepare("
+            SELECT s.id, s.client_id, s.username, s.full_name, s.balance, s.expiry_date, s.mobile, s.phone, s.address, 
+                   p.name as package_name, p.price as package_price 
+            FROM subscribers s 
+            LEFT JOIN packages p ON s.package_id = p.id 
+            WHERE s.id = ?
+        ");
+        $subStmt->execute([$sub_id]);
+        $sub = $subStmt->fetch(PDO::FETCH_ASSOC);
+        if ($sub && $client_id === 0) {
+            $client_id = (int)($sub['client_id'] ?? 0);
+        }
+    }
+} catch (Exception $e) {
+    $sub = null;
 }
 
 if (!$sub) {
@@ -87,39 +90,54 @@ if (!$sub) {
     echo "<div class='card p-4 text-center rounded-4 shadow-sm' style='max-width:400px;'>";
     echo "<h5 class='fw-bold text-danger mb-2'>Subscriber Not Found</h5>";
     echo "<p class='text-muted small mb-3'>The subscriber record (ID: {$sub_id}) was not found in database.</p>";
-    echo "<a href='{$return_url}' class='btn btn-secondary rounded-pill px-4'>Back to Dashboard</a>";
+    echo "<a href='" . htmlspecialchars($return_url) . "' class='btn btn-secondary rounded-pill px-4'>Back to Dashboard</a>";
     echo "</div></body></html>";
     exit;
 }
 
-// Fetch Recovery Agent Name if available
+// 2. Fetch Recovery Agent Name if available
 if ($rm_id > 0) {
-    $rmStmt = $pdo->prepare("SELECT name, phone FROM recovery_men WHERE id = ?");
-    $rmStmt->execute([$rm_id]);
-    $rmData = $rmStmt->fetch(PDO::FETCH_ASSOC);
-    if (!empty($rmData['name'])) {
-        $rm_name = $rmData['name'];
+    try {
+        $rmStmt = $pdo->prepare("SELECT full_name, phone FROM recovery_men WHERE id = ?");
+        $rmStmt->execute([$rm_id]);
+        $rmData = $rmStmt->fetch(PDO::FETCH_ASSOC);
+        if (!empty($rmData['full_name'])) {
+            $rm_name = $rmData['full_name'];
+        }
+    } catch (Exception $e) {
+        // Fallback to session name if column error
+        if (!empty($_SESSION['rm_name'])) {
+            $rm_name = $_SESSION['rm_name'];
+        }
     }
 }
 
-// Fetch Operator / Company Details
+// 3. Fetch Operator / Company Details (only columns that safely exist)
 $operator = null;
 if ($client_id > 0) {
-    $opStmt = $pdo->prepare("SELECT company_name, phone, address FROM clients WHERE id = ?");
-    $opStmt->execute([$client_id]);
-    $operator = $opStmt->fetch(PDO::FETCH_ASSOC);
+    try {
+        $opStmt = $pdo->prepare("SELECT company_name, phone FROM clients WHERE id = ?");
+        $opStmt->execute([$client_id]);
+        $operator = $opStmt->fetch(PDO::FETCH_ASSOC);
+    } catch (Exception $e) {
+        $operator = null;
+    }
 }
 
 $company_name = !empty($operator['company_name']) ? $operator['company_name'] : (defined('BRAND_NAME') ? BRAND_NAME : 'SB Link Network');
 $company_phone = !empty($operator['phone']) ? $operator['phone'] : 'N/A';
 $date = date('d M Y h:i A');
 
-// Fetch Latest Transaction ID for Invoice#
+// 4. Fetch Latest Transaction ID for Invoice#
 $invoice_id = 0;
-if (!empty($sub['username'])) {
-    $invStmt = $pdo->prepare("SELECT id FROM user_ledger WHERE username = ? ORDER BY id DESC LIMIT 1");
-    $invStmt->execute([$sub['username']]);
-    $invoice_id = $invStmt->fetchColumn();
+try {
+    if (!empty($sub['username'])) {
+        $invStmt = $pdo->prepare("SELECT id FROM user_ledger WHERE username = ? ORDER BY id DESC LIMIT 1");
+        $invStmt->execute([$sub['username']]);
+        $invoice_id = $invStmt->fetchColumn();
+    }
+} catch (Exception $e) {
+    $invoice_id = 0;
 }
 if (!$invoice_id) {
     $invoice_id = rand(10000, 99999);
@@ -381,9 +399,6 @@ $wa_text_encoded = urlencode($wa_text);
             <div class="text-center border-bottom pb-2 mb-2">
                 <h3><?= htmlspecialchars($company_name) ?></h3>
                 <p class="mb-1" style="font-size: 12px;"><strong>Phone:</strong> <?= htmlspecialchars($company_phone) ?></p>
-                <?php if(!empty($operator['address'])): ?>
-                    <p style="font-size: 11px; color: #333;"><?= htmlspecialchars($operator['address']) ?></p>
-                <?php endif; ?>
             </div>
 
             <!-- Receipt Title -->
