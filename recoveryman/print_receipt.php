@@ -1,29 +1,95 @@
 <?php
-session_start();
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 require_once '../config/db.php';
 
-// Authentication Check: RecoveryMan or Operator
-$client_id = 0;
-$rm_id = 0;
-$rm_name = 'Recovery Agent';
-
-if (isset($_SESSION['rm_id']) && isset($_SESSION['client_id'])) {
-    $rm_id = (int)$_SESSION['rm_id'];
-    $client_id = (int)$_SESSION['client_id'];
-} elseif (isset($_SESSION['operator_id'])) {
-    $client_id = (int)$_SESSION['operator_id'];
-    $rm_name = 'Office / Operator';
-} else {
-    die("Unauthorized access. Please login first.");
-}
-
+// Safe default values
+$client_id = (int)($_SESSION['client_id'] ?? 0);
+$rm_id = (int)($_SESSION['rm_id'] ?? 0);
+$rm_name = $_SESSION['rm_name'] ?? 'Recovery Agent';
+$return_url = !empty($_GET['return']) ? $_GET['return'] : 'dashboard.php';
 $sub_id = isset($_GET['sub_id']) ? (int)$_GET['sub_id'] : 0;
 $paid_amount = isset($_GET['paid']) ? (float)$_GET['paid'] : 0;
 $type = isset($_GET['type']) ? $_GET['type'] : 'renew'; // renew or collect
-$return_url = !empty($_GET['return']) ? $_GET['return'] : 'dashboard.php';
 
-if ($sub_id === 0) {
-    die("Invalid subscriber request.");
+// Authentication Check: RecoveryMan, Operator, or Admin
+$is_authenticated = false;
+if ($rm_id > 0) {
+    $is_authenticated = true;
+} elseif (!empty($_SESSION['operator_id'])) {
+    $client_id = (int)$_SESSION['operator_id'];
+    $rm_name = $_SESSION['operator_name'] ?? 'Office / Operator';
+    $is_authenticated = true;
+} elseif (!empty($_SESSION['admin_logged_in'])) {
+    $rm_name = 'Admin';
+    $is_authenticated = true;
+}
+
+if (!$is_authenticated) {
+    echo "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Unauthorized</title>";
+    echo "<link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css' rel='stylesheet'></head>";
+    echo "<body class='bg-light d-flex align-items-center justify-content-center' style='min-height:100vh;'>";
+    echo "<div class='card p-4 text-center rounded-4 shadow-sm' style='max-width:400px;'>";
+    echo "<h5 class='fw-bold text-danger mb-2'>Unauthorized Access</h5>";
+    echo "<p class='text-muted small mb-3'>Please log in to your account to view this receipt.</p>";
+    echo "<a href='login.php' class='btn btn-primary rounded-pill px-4'>Go to Login</a>";
+    echo "</div></body></html>";
+    exit;
+}
+
+if ($sub_id <= 0) {
+    echo "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Invalid Request</title>";
+    echo "<link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css' rel='stylesheet'></head>";
+    echo "<body class='bg-light d-flex align-items-center justify-content-center' style='min-height:100vh;'>";
+    echo "<div class='card p-4 text-center rounded-4 shadow-sm' style='max-width:400px;'>";
+    echo "<h5 class='fw-bold text-danger mb-2'>Invalid Request</h5>";
+    echo "<p class='text-muted small mb-3'>No subscriber ID was provided.</p>";
+    echo "<a href='{$return_url}' class='btn btn-secondary rounded-pill px-4'>Back to Dashboard</a>";
+    echo "</div></body></html>";
+    exit;
+}
+
+// Fetch Subscriber Details
+$sub = null;
+if ($client_id > 0) {
+    $subStmt = $pdo->prepare("
+        SELECT s.id, s.client_id, s.username, s.full_name, s.balance, s.expiry_date, s.mobile, s.phone, s.address, 
+               p.name as package_name, p.price as package_price 
+        FROM subscribers s 
+        LEFT JOIN packages p ON s.package_id = p.id 
+        WHERE s.id = ? AND s.client_id = ?
+    ");
+    $subStmt->execute([$sub_id, $client_id]);
+    $sub = $subStmt->fetch(PDO::FETCH_ASSOC);
+}
+
+// Fallback search by sub_id only if client_id was 0 or not matched
+if (!$sub) {
+    $subStmt = $pdo->prepare("
+        SELECT s.id, s.client_id, s.username, s.full_name, s.balance, s.expiry_date, s.mobile, s.phone, s.address, 
+               p.name as package_name, p.price as package_price 
+        FROM subscribers s 
+        LEFT JOIN packages p ON s.package_id = p.id 
+        WHERE s.id = ?
+    ");
+    $subStmt->execute([$sub_id]);
+    $sub = $subStmt->fetch(PDO::FETCH_ASSOC);
+    if ($sub && $client_id === 0) {
+        $client_id = (int)$sub['client_id'];
+    }
+}
+
+if (!$sub) {
+    echo "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Subscriber Not Found</title>";
+    echo "<link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css' rel='stylesheet'></head>";
+    echo "<body class='bg-light d-flex align-items-center justify-content-center' style='min-height:100vh;'>";
+    echo "<div class='card p-4 text-center rounded-4 shadow-sm' style='max-width:400px;'>";
+    echo "<h5 class='fw-bold text-danger mb-2'>Subscriber Not Found</h5>";
+    echo "<p class='text-muted small mb-3'>The subscriber record (ID: {$sub_id}) was not found in database.</p>";
+    echo "<a href='{$return_url}' class='btn btn-secondary rounded-pill px-4'>Back to Dashboard</a>";
+    echo "</div></body></html>";
+    exit;
 }
 
 // Fetch Recovery Agent Name if available
@@ -37,23 +103,11 @@ if ($rm_id > 0) {
 }
 
 // Fetch Operator / Company Details
-$opStmt = $pdo->prepare("SELECT company_name, phone, address FROM clients WHERE id = ?");
-$opStmt->execute([$client_id]);
-$operator = $opStmt->fetch(PDO::FETCH_ASSOC);
-
-// Fetch Subscriber Details
-$subStmt = $pdo->prepare("
-    SELECT s.id, s.username, s.full_name, s.balance, s.expiry_date, s.mobile, s.phone, s.address, 
-           p.name as package_name, p.price as package_price 
-    FROM subscribers s 
-    LEFT JOIN packages p ON s.package_id = p.id 
-    WHERE s.id = ? AND s.client_id = ?
-");
-$subStmt->execute([$sub_id, $client_id]);
-$sub = $subStmt->fetch(PDO::FETCH_ASSOC);
-
-if (!$sub) {
-    die("Subscriber not found.");
+$operator = null;
+if ($client_id > 0) {
+    $opStmt = $pdo->prepare("SELECT company_name, phone, address FROM clients WHERE id = ?");
+    $opStmt->execute([$client_id]);
+    $operator = $opStmt->fetch(PDO::FETCH_ASSOC);
 }
 
 $company_name = !empty($operator['company_name']) ? $operator['company_name'] : (defined('BRAND_NAME') ? BRAND_NAME : 'SB Link Network');
@@ -61,9 +115,15 @@ $company_phone = !empty($operator['phone']) ? $operator['phone'] : 'N/A';
 $date = date('d M Y h:i A');
 
 // Fetch Latest Transaction ID for Invoice#
-$invStmt = $pdo->prepare("SELECT id FROM user_ledger WHERE username = ? AND client_id = ? ORDER BY id DESC LIMIT 1");
-$invStmt->execute([$sub['username'], $client_id]);
-$invoice_id = $invStmt->fetchColumn() ?: rand(10000, 99999);
+$invoice_id = 0;
+if (!empty($sub['username'])) {
+    $invStmt = $pdo->prepare("SELECT id FROM user_ledger WHERE username = ? ORDER BY id DESC LIMIT 1");
+    $invStmt->execute([$sub['username']]);
+    $invoice_id = $invStmt->fetchColumn();
+}
+if (!$invoice_id) {
+    $invoice_id = rand(10000, 99999);
+}
 $invoice_number = "INV-" . str_pad($invoice_id, 6, "0", STR_PAD_LEFT);
 
 // Financial amounts
@@ -193,6 +253,20 @@ $wa_text_encoded = urlencode($wa_text);
                 padding: 24px 12px;
             }
 
+            .alert-top {
+                width: 360px;
+                max-width: 95vw;
+                background: #dcfce7;
+                color: #15803d;
+                border: 1px solid #bbf7d0;
+                padding: 10px 14px;
+                border-radius: 10px;
+                font-weight: 700;
+                font-size: 0.88rem;
+                text-align: center;
+                margin-bottom: 12px;
+            }
+
             .no-print-toolbar {
                 width: 360px;
                 max-width: 95vw;
@@ -243,7 +317,7 @@ $wa_text_encoded = urlencode($wa_text);
 
         /* 80mm Print Rules */
         @media print {
-            .no-print, .no-print-toolbar {
+            .no-print, .no-print-toolbar, .alert-top {
                 display: none !important;
             }
 
@@ -276,6 +350,12 @@ $wa_text_encoded = urlencode($wa_text);
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 </head>
 <body>
+
+    <!-- Success Confirmation Banner -->
+    <div class="alert-top no-print">
+        <i class="fa-solid fa-circle-check me-1"></i>
+        <?= ($type === 'renew') ? 'Package Renewed Successfully!' : 'Payment Collected Successfully!' ?>
+    </div>
 
     <!-- Action Toolbar (Hidden during print / PDF) -->
     <div class="no-print-toolbar">
