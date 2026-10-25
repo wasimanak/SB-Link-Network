@@ -349,19 +349,7 @@ $wa_text_encoded = urlencode($wa_text);
                 position: relative;
             }
 
-            /* Professional Stamp on Screen */
-            .paid-stamp {
-                display: inline-block;
-                border: 2px solid #16a34a;
-                color: #16a34a;
-                padding: 3px 12px;
-                border-radius: 6px;
-                font-weight: 900;
-                font-size: 13px;
-                letter-spacing: 1.5px;
-                text-transform: uppercase;
-                margin: 4px 0;
-            }
+
         }
 
         /* 80mm Print Rules */
@@ -395,17 +383,7 @@ $wa_text_encoded = urlencode($wa_text);
                 padding: 0 !important;
             }
 
-            .paid-stamp {
-                display: inline-block;
-                border: 1.5px solid #000;
-                color: #000;
-                padding: 2px 10px;
-                font-weight: 900;
-                font-size: 12px;
-                letter-spacing: 1.5px;
-                text-transform: uppercase;
-                margin: 3px 0;
-            }
+
         }
 
         /* Highlight Boxes */
@@ -487,13 +465,10 @@ $wa_text_encoded = urlencode($wa_text);
 
             <div class="divider-dashed"></div>
 
-            <!-- Receipt Title & Official Stamp -->
+            <!-- Receipt Title -->
             <div class="text-center" style="padding: 2px 0;">
                 <div class="fw-bold" style="font-size: 14px; letter-spacing: 1px;">
                     <?= ($type === 'renew') ? 'PACKAGE RENEWAL RECEIPT' : 'PAYMENT RECEIPT' ?>
-                </div>
-                <div>
-                    <span class="paid-stamp">PAID &amp; VERIFIED</span>
                 </div>
                 <div style="font-size: 10px; color: #555;">*** OFFICIAL CUSTOMER COPY ***</div>
             </div>
@@ -521,7 +496,7 @@ $wa_text_encoded = urlencode($wa_text);
             <div class="section-tag">CUSTOMER INFO</div>
             <div class="receipt-row">
                 <span class="label">Username:</span>
-                <span class="val fw-bold font-mono text-uppercase">@<?= htmlspecialchars($sub['username']) ?></span>
+                <span class="val fw-bold font-mono text-uppercase"><?= htmlspecialchars($sub['username']) ?></span>
             </div>
             <?php if(!empty($sub['full_name'])): ?>
             <div class="receipt-row">
