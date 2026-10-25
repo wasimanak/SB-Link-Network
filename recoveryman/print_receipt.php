@@ -881,7 +881,7 @@ $wa_text_encoded = urlencode($wa_text);
             // Give browser brief tick to layout the clone
             setTimeout(function() {
                 html2canvas(clone, {
-                    scale: 2, // 2x high resolution for crisp, needle-sharp thermal printing
+                    scale: 1, // 1:1 Native 80mm thermal width (exact 576 dots)
                     backgroundColor: '#ffffff',
                     useCORS: true,
                     allowTaint: true,
