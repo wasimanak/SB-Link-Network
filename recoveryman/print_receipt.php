@@ -276,10 +276,12 @@ $wa_text_encoded = urlencode($wa_text);
         body {
             font-family: 'Consolas', 'Courier New', Courier, monospace, 'Segoe UI', Tahoma, sans-serif;
             color: #000000;
+            font-size: 12px;
+            font-weight: 700;
             background-color: #ffffff;
             margin: 0;
             padding: 0;
-            font-size: 13px;
+            font-size: 12px;
             font-weight: 700;
         }
 
@@ -321,23 +323,39 @@ $wa_text_encoded = urlencode($wa_text);
             justify-content: space-between;
             align-items: flex-start;
             padding: 2.5px 0;
-            font-size: 12.5px;
+            font-size: 12px;
         }
         .receipt-row .label {
             color: #000000 !important;
             font-weight: 700 !important;
             flex-shrink: 0;
             margin-right: 8px;
+            font-size: 12px;
         }
         .receipt-row .val {
             text-align: right;
             word-break: break-word;
             color: #000000;
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        /* Highlighted rows: New Expiry & Amount Received */
+        .receipt-row-highlight {
+            font-size: 13px !important;
+        }
+        .receipt-row-highlight .label {
+            font-size: 13px !important;
+            font-weight: 800 !important;
+        }
+        .receipt-row-highlight .val {
+            font-size: 13px !important;
+            font-weight: 800 !important;
         }
 
         /* Section Subheading */
         .section-tag {
-            font-size: 10.5px;
+            font-size: 12px;
             font-weight: 800;
             letter-spacing: 1px;
             text-transform: uppercase;
@@ -559,6 +577,13 @@ $wa_text_encoded = urlencode($wa_text);
             font-weight: 700 !important;
         }
 
+        .thermal-export-canvas .receipt-row-highlight,
+        .thermal-export-canvas .receipt-row-highlight .label,
+        .thermal-export-canvas .receipt-row-highlight .val {
+            font-size: 17px !important;
+            font-weight: 800 !important;
+        }
+
         .thermal-export-canvas .section-tag {
             font-size: 12.5px !important;
             font-weight: 900 !important;
@@ -611,13 +636,13 @@ $wa_text_encoded = urlencode($wa_text);
                 <div style="font-size: 14px; margin-bottom: 2px;">
                     <i class="fa-solid fa-wifi" style="font-size: 16px;"></i>
                 </div>
-                <div class="fw-bold" style="font-size: 17px; letter-spacing: 0.6px; text-transform: uppercase;">
+                <div class="fw-bold" style="font-size: 18px; letter-spacing: 0.6px; text-transform: uppercase;">
                     <?= htmlspecialchars($company_name) ?>
                 </div>
-                <div style="font-size: 10.5px; letter-spacing: 1px; color: #000000; font-weight: 700; margin-top: 1px;">
+                <div style="font-size: 12px; letter-spacing: 1px; color: #000000; font-weight: 700; margin-top: 1px;">
                     BROADBAND &amp; NETWORK SERVICES
                 </div>
-                <div style="font-size: 11.5px; margin-top: 2px; color: #000000; font-weight: 700;">
+                <div style="font-size: 12px; margin-top: 2px; color: #000000; font-weight: 700;">
                     <strong>Helpline:</strong> <?= htmlspecialchars($company_phone) ?>
                 </div>
             </div>
@@ -626,10 +651,10 @@ $wa_text_encoded = urlencode($wa_text);
 
             <!-- Receipt Title -->
             <div class="text-center" style="padding: 2px 0;">
-                <div class="fw-bold" style="font-size: 14px; letter-spacing: 1px;">
+                <div class="fw-bold" style="font-size: 12px; letter-spacing: 1px;">
                     <?= ($type === 'renew') ? 'PACKAGE RENEWAL RECEIPT' : 'PAYMENT RECEIPT' ?>
                 </div>
-                <div style="font-size: 10.5px; color: #000000; font-weight: 800;">*** OFFICIAL CUSTOMER COPY ***</div>
+                <div style="font-size: 12px; color: #000000; font-weight: 800;">*** OFFICIAL CUSTOMER COPY ***</div>
             </div>
 
             <div class="divider-dashed"></div>
@@ -651,7 +676,7 @@ $wa_text_encoded = urlencode($wa_text);
             <?php if (!empty($transaction_desc)): ?>
             <div class="receipt-row">
                 <span class="label">Particulars:</span>
-                <span class="val" style="font-size: 11px; max-width: 170px;"><?= htmlspecialchars($transaction_desc) ?></span>
+                <span class="val" style="font-size: 12px; max-width: 170px;"><?= htmlspecialchars($transaction_desc) ?></span>
             </div>
             <?php endif; ?>
             <div style="display:none;">
@@ -685,7 +710,7 @@ $wa_text_encoded = urlencode($wa_text);
             <?php endif; ?>
             <?php if(!empty($sub['expiry_date'])): ?>
             <div class="receipt-row">
-                <span class="label">New Expiry:</span>
+                <span class="label fw-bold" style="font-size: 13px;">New Expiry:</span>
                 <span class="val fw-bold font-mono" style="font-size: 13px;">
                     <?= date('d M Y', strtotime($sub['expiry_date'])) ?>
                 </span>
@@ -709,9 +734,9 @@ $wa_text_encoded = urlencode($wa_text);
 
             <!-- Amount Highlight Box -->
             <div class="amount-box">
-                <div class="receipt-row" style="font-size: 14px; padding: 2px 0;">
-                    <span class="label fw-bold" style="font-size: 14px;">AMOUNT RECEIVED:</span>
-                    <span class="val fw-bold font-mono" style="font-size: 16px;">Rs. <?= number_format($paid_amount, 0) ?></span>
+                <div class="receipt-row receipt-row-highlight" style="font-size: 13px; padding: 2px 0;">
+                    <span class="label fw-bold" style="font-size: 13px;">AMOUNT RECEIVED:</span>
+                    <span class="val fw-bold font-mono" style="font-size: 13px;">Rs. <?= number_format($paid_amount, 0) ?></span>
                 </div>
             </div>
 
@@ -722,7 +747,7 @@ $wa_text_encoded = urlencode($wa_text);
                     <span class="label fw-bold">Remaining Due:</span>
                     <span class="val fw-bold font-mono">Rs. <?= number_format($due_amount, 0) ?></span>
                 </div>
-                <div style="font-size: 10.5px; color: #000000; font-weight: 700; margin-top: 1px;">
+                <div style="font-size: 12px; color: #000000; font-weight: 700; margin-top: 1px;">
                     * Kindly clear pending due at your earliest.
                 </div>
                 <?php elseif($adv_amount > 0): ?>
@@ -730,7 +755,7 @@ $wa_text_encoded = urlencode($wa_text);
                     <span class="label fw-bold">Advance Credit:</span>
                     <span class="val fw-bold font-mono">Rs. <?= number_format($adv_amount, 0) ?></span>
                 </div>
-                <div style="font-size: 10.5px; color: #000000; font-weight: 700; margin-top: 1px;">
+                <div style="font-size: 12px; color: #000000; font-weight: 700; margin-top: 1px;">
                     * Balance credited to your advance wallet.
                 </div>
                 <?php else: ?>
@@ -738,7 +763,7 @@ $wa_text_encoded = urlencode($wa_text);
                     <span class="label fw-bold">Account Balance:</span>
                     <span class="val fw-bold">Rs. 0.00 (All Clear)</span>
                 </div>
-                <div style="font-size: 10.5px; color: #000000; font-weight: 700; margin-top: 1px;">
+                <div style="font-size: 12px; color: #000000; font-weight: 700; margin-top: 1px;">
                     * No outstanding dues pending on this account.
                 </div>
                 <?php endif; ?>
@@ -753,17 +778,17 @@ $wa_text_encoded = urlencode($wa_text);
                     <img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=<?= urlencode("https://wa.me/{$wa_number}?text=" . $wa_text_encoded) ?>" 
                          alt="Scan for Receipt" class="qr-img" onerror="this.parentElement.style.display='none'">
                 </div>
-                <div class="qr-caption">Scan with camera for WhatsApp E-Receipt</div>
+                <div class="qr-caption" style="font-size: 11px; color: #000000; font-weight: 700;">Scan with camera for WhatsApp E-Receipt</div>
                 <?php endif; ?>
             </div>
 
             <!-- Footer Notes -->
-            <div class="text-center" style="margin-top: 8px; font-size: 11px;">
+            <div class="text-center" style="margin-top: 8px; font-size: 12px;">
                 <div class="fw-bold" style="font-size: 12px; margin-bottom: 2px;">Thank you for your business!</div>
-                <div style="font-size: 10px; color: #000000; font-weight: 700; line-height: 1.3;">
+                <div style="font-size: 11px; color: #000000; font-weight: 700; line-height: 1.3;">
                     This is a computer generated thermal receipt.<br>Valid without physical signature or stamp.
                 </div>
-                <div style="font-size: 10.5px; margin-top: 6px; color: #000000; font-weight: 700;">
+                <div style="font-size: 12px; margin-top: 6px; color: #000000; font-weight: 700;">
                     Powered by <strong><?= defined('BRAND_POWERED_BY') ? BRAND_POWERED_BY : 'SB Link Network' ?></strong>
                 </div>
             </div>
