@@ -67,6 +67,7 @@ CREATE TABLE `clients` (
   `notes` text DEFAULT NULL,
   `bank_details` text DEFAULT NULL,
   `qr_code` varchar(255) DEFAULT NULL,
+  `photo` varchar(255) DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `email` (`email`)
 ) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
