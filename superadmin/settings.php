@@ -499,6 +499,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $pdo->exec("SET UNIQUE_CHECKS = 1;");
                     $pdo->exec("SET FOREIGN_KEY_CHECKS = 1;");
 
+                    // Post-Restore Automation: Ensure columns, indexes, and prune stale logs
+                    try {
+                        $pdo->exec("ALTER TABLE `recovery_men` ADD COLUMN IF NOT EXISTS `monthly_salary` INT NOT NULL DEFAULT 0");
+                        $pdo->exec("ALTER TABLE `linemen` ADD COLUMN IF NOT EXISTS `status` ENUM('active', 'disabled') DEFAULT 'active'");
+                        $pdo->exec("ALTER TABLE `linemen` ADD COLUMN IF NOT EXISTS `can_create_users` TINYINT(1) DEFAULT 1");
+                        $pdo->exec("ALTER TABLE `linemen` ADD COLUMN IF NOT EXISTS `monthly_salary` INT NOT NULL DEFAULT 0");
+                        $pdo->exec("ALTER TABLE `managers` ADD COLUMN IF NOT EXISTS `monthly_salary` INT NOT NULL DEFAULT 0");
+                        $pdo->exec("ALTER TABLE `clients` ADD COLUMN IF NOT EXISTS `photo` VARCHAR(255) DEFAULT NULL");
+                    } catch (Exception $e) {}
+
+                    try {
+                        $pdo->exec("ALTER TABLE radpostauth ADD INDEX IF NOT EXISTS authdate_idx (authdate)");
+                        $pdo->exec("ALTER TABLE radacct ADD INDEX IF NOT EXISTS acctstoptime_idx (acctstoptime)");
+                        $pdo->exec("ALTER TABLE radacct ADD INDEX IF NOT EXISTS acctstarttime_idx (acctstarttime)");
+                        $pdo->exec("ALTER TABLE radacct ADD INDEX IF NOT EXISTS acct_active_idx (acctstoptime, username)");
+                    } catch (Exception $e) {}
+
+                    if (file_exists(__DIR__ . '/../config/db_maintenance_helper.php')) {
+                        require_once __DIR__ . '/../config/db_maintenance_helper.php';
+                        if (function_exists('run_database_maintenance')) {
+                            @run_database_maintenance($pdo, 7, 30, 2);
+                        }
+                    }
+
+                    try {
+                        $pdo->exec("INSERT INTO global_settings (setting_key, setting_value) VALUES ('sys_schema_ver', '5') ON DUPLICATE KEY UPDATE setting_value = '5'");
+                    } catch (Exception $e) {}
+
+                    @shell_exec("sudo systemctl restart freeradius 2>&1 || sudo service freeradius restart 2>&1");
+
                     $success = "Database restored successfully! Processed <strong>{$queryCount}</strong> SQL statements. <strong>{$tableCount}</strong> tables created/updated.";
                 } catch (Exception $e) {
                     $error = "Database restoration failed: " . htmlspecialchars($e->getMessage());

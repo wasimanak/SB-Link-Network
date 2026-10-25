@@ -441,6 +441,19 @@ if (isset($_GET['action']) && $_GET['action'] === 'stream_execute') {
         }
     }
 
+    // Post-Restore Step 2b: Optimize Indexes & Prune Stale RADIUS Logs
+    if (file_exists(__DIR__ . '/config/db_maintenance_helper.php')) {
+        require_once __DIR__ . '/config/db_maintenance_helper.php';
+        if (function_exists('run_database_maintenance')) {
+            send_sse(['status' => 'log', 'percent' => 98, 'message' => "Pruning bloated logs and optimizing database performance indexes..."]);
+            @run_database_maintenance($pdo, 7, 30, 2);
+            send_sse(['status' => 'log', 'percent' => 98, 'message' => "<span class='text-success'><i class='fa-solid fa-gauge-high me-1'></i> RADIUS database pruned & indexes built.</span>"]);
+        }
+    }
+    try {
+        $pdo->exec("INSERT INTO global_settings (setting_key, setting_value) VALUES ('sys_schema_ver', '5') ON DUPLICATE KEY UPDATE setting_value = '5'");
+    } catch (Exception $e) {}
+
     // Post-Restore Step 3: Restart FreeRADIUS service to load restored routers and users
     if (function_exists('shell_exec')) {
         send_sse(['status' => 'log', 'percent' => 99, 'message' => "Restarting FreeRADIUS service..."]);
