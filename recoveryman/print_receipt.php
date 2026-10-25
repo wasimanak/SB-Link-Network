@@ -656,6 +656,11 @@ $wa_text_encoded = urlencode($wa_text);
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.5/JsBarcode.all.min.js"></script>
+    <script>
+        if (typeof JsBarcode === 'undefined') {
+            document.write('<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"><\/script>');
+        }
+    </script>
 </head>
 <body>
 
@@ -979,7 +984,7 @@ $wa_text_encoded = urlencode($wa_text);
                 var cloneBarcode = clone.querySelector('#receipt-barcode');
                 if (cloneBarcode && typeof JsBarcode === 'function') {
                     try {
-                        JsBarcode(cloneBarcode, "<?= $invoice_number ?>", {
+                        JsBarcode(cloneBarcode, <?= json_encode($invoice_number) ?>, {
                             format: "CODE128",
                             lineColor: "#000000",
                             width: 2.2,
@@ -1065,16 +1070,6 @@ $wa_text_encoded = urlencode($wa_text);
                     }, 3000);
 
                     alert('HD Receipt image saved to Gallery / Downloads!');
-                }, 'image/png', 1.0);
-            }).catch(function(err) {
-                if (btn) {
-                    btn.innerHTML = origHtml;
-                    btn.disabled = false;
-                }
-                console.error('html2canvas error:', err);
-                alert('Error creating receipt image: ' + err);
-            });
-        }
                 }, 'image/png', 1.0);
             }).catch(function(err) {
                 if (btn) {
@@ -1458,14 +1453,14 @@ $wa_text_encoded = urlencode($wa_text);
             bytes.push(0x1B, 0x21, 0x00);
             pushStr("BROADBAND & NETWORK SERVICES\n");
             <?php if(!empty($company_phone)): ?>
-            pushStr("Helpline: <?= addslashes($company_phone) ?>\n");
+            pushStr("Helpline: " + <?= json_encode($company_phone) ?> + "\n");
             <?php endif; ?>
 
             pushStr("-".repeat(LINE_WIDTH) + "\n");
 
             // Receipt Title (Bold: ESC E 1)
             bytes.push(0x1B, 0x45, 0x01);
-            pushStr("<?= ($type === 'renew') ? 'PACKAGE RENEWAL RECEIPT' : 'PAYMENT RECEIPT' ?>\n");
+            pushStr(<?= json_encode(($type === 'renew') ? 'PACKAGE RENEWAL RECEIPT' : 'PAYMENT RECEIPT') ?> + "\n");
             pushStr("*** OFFICIAL CUSTOMER COPY ***\n");
             bytes.push(0x1B, 0x45, 0x00);
 
@@ -1475,11 +1470,11 @@ $wa_text_encoded = urlencode($wa_text);
             bytes.push(0x1B, 0x61, 0x00);
 
             // Transaction Details
-            pushStr(padLine("Invoice No:", "<?= addslashes($invoice_number) ?>"));
-            pushStr(padLine("Date & Time:", "<?= addslashes($date) ?>"));
-            pushStr(padLine("Collected By:", "<?= addslashes($rm_name) ?>"));
+            pushStr(padLine("Invoice No:", <?= json_encode($invoice_number) ?>));
+            pushStr(padLine("Date & Time:", <?= json_encode($date) ?>));
+            pushStr(padLine("Collected By:", <?= json_encode($rm_name) ?>));
             <?php if(!empty($transaction_desc)): ?>
-            pushStr(padLine("Particulars:", "<?= addslashes($transaction_desc) ?>"));
+            pushStr(padLine("Particulars:", <?= json_encode($transaction_desc) ?>));
             <?php endif; ?>
 
             pushStr("-".repeat(LINE_WIDTH) + "\n");
@@ -1488,19 +1483,19 @@ $wa_text_encoded = urlencode($wa_text);
             bytes.push(0x1B, 0x45, 0x01);
             pushStr("CUSTOMER INFO\n");
             bytes.push(0x1B, 0x45, 0x00);
-            pushStr(padLine("Username:", "<?= strtoupper(addslashes($sub['username'])) ?>"));
+            pushStr(padLine("Username:", <?= json_encode(strtoupper($sub['username'] ?? '')) ?>));
             <?php if(!empty($sub['full_name'])): ?>
-            pushStr(padLine("Full Name:", "<?= addslashes($sub['full_name']) ?>"));
+            pushStr(padLine("Full Name:", <?= json_encode($sub['full_name']) ?>));
             <?php endif; ?>
             <?php if(!empty($cust_phone)): ?>
-            pushStr(padLine("Phone / Mobile:", "<?= addslashes($cust_phone) ?>"));
+            pushStr(padLine("Phone / Mobile:", <?= json_encode($cust_phone) ?>));
             <?php endif; ?>
             <?php if(!empty($sub['package_name'])): ?>
-            pushStr(padLine("Internet Plan:", "<?= addslashes($sub['package_name']) ?>"));
+            pushStr(padLine("Internet Plan:", <?= json_encode($sub['package_name']) ?>));
             <?php endif; ?>
             <?php if(!empty($sub['expiry_date'])): ?>
             bytes.push(0x1B, 0x45, 0x01);
-            pushStr(padLine("New Expiry:", "<?= date('d M Y', strtotime($sub['expiry_date'])) ?>"));
+            pushStr(padLine("New Expiry:", <?= json_encode(date('d M Y', strtotime($sub['expiry_date']))) ?>));
             bytes.push(0x1B, 0x45, 0x00);
             <?php endif; ?>
 
@@ -1511,7 +1506,7 @@ $wa_text_encoded = urlencode($wa_text);
             pushStr("PAYMENT SUMMARY\n");
             bytes.push(0x1B, 0x45, 0x00);
             <?php if($type === 'renew' && $package_price > 0): ?>
-            pushStr(padLine("Plan Monthly Rate:", "Rs. <?= number_format($package_price, 0) ?>"));
+            pushStr(padLine("Plan Monthly Rate:", <?= json_encode('Rs. ' . number_format($package_price, 0)) ?>));
             <?php endif; ?>
             pushStr(padLine("Payment Mode:", "Cash Collection"));
             pushStr("-".repeat(LINE_WIDTH) + "\n");
@@ -1519,7 +1514,7 @@ $wa_text_encoded = urlencode($wa_text);
             // Amount Received (Double Width Bold: ESC ! 0x20, ESC E 1)
             bytes.push(0x1B, 0x21, 0x20, 0x1B, 0x45, 0x01);
             var aLbl = "AMOUNT RECVD:";
-            var aVal = "Rs. <?= number_format($paid_amount, 0) ?>";
+            var aVal = <?= json_encode('Rs. ' . number_format($paid_amount, 0)) ?>;
             var aSpc = " ".repeat(Math.max(1, 24 - aLbl.length - aVal.length));
             pushStr(aLbl + aSpc + aVal + "\n");
             bytes.push(0x1B, 0x21, 0x00, 0x1B, 0x45, 0x00); // Reset
@@ -1527,11 +1522,11 @@ $wa_text_encoded = urlencode($wa_text);
             // Balance
             <?php if($due_amount > 0): ?>
             bytes.push(0x1B, 0x45, 0x01);
-            pushStr(padLine("Remaining Due:", "- Rs. <?= number_format($due_amount, 0) ?>"));
+            pushStr(padLine("Remaining Due:", <?= json_encode('- Rs. ' . number_format($due_amount, 0)) ?>));
             bytes.push(0x1B, 0x45, 0x00);
             pushStr("* Kindly clear pending due at your earliest.\n");
             <?php elseif($adv_amount > 0): ?>
-            pushStr(padLine("Advance Credit:", "Rs. <?= number_format($adv_amount, 0) ?>"));
+            pushStr(padLine("Advance Credit:", <?= json_encode('Rs. ' . number_format($adv_amount, 0)) ?>));
             pushStr("* Balance credited to your advance wallet.\n");
             <?php else: ?>
             pushStr(padLine("Account Balance:", "Rs. 0.00 (All Clear)\n"));
@@ -1548,7 +1543,7 @@ $wa_text_encoded = urlencode($wa_text);
             // Text position below: GS H 2 (0x1D, 0x48, 0x02)
             bytes.push(0x1D, 0x48, 0x02);
             // Code 128 command: GS k 73 <length> <data>
-            var inv = "<?= $invoice_number ?>";
+            var inv = <?= json_encode($invoice_number) ?>;
             bytes.push(0x1D, 0x6B, 0x49, inv.length);
             pushStr(inv);
             pushStr("\n\n");
@@ -1556,7 +1551,7 @@ $wa_text_encoded = urlencode($wa_text);
             // Footer
             pushStr("Thank you for your business!\n");
             pushStr("Computer generated thermal receipt.\n");
-            pushStr("Powered by <?= defined('BRAND_POWERED_BY') ? addslashes(BRAND_POWERED_BY) : 'SB Link Network' ?>\n\n\n");
+            pushStr("Powered by " + <?= json_encode(defined('BRAND_POWERED_BY') ? BRAND_POWERED_BY : 'SB Link Network') ?> + "\n\n\n");
 
             // Feed 4 lines: ESC d 4
             bytes.push(0x1B, 0x64, 0x04);
@@ -1617,7 +1612,7 @@ $wa_text_encoded = urlencode($wa_text);
         function initBarcode() {
             try {
                 if (typeof JsBarcode === 'function') {
-                    JsBarcode("#receipt-barcode", "<?= $invoice_number ?>", {
+                    JsBarcode("#receipt-barcode", <?= json_encode($invoice_number) ?>, {
                         format: "CODE128",
                         lineColor: "#000000",
                         width: 1.8,
@@ -1640,6 +1635,8 @@ $wa_text_encoded = urlencode($wa_text);
             initBarcode();
         }
         window.addEventListener('load', initBarcode);
+        setTimeout(initBarcode, 300);
+        setTimeout(initBarcode, 1000);
     </script>
 </body>
 </html>
