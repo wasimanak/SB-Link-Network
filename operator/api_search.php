@@ -87,4 +87,29 @@ if (empty($_SESSION['is_manager'])) {
     }
 }
 
+// 5. Search Invoices / Receipts
+$inv_digits = preg_replace('/[^0-9]/', '', $q);
+if (!empty($inv_digits) && (int)$inv_digits > 0) {
+    try {
+        $invStmt = $pdo->prepare("
+            SELECT ul.id, ul.username, ul.amount, ul.type, ul.created_at, s.full_name 
+            FROM user_ledger ul
+            LEFT JOIN subscribers s ON ul.subscriber_id = s.id
+            WHERE ul.client_id = ? AND ul.id = ?
+            LIMIT 1
+        ");
+        $invStmt->execute([$client_id, (int)$inv_digits]);
+        if ($invRow = $invStmt->fetch()) {
+            $inv_code = "INV-" . str_pad($invRow['id'], 6, '0', STR_PAD_LEFT);
+            $disp_name = !empty($invRow['full_name']) ? " ({$invRow['full_name']})" : "";
+            $results[] = [
+                'type' => 'Invoice / Receipt',
+                'title' => "{$inv_code} - {$invRow['username']}{$disp_name} - Rs. " . number_format($invRow['amount'], 0),
+                'url' => "print_receipt.php?ledger_id=" . $invRow['id'],
+                'icon' => 'fa-receipt'
+            ];
+        }
+    } catch (Exception $e) {}
+}
+
 echo json_encode($results);
