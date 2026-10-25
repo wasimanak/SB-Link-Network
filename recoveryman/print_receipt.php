@@ -683,8 +683,12 @@ $wa_text_encoded = urlencode($wa_text);
             <i class="fa-solid fa-arrow-left"></i> Back
         </a>
         <div style="grid-column: span 2; text-align: center; margin-top: 3px;" class="no-print">
-            <a href="javascript:void(0)" onclick="window.print()" style="font-size: 11px; color: #475569; text-decoration: underline; font-weight: 700;">
-                <i class="fa-solid fa-desktop me-1"></i> Browser Print Dialog (Fallback)
+            <a href="javascript:void(0)" onclick="handleDirectTextPrintClick()" id="btnDirectTextLink" style="font-size: 11px; color: #059669; text-decoration: underline; font-weight: 700; margin-right: 8px;">
+                <i class="fa-solid fa-bolt me-1"></i> Direct Hardware Text Print (Ultra-Fast)
+            </a>
+            |
+            <a href="javascript:void(0)" onclick="window.print()" style="font-size: 11px; color: #475569; text-decoration: underline; font-weight: 700; margin-left: 8px;">
+                <i class="fa-solid fa-desktop me-1"></i> Browser Print Dialog
             </a>
             <span id="bleForgetLink" style="display:none; margin-left: 10px;">
                 | <a href="javascript:void(0)" onclick="forgetBlePrinter()" style="font-size: 11px; color: #dc2626; text-decoration: underline; font-weight: 700;">
@@ -959,8 +963,11 @@ $wa_text_encoded = urlencode($wa_text);
             });
         }
 
-        // 1. Offscreen 576px canvas renderer for 80mm thermal operations
-        function renderReceiptCanvas() {
+        // 1. Offscreen canvas renderer for 80mm thermal operations
+        // scale = 1: native 576 dots ESC/POS Bluetooth raster
+        // scale = 2: HD 1152px for Gallery Download / Crisp Mobile View
+        function renderReceiptCanvas(scale) {
+            scale = scale || 1;
             return new Promise(function(resolve, reject) {
                 var element = document.getElementById('receipt-content');
                 if (!element) return reject(new Error("Receipt element not found"));
@@ -993,7 +1000,7 @@ $wa_text_encoded = urlencode($wa_text);
 
                 setTimeout(function() {
                     html2canvas(clone, {
-                        scale: 1, // 1:1 Native 80mm ESC/POS width (576 dots)
+                        scale: scale, // 1 for native 576 dots, 2 for HD 1152px gallery
                         backgroundColor: '#ffffff',
                         useCORS: true,
                         allowTaint: true,
@@ -1015,22 +1022,22 @@ $wa_text_encoded = urlencode($wa_text);
             });
         }
 
-        // 2. Download 80mm Thermal Image to Gallery
+        // 2. Download 80mm Thermal Image to Gallery (High Definition 1152px)
         function downloadImage() {
             var btn = document.getElementById('btnDownloadImg');
             var origHtml = btn ? btn.innerHTML : '';
             if (btn) {
-                btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
+                btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving HD...';
                 btn.disabled = true;
             }
 
-            renderReceiptCanvas().then(function(canvas) {
+            renderReceiptCanvas(2).then(function(canvas) { // 2x Scale (1152px HD)
                 if (btn) {
                     btn.innerHTML = origHtml;
                     btn.disabled = false;
                 }
 
-                var filename = 'Receipt_<?= $sub["username"] ?>_80mm.png';
+                var filename = 'Receipt_<?= $sub["username"] ?>_80mm_HD.png';
 
                 canvas.toBlob(function(blob) {
                     if (!blob) {
@@ -1041,7 +1048,7 @@ $wa_text_encoded = urlencode($wa_text);
                         document.body.appendChild(a);
                         a.click();
                         document.body.removeChild(a);
-                        alert('Receipt image downloaded to Gallery / Downloads!');
+                        alert('HD Receipt image downloaded to Gallery / Downloads!');
                         return;
                     }
 
@@ -1057,7 +1064,17 @@ $wa_text_encoded = urlencode($wa_text);
                         URL.revokeObjectURL(url);
                     }, 3000);
 
-                    alert('Receipt image saved to Gallery / Downloads!');
+                    alert('HD Receipt image saved to Gallery / Downloads!');
+                }, 'image/png', 1.0);
+            }).catch(function(err) {
+                if (btn) {
+                    btn.innerHTML = origHtml;
+                    btn.disabled = false;
+                }
+                console.error('html2canvas error:', err);
+                alert('Error creating receipt image: ' + err);
+            });
+        }
                 }, 'image/png', 1.0);
             }).catch(function(err) {
                 if (btn) {
@@ -1167,8 +1184,8 @@ $wa_text_encoded = urlencode($wa_text);
                                 var a = pixels[idx + 3];
 
                                 var lum = 0.299 * r + 0.587 * g + 0.114 * b;
-                                // Pure black dot threshold
-                                if (lum < 165 && a > 128) {
+                                // High-contrast thermal dot threshold (captures antialiased text edges)
+                                if (lum < 192 && a > 64) {
                                     byteVal |= (1 << (7 - bit));
                                 }
                             }
@@ -1348,6 +1365,252 @@ $wa_text_encoded = urlencode($wa_text);
                 if (useFallback) {
                     window.print();
                 }
+            }
+        }
+
+        // Helper to generate 192x64 centered WiFi logo bit image for Direct Text print
+        function buildEscPosLogoBytes() {
+            try {
+                var c = document.createElement('canvas');
+                c.width = 192; // 24 bytes per row, centered on 80mm
+                c.height = 64;
+                var ctx = c.getContext('2d');
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, c.width, c.height);
+                ctx.fillStyle = '#000000';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.font = '900 38px "Font Awesome 6 Free", "FontAwesome", sans-serif';
+                ctx.fillText('\uf1eb', 96, 32); // FontAwesome wifi glyph
+
+                var imgData = ctx.getImageData(0, 0, c.width, c.height);
+                var pixels = imgData.data;
+                var stride = 24;
+                var bytes = [];
+
+                // Center align: ESC a 1
+                bytes.push(0x1B, 0x61, 0x01);
+                // Raster header: GS v 0 0 xL xH yL yH
+                bytes.push(0x1D, 0x76, 0x30, 0x00, stride, 0x00, 64, 0x00);
+
+                for (var y = 0; y < 64; y++) {
+                    for (var xb = 0; xb < stride; xb++) {
+                        var b = 0;
+                        for (var bit = 0; bit < 8; bit++) {
+                            var x = xb * 8 + bit;
+                            var idx = (y * 192 + x) * 4;
+                            var lum = 0.299 * pixels[idx] + 0.587 * pixels[idx+1] + 0.114 * pixels[idx+2];
+                            if (lum < 192 && pixels[idx+3] > 64) {
+                                b |= (1 << (7 - bit));
+                            }
+                        }
+                        bytes.push(b);
+                    }
+                }
+                return bytes;
+            } catch (e) {
+                return [];
+            }
+        }
+
+        // Build native ESC/POS text buffer (48 columns Font A)
+        function buildEscPosTextBuffer() {
+            var LINE_WIDTH = 48;
+
+            function padLine(left, right) {
+                left = String(left || '');
+                right = String(right || '');
+                var total = left.length + right.length;
+                if (total >= LINE_WIDTH) {
+                    return left + " " + right + "\n";
+                }
+                var spaces = " ".repeat(LINE_WIDTH - total);
+                return left + spaces + right + "\n";
+            }
+
+            var bytes = [];
+            function pushStr(str) {
+                for (var i = 0; i < str.length; i++) {
+                    var code = str.charCodeAt(i);
+                    bytes.push(code < 128 ? code : 63);
+                }
+            }
+
+            // 1. Initialize: ESC @
+            bytes.push(0x1B, 0x40);
+
+            // 2. Prepend Logo
+            var logoBytes = buildEscPosLogoBytes();
+            if (logoBytes && logoBytes.length > 0) {
+                for (var li = 0; li < logoBytes.length; li++) {
+                    bytes.push(logoBytes[li]);
+                }
+            }
+
+            // 3. Center Align: ESC a 1
+            bytes.push(0x1B, 0x61, 0x01);
+
+            // Double Height & Double Width Bold: ESC ! 0x38
+            bytes.push(0x1B, 0x21, 0x38);
+            pushStr("<?= addslashes($company_name) ?>\n");
+
+            // Normal Font: ESC ! 0x00
+            bytes.push(0x1B, 0x21, 0x00);
+            pushStr("BROADBAND & NETWORK SERVICES\n");
+            <?php if(!empty($company_phone)): ?>
+            pushStr("Helpline: <?= addslashes($company_phone) ?>\n");
+            <?php endif; ?>
+
+            pushStr("-".repeat(LINE_WIDTH) + "\n");
+
+            // Receipt Title (Bold: ESC E 1)
+            bytes.push(0x1B, 0x45, 0x01);
+            pushStr("<?= ($type === 'renew') ? 'PACKAGE RENEWAL RECEIPT' : 'PAYMENT RECEIPT' ?>\n");
+            pushStr("*** OFFICIAL CUSTOMER COPY ***\n");
+            bytes.push(0x1B, 0x45, 0x00);
+
+            pushStr("-".repeat(LINE_WIDTH) + "\n");
+
+            // Left Align: ESC a 0
+            bytes.push(0x1B, 0x61, 0x00);
+
+            // Transaction Details
+            pushStr(padLine("Invoice No:", "<?= addslashes($invoice_number) ?>"));
+            pushStr(padLine("Date & Time:", "<?= addslashes($date) ?>"));
+            pushStr(padLine("Collected By:", "<?= addslashes($rm_name) ?>"));
+            <?php if(!empty($transaction_desc)): ?>
+            pushStr(padLine("Particulars:", "<?= addslashes($transaction_desc) ?>"));
+            <?php endif; ?>
+
+            pushStr("-".repeat(LINE_WIDTH) + "\n");
+
+            // Customer Info
+            bytes.push(0x1B, 0x45, 0x01);
+            pushStr("CUSTOMER INFO\n");
+            bytes.push(0x1B, 0x45, 0x00);
+            pushStr(padLine("Username:", "<?= strtoupper(addslashes($sub['username'])) ?>"));
+            <?php if(!empty($sub['full_name'])): ?>
+            pushStr(padLine("Full Name:", "<?= addslashes($sub['full_name']) ?>"));
+            <?php endif; ?>
+            <?php if(!empty($cust_phone)): ?>
+            pushStr(padLine("Phone / Mobile:", "<?= addslashes($cust_phone) ?>"));
+            <?php endif; ?>
+            <?php if(!empty($sub['package_name'])): ?>
+            pushStr(padLine("Internet Plan:", "<?= addslashes($sub['package_name']) ?>"));
+            <?php endif; ?>
+            <?php if(!empty($sub['expiry_date'])): ?>
+            bytes.push(0x1B, 0x45, 0x01);
+            pushStr(padLine("New Expiry:", "<?= date('d M Y', strtotime($sub['expiry_date'])) ?>"));
+            bytes.push(0x1B, 0x45, 0x00);
+            <?php endif; ?>
+
+            pushStr("-".repeat(LINE_WIDTH) + "\n");
+
+            // Payment Summary
+            bytes.push(0x1B, 0x45, 0x01);
+            pushStr("PAYMENT SUMMARY\n");
+            bytes.push(0x1B, 0x45, 0x00);
+            <?php if($type === 'renew' && $package_price > 0): ?>
+            pushStr(padLine("Plan Monthly Rate:", "Rs. <?= number_format($package_price, 0) ?>"));
+            <?php endif; ?>
+            pushStr(padLine("Payment Mode:", "Cash Collection"));
+            pushStr("-".repeat(LINE_WIDTH) + "\n");
+
+            // Amount Received (Double Width Bold: ESC ! 0x20, ESC E 1)
+            bytes.push(0x1B, 0x21, 0x20, 0x1B, 0x45, 0x01);
+            var aLbl = "AMOUNT RECVD:";
+            var aVal = "Rs. <?= number_format($paid_amount, 0) ?>";
+            var aSpc = " ".repeat(Math.max(1, 24 - aLbl.length - aVal.length));
+            pushStr(aLbl + aSpc + aVal + "\n");
+            bytes.push(0x1B, 0x21, 0x00, 0x1B, 0x45, 0x00); // Reset
+
+            // Balance
+            <?php if($due_amount > 0): ?>
+            bytes.push(0x1B, 0x45, 0x01);
+            pushStr(padLine("Remaining Due:", "- Rs. <?= number_format($due_amount, 0) ?>"));
+            bytes.push(0x1B, 0x45, 0x00);
+            pushStr("* Kindly clear pending due at your earliest.\n");
+            <?php elseif($adv_amount > 0): ?>
+            pushStr(padLine("Advance Credit:", "Rs. <?= number_format($adv_amount, 0) ?>"));
+            pushStr("* Balance credited to your advance wallet.\n");
+            <?php else: ?>
+            pushStr(padLine("Account Balance:", "Rs. 0.00 (All Clear)\n"));
+            <?php endif; ?>
+
+            pushStr("=".repeat(LINE_WIDTH) + "\n");
+
+            // Barcode Section: Center Align: ESC a 1
+            bytes.push(0x1B, 0x61, 0x01);
+            // Set barcode height 50 dots: GS h 50 (0x1D, 0x68, 0x32)
+            bytes.push(0x1D, 0x68, 0x32);
+            // Set barcode width module 2: GS w 2 (0x1D, 0x77, 0x02)
+            bytes.push(0x1D, 0x77, 0x02);
+            // Text position below: GS H 2 (0x1D, 0x48, 0x02)
+            bytes.push(0x1D, 0x48, 0x02);
+            // Code 128 command: GS k 73 <length> <data>
+            var inv = "<?= $invoice_number ?>";
+            bytes.push(0x1D, 0x6B, 0x49, inv.length);
+            pushStr(inv);
+            pushStr("\n\n");
+
+            // Footer
+            pushStr("Thank you for your business!\n");
+            pushStr("Computer generated thermal receipt.\n");
+            pushStr("Powered by <?= defined('BRAND_POWERED_BY') ? addslashes(BRAND_POWERED_BY) : 'SB Link Network' ?>\n\n\n");
+
+            // Feed 4 lines: ESC d 4
+            bytes.push(0x1B, 0x64, 0x04);
+            // Cut: GS V 66 0
+            bytes.push(0x1D, 0x56, 0x42, 0x00);
+
+            return new Uint8Array(bytes);
+        }
+
+        // Direct Hardware Text Mode Bluetooth print handler
+        async function handleDirectTextPrintClick() {
+            var link = document.getElementById('btnDirectTextLink');
+            var origText = link ? link.innerHTML : '';
+
+            if (!navigator.bluetooth) {
+                alert("Direct Bluetooth text print is only supported on Google Chrome / Edge with Bluetooth turned on.");
+                return;
+            }
+
+            try {
+                if (link) {
+                    link.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Connecting...';
+                }
+
+                var writeChar = await getBleWriteCharacteristic();
+
+                showBleStatus("Sending Direct Hardware Text & Logo to printer...", false);
+                if (link) {
+                    link.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Printing text...';
+                }
+
+                var escposBytes = buildEscPosTextBuffer();
+
+                await sendToBleCharacteristic(writeChar, escposBytes, function(pct) {
+                    showBleStatus("Streaming hardware text (" + pct + "%)...", false);
+                });
+
+                showBleStatus("Receipt printed instantly with hardware fonts!", false);
+                if (link) {
+                    link.innerHTML = '<i class="fa-solid fa-check text-success"></i> Printed!';
+                    setTimeout(function() {
+                        link.innerHTML = origText;
+                    }, 3000);
+                }
+                setTimeout(hideBleStatus, 4000);
+
+            } catch (err) {
+                console.warn('Direct text print error:', err);
+                if (link) link.innerHTML = origText;
+                hideBleStatus();
+                if (err.name === 'NotFoundError' || (err.message && err.message.includes('cancelled'))) {
+                    return;
+                }
+                alert('Direct text print error: ' + (err.message || err));
             }
         }
 
