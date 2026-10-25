@@ -110,31 +110,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 try {
                     $pdo->beginTransaction();
                     
-                    // Deduct balance if user belongs to a dealer (Handling Upgrades & Renewals)
-                    $dStmt = $pdo->prepare("SELECT dealer_id, package_id as old_package_id, expiry_date as old_expiry FROM subscribers WHERE id = ?");
+                    // Fetch subscriber details for pro-rata adjustment
+                    $dStmt = $pdo->prepare("SELECT dealer_id, package_id as old_package_id, expiry_date as old_expiry, balance FROM subscribers WHERE id = ?");
                     $dStmt->execute([$id]);
                     $subData = $dStmt->fetch(PDO::FETCH_ASSOC);
                     $sub_dealer_id = $subData['dealer_id'] ?? 0;
-                    
+                    $now = time();
+
+                    // Pro-Rata Subscriber Balance Adjustment
+                    $old_sub_credit = 0;
+                    if (!empty($subData['old_expiry']) && strtotime($subData['old_expiry']) > $now) {
+                        $opq = $pdo->prepare("SELECT price, validity_days FROM packages WHERE id = ?");
+                        $opq->execute([$subData['old_package_id']]);
+                        $old_pkg_row = $opq->fetch();
+                        $old_p_price = (float)($old_pkg_row['price'] ?? 0);
+                        $old_p_val = (int)(($old_pkg_row['validity_days'] ?? 0) > 0 ? $old_pkg_row['validity_days'] : 30);
+                        $old_daily = $old_p_price / $old_p_val;
+                        $old_sub_credit = ((strtotime($subData['old_expiry']) - $now) / 86400) * $old_daily;
+                    }
+
+                    $new_pkg_val = (int)(($pkg['validity_days'] ?? 0) > 0 ? $pkg['validity_days'] : 30);
+                    $new_daily = (float)$pkg['price'] / $new_pkg_val;
+                    $new_total_cost = 0;
+                    if (strtotime($expiry_date) > $now) {
+                        $new_total_cost = ((strtotime($expiry_date) - $now) / 86400) * $new_daily;
+                    }
+
+                    $net_adjustment = round($new_total_cost - $old_sub_credit, 2);
+                    $cur_bal = (float)($subData['balance'] ?? 0);
+                    $new_bal = round($cur_bal - $net_adjustment, 2);
+
                     if ($sub_dealer_id > 0) {
-                        // 1. Calculate Old Package Remaining Value
+                        // 1. Calculate Old Package Remaining Value for dealer
                         $old_remaining_value = 0;
-                        if (!empty($subData['old_expiry']) && strtotime($subData['old_expiry']) > time()) {
+                        if (!empty($subData['old_expiry']) && strtotime($subData['old_expiry']) > $now) {
                             $old_dpStmt = $pdo->prepare("SELECT dealer_price FROM dealer_packages WHERE dealer_id = ? AND package_id = ?");
                             $old_dpStmt->execute([$sub_dealer_id, $subData['old_package_id']]);
                             $old_dp_price = $old_dpStmt->fetchColumn();
                             if ($old_dp_price === false) {
-                                $opq = $pdo->prepare("SELECT price FROM packages WHERE id = ?");
-                                $opq->execute([$subData['old_package_id']]);
-                                $old_dp_price = $opq->fetchColumn() ?: 0;
+                                $old_dp_price = $old_p_price ?? 0;
                             }
-                            $old_seconds = strtotime($subData['old_expiry']) - time();
-                            $old_days = $old_seconds / 86400; // Exact fractional days
+                            $old_days = (strtotime($subData['old_expiry']) - $now) / 86400;
                             $old_price_per_day = $old_dp_price / 30;
                             $old_remaining_value = $old_days * $old_price_per_day;
                         }
 
-                        // 2. Calculate New Package Total Value
+                        // 2. Calculate New Package Total Value for dealer
                         $new_dpStmt = $pdo->prepare("SELECT dealer_price FROM dealer_packages WHERE dealer_id = ? AND package_id = ?");
                         $new_dpStmt->execute([$sub_dealer_id, $package_id]);
                         $new_dp_price = $new_dpStmt->fetchColumn();
@@ -143,9 +164,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
                         
                         $new_total_value = 0;
-                        $new_seconds = strtotime($expiry_date) - time();
-                        if ($new_seconds > 0) {
-                            $new_days = $new_seconds / 86400; // Exact fractional days
+                        if (strtotime($expiry_date) > $now) {
+                            $new_days = (strtotime($expiry_date) - $now) / 86400;
                             $new_price_per_day = $new_dp_price / 30;
                             $new_total_value = $new_days * $new_price_per_day;
                         }
@@ -154,19 +174,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $net_deduction = round($new_total_value - $old_remaining_value, 2);
 
                         if ($net_deduction > 0) {
-                            // Deduct from dealer
                             $pdo->prepare("UPDATE dealers SET balance = balance - ? WHERE id = ?")->execute([$net_deduction, $sub_dealer_id]);
-                            
                             $note = "Package Upgrade/Renew for user $u. Total Cost: Rs." . round($new_total_value, 2) . ", Old Credit: Rs." . round($old_remaining_value, 2) . ". Net Deducted: Rs. $net_deduction";
                             $pdo->prepare("INSERT INTO dealer_notes (dealer_id, note) VALUES (?, ?)")->execute([$sub_dealer_id, $note]);
-                        } else {
-                            // Downgrade or unused credit covers it. No deduction.
-                            $note = "Package Downgrade/Change for user $u. Total Cost: Rs." . round($new_total_value, 2) . " covered by Old Credit Rs." . round($old_remaining_value, 2) . ". No balance deducted.";
+                        } elseif ($net_deduction < 0) {
+                            $pdo->prepare("UPDATE dealers SET balance = balance + ? WHERE id = ?")->execute([abs($net_deduction), $sub_dealer_id]);
+                            $note = "Package Downgrade/Credit for user $u. Total Cost: Rs." . round($new_total_value, 2) . ", Old Credit: Rs." . round($old_remaining_value, 2) . ". Net Credited: Rs. " . abs($net_deduction);
                             $pdo->prepare("INSERT INTO dealer_notes (dealer_id, note) VALUES (?, ?)")->execute([$sub_dealer_id, $note]);
                         }
                     }
 
-                    $pdo->prepare("UPDATE subscribers SET package_id = ?, expiry_date = ?, status = 'active' WHERE id = ?")->execute([$package_id, $expiry_date, $id]);
+                    $pdo->prepare("UPDATE subscribers SET package_id = ?, expiry_date = ?, status = 'active', balance = ? WHERE id = ?")
+                        ->execute([$package_id, $expiry_date, $new_bal, $id]);
+
+                    if ($net_adjustment > 0) {
+                        $desc = "Package Upgrade/Renew to {$pkg['name']} (Net Charged Rs. " . number_format($net_adjustment, 2) . ") by Admin";
+                        $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'debit', ?, ?, ?)")
+                            ->execute([$client_id, $u, $net_adjustment, $new_bal, $desc]);
+                    } elseif ($net_adjustment < 0) {
+                        $desc = "Package Change/Credit for {$pkg['name']} (Credited Rs. " . number_format(abs($net_adjustment), 2) . ") by Admin";
+                        $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'credit', ?, ?, ?)")
+                            ->execute([$client_id, $u, abs($net_adjustment), $new_bal, $desc]);
+                    }
                     $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Rate-Limit'")->execute([$u]);
                     if (!empty($pkg['rate_limit']) && $pkg['rate_limit'] !== 'No Limit') {
                         $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Rate-Limit', '=', ?)")->execute([$u, $pkg['rate_limit']]);
@@ -1045,7 +1074,7 @@ $count_offline = max(0, $count_all - $count_online);
 
 <?php
 // Fetch users and packages for the renew modal
-$renewUsers = $pdo->query("SELECT id, username, full_name, status, expiry_date, package_id FROM subscribers WHERE client_id = $client_id ORDER BY username ASC")->fetchAll();
+$renewUsers = $pdo->query("SELECT s.id, s.username, s.full_name, s.status, s.expiry_date, s.package_id, s.balance, p.price as pkg_price, p.validity_days as pkg_val FROM subscribers s LEFT JOIN packages p ON s.package_id = p.id WHERE s.client_id = $client_id ORDER BY s.username ASC")->fetchAll();
 $renewPackages = $pdo->query("SELECT id, name, price, validity_days FROM packages WHERE client_id = $client_id OR client_id = 0 ORDER BY name ASC")->fetchAll();
 ?>
 <!-- Activate/Renew User Modal -->
@@ -1070,7 +1099,10 @@ $renewPackages = $pdo->query("SELECT id, name, price, validity_days FROM package
                                 data-fullname="<?= htmlspecialchars($ru['full_name']) ?>"
                                 data-status="<?= $ru['status'] ?>"
                                 data-expiry="<?= $ru['expiry_date'] ?>"
-                                data-pkg="<?= $ru['package_id'] ?>">
+                                data-pkg="<?= $ru['package_id'] ?>"
+                                data-curpkgprice="<?= (float)($ru['pkg_price'] ?? 0) ?>"
+                                data-curpkgval="<?= (int)(($ru['pkg_val'] ?? 0) > 0 ? $ru['pkg_val'] : 30) ?>"
+                                data-curbal="<?= (float)($ru['balance'] ?? 0) ?>">
                                 <?= htmlspecialchars($ru['username']) ?> (<?= htmlspecialchars($ru['full_name']) ?>)
                             </option>
                         <?php endforeach; ?>
@@ -1220,6 +1252,34 @@ function updateRenewDetails() {
 
     var statusHtml = status === 'active' ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-danger">Disabled</span>';
 
+    var curPkgPrice = parseFloat(uOpt.getAttribute('data-curpkgprice') || 0);
+    var curPkgVal = parseInt(uOpt.getAttribute('data-curpkgval') || 30);
+    var curBal = parseFloat(uOpt.getAttribute('data-curbal') || 0);
+
+    var now = new Date();
+    var cd = (curExp && curExp !== "" && curExp !== "null" && curExp !== "0000-00-00 00:00:00") ? new Date(curExp) : null;
+    var isUserActive = (cd && cd > now);
+    var isPkgChanged = (uPkgId && pkgSelect.value && uPkgId != pkgSelect.value);
+
+    var oldCredit = 0;
+    var remDays = 0;
+    if (isUserActive && cd) {
+        remDays = Math.round(((cd - now) / 86400000) * 10) / 10;
+        var oldDaily = curPkgPrice / (curPkgVal > 0 ? curPkgVal : 30);
+        oldCredit = Math.round(((cd - now) / 86400000) * oldDaily * 100) / 100;
+    }
+
+    var netPayable = parseFloat(pPrice);
+    var adjustmentRow = '';
+    if (isPkgChanged && oldCredit > 0) {
+        netPayable = Math.max(0, Math.round(parseFloat(pPrice) - oldCredit));
+        adjustmentRow = `
+            <tr><td class="fw-bold ps-3 text-warning"><i class="fa-solid fa-arrow-up-right-dots me-1"></i> Package Change Adjustment</td><td><span class="badge bg-warning text-dark fw-bold">Upgrade Credit Applied</span></td></tr>
+            <tr><td class="fw-bold ps-3">Old Unused Credit</td><td class="text-success fw-bold">- Rs ${oldCredit.toFixed(2)} (${remDays} days left)</td></tr>
+            <tr><td class="fw-bold ps-3">Net Charge to Balance</td><td class="text-primary fw-bold fs-6">Rs ${netPayable.toFixed(2)}</td></tr>
+        `;
+    }
+
     tbody.innerHTML = `
         <tr><td class="fw-bold ps-3">Username & ID</td><td>${username} (#${uid})</td></tr>
         <tr><td class="fw-bold ps-3">User Status</td><td>${statusHtml}</td></tr>
@@ -1228,6 +1288,7 @@ function updateRenewDetails() {
         <tr><td class="fw-bold ps-3">Package</td><td><span class="badge bg-primary bg-opacity-10 text-primary">${pName}</span></td></tr>
         <tr><td class="fw-bold ps-3">Package Duration</td><td>${pDur} Days</td></tr>
         <tr><td class="fw-bold ps-3">Package Price</td><td class="text-success fw-bold">Rs ${pPrice}</td></tr>
+        ${adjustmentRow}
     `;
 }
 

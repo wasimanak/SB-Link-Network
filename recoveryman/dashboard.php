@@ -15,7 +15,7 @@ $client_id = $_SESSION['client_id'];
 $rm_name = $_SESSION['rm_name'];
 
 
-$pkgsStmt = $pdo->prepare("SELECT id, name, price FROM packages WHERE client_id = ? OR client_id = 0 ORDER BY name ASC");
+$pkgsStmt = $pdo->prepare("SELECT id, name, price, validity_days FROM packages WHERE client_id = ? OR client_id = 0 ORDER BY name ASC");
 $pkgsStmt->execute([$client_id]);
 $all_packages = $pkgsStmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -91,106 +91,202 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'receive_payment') {
     $sub_id = (int)$_POST['subscriber_id'];
-    $sub_username = $_POST['subscriber_username'];
-    $amount = (float)$_POST['amount']; // Can be 0 if just renewing without collecting
+    $sub_username = trim($_POST['subscriber_username']);
+    $amount = (float)$_POST['amount']; // Cash collected
     $new_package_id = isset($_POST['new_package_id']) && $_POST['new_package_id'] !== '' ? (int)$_POST['new_package_id'] : 0;
     $note = trim($_POST['note']);
 
     try {
         $pdo->beginTransaction();
-        
-        if ($new_package_id > 0) {
-            $pdo->prepare("UPDATE subscribers SET package_id = ? WHERE id = ?")->execute([$new_package_id, $sub_id]);
-            
-            // Sync FreeRADIUS to new package
-            $npStmt = $pdo->prepare("SELECT name, rate_limit FROM packages WHERE id = ?");
-            $npStmt->execute([$new_package_id]);
-            $newPkgInfo = $npStmt->fetch();
-            if ($newPkgInfo) {
-                $pdo->prepare("DELETE FROM radusergroup WHERE username = ?")->execute([$sub_username]);
-                $pdo->prepare("INSERT INTO radusergroup (username, groupname, priority) VALUES (?, ?, 1)")->execute([$sub_username, $newPkgInfo['name']]);
-                
-                $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Rate-Limit'")->execute([$sub_username]);
-                if (!empty($newPkgInfo['rate_limit']) && $newPkgInfo['rate_limit'] !== 'Unlimited') {
-                    $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Rate-Limit', '=', ?)")->execute([$sub_username, $newPkgInfo['rate_limit']]);
-                }
-            }
+
+        // 1. Fetch current subscriber details BEFORE modifying package
+        $stmt = $pdo->prepare("
+            SELECT s.id, s.username, s.balance, s.status, s.expiry_date, s.package_id, s.dealer_id,
+                   p.price as cur_pkg_price, p.validity_days as cur_pkg_validity, p.name as cur_pkg_name
+            FROM subscribers s 
+            LEFT JOIN packages p ON s.package_id = p.id 
+            WHERE s.id = ? AND s.client_id = ?
+        ");
+        $stmt->execute([$sub_id, $client_id]);
+        $subData = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$subData) {
+            $pdo->rollBack();
+            echo "<script>alert('Error: Subscriber not found.'); window.location='dashboard.php';</script>";
+            exit;
         }
-        
-        // Fetch current expiry, package price, and balance
-        $stmt = $pdo->prepare("SELECT s.expiry_date, s.balance, p.price, p.name as package_name FROM subscribers s LEFT JOIN packages p ON s.package_id = p.id WHERE s.id = ?");
-        $stmt->execute([$sub_id]);
-        $subData = $stmt->fetch();
-        
-        $package_price = (float)($subData['price'] ?? 0);
-        $package_name = $subData['package_name'] ?? 'Unknown Package';
-        $current_expiry = strtotime($subData['expiry_date']);
+
         $now = time();
-        
-        // 1. Extend Expiry by 1 Month (30 Days)
-        if ($current_expiry && $current_expiry > $now) {
-            $new_expiry_time = strtotime('+1 month', $current_expiry);
-        } else {
-            $new_expiry_time = strtotime('+1 month', $now);
+        $current_expiry = (!empty($subData['expiry_date']) && $subData['expiry_date'] !== '0000-00-00 00:00:00') ? strtotime($subData['expiry_date']) : 0;
+
+        // 2. Target package details
+        $target_package_id = ($new_package_id > 0) ? $new_package_id : (int)$subData['package_id'];
+        $pkgStmt = $pdo->prepare("SELECT id, name, price, validity_days, rate_limit, pool_id FROM packages WHERE id = ?");
+        $pkgStmt->execute([$target_package_id]);
+        $targetPkg = $pkgStmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$targetPkg) {
+            $pdo->rollBack();
+            echo "<script>alert('Error: Package not found.'); window.location='dashboard.php';</script>";
+            exit;
         }
-        
+
+        $package_changed = ($new_package_id > 0 && $new_package_id !== (int)$subData['package_id']);
+        $new_validity = (int)(($targetPkg['validity_days'] ?? 0) > 0 ? $targetPkg['validity_days'] : 30);
+        $new_pkg_price = (float)$targetPkg['price'];
+
+        // 3. Pro-Rata Credit Calculation (Ensure Amount Is NOT Wasted)
+        $old_remaining_credit = 0;
+        if ($current_expiry > $now) {
+            $old_price = (float)($subData['cur_pkg_price'] ?? 0);
+            $old_val = (int)(($subData['cur_pkg_validity'] ?? 0) > 0 ? $subData['cur_pkg_validity'] : 30);
+            $old_daily_rate = $old_price / $old_val;
+            $remaining_seconds = $current_expiry - $now;
+            $old_remaining_credit = ($remaining_seconds / 86400) * $old_daily_rate;
+        }
+
+        // 4. Determine New Expiry Date & Net Package Charge
+        if ($package_changed && $current_expiry > $now) {
+            // Mid-cycle upgrade/change: New package starts TODAY for full validity period
+            $new_expiry_time = strtotime("+$new_validity days", $now);
+            $new_total_cost = $new_pkg_price;
+            // Unused days credit from old package is deducted from new package cost!
+            $net_package_charge = round($new_total_cost - $old_remaining_credit, 2);
+        } else {
+            // Standard renewal
+            if ($current_expiry > $now) {
+                $new_expiry_time = strtotime("+$new_validity days", $current_expiry);
+            } else {
+                $new_expiry_time = strtotime("+$new_validity days", $now);
+            }
+            $net_package_charge = $new_pkg_price;
+        }
+
         $new_expiry_db = date('Y-m-d H:i:s', $new_expiry_time);
         $new_expiry_rad = date('d M Y H:i:s', $new_expiry_time);
 
-        $pdo->prepare("UPDATE subscribers SET expiry_date = ?, status = 'active' WHERE id = ?")->execute([$new_expiry_db, $sub_id]);
+        // 5. Adjust Balance & Ledger
+        $current_bal = (float)$subData['balance'];
         
-        // Update FreeRADIUS radcheck
-        $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute IN ('Expiration', 'Auth-Type')")->execute([$sub_username]);
-        $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Expiration', ':=', ?)")->execute([$sub_username, $new_expiry_rad]);
-
-        // 2. Adjust Balance & Ledger
-        // Step A: Charge the Package Price (Debit)
-        if ($package_price > 0) {
-            $pdo->prepare("UPDATE subscribers SET balance = balance - ? WHERE id = ?")->execute([$package_price, $sub_id]);
-            
-            $tmpBalStmt = $pdo->prepare("SELECT balance FROM subscribers WHERE id = ?");
-            $tmpBalStmt->execute([$sub_id]);
-            $balAfterCharge = $tmpBalStmt->fetchColumn();
-            
-            $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, description, balance_after) VALUES (?, ?, 'debit', ?, ?, ?)")
-                ->execute([$client_id, $sub_username, $package_price, "Package Renewal ($package_name)", $balAfterCharge]);
-        }
-        
-        // Step B: Add the Collected Amount (Credit)
-        if ($amount > 0) {
-            $pdo->prepare("UPDATE subscribers SET balance = balance + ? WHERE id = ?")->execute([$amount, $sub_id]);
-            
-            $tmpBalStmt = $pdo->prepare("SELECT balance FROM subscribers WHERE id = ?");
-            $tmpBalStmt->execute([$sub_id]);
-            $balAfterPayment = $tmpBalStmt->fetchColumn();
-            
-            $desc = "Cash collected by {$rm_name} RM" . ($note ? " - Note: $note" : "");
+        // Step A: Charge the Net Package Charge
+        $bal_after_charge = round($current_bal - $net_package_charge, 2);
+        if ($net_package_charge > 0) {
+            if ($package_changed && $old_remaining_credit > 0) {
+                $rem_days_str = round(($current_expiry - $now) / 86400, 1);
+                $charge_desc = "Package Upgrade: {$targetPkg['name']} (Full Month Rs. " . number_format($new_pkg_price, 2) . " minus Old Credit Rs. " . number_format($old_remaining_credit, 2) . " for {$rem_days_str}d remaining) by RM {$rm_name}";
+            } else {
+                $charge_desc = "Package Renewal: {$targetPkg['name']} by RM {$rm_name}";
+            }
+            $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'debit', ?, ?, ?)")
+                ->execute([$client_id, $sub_username, $net_package_charge, $bal_after_charge, $charge_desc]);
+        } elseif ($net_package_charge < 0) {
+            // Downgrade credit refund
+            $abs_refund = abs($net_package_charge);
+            $charge_desc = "Package Downgrade Credit: {$targetPkg['name']} (Unused Credit Rs. " . number_format($old_remaining_credit, 2) . " covered new package) by RM {$rm_name}";
             $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'credit', ?, ?, ?)")
-                ->execute([$client_id, $sub_username, $amount, $balAfterPayment, $desc]);
+                ->execute([$client_id, $sub_username, $abs_refund, $bal_after_charge, $charge_desc]);
+        }
+
+        // Step B: Add the Cash Collected
+        $final_bal = $bal_after_charge;
+        if ($amount > 0) {
+            $final_bal = round($bal_after_charge + $amount, 2);
+            $payment_desc = "Cash collected by {$rm_name} RM" . ($note ? " - Note: $note" : "");
+            $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'credit', ?, ?, ?)")
+                ->execute([$client_id, $sub_username, $amount, $final_bal, $payment_desc]);
                 
             // Update Recovery Man's Cash in Hand
             $pdo->prepare("UPDATE recovery_men SET cash_in_hand = cash_in_hand + ? WHERE id = ?")->execute([$amount, $rm_id]);
         }
 
-        // 3. Activity Log
-        $activity_msg = "Renewed Package. Charged Rs. $package_price, Collected Rs. $amount. Expiry extended to " . date('d M Y', $new_expiry_time);
+        // 6. Update Subscriber Record in DB
+        $pdo->prepare("UPDATE subscribers SET package_id = ?, expiry_date = ?, status = 'active', balance = ? WHERE id = ?")
+            ->execute([$target_package_id, $new_expiry_db, $final_bal, $sub_id]);
+
+        // 7. Dealer balance handling if subscriber belongs to a dealer
+        $sub_dealer_id = (int)($subData['dealer_id'] ?? 0);
+        if ($sub_dealer_id > 0) {
+            $old_dealer_credit = 0;
+            if ($current_expiry > $now) {
+                $old_dpStmt = $pdo->prepare("SELECT dealer_price FROM dealer_packages WHERE dealer_id = ? AND package_id = ?");
+                $old_dpStmt->execute([$sub_dealer_id, $subData['package_id']]);
+                $old_dp_price = $old_dpStmt->fetchColumn();
+                if ($old_dp_price === false) {
+                    $old_dp_price = (float)($subData['cur_pkg_price'] ?? 0);
+                }
+                $old_cur_val = (int)(($subData['cur_pkg_validity'] ?? 0) > 0 ? $subData['cur_pkg_validity'] : 30);
+                $old_dp_rate = (float)$old_dp_price / $old_cur_val;
+                $old_dealer_credit = (($current_expiry - $now) / 86400) * $old_dp_rate;
+            }
+
+            $new_dealer_cost = 0;
+            if ($new_expiry_time > $now) {
+                $new_dpStmt = $pdo->prepare("SELECT dealer_price FROM dealer_packages WHERE dealer_id = ? AND package_id = ?");
+                $new_dpStmt->execute([$sub_dealer_id, $target_package_id]);
+                $new_dp_price = $new_dpStmt->fetchColumn();
+                if ($new_dp_price === false) {
+                    $new_dp_price = $new_pkg_price;
+                }
+                $new_dp_rate = (float)$new_dp_price / $new_validity;
+                $new_dealer_cost = (($new_expiry_time - $now) / 86400) * $new_dp_rate;
+            }
+
+            $net_dealer_deduction = round($new_dealer_cost - $old_dealer_credit, 2);
+            if ($net_dealer_deduction != 0) {
+                $pdo->prepare("UPDATE dealers SET balance = balance - ? WHERE id = ?")->execute([$net_dealer_deduction, $sub_dealer_id]);
+                $d_note = ($net_dealer_deduction > 0)
+                    ? "Package Upgrade for user {$sub_username}. Deducted Rs. " . abs($net_dealer_deduction)
+                    : "Package Change Credit for user {$sub_username}. Credited Rs. " . abs($net_dealer_deduction);
+                $pdo->prepare("INSERT INTO dealer_notes (dealer_id, note) VALUES (?, ?)")->execute([$sub_dealer_id, $d_note]);
+            }
+        }
+
+        // 8. Update FreeRADIUS radcheck, radreply, radusergroup
+        $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute IN ('Expiration', 'Auth-Type')")->execute([$sub_username]);
+        $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Expiration', ':=', ?)")->execute([$sub_username, $new_expiry_rad]);
+
+        $pdo->prepare("DELETE FROM radusergroup WHERE username = ?")->execute([$sub_username]);
+        $pdo->prepare("INSERT INTO radusergroup (username, groupname, priority) VALUES (?, ?, 1)")->execute([$sub_username, $targetPkg['name']]);
+
+        if (!empty($targetPkg['rate_limit']) && $targetPkg['rate_limit'] !== 'No Limit' && $targetPkg['rate_limit'] !== 'Unlimited') {
+            $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Rate-Limit'")->execute([$sub_username]);
+            $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Rate-Limit', '=', ?)")->execute([$sub_username, $targetPkg['rate_limit']]);
+        }
+
+        // 9. Activity Log
+        $act_text = "Package " . ($package_changed ? "Upgraded to {$targetPkg['name']}" : "Renewed ({$targetPkg['name']})") . 
+                    ". Net Charge: Rs. " . number_format($net_package_charge, 2) . 
+                    ($old_remaining_credit > 0 ? " (Adjusted Rs. " . number_format($old_remaining_credit, 2) . " old credit)" : "") . 
+                    ", Collected: Rs. " . number_format($amount, 2) . 
+                    ". Expiry: " . date('d M Y', $new_expiry_time);
         $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, 'RecoveryMan', ?, 'User', ?)")
-            ->execute([$client_id, $rm_name, $sub_username, $activity_msg]);
-            
+            ->execute([$client_id, $rm_name, $sub_username, $act_text]);
+
         $pdo->commit();
+
+        // 10. Kick Mikrotik / FreeRADIUS session so new speed takes effect immediately
+        try {
+            require_once __DIR__ . '/../config/radius_kick_helper.php';
+            kick_subscriber_session($pdo, $sub_username, $client_id);
+        } catch (Exception $e) {
+            try { kick_user_mikrotik($pdo, $client_id, $sub_username); } catch (Exception $ex) {}
+        }
         
-        $alert_msg = "Package Renewed Successfully!\\nCharged: Rs. $package_price\\nCollected: Rs. $amount\\nExpiry extended to " . date('d M Y', $new_expiry_time);
+        $alert_msg = "Package " . ($package_changed ? "Upgraded" : "Renewed") . " Successfully!\n";
+        if ($package_changed && $old_remaining_credit > 0) {
+            $alert_msg .= "Old Unused Credit Adjusted: - Rs. " . number_format($old_remaining_credit, 2) . "\n";
+        }
+        $alert_msg .= "Net Charged: Rs. " . number_format($net_package_charge, 2) . "\nCollected: Rs. " . number_format($amount, 2) . "\nNew Balance: Rs. " . number_format($final_bal, 2) . "\nExpiry: " . date('d M Y', $new_expiry_time);
         $sq = urlencode($_GET['search_query']??'');
-echo "<script>
-    alert('$alert_msg');
-    var pw = window.open('print_receipt.php?sub_id={$sub_id}&paid={$amount}&type=renew', '_blank');
-    if(pw){ window.location='dashboard.php?search_query=$sq'; } else { window.location='print_receipt.php?sub_id={$sub_id}&paid={$amount}&type=renew'; }
-</script>";
+        echo "<script>
+            alert('" . addslashes($alert_msg) . "');
+            var pw = window.open('print_receipt.php?sub_id={$sub_id}&paid={$amount}&type=renew', '_blank');
+            if(pw){ window.location='dashboard.php?search_query=$sq'; } else { window.location='print_receipt.php?sub_id={$sub_id}&paid={$amount}&type=renew'; }
+        </script>";
         exit;
-        
     } catch (Exception $e) {
         $pdo->rollBack();
-        echo "<script>alert('Error processing renewal.'); window.history.back();</script>";
+        echo "<script>alert('Error: " . addslashes($e->getMessage()) . "'); window.history.back();</script>";
         exit;
     }
 }
@@ -360,7 +456,7 @@ if (isset($_GET['search_query']) && !empty(trim($_GET['search_query']))) {
     $search = trim($_GET['search_query']);
     $sStmt = $pdo->prepare("
         SELECT s.id, s.username, s.full_name, s.national_id, s.password, s.mobile, s.phone, s.email, s.subarea, s.address, s.latitude, s.longitude,
-               s.balance, s.status, s.expiry_date, p.name as package_name, p.price as package_price,
+               s.balance, s.status, s.expiry_date, s.package_id, p.name as package_name, p.price as package_price, p.validity_days as package_validity,
                (SELECT SUM(acctinputoctets) FROM radacct r WHERE r.username = s.username) as upload_bytes,
                (SELECT SUM(acctoutputoctets) FROM radacct r WHERE r.username = s.username) as download_bytes,
                (SELECT framedipaddress FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL ORDER BY radacctid DESC LIMIT 1) as live_ip
@@ -403,7 +499,7 @@ if ($filter === 'expiring_1d') {
 // Fetch Filtered Users
 $filteredStmt = $pdo->prepare("
     SELECT s.id, s.username, s.full_name, s.national_id, s.password, s.mobile, s.phone, s.email, s.subarea, s.address, s.latitude, s.longitude,
-           s.balance, s.status, s.expiry_date, p.name as package_name, p.price as package_price,
+           s.balance, s.status, s.expiry_date, s.package_id, p.name as package_name, p.price as package_price, p.validity_days as package_validity,
            (SELECT SUM(acctinputoctets) FROM radacct r WHERE r.username = s.username) as upload_bytes,
            (SELECT SUM(acctoutputoctets) FROM radacct r WHERE r.username = s.username) as download_bytes,
            (SELECT framedipaddress FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL ORDER BY radacctid DESC LIMIT 1) as live_ip
@@ -560,7 +656,7 @@ function formatBytes($bytes) {
                                     <button class="btn btn-success btn-sm px-2 py-1 fw-bold shadow-sm mb-1 d-block w-100" data-bs-toggle="modal" data-bs-target="#collectModal<?= $u['id'] ?>">
                                         <i class="fa-solid fa-hand-holding-dollar"></i> Collect
                                     </button>
-                                    <button class="btn btn-danger btn-sm px-2 py-1 fw-bold shadow-sm mb-1 d-block w-100" onclick="openCollectModal('<?= $u['username'] ?>', <?= $u['id'] ?>, '<?= addslashes($u['full_name']) ?>', '<?= $u['balance'] ?>')">
+                                    <button class="btn btn-danger btn-sm px-2 py-1 fw-bold shadow-sm mb-1 d-block w-100" onclick="openCollectModal('<?= $u['username'] ?>', <?= $u['id'] ?>, '<?= addslashes($u['full_name']) ?>', '<?= $u['balance'] ?>', '<?= $u['package_id'] ?? 0 ?>', '<?= (float)($u['package_price'] ?? 0) ?>', '<?= (int)(($u['package_validity'] ?? 0) > 0 ? $u['package_validity'] : 30) ?>', '<?= $u['expiry_date'] ?? '' ?>')">
                                         <i class="fa-solid fa-rotate"></i> Renew
                                     </button>
                                     <button type="button" class="btn btn-primary btn-sm px-2 py-1 fw-bold shadow-sm d-block w-100" 
@@ -717,7 +813,7 @@ function formatBytes($bytes) {
                                     <button class="btn btn-success btn-sm px-2 py-1 fw-bold shadow-sm mb-1 d-block w-100" data-bs-toggle="modal" data-bs-target="#collectModal<?= $u['id'] ?>">
                                         <i class="fa-solid fa-hand-holding-dollar"></i> Collect
                                     </button>
-                                    <button class="btn btn-danger btn-sm px-2 py-1 fw-bold shadow-sm mb-1 d-block w-100" onclick="openCollectModal('<?= $u['username'] ?>', <?= $u['id'] ?>, '<?= addslashes($u['full_name']) ?>', '<?= $u['balance'] ?>')">
+                                    <button class="btn btn-danger btn-sm px-2 py-1 fw-bold shadow-sm mb-1 d-block w-100" onclick="openCollectModal('<?= $u['username'] ?>', <?= $u['id'] ?>, '<?= addslashes($u['full_name']) ?>', '<?= $u['balance'] ?>', '<?= $u['package_id'] ?? 0 ?>', '<?= (float)($u['package_price'] ?? 0) ?>', '<?= (int)(($u['package_validity'] ?? 0) > 0 ? $u['package_validity'] : 30) ?>', '<?= $u['expiry_date'] ?? '' ?>')">
                                         <i class="fa-solid fa-rotate"></i> Renew
                                     </button>
                                     <button type="button" class="btn btn-primary btn-sm px-2 py-1 fw-bold shadow-sm d-block w-100" 
@@ -835,7 +931,9 @@ function formatBytes($bytes) {
                         <select name="new_package_id" id="m_newpkg" class="form-select fw-bold text-primary" onchange="updatePkgAmount()">
                             <option value="">-- Keep Current Package --</option>
                             <?php foreach($all_packages as $pkg): ?>
-                                <option value="<?= $pkg['id'] ?>" data-price="<?= $pkg['price'] ?>"><?= htmlspecialchars($pkg['name']) ?> (Rs <?= number_format($pkg['price']) ?>)</option>
+                                <option value="<?= $pkg['id'] ?>" data-price="<?= $pkg['price'] ?>" data-days="<?= !empty($pkg['validity_days']) ? $pkg['validity_days'] : 30 ?>" data-name="<?= htmlspecialchars($pkg['name']) ?>">
+                                    <?= htmlspecialchars($pkg['name']) ?> (Rs <?= number_format($pkg['price']) ?>)
+                                </option>
                             <?php endforeach; ?>
                         </select>
                     </div>
@@ -843,6 +941,7 @@ function formatBytes($bytes) {
                     <div class="mb-3 text-start">
                         <label class="form-label fw-bold text-secondary small">Enter Amount Received (Rs) <span class="text-danger">*</span></label>
                         <input type="number" step="1" name="amount" id="m_amount" class="form-control form-control-lg fw-bold text-success text-center" placeholder="e.g. 1500" required>
+                        <div id="m_pkg_calc_preview" class="mt-2"></div>
                         <div class="form-text text-muted text-center" style="font-size: 0.75rem;"><i class="fa-solid fa-circle-info"></i> Expiry will be extended automatically based on amount vs package price.</div>
                     </div>
                     <div class="mb-4">
@@ -889,8 +988,13 @@ function formatBytes($bytes) {
 <script>
 let speedInterval = null;
 let currentUsername = '';
+let curSubPkgId = 0;
+let curSubPkgPrice = 0;
+let curSubPkgVal = 30;
+let curSubExpiry = '';
+let curSubBalance = 0;
 
-function openCollectModal(username, id, fullname, balance) {
+function openCollectModal(username, id, fullname, balance, pkgId, pkgPrice, pkgVal, expiry) {
     document.getElementById('m_username').innerText = username;
     document.getElementById('m_subuser').value = username;
     document.getElementById('m_subid').value = id;
@@ -900,7 +1004,17 @@ function openCollectModal(username, id, fullname, balance) {
     document.getElementById('m_balance').innerHTML = `<span class="${balColor}">Rs. ${balance}</span>`;
     
     currentUsername = username;
+    curSubPkgId = parseInt(pkgId || 0);
+    curSubPkgPrice = parseFloat(pkgPrice || 0);
+    curSubPkgVal = parseInt(pkgVal || 30);
+    curSubExpiry = expiry || '';
+    curSubBalance = parseFloat(balance || 0);
+
+    const pkgSelect = document.getElementById('m_newpkg');
+    if (pkgSelect) pkgSelect.value = '';
     
+    updatePkgAmount();
+
     // Switch to payment tab by default
     var triggerEl = document.querySelector('#payment-tab');
     bootstrap.Tab.getInstance(triggerEl) || new bootstrap.Tab(triggerEl).show();
@@ -910,6 +1024,63 @@ function openCollectModal(username, id, fullname, balance) {
     
     // Load history immediately so the bottom section populates
     loadHistory();
+}
+
+function updatePkgAmount() {
+    const pkgSelect = document.getElementById('m_newpkg');
+    const amountInput = document.getElementById('m_amount');
+    const previewDiv = document.getElementById('m_pkg_calc_preview');
+    if (!amountInput) return;
+
+    const now = Math.floor(Date.now() / 1000);
+    let curExpTs = curSubExpiry ? Math.floor(new Date(curSubExpiry).getTime() / 1000) : 0;
+    if (isNaN(curExpTs)) curExpTs = 0;
+
+    let targetPrice = curSubPkgPrice;
+    let targetName = 'Current Package';
+    let targetVal = curSubPkgVal;
+    let isPkgChanged = false;
+
+    if (pkgSelect && pkgSelect.value !== '') {
+        const opt = pkgSelect.options[pkgSelect.selectedIndex];
+        if (opt) {
+            targetPrice = parseFloat(opt.dataset.price || 0);
+            targetName = opt.dataset.name || 'New Package';
+            targetVal = parseInt(opt.dataset.days || 30);
+            isPkgChanged = (parseInt(pkgSelect.value) !== curSubPkgId);
+        }
+    }
+
+    let oldCredit = 0;
+    let remDays = 0;
+    if (curExpTs > now) {
+        remDays = Math.round(((curExpTs - now) / 86400) * 10) / 10;
+        const oldDaily = curSubPkgPrice / (curSubPkgVal > 0 ? curSubPkgVal : 30);
+        oldCredit = Math.round(((curExpTs - now) / 86400) * oldDaily * 100) / 100;
+    }
+
+    if (isPkgChanged && oldCredit > 0) {
+        const netPayable = Math.max(0, Math.round(targetPrice - oldCredit));
+        amountInput.value = netPayable;
+        if (previewDiv) {
+            previewDiv.innerHTML = '<div class="alert alert-success border border-success-subtle p-2 rounded-3 text-start mb-0" style="background:#f0fdf4;">' +
+                '<div class="d-flex justify-content-between align-items-center mb-1">' +
+                    '<span class="fw-bold text-dark small"><i class="fa-solid fa-arrow-up-right-dots text-primary me-1"></i> Package Change Adjustment</span>' +
+                    '<span class="badge bg-success">Old Credit Applied</span>' +
+                '</div>' +
+                '<div class="text-secondary" style="font-size:0.75rem;">' +
+                    'New Package Price (1 Month): <strong>Rs. ' + targetPrice.toLocaleString() + '</strong><br>' +
+                    'Old Package Unused Credit: <strong class="text-success">- Rs. ' + oldCredit.toFixed(2) + '</strong> (' + remDays + ' days left)<br>' +
+                    'Suggested Amount to Collect: <strong class="text-dark fs-6">Rs. ' + netPayable.toLocaleString() + '</strong>' +
+                '</div>' +
+            '</div>';
+        }
+    } else {
+        amountInput.value = targetPrice > 0 ? targetPrice : '';
+        if (previewDiv) {
+            previewDiv.innerHTML = '';
+        }
+    }
 }
 
 function loadHistory() {
