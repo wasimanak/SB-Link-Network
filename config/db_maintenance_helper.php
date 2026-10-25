@@ -28,6 +28,9 @@ function run_database_maintenance($pdo, $auth_retention_days = 7, $acct_retentio
     try {
         $pdo->exec("ALTER TABLE radacct ADD INDEX IF NOT EXISTS acctstarttime_idx (acctstarttime)");
     } catch (Exception $e) {}
+    try {
+        $pdo->exec("ALTER TABLE radacct ADD INDEX IF NOT EXISTS acct_active_idx (acctstoptime, username)");
+    } catch (Exception $e) {}
 
     // 2. Prune radpostauth (delete authentication logs older than X days)
     // FreeRADIUS never reads old auth logs; keeping only recent logs keeps DB tiny
