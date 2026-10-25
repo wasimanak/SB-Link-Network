@@ -363,6 +363,13 @@ $userRoleLabel = !empty($_SESSION['is_manager']) ? 'MANAGER' : 'ADMIN';
             justify-content: center;
             flex-shrink: 0;
             box-shadow: 0 3px 8px rgba(37, 99, 235, 0.28);
+            overflow: hidden;
+        }
+
+        .sidebar-footer-user .user-avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
         }
 
         .sidebar-footer-user .user-info {
@@ -638,15 +645,21 @@ $userRoleLabel = !empty($_SESSION['is_manager']) ? 'MANAGER' : 'ADMIN';
 
         <!-- Bottom User Profile Strip (ADMINCHECK1 from Screenshot) -->
         <div class="sidebar-footer-user">
-            <div class="user-avatar">
-                <?= $avatarInitial ?>
-            </div>
-            <div class="user-info">
-                <div class="user-name" title="<?= htmlspecialchars($displayName) ?>">
-                    <?= htmlspecialchars(strtoupper($displayName)) ?>
+            <a href="profile" style="text-decoration: none; display: flex; align-items: center; gap: 10px; flex-grow: 1; min-width: 0; color: inherit;">
+                <div class="user-avatar">
+                    <?php if (!empty($tenant['photo']) && file_exists(__DIR__ . '/../uploads/profiles/' . $tenant['photo'])): ?>
+                        <img src="../uploads/profiles/<?= htmlspecialchars($tenant['photo']) ?>?v=<?= time() ?>" alt="Avatar">
+                    <?php else: ?>
+                        <?= $avatarInitial ?>
+                    <?php endif; ?>
                 </div>
-                <div class="user-role"><?= $userRoleLabel ?></div>
-            </div>
+                <div class="user-info">
+                    <div class="user-name" title="<?= htmlspecialchars($displayName) ?>">
+                        <?= htmlspecialchars(strtoupper($displayName)) ?>
+                    </div>
+                    <div class="user-role"><?= $userRoleLabel ?></div>
+                </div>
+            </a>
             <a href="logout" class="logout-btn" title="Logout">
                 <i class="fa-solid fa-arrow-right-from-bracket"></i>
             </a>

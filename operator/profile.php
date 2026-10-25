@@ -23,6 +23,14 @@ try {
     }
 } catch (Exception $e) {}
 
+// Auto-verify clients table for photo column
+try {
+    $clientCols = $pdo->query("SHOW COLUMNS FROM clients")->fetchAll(PDO::FETCH_COLUMN);
+    if (!in_array('photo', $clientCols)) {
+        $pdo->exec("ALTER TABLE clients ADD COLUMN photo VARCHAR(255) DEFAULT NULL");
+    }
+} catch (Exception $e) {}
+
 // Determine server IP/domain for MikroTik RADIUS client commands
 $radius_server_ip = $_SERVER['SERVER_ADDR'] ?? '';
 if (empty($radius_server_ip) || in_array($radius_server_ip, ['127.0.0.1', '::1'])) {
@@ -152,6 +160,91 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         echo "<script>alert('Notes updated successfully!'); window.location='profile';</script>";
         exit;
     }
+    elseif ($action === 'upload_photo') {
+        if (!isset($_FILES['profile_photo']) || empty($_FILES['profile_photo']['name'])) {
+            echo "<script>alert('Please select an image file to upload.'); window.location='profile';</script>";
+            exit;
+        }
+
+        if ($_FILES['profile_photo']['error'] !== UPLOAD_ERR_OK) {
+            $err = $_FILES['profile_photo']['error'];
+            echo "<script>alert('Upload error code: " . intval($err) . "'); window.location='profile';</script>";
+            exit;
+        }
+
+        $allowed = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+        $ext = strtolower(pathinfo($_FILES['profile_photo']['name'], PATHINFO_EXTENSION));
+
+        if (!in_array($ext, $allowed)) {
+            echo "<script>alert('Invalid file format. Only JPG, JPEG, PNG, WEBP, and GIF are allowed.'); window.location='profile';</script>";
+            exit;
+        }
+
+        if ($_FILES['profile_photo']['size'] > 5 * 1024 * 1024) {
+            echo "<script>alert('File size must be less than 5MB.'); window.location='profile';</script>";
+            exit;
+        }
+
+        $tmp = $_FILES['profile_photo']['tmp_name'];
+        if (@getimagesize($tmp) === false) {
+            echo "<script>alert('Uploaded file is not a valid image.'); window.location='profile';</script>";
+            exit;
+        }
+
+        $uploadDir = '../uploads/profiles/';
+        if (!is_dir($uploadDir)) {
+            @mkdir($uploadDir, 0777, true);
+        }
+
+        $filename = 'client_' . $client_id . '_' . time() . '.' . $ext;
+        $dest = $uploadDir . $filename;
+
+        if (move_uploaded_file($tmp, $dest)) {
+            // Delete old photo if exists
+            try {
+                $oldStmt = $pdo->prepare("SELECT photo FROM clients WHERE id = ?");
+                $oldStmt->execute([$client_id]);
+                $oldPhoto = $oldStmt->fetchColumn();
+                if ($oldPhoto && file_exists($uploadDir . $oldPhoto)) {
+                    @unlink($uploadDir . $oldPhoto);
+                }
+            } catch (Exception $e) {}
+
+            $pdo->prepare("UPDATE clients SET photo = ? WHERE id = ?")->execute([$filename, $client_id]);
+            $_SESSION['operator_photo'] = $filename;
+
+            try {
+                $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, 'Admin', ?, 'Client', 'Updated Profile Photo')")->execute([$client_id, $client_id]);
+            } catch (Exception $e) {}
+
+            echo "<script>alert('Profile photo updated successfully!'); window.location='profile';</script>";
+            exit;
+        } else {
+            echo "<script>alert('Server error: Failed to save file. Check directory permissions for uploads/profiles/'); window.location='profile';</script>";
+            exit;
+        }
+    }
+    elseif ($action === 'remove_photo') {
+        $uploadDir = '../uploads/profiles/';
+        try {
+            $oldStmt = $pdo->prepare("SELECT photo FROM clients WHERE id = ?");
+            $oldStmt->execute([$client_id]);
+            $oldPhoto = $oldStmt->fetchColumn();
+            if ($oldPhoto && file_exists($uploadDir . $oldPhoto)) {
+                @unlink($uploadDir . $oldPhoto);
+            }
+        } catch (Exception $e) {}
+
+        $pdo->prepare("UPDATE clients SET photo = NULL WHERE id = ?")->execute([$client_id]);
+        unset($_SESSION['operator_photo']);
+
+        try {
+            $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, 'Admin', ?, 'Client', 'Removed Profile Photo')")->execute([$client_id, $client_id]);
+        } catch (Exception $e) {}
+
+        echo "<script>alert('Profile photo removed successfully!'); window.location='profile';</script>";
+        exit;
+    }
 }
 
 // --- FETCH DATA ---
@@ -189,7 +282,54 @@ $routers = $nasStmt->fetchAll(PDO::FETCH_ASSOC);
     .view-card { background: #fff; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.03); border: 1px solid #f1f5f9; margin-bottom: 20px; }
     
     .profile-header { display: flex; align-items: center; gap: 15px; padding: 20px; border-bottom: 1px solid #f1f5f9; }
-    .avatar-large { width: 60px; height: 60px; background-color: #e2e8f0; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 2rem; color: #94a3b8; }
+    .avatar-large { 
+        width: 70px; 
+        height: 70px; 
+        background-color: #f1f5f9; 
+        border-radius: 12px; 
+        display: flex; 
+        align-items: center; 
+        justify-content: center; 
+        font-size: 2rem; 
+        color: #94a3b8; 
+        position: relative; 
+        overflow: hidden; 
+        cursor: pointer; 
+        border: 2px solid #e2e8f0; 
+        transition: all 0.2s ease;
+        flex-shrink: 0;
+    }
+    .avatar-large:hover {
+        border-color: #3b82f6;
+        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+    }
+    .avatar-large img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+    .avatar-hover-overlay {
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(15, 23, 42, 0.65);
+        color: #fff;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        opacity: 0;
+        transition: opacity 0.2s ease;
+        font-size: 0.85rem;
+    }
+    .avatar-hover-overlay span {
+        font-size: 0.65rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .avatar-large:hover .avatar-hover-overlay {
+        opacity: 1;
+    }
     .profile-info h5 { margin: 0; font-weight: 700; color: #1e293b; font-size: 1.1rem; }
     .profile-info p { margin: 0; color: #64748b; font-size: 0.85rem; }
     .status-badge { display: inline-block; background: rgba(16, 185, 129, 0.15); color: #10b981; padding: 2px 12px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; margin-top: 5px; border: 1px solid rgba(16, 185, 129, 0.2); }
@@ -230,7 +370,17 @@ $routers = $nasStmt->fetchAll(PDO::FETCH_ASSOC);
     <div class="col-lg-4 col-md-5">
         <div class="view-card">
             <div class="profile-header">
-                <div class="avatar-large"><i class="fa-solid fa-user"></i></div>
+                <div class="avatar-large" data-bs-toggle="modal" data-bs-target="#changePhotoModal" title="Click to change photo">
+                    <?php if (!empty($user['photo']) && file_exists("../uploads/profiles/" . $user['photo'])): ?>
+                        <img src="../uploads/profiles/<?= htmlspecialchars($user['photo']) ?>?v=<?= time() ?>" alt="Profile">
+                    <?php else: ?>
+                        <i class="fa-solid fa-user"></i>
+                    <?php endif; ?>
+                    <div class="avatar-hover-overlay">
+                        <i class="fa-solid fa-camera mb-1"></i>
+                        <span>Change</span>
+                    </div>
+                </div>
                 <div class="profile-info">
                     <h5><?= htmlspecialchars($user['full_name'] ?: $user['company_name']) ?></h5>
                     <p><?= htmlspecialchars($user['username'] ?: $user['email']) ?> &bull; Franchise</p>
@@ -250,7 +400,7 @@ $routers = $nasStmt->fetchAll(PDO::FETCH_ASSOC);
                 <?php if (empty($_SESSION['is_manager'])): ?>
                 <button type="button" class="btn-pill dark" data-bs-toggle="modal" data-bs-target="#routerModal"><i class="fa-solid fa-server"></i> Router Settings</button>
                 <?php endif; ?>
-                <button type="button" class="btn-pill"><i class="fa-regular fa-image"></i> Change Photo</button>
+                <button type="button" class="btn-pill" data-bs-toggle="modal" data-bs-target="#changePhotoModal"><i class="fa-regular fa-image"></i> Change Photo</button>
                 <button type="button" class="btn-pill" data-bs-toggle="modal" data-bs-target="#changePasswordModal"><i class="fa-solid fa-lock"></i> Change Password</button>
                 <button type="button" class="btn-pill" data-bs-toggle="modal" data-bs-target="#noteModal"><i class="fa-regular fa-note-sticky"></i> Add Note</button>
                 <button type="button" class="btn-pill"><i class="fa-solid fa-file-circle-plus"></i> Add Document</button>
@@ -722,5 +872,92 @@ function copyScript() {
     </div>
   </div>
 </div>
+
+<!-- Change Photo Modal -->
+<div class="modal fade" id="changePhotoModal" tabindex="-1" aria-labelledby="changePhotoModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow-lg" style="border-radius: 16px;">
+      <div class="modal-header border-bottom-0 pb-0">
+        <h5 class="modal-title fw-bold" id="changePhotoModalLabel"><i class="fa-regular fa-image me-2 text-primary"></i> Update Profile Photo</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <form method="POST" enctype="multipart/form-data" id="changePhotoForm">
+        <input type="hidden" name="action" value="upload_photo">
+        <div class="modal-body text-center py-4">
+            <!-- Current / Preview Image Box -->
+            <div class="mx-auto mb-3 position-relative" style="width: 130px; height: 130px; border-radius: 50%; overflow: hidden; border: 4px solid #e2e8f0; box-shadow: 0 4px 15px rgba(0,0,0,0.08); background: #f8fafc; display: flex; align-items: center; justify-content: center;">
+                <img id="photoPreviewImg" 
+                     src="<?= (!empty($user['photo']) && file_exists('../uploads/profiles/' . $user['photo'])) ? '../uploads/profiles/' . htmlspecialchars($user['photo']) . '?v=' . time() : '' ?>" 
+                     alt="Photo Preview" 
+                     style="width: 100%; height: 100%; object-fit: cover; <?= (empty($user['photo']) || !file_exists('../uploads/profiles/' . $user['photo'])) ? 'display: none;' : '' ?>">
+                <div id="photoPreviewPlaceholder" style="<?= (!empty($user['photo']) && file_exists('../uploads/profiles/' . $user['photo'])) ? 'display: none;' : '' ?> font-size: 3.5rem; color: #cbd5e1;">
+                    <i class="fa-solid fa-user"></i>
+                </div>
+            </div>
+
+            <div class="mb-3 px-3">
+                <label for="adminPhotoInput" class="form-label fw-semibold text-secondary small d-block mb-2">Select an image (JPG, PNG, WEBP, max 5MB)</label>
+                <input type="file" class="form-control" id="adminPhotoInput" name="profile_photo" accept="image/jpeg,image/png,image/webp,image/gif" required onchange="previewAdminPhoto(this)">
+            </div>
+            <div id="photoFileSizeError" class="text-danger small mt-1" style="display: none;">
+                <i class="fa-solid fa-circle-exclamation me-1"></i> File size exceeds 5MB limit. Please choose a smaller image.
+            </div>
+        </div>
+        <div class="modal-footer border-top-0 pt-0 d-flex justify-content-between">
+            <div>
+                <?php if (!empty($user['photo']) && file_exists('../uploads/profiles/' . $user['photo'])): ?>
+                <button type="button" class="btn btn-outline-danger btn-sm" onclick="if(confirm('Are you sure you want to remove your profile photo?')) { document.getElementById('removePhotoForm').submit(); }">
+                    <i class="fa-solid fa-trash-can me-1"></i> Remove
+                </button>
+                <?php endif; ?>
+            </div>
+            <div class="d-flex gap-2">
+                <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn btn-primary px-4 fw-semibold" id="btnSavePhoto">
+                    <i class="fa-solid fa-cloud-arrow-up me-1"></i> Save Photo
+                </button>
+            </div>
+        </div>
+      </form>
+      <!-- Separate form for removing photo -->
+      <form method="POST" id="removePhotoForm" style="display: none;">
+          <input type="hidden" name="action" value="remove_photo">
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+function previewAdminPhoto(input) {
+    var previewImg = document.getElementById('photoPreviewImg');
+    var placeholder = document.getElementById('photoPreviewPlaceholder');
+    var errorDiv = document.getElementById('photoFileSizeError');
+    var saveBtn = document.getElementById('btnSavePhoto');
+
+    if (input.files && input.files[0]) {
+        var file = input.files[0];
+        if (file.size > 5 * 1024 * 1024) {
+            errorDiv.style.display = 'block';
+            if (saveBtn) saveBtn.disabled = true;
+            return;
+        } else {
+            errorDiv.style.display = 'none';
+            if (saveBtn) saveBtn.disabled = false;
+        }
+
+        var reader = new FileReader();
+        reader.onload = function(e) {
+            if (previewImg) {
+                previewImg.src = e.target.result;
+                previewImg.style.display = 'block';
+            }
+            if (placeholder) {
+                placeholder.style.display = 'none';
+            }
+        };
+        reader.readAsDataURL(file);
+    }
+}
+</script>
 
 <?php require_once 'footer.php'; ?>
