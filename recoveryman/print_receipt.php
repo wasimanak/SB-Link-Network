@@ -64,7 +64,6 @@ try {
         $subStmt->execute([$sub_id, $client_id]);
         $sub = $subStmt->fetch(PDO::FETCH_ASSOC);
     }
-    // Fallback if not found with client_id or client_id is 0
     if (!$sub) {
         $subStmt = $pdo->prepare("
             SELECT s.id, s.client_id, s.username, s.full_name, s.balance, s.expiry_date, s.mobile, s.phone, s.address, 
@@ -105,14 +104,13 @@ if ($rm_id > 0) {
             $rm_name = $rmData['full_name'];
         }
     } catch (Exception $e) {
-        // Fallback to session name if column error
         if (!empty($_SESSION['rm_name'])) {
             $rm_name = $_SESSION['rm_name'];
         }
     }
 }
 
-// 3. Fetch Operator / Company Details (only columns that safely exist)
+// 3. Fetch Operator / Company Details
 $operator = null;
 if ($client_id > 0) {
     try {
@@ -179,7 +177,7 @@ if (!empty($sub['package_name'])) {
 if (!empty($sub['expiry_date'])) {
     $wa_text .= "New Expiry: " . date('d M Y', strtotime($sub['expiry_date'])) . "\n";
 }
-$wa_text .= "Paid: Rs. " . number_format($paid_amount, 0) . "\n";
+$wa_text .= "Paid Amount: Rs. " . number_format($paid_amount, 0) . "\n";
 if ($due_amount > 0) {
     $wa_text .= "Due Balance: Rs. " . number_format($due_amount, 0) . "\n";
 } elseif ($adv_amount > 0) {
@@ -199,11 +197,10 @@ $wa_text_encoded = urlencode($wa_text);
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         /* =========================================================
-           80mm Thermal Paper Specifications
-           Standard roll width: 80mm (~302px at 96 DPI)
-           Printable area: 72mm (~272px at 96 DPI)
-           Side margins: 4mm left & right (safe margins to prevent cutting)
-           Top/Bottom margins: 3mm - 4mm
+           80mm Thermal Receipt Specifications
+           Total Paper Roll: 80mm
+           Printable Area: 72mm
+           Safe Side Margins: 4mm (Left & Right)
            ========================================================= */
         @page {
             size: 80mm auto;
@@ -217,47 +214,65 @@ $wa_text_encoded = urlencode($wa_text);
         }
 
         body {
-            font-family: 'Courier New', Courier, monospace, 'Segoe UI', Tahoma, sans-serif;
+            font-family: 'Consolas', 'Courier New', Courier, monospace, 'Segoe UI', Tahoma, sans-serif;
             color: #000000;
             background-color: #ffffff;
             margin: 0;
             padding: 0;
             font-size: 13px;
-            line-height: 1.35;
+            line-height: 1.4;
         }
 
         .text-center { text-align: center; }
         .text-right { text-align: right; }
         .text-left { text-align: left; }
         .fw-bold { font-weight: bold; }
-        .mb-1 { margin-bottom: 4px; }
-        .mb-2 { margin-bottom: 8px; }
-        .mb-3 { margin-bottom: 12px; }
-        .border-top { border-top: 1px dashed #000; padding-top: 6px; margin-top: 6px; }
-        .border-bottom { border-bottom: 1px dashed #000; padding-bottom: 6px; margin-bottom: 6px; }
-        .border-double { border-bottom: 3px double #000; padding-bottom: 6px; margin-bottom: 6px; }
+        .font-mono { font-family: 'Consolas', 'Courier New', monospace; }
 
-        table {
-            width: 100%;
-            border-collapse: collapse;
+        /* Thermal Divider Lines */
+        .divider-dashed {
+            border-bottom: 1px dashed #000000;
+            margin: 7px 0;
+            height: 1px;
+        }
+        .divider-double {
+            border-bottom: 3px double #000000;
+            margin: 8px 0;
+            height: 3px;
+        }
+        .divider-solid {
+            border-bottom: 1px solid #000000;
+            margin: 7px 0;
+            height: 1px;
+        }
+
+        /* Key-Value Flex Grid Rows */
+        .receipt-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            padding: 2.5px 0;
             font-size: 12.5px;
         }
-
-        td {
-            padding: 3px 0;
-            vertical-align: top;
+        .receipt-row .label {
+            color: #222222;
+            flex-shrink: 0;
+            margin-right: 8px;
+        }
+        .receipt-row .val {
+            text-align: right;
+            word-break: break-word;
+            color: #000000;
         }
 
-        h3 {
-            margin: 0 0 4px 0;
-            font-size: 17px;
+        /* Section Subheading */
+        .section-tag {
+            font-size: 10.5px;
             font-weight: 800;
+            letter-spacing: 1px;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        p {
-            margin: 0;
+            color: #333333;
+            margin-bottom: 3px;
         }
 
         /* Screen Simulation / Interactive Toolbar */
@@ -274,15 +289,16 @@ $wa_text_encoded = urlencode($wa_text);
             .alert-top {
                 width: 360px;
                 max-width: 95vw;
-                background: #dcfce7;
-                color: #15803d;
-                border: 1px solid #bbf7d0;
+                background: #ecfdf5;
+                color: #065f46;
+                border: 1px solid #a7f3d0;
                 padding: 10px 14px;
-                border-radius: 10px;
+                border-radius: 12px;
                 font-weight: 700;
                 font-size: 0.88rem;
                 text-align: center;
-                margin-bottom: 12px;
+                margin-bottom: 14px;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.03);
             }
 
             .no-print-toolbar {
@@ -298,9 +314,9 @@ $wa_text_encoded = urlencode($wa_text);
                 display: inline-flex;
                 align-items: center;
                 justify-content: center;
-                gap: 6px;
+                gap: 7px;
                 padding: 10px 12px;
-                border-radius: 8px;
+                border-radius: 10px;
                 font-weight: 700;
                 font-size: 0.85rem;
                 text-decoration: none;
@@ -310,15 +326,15 @@ $wa_text_encoded = urlencode($wa_text);
                 transition: transform 0.1s ease, box-shadow 0.1s ease;
             }
             .btn-action:hover {
-                transform: translateY(-1px);
-                box-shadow: 0 4px 8px rgba(0,0,0,0.12);
+                transform: translateY(-2px);
+                box-shadow: 0 4px 10px rgba(0,0,0,0.14);
             }
             .btn-action:active {
                 transform: translateY(1px);
             }
 
             .btn-print { background: #0f172a; color: #ffffff; }
-            .btn-pdf { background: #dc2626; color: #ffffff; }
+            .btn-pdf { background: #e11d48; color: #ffffff; }
             .btn-whatsapp { background: #16a34a; color: #ffffff; }
             .btn-back { background: #475569; color: #ffffff; }
 
@@ -326,10 +342,25 @@ $wa_text_encoded = urlencode($wa_text);
                 background: #ffffff;
                 width: 360px;
                 max-width: 95vw;
-                padding: 18px 20px;
-                border-radius: 12px;
+                padding: 22px 20px;
+                border-radius: 14px;
                 border: 1px solid #cbd5e1;
-                box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+                box-shadow: 0 12px 28px -6px rgba(0, 0, 0, 0.12), 0 6px 12px -4px rgba(0, 0, 0, 0.06);
+                position: relative;
+            }
+
+            /* Professional Stamp on Screen */
+            .paid-stamp {
+                display: inline-block;
+                border: 2px solid #16a34a;
+                color: #16a34a;
+                padding: 3px 12px;
+                border-radius: 6px;
+                font-weight: 900;
+                font-size: 13px;
+                letter-spacing: 1.5px;
+                text-transform: uppercase;
+                margin: 4px 0;
             }
         }
 
@@ -351,7 +382,7 @@ $wa_text_encoded = urlencode($wa_text);
                 width: 72mm !important;
                 max-width: 72mm !important;
                 margin: 0 auto !important;
-                padding: 2mm 3mm 6mm 3mm !important;
+                padding: 1mm 2mm 6mm 2mm !important;
                 border: none !important;
                 box-shadow: none !important;
                 border-radius: 0 !important;
@@ -363,19 +394,62 @@ $wa_text_encoded = urlencode($wa_text);
                 margin: 0 auto !important;
                 padding: 0 !important;
             }
+
+            .paid-stamp {
+                display: inline-block;
+                border: 1.5px solid #000;
+                color: #000;
+                padding: 2px 10px;
+                font-weight: 900;
+                font-size: 12px;
+                letter-spacing: 1.5px;
+                text-transform: uppercase;
+                margin: 3px 0;
+            }
+        }
+
+        /* Highlight Boxes */
+        .amount-box {
+            border: 1.5px solid #000000;
+            padding: 6px 8px;
+            margin: 6px 0;
+            background: #fafafa;
+        }
+        @media print {
+            .amount-box {
+                background: #ffffff !important;
+                border: 1.5px solid #000000 !important;
+            }
+        }
+
+        .qr-section {
+            margin-top: 10px;
+            padding-top: 6px;
+            text-align: center;
+        }
+        .qr-img {
+            width: 85px;
+            height: 85px;
+            display: inline-block;
+            margin-bottom: 3px;
+        }
+        .qr-caption {
+            font-size: 10px;
+            color: #333;
+            letter-spacing: 0.3px;
         }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 </head>
 <body>
 
-    <!-- Success Confirmation Banner -->
+    <!-- Top Success Confirmation -->
     <div class="alert-top no-print">
-        <i class="fa-solid fa-circle-check me-1"></i>
-        <?= ($type === 'renew') ? 'Package Renewed Successfully!' : 'Payment Collected Successfully!' ?>
+        <i class="fa-solid fa-circle-check me-1 text-success"></i>
+        <?= ($type === 'renew') ? 'Package Renewed &amp; Activated!' : 'Payment Collected Successfully!' ?>
     </div>
 
-    <!-- Action Toolbar (Hidden during print / PDF) -->
+    <!-- Screen Action Toolbar -->
     <div class="no-print-toolbar">
         <button type="button" class="btn-action btn-print" onclick="window.print()">
             <i class="fa-solid fa-print"></i> Print (80mm)
@@ -391,108 +465,165 @@ $wa_text_encoded = urlencode($wa_text);
         </a>
     </div>
 
-    <!-- 80mm Thermal Receipt Container -->
+    <!-- 80mm Thermal Receipt Wrapper -->
     <div class="receipt-wrapper">
         <div id="receipt-content">
 
-            <!-- Company / Header -->
-            <div class="text-center border-bottom pb-2 mb-2">
-                <h3><?= htmlspecialchars($company_name) ?></h3>
-                <p class="mb-1" style="font-size: 12px;"><strong>Phone:</strong> <?= htmlspecialchars($company_phone) ?></p>
-            </div>
-
-            <!-- Receipt Title -->
-            <div class="text-center border-bottom pb-2 mb-2">
-                <div class="fw-bold" style="font-size: 15px; letter-spacing: 1px;">PAYMENT RECEIPT</div>
-                <div style="font-size: 11px; text-transform: uppercase;">
-                    <?= ($type === 'renew') ? 'Package Renewal / Upgrade' : 'Payment Collection' ?>
+            <!-- Company Brand Header -->
+            <div class="text-center">
+                <div style="font-size: 14px; margin-bottom: 2px;">
+                    <i class="fa-solid fa-wifi" style="font-size: 16px;"></i>
+                </div>
+                <div class="fw-bold" style="font-size: 17px; letter-spacing: 0.6px; text-transform: uppercase;">
+                    <?= htmlspecialchars($company_name) ?>
+                </div>
+                <div style="font-size: 10px; letter-spacing: 1px; color: #444; margin-top: 1px;">
+                    BROADBAND &amp; NETWORK SERVICES
+                </div>
+                <div style="font-size: 11px; margin-top: 2px;">
+                    <strong>Helpline:</strong> <?= htmlspecialchars($company_phone) ?>
                 </div>
             </div>
 
-            <!-- Transaction Details Table -->
-            <table class="mb-2 border-bottom">
-                <tr>
-                    <td style="width: 38%;">Date:</td>
-                    <td class="text-right"><?= $date ?></td>
-                </tr>
-                <tr>
-                    <td>Invoice#:</td>
-                    <td class="text-right fw-bold"><?= $invoice_number ?></td>
-                </tr>
-                <tr>
-                    <td>Username:</td>
-                    <td class="text-right fw-bold"><?= htmlspecialchars($sub['username']) ?></td>
-                </tr>
-                <?php if(!empty($sub['full_name'])): ?>
-                <tr>
-                    <td>Name:</td>
-                    <td class="text-right"><?= htmlspecialchars($sub['full_name']) ?></td>
-                </tr>
-                <?php endif; ?>
-                <?php if(!empty($cust_phone)): ?>
-                <tr>
-                    <td>Phone:</td>
-                    <td class="text-right"><?= htmlspecialchars($cust_phone) ?></td>
-                </tr>
-                <?php endif; ?>
-                <?php if(!empty($sub['package_name'])): ?>
-                <tr>
-                    <td>Package:</td>
-                    <td class="text-right"><?= htmlspecialchars($sub['package_name']) ?></td>
-                </tr>
-                <?php endif; ?>
-                <?php if(!empty($sub['expiry_date'])): ?>
-                <tr>
-                    <td>New Expiry:</td>
-                    <td class="text-right fw-bold"><?= date('d M Y', strtotime($sub['expiry_date'])) ?></td>
-                </tr>
-                <?php endif; ?>
-                <tr>
-                    <td>Collected By:</td>
-                    <td class="text-right"><?= htmlspecialchars($rm_name) ?></td>
-                </tr>
-            </table>
+            <div class="divider-dashed"></div>
 
-            <!-- Financial Table -->
-            <table class="mb-2 border-bottom">
-                <?php if($type === 'renew' && $package_price > 0): ?>
-                <tr>
-                    <td>Package Price:</td>
-                    <td class="text-right">Rs. <?= number_format($package_price, 0) ?></td>
-                </tr>
-                <?php endif; ?>
-                <tr>
-                    <td class="fw-bold" style="font-size: 14px; padding: 4px 0;">Paid Amount:</td>
-                    <td class="text-right fw-bold" style="font-size: 14px; padding: 4px 0;">Rs. <?= number_format($paid_amount, 0) ?></td>
-                </tr>
-            </table>
+            <!-- Receipt Title & Official Stamp -->
+            <div class="text-center" style="padding: 2px 0;">
+                <div class="fw-bold" style="font-size: 14px; letter-spacing: 1px;">
+                    <?= ($type === 'renew') ? 'PACKAGE RENEWAL RECEIPT' : 'PAYMENT RECEIPT' ?>
+                </div>
+                <div>
+                    <span class="paid-stamp">PAID &amp; VERIFIED</span>
+                </div>
+                <div style="font-size: 10px; color: #555;">*** OFFICIAL CUSTOMER COPY ***</div>
+            </div>
 
-            <!-- Balance Summary -->
-            <table class="mb-2 border-double">
+            <div class="divider-dashed"></div>
+
+            <!-- Transaction Metadata -->
+            <div class="section-tag">TRANSACTION DETAILS</div>
+            <div class="receipt-row">
+                <span class="label">Invoice No:</span>
+                <span class="val fw-bold font-mono"><?= $invoice_number ?></span>
+            </div>
+            <div class="receipt-row">
+                <span class="label">Date &amp; Time:</span>
+                <span class="val"><?= $date ?></span>
+            </div>
+            <div class="receipt-row">
+                <span class="label">Collected By:</span>
+                <span class="val"><?= htmlspecialchars($rm_name) ?></span>
+            </div>
+
+            <div class="divider-dashed"></div>
+
+            <!-- Subscriber Information -->
+            <div class="section-tag">CUSTOMER INFO</div>
+            <div class="receipt-row">
+                <span class="label">Username:</span>
+                <span class="val fw-bold font-mono text-uppercase">@<?= htmlspecialchars($sub['username']) ?></span>
+            </div>
+            <?php if(!empty($sub['full_name'])): ?>
+            <div class="receipt-row">
+                <span class="label">Full Name:</span>
+                <span class="val fw-bold"><?= htmlspecialchars($sub['full_name']) ?></span>
+            </div>
+            <?php endif; ?>
+            <?php if(!empty($cust_phone)): ?>
+            <div class="receipt-row">
+                <span class="label">Phone / Mobile:</span>
+                <span class="val"><?= htmlspecialchars($cust_phone) ?></span>
+            </div>
+            <?php endif; ?>
+            <?php if(!empty($sub['package_name'])): ?>
+            <div class="receipt-row">
+                <span class="label">Internet Plan:</span>
+                <span class="val fw-bold"><?= htmlspecialchars($sub['package_name']) ?></span>
+            </div>
+            <?php endif; ?>
+            <?php if(!empty($sub['expiry_date'])): ?>
+            <div class="receipt-row">
+                <span class="label">New Expiry:</span>
+                <span class="val fw-bold font-mono" style="font-size: 13px;">
+                    <?= date('d M Y', strtotime($sub['expiry_date'])) ?>
+                </span>
+            </div>
+            <?php endif; ?>
+
+            <div class="divider-dashed"></div>
+
+            <!-- Payment Breakdown -->
+            <div class="section-tag">PAYMENT SUMMARY</div>
+            <?php if($type === 'renew' && $package_price > 0): ?>
+            <div class="receipt-row">
+                <span class="label">Plan Monthly Rate:</span>
+                <span class="val">Rs. <?= number_format($package_price, 0) ?></span>
+            </div>
+            <?php endif; ?>
+            <div class="receipt-row">
+                <span class="label">Payment Mode:</span>
+                <span class="val">Cash Collection</span>
+            </div>
+
+            <!-- Amount Highlight Box -->
+            <div class="amount-box">
+                <div class="receipt-row" style="font-size: 14px; padding: 2px 0;">
+                    <span class="label fw-bold" style="font-size: 14px;">AMOUNT RECEIVED:</span>
+                    <span class="val fw-bold font-mono" style="font-size: 16px;">Rs. <?= number_format($paid_amount, 0) ?></span>
+                </div>
+            </div>
+
+            <!-- Balance Status -->
+            <div style="padding-top: 2px;">
                 <?php if($due_amount > 0): ?>
-                <tr>
-                    <td class="fw-bold" style="font-size: 13px;">Due Balance:</td>
-                    <td class="text-right fw-bold" style="font-size: 13px;">Rs. <?= number_format($due_amount, 0) ?></td>
-                </tr>
+                <div class="receipt-row">
+                    <span class="label fw-bold">Remaining Due:</span>
+                    <span class="val fw-bold font-mono">Rs. <?= number_format($due_amount, 0) ?></span>
+                </div>
+                <div style="font-size: 10px; color: #444; margin-top: 1px;">
+                    * Kindly clear pending due at your earliest.
+                </div>
                 <?php elseif($adv_amount > 0): ?>
-                <tr>
-                    <td class="fw-bold" style="font-size: 13px;">Advance Balance:</td>
-                    <td class="text-right fw-bold" style="font-size: 13px;">Rs. <?= number_format($adv_amount, 0) ?></td>
-                </tr>
+                <div class="receipt-row">
+                    <span class="label fw-bold">Advance Credit:</span>
+                    <span class="val fw-bold font-mono">Rs. <?= number_format($adv_amount, 0) ?></span>
+                </div>
+                <div style="font-size: 10px; color: #444; margin-top: 1px;">
+                    * Balance credited to your advance wallet.
+                </div>
                 <?php else: ?>
-                <tr>
-                    <td>Current Balance:</td>
-                    <td class="text-right fw-bold">Rs. 0.00 (Clear)</td>
-                </tr>
+                <div class="receipt-row">
+                    <span class="label fw-bold">Account Balance:</span>
+                    <span class="val fw-bold">Rs. 0.00 (All Clear)</span>
+                </div>
+                <div style="font-size: 10px; color: #444; margin-top: 1px;">
+                    * No outstanding dues pending on this account.
+                </div>
                 <?php endif; ?>
-            </table>
+            </div>
 
-            <!-- Footer Message -->
-            <div class="text-center pt-2 mt-2" style="font-size: 11px;">
-                <p class="fw-bold">Thank you for your payment!</p>
-                <p style="font-size: 10px; margin-top: 4px; color: #444;">
-                    Powered by <?= defined('BRAND_POWERED_BY') ? BRAND_POWERED_BY : 'SB Link Network' ?>
-                </p>
+            <div class="divider-double"></div>
+
+            <!-- QR Code Verification Section -->
+            <div class="qr-section">
+                <?php if(!empty($wa_number)): ?>
+                <div>
+                    <img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=<?= urlencode("https://wa.me/{$wa_number}?text=" . $wa_text_encoded) ?>" 
+                         alt="Scan for Receipt" class="qr-img" onerror="this.parentElement.style.display='none'">
+                </div>
+                <div class="qr-caption">Scan with camera for WhatsApp E-Receipt</div>
+                <?php endif; ?>
+            </div>
+
+            <!-- Footer Notes -->
+            <div class="text-center" style="margin-top: 8px; font-size: 11px;">
+                <div class="fw-bold" style="font-size: 12px; margin-bottom: 2px;">Thank you for your business!</div>
+                <div style="font-size: 9.5px; color: #555; line-height: 1.3;">
+                    This is a computer generated thermal receipt.<br>Valid without physical signature or stamp.
+                </div>
+                <div style="font-size: 10px; margin-top: 6px; color: #333;">
+                    Powered by <strong><?= defined('BRAND_POWERED_BY') ? BRAND_POWERED_BY : 'SB Link Network' ?></strong>
+                </div>
             </div>
 
         </div>
