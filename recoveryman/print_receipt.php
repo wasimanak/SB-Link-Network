@@ -647,7 +647,7 @@ $wa_text_encoded = urlencode($wa_text);
 
     <!-- Screen Action Toolbar -->
     <div class="no-print-toolbar">
-        <button type="button" class="btn-action btn-print" onclick="window.print()">
+        <button type="button" class="btn-action btn-print" id="btnPrintMain" onclick="handlePrintClick()">
             <i class="fa-solid fa-print"></i> Print (80mm)
         </button>
         <button type="button" class="btn-action btn-gallery" id="btnDownloadImg" onclick="downloadImage()">
@@ -662,6 +662,21 @@ $wa_text_encoded = urlencode($wa_text);
         <a href="<?= htmlspecialchars($return_url) ?>" class="btn-action btn-back">
             <i class="fa-solid fa-arrow-left"></i> Back
         </a>
+        <div style="grid-column: span 2; text-align: center; margin-top: 3px;" class="no-print">
+            <a href="javascript:void(0)" onclick="window.print()" style="font-size: 11px; color: #475569; text-decoration: underline; font-weight: 700;">
+                <i class="fa-solid fa-desktop me-1"></i> Browser Print Dialog (Fallback)
+            </a>
+            <span id="bleForgetLink" style="display:none; margin-left: 10px;">
+                | <a href="javascript:void(0)" onclick="forgetBlePrinter()" style="font-size: 11px; color: #dc2626; text-decoration: underline; font-weight: 700;">
+                    <i class="fa-solid fa-link-slash me-1"></i> Disconnect Bluetooth
+                </a>
+            </span>
+        </div>
+    </div>
+
+    <!-- Bluetooth Status Banner -->
+    <div id="bleStatusBanner" class="no-print" style="display:none; width: 360px; max-width: 95vw; background:#eff6ff; color:#1e40af; border:1px solid #bfdbfe; font-size:12px; font-weight:700; padding:8px 12px; border-radius:10px; margin-bottom:12px; text-align:center;">
+        <i class="fa-brands fa-bluetooth-b me-1"></i> <span id="bleStatusText">Connecting to Bluetooth Printer...</span>
     </div>
 
     <!-- 80mm Thermal Receipt Wrapper -->
@@ -930,10 +945,49 @@ $wa_text_encoded = urlencode($wa_text);
             });
         }
 
-        function downloadImage() {
-            var element = document.getElementById('receipt-content');
-            if (!element) return;
+        // 1. Offscreen 576px canvas renderer for 80mm thermal operations
+        function renderReceiptCanvas() {
+            return new Promise(function(resolve, reject) {
+                var element = document.getElementById('receipt-content');
+                if (!element) return reject(new Error("Receipt element not found"));
 
+                var clone = element.cloneNode(true);
+                clone.id = 'receipt-content-thermal-clone';
+                clone.className = 'thermal-export-canvas';
+
+                var qrImg = clone.querySelector('.qr-img');
+                if (qrImg) {
+                    qrImg.crossOrigin = 'anonymous';
+                }
+
+                document.body.appendChild(clone);
+
+                setTimeout(function() {
+                    html2canvas(clone, {
+                        scale: 1, // 1:1 Native 80mm ESC/POS width (576 dots)
+                        backgroundColor: '#ffffff',
+                        useCORS: true,
+                        allowTaint: true,
+                        logging: false,
+                        width: 576,
+                        windowWidth: 576
+                    }).then(function(canvas) {
+                        if (clone && clone.parentNode) {
+                            clone.parentNode.removeChild(clone);
+                        }
+                        resolve(canvas);
+                    }).catch(function(err) {
+                        if (clone && clone.parentNode) {
+                            clone.parentNode.removeChild(clone);
+                        }
+                        reject(err);
+                    });
+                }, 60);
+            });
+        }
+
+        // 2. Download 80mm Thermal Image to Gallery
+        function downloadImage() {
             var btn = document.getElementById('btnDownloadImg');
             var origHtml = btn ? btn.innerHTML : '';
             if (btn) {
@@ -941,89 +995,332 @@ $wa_text_encoded = urlencode($wa_text);
                 btn.disabled = true;
             }
 
-            // 1. Create a specialized 80mm thermal clone offscreen
-            var clone = element.cloneNode(true);
-            clone.id = 'receipt-content-thermal-clone';
-            clone.className = 'thermal-export-canvas';
+            renderReceiptCanvas().then(function(canvas) {
+                if (btn) {
+                    btn.innerHTML = origHtml;
+                    btn.disabled = false;
+                }
 
-            // Set image cross-origin if QR exists
-            var qrImg = clone.querySelector('.qr-img');
-            if (qrImg) {
-                qrImg.crossOrigin = 'anonymous';
-            }
+                var filename = 'Receipt_<?= $sub["username"] ?>_80mm.png';
 
-            document.body.appendChild(clone);
-
-            // Give browser brief tick to layout the clone
-            setTimeout(function() {
-                html2canvas(clone, {
-                    scale: 1, // 1:1 Native 80mm thermal width (exact 576 dots)
-                    backgroundColor: '#ffffff',
-                    useCORS: true,
-                    allowTaint: true,
-                    logging: false,
-                    width: 576,
-                    windowWidth: 576
-                }).then(function(canvas) {
-                    // Clean up clone immediately
-                    if (clone && clone.parentNode) {
-                        clone.parentNode.removeChild(clone);
-                    }
-
-                    if (btn) {
-                        btn.innerHTML = origHtml;
-                        btn.disabled = false;
-                    }
-
-                    var filename = 'Receipt_<?= $sub["username"] ?>_80mm.png';
-
-                    canvas.toBlob(function(blob) {
-                        if (!blob) {
-                            var dataUrl = canvas.toDataURL('image/png');
-                            var a = document.createElement('a');
-                            a.href = dataUrl;
-                            a.download = filename;
-                            document.body.appendChild(a);
-                            a.click();
-                            document.body.removeChild(a);
-                            alert('Receipt image downloaded to Gallery / Downloads!');
-                            return;
-                        }
-
-                        var url = URL.createObjectURL(blob);
+                canvas.toBlob(function(blob) {
+                    if (!blob) {
+                        var dataUrl = canvas.toDataURL('image/png');
                         var a = document.createElement('a');
-                        a.href = url;
+                        a.href = dataUrl;
                         a.download = filename;
                         document.body.appendChild(a);
                         a.click();
                         document.body.removeChild(a);
-
-                        setTimeout(function() {
-                            URL.revokeObjectURL(url);
-                        }, 3000);
-
-                        alert('Receipt image saved to Gallery / Downloads!');
-                    }, 'image/png', 1.0);
-                }).catch(function(err) {
-                    if (clone && clone.parentNode) {
-                        clone.parentNode.removeChild(clone);
+                        alert('Receipt image downloaded to Gallery / Downloads!');
+                        return;
                     }
-                    if (btn) {
-                        btn.innerHTML = origHtml;
-                        btn.disabled = false;
-                    }
-                    console.error('html2canvas error:', err);
-                    alert('Error creating receipt image: ' + err);
-                });
-            }, 60);
+
+                    var url = URL.createObjectURL(blob);
+                    var a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+
+                    setTimeout(function() {
+                        URL.revokeObjectURL(url);
+                    }, 3000);
+
+                    alert('Receipt image saved to Gallery / Downloads!');
+                }, 'image/png', 1.0);
+            }).catch(function(err) {
+                if (btn) {
+                    btn.innerHTML = origHtml;
+                    btn.disabled = false;
+                }
+                console.error('html2canvas error:', err);
+                alert('Error creating receipt image: ' + err);
+            });
         }
 
-        // Automatically trigger print dialog on page load
-        window.onload = function() {
-            setTimeout(function() {
+        // 3. Web Bluetooth ESC/POS 80mm Thermal Printing
+        var BLE_PRINTER_SERVICES = [
+            '000018f0-0000-1000-8000-00805f9b34fb', // Standard POS Print Service
+            '0000ff00-0000-1000-8000-00805f9b34fb', // Generic Chinese / Xprinter / Goojprt
+            '0000ffe0-0000-1000-8000-00805f9b34fb', // HM-10 / MPT-II UART
+            '0000fee7-0000-1000-8000-00805f9b34fb', // Tencent / POS BLE
+            '0000ae30-0000-1000-8000-00805f9b34fb', // Mini POS / Peripage
+            '0000fff0-0000-1000-8000-00805f9b34fb', // FFF0 Generic Serial
+            '49535343-fe7d-4ae5-8fa9-9fafd205e455', // ISSC / Microchip Transparent UART
+            'e7810a71-73ae-499d-8c15-faa9aef0c3f2', // POS UART
+            '6e400001-b5a3-f393-e0a9-e50e24dcca9e', // Nordic UART Service
+            0x18f0,
+            0xff00,
+            0xffe0,
+            0xfee7,
+            0xae30,
+            0xfff0
+        ];
+
+        var cachedBleDevice = null;
+        var cachedBleCharacteristic = null;
+
+        function showBleStatus(msg, isError) {
+            var banner = document.getElementById('bleStatusBanner');
+            var text = document.getElementById('bleStatusText');
+            if (!banner || !text) return;
+            text.innerText = msg;
+            banner.style.display = 'block';
+            if (isError) {
+                banner.style.background = '#fef2f2';
+                banner.style.color = '#991b1b';
+                banner.style.borderColor = '#fecaca';
+            } else {
+                banner.style.background = '#eff6ff';
+                banner.style.color = '#1e40af';
+                banner.style.borderColor = '#bfdbfe';
+            }
+        }
+
+        function hideBleStatus() {
+            var banner = document.getElementById('bleStatusBanner');
+            if (banner) banner.style.display = 'none';
+        }
+
+        function forgetBlePrinter() {
+            if (cachedBleDevice && cachedBleDevice.gatt && cachedBleDevice.gatt.connected) {
+                cachedBleDevice.gatt.disconnect();
+            }
+            cachedBleDevice = null;
+            cachedBleCharacteristic = null;
+            var forgetLink = document.getElementById('bleForgetLink');
+            if (forgetLink) forgetLink.style.display = 'none';
+            showBleStatus("Bluetooth printer disconnected.", false);
+            setTimeout(hideBleStatus, 2500);
+        }
+
+        // Convert 576px canvas to ESC/POS 80mm Raster Bit Image bands (GS v 0)
+        function convertCanvasToEscPosBands(canvas) {
+            var ctx = canvas.getContext('2d');
+            var width = canvas.width; // 576 dots
+            var totalHeight = canvas.height;
+            var imgData = ctx.getImageData(0, 0, width, totalHeight);
+            var pixels = imgData.data;
+
+            var stride = Math.ceil(width / 8); // 72 bytes
+            var SLICE_HEIGHT = 128; // safe line slice height to prevent printer buffer overflow
+            var allBytes = [];
+
+            // 1. Initialize printer: ESC @ (0x1B, 0x40)
+            allBytes.push(0x1B, 0x40);
+
+            // 2. Set line spacing to 0: ESC 3 0 (0x1B, 0x33, 0x00)
+            allBytes.push(0x1B, 0x33, 0x00);
+
+            // 3. Process slices
+            for (var sliceStart = 0; sliceStart < totalHeight; sliceStart += SLICE_HEIGHT) {
+                var sliceH = Math.min(SLICE_HEIGHT, totalHeight - sliceStart);
+                var xL = stride % 256;
+                var xH = Math.floor(stride / 256);
+                var yL = sliceH % 256;
+                var yH = Math.floor(sliceH / 256);
+
+                // Header: GS v 0 0 xL xH yL yH
+                allBytes.push(0x1D, 0x76, 0x30, 0x00, xL, xH, yL, yH);
+
+                for (var y = sliceStart; y < sliceStart + sliceH; y++) {
+                    for (var xByte = 0; xByte < stride; xByte++) {
+                        var byteVal = 0;
+                        for (var bit = 0; bit < 8; bit++) {
+                            var x = xByte * 8 + bit;
+                            if (x < width) {
+                                var idx = (y * width + x) * 4;
+                                var r = pixels[idx];
+                                var g = pixels[idx + 1];
+                                var b = pixels[idx + 2];
+                                var a = pixels[idx + 3];
+
+                                var lum = 0.299 * r + 0.587 * g + 0.114 * b;
+                                // Pure black dot threshold
+                                if (lum < 165 && a > 128) {
+                                    byteVal |= (1 << (7 - bit));
+                                }
+                            }
+                        }
+                        allBytes.push(byteVal);
+                    }
+                }
+            }
+
+            // 4. Reset line spacing: ESC 2 (0x1B, 0x32)
+            allBytes.push(0x1B, 0x32);
+
+            // 5. Feed 4 lines so it clears tear bar: ESC d 4 (0x1B, 0x64, 0x04)
+            allBytes.push(0x1B, 0x64, 0x04);
+
+            // 6. Partial cut: GS V 66 0 (0x1D, 0x56, 0x42, 0x00)
+            allBytes.push(0x1D, 0x56, 0x42, 0x00);
+
+            return new Uint8Array(allBytes);
+        }
+
+        async function getBleWriteCharacteristic() {
+            if (cachedBleDevice && cachedBleDevice.gatt && cachedBleDevice.gatt.connected && cachedBleCharacteristic) {
+                return cachedBleCharacteristic;
+            }
+
+            showBleStatus("Searching for Bluetooth Thermal Printer... Select your 80mm printer.", false);
+
+            var device = await navigator.bluetooth.requestDevice({
+                acceptAllDevices: true,
+                optionalServices: BLE_PRINTER_SERVICES
+            });
+
+            cachedBleDevice = device;
+            device.addEventListener('gattserverdisconnected', function() {
+                cachedBleCharacteristic = null;
+                var forgetLink = document.getElementById('bleForgetLink');
+                if (forgetLink) forgetLink.style.display = 'none';
+                showBleStatus("Bluetooth Printer Disconnected", false);
+                setTimeout(hideBleStatus, 2000);
+            });
+
+            showBleStatus("Connecting to " + (device.name || "Bluetooth Printer") + "...", false);
+            var server = await device.gatt.connect();
+
+            var foundChar = null;
+
+            // 1. Loop through primary services
+            try {
+                var services = await server.getPrimaryServices();
+                for (var i = 0; i < services.length; i++) {
+                    try {
+                        var chars = await services[i].getCharacteristics();
+                        for (var j = 0; j < chars.length; j++) {
+                            var ch = chars[j];
+                            if (ch.properties.write || ch.properties.writeWithoutResponse) {
+                                foundChar = ch;
+                                break;
+                            }
+                        }
+                    } catch(e) {}
+                    if (foundChar) break;
+                }
+            } catch(e) {}
+
+            // 2. Fallback: try known service UUIDs individually
+            if (!foundChar) {
+                for (var k = 0; k < BLE_PRINTER_SERVICES.length; k++) {
+                    try {
+                        var s = await server.getPrimaryService(BLE_PRINTER_SERVICES[k]);
+                        var sChars = await s.getCharacteristics();
+                        for (var m = 0; m < sChars.length; m++) {
+                            var c = sChars[m];
+                            if (c.properties.write || c.properties.writeWithoutResponse) {
+                                foundChar = c;
+                                break;
+                            }
+                        }
+                    } catch(e) {}
+                    if (foundChar) break;
+                }
+            }
+
+            if (!foundChar) {
+                throw new Error("Could not find a writable channel on this Bluetooth printer.");
+            }
+
+            cachedBleCharacteristic = foundChar;
+            var forgetLink = document.getElementById('bleForgetLink');
+            if (forgetLink) forgetLink.style.display = 'inline';
+
+            return foundChar;
+        }
+
+        async function sendToBleCharacteristic(char, data, onProgress) {
+            var CHUNK_SIZE = 100; // Safe for BLE MTU
+            var total = data.length;
+
+            for (var i = 0; i < total; i += CHUNK_SIZE) {
+                var chunk = data.subarray(i, Math.min(i + CHUNK_SIZE, total));
+                if (char.properties.writeWithoutResponse) {
+                    await char.writeValueWithoutResponse(chunk);
+                } else {
+                    await char.writeValue(chunk);
+                }
+                if (onProgress) {
+                    onProgress(Math.round(((i + chunk.length) / total) * 100));
+                }
+                await new Promise(function(r) { setTimeout(r, 12); });
+            }
+        }
+
+        async function handlePrintClick() {
+            var btn = document.getElementById('btnPrintMain');
+            var origHtml = btn ? btn.innerHTML : '';
+
+            // Check if Web Bluetooth API is supported and in secure context
+            if (!navigator.bluetooth) {
+                // If not supported on this browser/context, fall back directly to browser print dialog
                 window.print();
-            }, 450);
-        };
+                return;
+            }
+
+            try {
+                if (btn) {
+                    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Bluetooth...';
+                    btn.disabled = true;
+                }
+
+                var writeChar = await getBleWriteCharacteristic();
+
+                showBleStatus("Rendering 80mm high-contrast thermal receipt...", false);
+                if (btn) {
+                    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Preparing...';
+                }
+
+                var canvas = await renderReceiptCanvas();
+                var escposBytes = convertCanvasToEscPosBands(canvas);
+
+                showBleStatus("Streaming receipt to printer (0%)...", false);
+                if (btn) {
+                    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Printing (0%)...';
+                }
+
+                await sendToBleCharacteristic(writeChar, escposBytes, function(pct) {
+                    showBleStatus("Streaming receipt to printer (" + pct + "%)...", false);
+                    if (btn) {
+                        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Printing (' + pct + '%)...';
+                    }
+                });
+
+                showBleStatus("Receipt printed successfully via Bluetooth!", false);
+                if (btn) {
+                    btn.innerHTML = '<i class="fa-solid fa-check text-success"></i> Printed!';
+                    btn.disabled = false;
+                    setTimeout(function() {
+                        btn.innerHTML = origHtml;
+                    }, 3000);
+                }
+                setTimeout(hideBleStatus, 4000);
+
+            } catch (err) {
+                console.warn('Bluetooth print cancelled or error:', err);
+                if (btn) {
+                    btn.innerHTML = origHtml;
+                    btn.disabled = false;
+                }
+                hideBleStatus();
+
+                // If user simply closed or cancelled the device chooser popup
+                if (err.name === 'NotFoundError' || (err.message && (err.message.includes('User cancelled') || err.message.includes('cancelled')))) {
+                    return;
+                }
+
+                // If error occurred (e.g. bluetooth disabled or device connection failed)
+                var useFallback = confirm("Bluetooth print complete nahi ho saka (" + (err.message || err) + ").\n\nKya aap standard browser Print dialog kholna chahty hain?");
+                if (useFallback) {
+                    window.print();
+                }
+            }
+        }
     </script>
 </body>
 </html>
