@@ -66,8 +66,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
+// Date Range Filter (From Date - To Date)
+$from_date = !empty($_GET['from_date']) ? trim($_GET['from_date']) : '';
+$to_date = !empty($_GET['to_date']) ? trim($_GET['to_date']) : '';
+
+if (!empty($from_date) && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $from_date)) {
+    $from_date = '';
+}
+if (!empty($to_date) && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $to_date)) {
+    $to_date = '';
+}
+
+$from_sql = !empty($from_date) ? "{$from_date} 00:00:00" : null;
+$to_sql = !empty($to_date) ? "{$to_date} 23:59:59" : null;
+$has_date_filter = (!empty($from_sql) || !empty($to_sql));
+
 // Fetch User Collections by this RM
-$userLedgerStmt = $pdo->prepare("
+$rm_ledger_sql = "
     SELECT l.*, s.id as sub_id, s.full_name as sub_fullname, s.balance as sub_balance, s.mobile as sub_mobile
     FROM user_ledger l
     LEFT JOIN subscribers s ON l.username = s.username COLLATE utf8mb4_general_ci AND s.client_id = l.client_id
@@ -77,20 +92,32 @@ $userLedgerStmt = $pdo->prepare("
         OR l.description LIKE ? 
         OR l.description LIKE ?
     )
-    ORDER BY l.created_at DESC 
-    LIMIT 200
-");
-$userLedgerStmt->execute([
+";
+$rm_ledger_params = [
     $client_id, 
     "Cash collected by {$rm['full_name']}%",
     "Payment collected by {$rm['full_name']}%",
     "Initial Payment Collected by RM: {$rm['username']}%",
     "%RM: {$rm['username']}%"
-]);
+];
+if (!empty($from_sql)) {
+    $rm_ledger_sql .= " AND l.created_at >= ? ";
+    $rm_ledger_params[] = $from_sql;
+}
+if (!empty($to_sql)) {
+    $rm_ledger_sql .= " AND l.created_at <= ? ";
+    $rm_ledger_params[] = $to_sql;
+}
+$rm_ledger_sql .= " ORDER BY l.created_at DESC ";
+if (!$has_date_filter) {
+    $rm_ledger_sql .= " LIMIT 200 ";
+}
+$userLedgerStmt = $pdo->prepare($rm_ledger_sql);
+$userLedgerStmt->execute($rm_ledger_params);
 $user_collections = $userLedgerStmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Fetch All Activities (Renewals, Registrations, Logs)
-$activityStmt = $pdo->prepare("
+$rm_act_sql = "
     SELECT 
         a.*,
         s.id as sub_id,
@@ -108,15 +135,27 @@ $activityStmt = $pdo->prepare("
     WHERE a.client_id = ? 
       AND a.by_role = 'RecoveryMan' 
       AND (a.by_user = ? OR a.by_user = ? OR a.by_user = ?)
-    ORDER BY a.created_at DESC 
-    LIMIT 250
-");
-$activityStmt->execute([
+";
+$rm_act_params = [
     $client_id, 
     $rm['full_name'], 
     'RM: ' . $rm['username'], 
     $rm['username']
-]);
+];
+if (!empty($from_sql)) {
+    $rm_act_sql .= " AND a.created_at >= ? ";
+    $rm_act_params[] = $from_sql;
+}
+if (!empty($to_sql)) {
+    $rm_act_sql .= " AND a.created_at <= ? ";
+    $rm_act_params[] = $to_sql;
+}
+$rm_act_sql .= " ORDER BY a.created_at DESC ";
+if (!$has_date_filter) {
+    $rm_act_sql .= " LIMIT 250 ";
+}
+$activityStmt = $pdo->prepare($rm_act_sql);
+$activityStmt->execute($rm_act_params);
 $raw_activities = $activityStmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Build Unified All Activities List
@@ -203,13 +242,29 @@ usort($all_activities, function($a, $b) {
 });
 
 // Fetch Cash Submitted to Operator
-$submissionStmt = $pdo->prepare("
+$rm_sub_sql = "
     SELECT * FROM activity_logs 
-    WHERE client_id = ? AND against_role = 'RecoveryMan' AND against_to = ? AND activity LIKE 'Collected Cash Rs.%'
-    ORDER BY created_at DESC 
-    LIMIT 100
-");
-$submissionStmt->execute([$client_id, $rm['full_name']]);
+    WHERE client_id = ? AND against_role = 'RecoveryMan' AND (against_to = ? OR against_to = ?) AND activity LIKE 'Collected Cash Rs.%'
+";
+$rm_sub_params = [
+    $client_id, 
+    $rm['full_name'],
+    $rm['username']
+];
+if (!empty($from_sql)) {
+    $rm_sub_sql .= " AND created_at >= ? ";
+    $rm_sub_params[] = $from_sql;
+}
+if (!empty($to_sql)) {
+    $rm_sub_sql .= " AND created_at <= ? ";
+    $rm_sub_params[] = $to_sql;
+}
+$rm_sub_sql .= " ORDER BY created_at DESC ";
+if (!$has_date_filter) {
+    $rm_sub_sql .= " LIMIT 100 ";
+}
+$submissionStmt = $pdo->prepare($rm_sub_sql);
+$submissionStmt->execute($rm_sub_params);
 $submissions = $submissionStmt->fetchAll(PDO::FETCH_ASSOC);
 
 ?>
@@ -288,6 +343,104 @@ $submissions = $submissionStmt->fetchAll(PDO::FETCH_ASSOC);
         require __DIR__ . '/staff_salary_view.php';
         ?>
     </div>
+
+<!-- Date Range Filter Card -->
+<div class="card card-custom bg-white mb-4 shadow-sm rounded-4">
+    <div class="card-body p-3 p-md-4">
+        <form method="GET" class="row g-2 align-items-end" id="rmDateFilterForm">
+            <input type="hidden" name="id" value="<?= $rm_id ?>">
+            
+            <div class="col-12 col-md-auto mb-1 mb-md-0 d-flex align-items-center">
+                <span class="fw-bold text-dark fs-6 me-2">
+                    <i class="fa-solid fa-calendar-days text-primary me-1"></i> Date Filter:
+                </span>
+            </div>
+
+            <div class="col-6 col-md-3">
+                <label class="form-label text-secondary small fw-semibold mb-1">From Date</label>
+                <input type="date" name="from_date" id="rm_filter_from_date" class="form-control form-control-sm" value="<?= htmlspecialchars($from_date) ?>" max="<?= date('Y-m-d') ?>">
+            </div>
+
+            <div class="col-6 col-md-3">
+                <label class="form-label text-secondary small fw-semibold mb-1">To Date</label>
+                <input type="date" name="to_date" id="rm_filter_to_date" class="form-control form-control-sm" value="<?= htmlspecialchars($to_date) ?>" max="<?= date('Y-m-d') ?>">
+            </div>
+
+            <div class="col-12 col-md-auto d-flex gap-2">
+                <button type="submit" class="btn btn-primary btn-sm rounded-pill px-3 shadow-sm fw-semibold">
+                    <i class="fa-solid fa-filter me-1"></i> Apply Filter
+                </button>
+                <?php if ($has_date_filter): ?>
+                    <a href="?id=<?= $rm_id ?>" class="btn btn-outline-secondary btn-sm rounded-pill px-3">
+                        <i class="fa-solid fa-rotate-left me-1"></i> Reset
+                    </a>
+                <?php endif; ?>
+            </div>
+
+            <!-- Quick Presets -->
+            <div class="col-12 mt-2 pt-2 border-top d-flex flex-wrap align-items-center gap-1">
+                <span class="text-muted small me-2"><i class="fa-solid fa-bolt text-warning me-1"></i> Quick Presets:</span>
+                <button type="button" class="btn btn-sm btn-light border rounded-pill px-2 py-0 text-secondary" style="font-size: 11px;" onclick="applyRmDatePreset('today')">Today</button>
+                <button type="button" class="btn btn-sm btn-light border rounded-pill px-2 py-0 text-secondary" style="font-size: 11px;" onclick="applyRmDatePreset('yesterday')">Yesterday</button>
+                <button type="button" class="btn btn-sm btn-light border rounded-pill px-2 py-0 text-secondary" style="font-size: 11px;" onclick="applyRmDatePreset('last7')">Last 7 Days</button>
+                <button type="button" class="btn btn-sm btn-light border rounded-pill px-2 py-0 text-secondary" style="font-size: 11px;" onclick="applyRmDatePreset('this_month')">This Month</button>
+                <button type="button" class="btn btn-sm btn-light border rounded-pill px-2 py-0 text-secondary" style="font-size: 11px;" onclick="applyRmDatePreset('last_month')">Last Month</button>
+
+                <?php if ($has_date_filter): ?>
+                    <div class="ms-auto d-flex align-items-center">
+                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle rounded-pill px-2.5 py-1 small">
+                            <i class="fa-solid fa-circle-check me-1"></i> Active Range: <?= !empty($from_date) ? date('d M Y', strtotime($from_date)) : 'Start' ?> &rarr; <?= !empty($to_date) ? date('d M Y', strtotime($to_date)) : 'Today' ?>
+                        </span>
+                        <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2.5 py-1 small ms-1">
+                            Collected: Rs. <?= number_format($total_collected_in_activities, 0) ?>
+                        </span>
+                    </div>
+                <?php endif; ?>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function applyRmDatePreset(preset) {
+    const fromInput = document.getElementById('rm_filter_from_date');
+    const toInput = document.getElementById('rm_filter_to_date');
+    if (!fromInput || !toInput) return;
+
+    const today = new Date();
+    const formatDate = (d) => {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+    };
+
+    if (preset === 'today') {
+        fromInput.value = formatDate(today);
+        toInput.value = formatDate(today);
+    } else if (preset === 'yesterday') {
+        const yest = new Date();
+        yest.setDate(yest.getDate() - 1);
+        fromInput.value = formatDate(yest);
+        toInput.value = formatDate(yest);
+    } else if (preset === 'last7') {
+        const past7 = new Date();
+        past7.setDate(past7.getDate() - 7);
+        fromInput.value = formatDate(past7);
+        toInput.value = formatDate(today);
+    } else if (preset === 'this_month') {
+        const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+        fromInput.value = formatDate(firstDay);
+        toInput.value = formatDate(today);
+    } else if (preset === 'last_month') {
+        const firstDay = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+        const lastDay = new Date(today.getFullYear(), today.getMonth(), 0);
+        fromInput.value = formatDate(firstDay);
+        toInput.value = formatDate(lastDay);
+    }
+    document.getElementById('rmDateFilterForm').submit();
+}
+</script>
 
 <!-- Statement Tabs -->
 <div class="card card-custom bg-white">

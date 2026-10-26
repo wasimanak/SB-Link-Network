@@ -251,6 +251,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // Manager record already loaded above
 
+// Date Range Filter (From Date - To Date)
+$from_date = !empty($_GET['from_date']) ? trim($_GET['from_date']) : '';
+$to_date = !empty($_GET['to_date']) ? trim($_GET['to_date']) : '';
+
+if (!empty($from_date) && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $from_date)) {
+    $from_date = '';
+}
+if (!empty($to_date) && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $to_date)) {
+    $to_date = '';
+}
+
+$from_sql = !empty($from_date) ? "{$from_date} 00:00:00" : null;
+$to_sql = !empty($to_date) ? "{$to_date} 23:59:59" : null;
+$has_date_filter = (!empty($from_sql) || !empty($to_sql));
+
 // 1. Maintain activity retention:
 // Login activities: strictly 24 hours retention
 // All other actions (renewals, billing, edits, financial events): 2 Years (730 days) retention
@@ -274,6 +289,24 @@ $raw_ledgers = [];
 
 // Only query activities and ledger if this manager has a valid name or username
 if (!empty($mgr_full_safe) || !empty($mgr_user_safe)) {
+    $act_date_clause = "";
+    $act_params = [
+        $client_id, 
+        $manager_id, 
+        $mgr_user_safe, 
+        $mgr_full_safe,
+        'Manager: ' . $mgr_user_safe,
+        $admin_comp_safe
+    ];
+    if (!empty($from_sql)) {
+        $act_date_clause .= " AND created_at >= ? ";
+        $act_params[] = $from_sql;
+    }
+    if (!empty($to_sql)) {
+        $act_date_clause .= " AND created_at <= ? ";
+        $act_params[] = $to_sql;
+    }
+
     $actStmt = $pdo->prepare("
         SELECT * 
         FROM activity_logs 
@@ -293,16 +326,10 @@ if (!empty($mgr_full_safe) || !empty($mgr_user_safe)) {
               OR
               ((activity NOT LIKE '%Login%' AND activity NOT LIKE '%Logged in%' AND (against_role != 'Login' OR against_role IS NULL)) AND created_at >= NOW() - INTERVAL 730 DAY)
           )
+          {$act_date_clause}
         ORDER BY id DESC
     ");
-    $actStmt->execute([
-        $client_id, 
-        $manager_id, 
-        $mgr_user_safe, 
-        $mgr_full_safe,
-        'Manager: ' . $mgr_user_safe,
-        $admin_comp_safe
-    ]);
+    $actStmt->execute($act_params);
     $activities = $actStmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
@@ -321,7 +348,25 @@ foreach ($activities as $act) {
 
 // Only fetch recoveries and ledgers if manager has valid name/username
 if (!empty($mgr_full_safe) || !empty($mgr_user_safe)) {
-    // Fetch All Recoveries, Renewals & Payment Collections for this Manager (Up to 2 Years)
+    // Fetch All Recoveries, Renewals & Payment Collections for this Manager
+    $rec_date_clause = "";
+    $rec_params = [
+        $client_id, 
+        $manager_id, 
+        $mgr_user_safe, 
+        $mgr_full_safe,
+        'Manager: ' . $mgr_user_safe,
+        $admin_comp_safe
+    ];
+    if (!empty($from_sql)) {
+        $rec_date_clause .= " AND a.created_at >= ? ";
+        $rec_params[] = $from_sql;
+    }
+    if (!empty($to_sql)) {
+        $rec_date_clause .= " AND a.created_at <= ? ";
+        $rec_params[] = $to_sql;
+    }
+
     $recStmt = $pdo->prepare("
         SELECT 
             a.id as act_id,
@@ -363,19 +408,31 @@ if (!empty($mgr_full_safe) || !empty($mgr_user_safe)) {
               OR a.activity LIKE '%Payment%'
               OR a.activity LIKE '%Charged%'
           )
+          {$rec_date_clause}
         ORDER BY a.created_at DESC
     ");
-    $recStmt->execute([
-        $client_id, 
-        $manager_id, 
-        $mgr_user_safe, 
-        $mgr_full_safe,
-        'Manager: ' . $mgr_user_safe,
-        $admin_comp_safe
-    ]);
+    $recStmt->execute($rec_params);
     $raw_recoveries = $recStmt->fetchAll(PDO::FETCH_ASSOC);
 
     // Also fetch user_ledger records if manager name or username is in description
+    $led_date_clause = "";
+    $search_name = !empty($mgr_full_safe) ? "%{$mgr_full_safe}%" : "___NO_MATCH___";
+    $search_user = !empty($mgr_user_safe) ? "%{$mgr_user_safe}%" : "___NO_MATCH___";
+    $led_params = [
+        $client_id,
+        $search_name,
+        $search_user,
+        "%Manager #{$manager_id}%"
+    ];
+    if (!empty($from_sql)) {
+        $led_date_clause .= " AND l.created_at >= ? ";
+        $led_params[] = $from_sql;
+    }
+    if (!empty($to_sql)) {
+        $led_date_clause .= " AND l.created_at <= ? ";
+        $led_params[] = $to_sql;
+    }
+
     $ledStmt = $pdo->prepare("
         SELECT 
             l.id as ledger_id,
@@ -412,18 +469,10 @@ if (!empty($mgr_full_safe) || !empty($mgr_user_safe)) {
               OR l.description LIKE ? 
               OR l.description LIKE ?
           )
+          {$led_date_clause}
         ORDER BY l.created_at DESC
     ");
-
-    $search_name = !empty($mgr_full_safe) ? "%{$mgr_full_safe}%" : "___NO_MATCH___";
-    $search_user = !empty($mgr_user_safe) ? "%{$mgr_user_safe}%" : "___NO_MATCH___";
-
-    $ledStmt->execute([
-        $client_id,
-        $search_name,
-        $search_user,
-        "%Manager #{$manager_id}%"
-    ]);
+    $ledStmt->execute($led_params);
     $raw_ledgers = $ledStmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
@@ -538,21 +587,33 @@ usort($all_recoveries, function($a, $b) {
 $unique_subscribers_count = count($unique_subs);
 
 // Fetch Submissions to Admin (Cash Collected from this Manager)
+$sub_date_clause = "";
+$sub_params = [
+    $client_id, 
+    $mgr['full_name'], 
+    $mgr['username'], 
+    "Manager #{$manager_id}"
+];
+if (!empty($from_sql)) {
+    $sub_date_clause .= " AND created_at >= ? ";
+    $sub_params[] = $from_sql;
+}
+if (!empty($to_sql)) {
+    $sub_date_clause .= " AND created_at <= ? ";
+    $sub_params[] = $to_sql;
+}
+
 $submissionStmt = $pdo->prepare("
     SELECT * FROM activity_logs 
     WHERE client_id = ? 
       AND against_role = 'Manager' 
       AND (against_to = ? OR against_to = ? OR against_to = ?) 
       AND activity LIKE 'Collected Cash Rs.%'
+      {$sub_date_clause}
     ORDER BY created_at DESC 
     LIMIT 200
 ");
-$submissionStmt->execute([
-    $client_id, 
-    $mgr['full_name'], 
-    $mgr['username'], 
-    "Manager #{$manager_id}"
-]);
+$submissionStmt->execute($sub_params);
 $submissions = $submissionStmt->fetchAll(PDO::FETCH_ASSOC);
 
 $total_submitted_to_admin = 0;
@@ -562,10 +623,12 @@ foreach ($submissions as $sub) {
     }
 }
 
-// Auto-sync verified cash_in_hand for this manager (clearing any previous cross-contaminated balances)
+// Auto-sync verified cash_in_hand for this manager (only when not filtering by specific date range)
 $pending_difference = max(0, $total_recovered_amount - $total_submitted_to_admin);
-$pdo->prepare("UPDATE managers SET cash_in_hand = ? WHERE id = ? AND client_id = ?")->execute([$pending_difference, $manager_id, $client_id]);
-$mgr['cash_in_hand'] = $pending_difference;
+if (!$has_date_filter) {
+    $pdo->prepare("UPDATE managers SET cash_in_hand = ? WHERE id = ? AND client_id = ?")->execute([$pending_difference, $manager_id, $client_id]);
+    $mgr['cash_in_hand'] = $pending_difference;
+}
 ?>
 
 <!-- DataTables CSS -->
@@ -959,6 +1022,104 @@ $mgr['cash_in_hand'] = $pending_difference;
             </div>
         </div>
     </div>
+
+    <!-- Date Range Filter Card -->
+    <div class="card border-0 shadow-sm rounded-4 mb-4 bg-white">
+        <div class="card-body p-3 p-md-4">
+            <form method="GET" class="row g-2 align-items-end" id="mgrDateFilterForm">
+                <input type="hidden" name="id" value="<?= $manager_id ?>">
+                
+                <div class="col-12 col-md-auto mb-1 mb-md-0 d-flex align-items-center">
+                    <span class="fw-bold text-dark fs-6 me-2">
+                        <i class="fa-solid fa-calendar-days text-primary me-1"></i> Date Filter:
+                    </span>
+                </div>
+
+                <div class="col-6 col-md-3">
+                    <label class="form-label text-secondary small fw-semibold mb-1">From Date</label>
+                    <input type="date" name="from_date" id="filter_from_date" class="form-control form-control-sm" value="<?= htmlspecialchars($from_date) ?>" max="<?= date('Y-m-d') ?>">
+                </div>
+
+                <div class="col-6 col-md-3">
+                    <label class="form-label text-secondary small fw-semibold mb-1">To Date</label>
+                    <input type="date" name="to_date" id="filter_to_date" class="form-control form-control-sm" value="<?= htmlspecialchars($to_date) ?>" max="<?= date('Y-m-d') ?>">
+                </div>
+
+                <div class="col-12 col-md-auto d-flex gap-2">
+                    <button type="submit" class="btn btn-primary btn-sm rounded-pill px-3 shadow-sm fw-semibold">
+                        <i class="fa-solid fa-filter me-1"></i> Apply Filter
+                    </button>
+                    <?php if ($has_date_filter): ?>
+                        <a href="?id=<?= $manager_id ?>" class="btn btn-outline-secondary btn-sm rounded-pill px-3">
+                            <i class="fa-solid fa-rotate-left me-1"></i> Reset
+                        </a>
+                    <?php endif; ?>
+                </div>
+
+                <!-- Quick Date Presets -->
+                <div class="col-12 mt-2 pt-2 border-top d-flex flex-wrap align-items-center gap-1">
+                    <span class="text-muted small me-2"><i class="fa-solid fa-bolt text-warning me-1"></i> Quick Presets:</span>
+                    <button type="button" class="btn btn-sm btn-light border rounded-pill px-2 py-0 text-secondary" style="font-size: 11px;" onclick="applyMgrDatePreset('today')">Today</button>
+                    <button type="button" class="btn btn-sm btn-light border rounded-pill px-2 py-0 text-secondary" style="font-size: 11px;" onclick="applyMgrDatePreset('yesterday')">Yesterday</button>
+                    <button type="button" class="btn btn-sm btn-light border rounded-pill px-2 py-0 text-secondary" style="font-size: 11px;" onclick="applyMgrDatePreset('last7')">Last 7 Days</button>
+                    <button type="button" class="btn btn-sm btn-light border rounded-pill px-2 py-0 text-secondary" style="font-size: 11px;" onclick="applyMgrDatePreset('this_month')">This Month</button>
+                    <button type="button" class="btn btn-sm btn-light border rounded-pill px-2 py-0 text-secondary" style="font-size: 11px;" onclick="applyMgrDatePreset('last_month')">Last Month</button>
+
+                    <?php if ($has_date_filter): ?>
+                        <div class="ms-auto d-flex align-items-center">
+                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle rounded-pill px-2.5 py-1 small">
+                                <i class="fa-solid fa-circle-check me-1"></i> Active Range: <?= !empty($from_date) ? date('d M Y', strtotime($from_date)) : 'Start' ?> &rarr; <?= !empty($to_date) ? date('d M Y', strtotime($to_date)) : 'Today' ?>
+                            </span>
+                            <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2.5 py-1 small ms-1">
+                                Recovered: Rs. <?= number_format($total_recovered_amount, 0) ?>
+                            </span>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+    function applyMgrDatePreset(preset) {
+        const fromInput = document.getElementById('filter_from_date');
+        const toInput = document.getElementById('filter_to_date');
+        if (!fromInput || !toInput) return;
+
+        const today = new Date();
+        const formatDate = (d) => {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${day}`;
+        };
+
+        if (preset === 'today') {
+            fromInput.value = formatDate(today);
+            toInput.value = formatDate(today);
+        } else if (preset === 'yesterday') {
+            const yest = new Date();
+            yest.setDate(yest.getDate() - 1);
+            fromInput.value = formatDate(yest);
+            toInput.value = formatDate(yest);
+        } else if (preset === 'last7') {
+            const past7 = new Date();
+            past7.setDate(past7.getDate() - 7);
+            fromInput.value = formatDate(past7);
+            toInput.value = formatDate(today);
+        } else if (preset === 'this_month') {
+            const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+            fromInput.value = formatDate(firstDay);
+            toInput.value = formatDate(today);
+        } else if (preset === 'last_month') {
+            const firstDay = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+            const lastDay = new Date(today.getFullYear(), today.getMonth(), 0);
+            fromInput.value = formatDate(firstDay);
+            toInput.value = formatDate(lastDay);
+        }
+        document.getElementById('mgrDateFilterForm').submit();
+    }
+    </script>
 
     <!-- Manager Governance Tabs Container -->
     <div class="card card-custom bg-white mb-4 border-0 shadow-sm rounded-4 overflow-hidden">
