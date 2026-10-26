@@ -740,22 +740,7 @@ $mgr['cash_in_hand'] = $pending_difference;
                 <button class="btn btn-outline-secondary btn-sm rounded-pill px-3" data-bs-toggle="modal" data-bs-target="#changePasswordModal">
                     <i class="fa-solid fa-key me-1"></i> Reset Password
                 </button>
-                <?php if (!$is_logged_manager): ?>
-                <!-- Status Toggle (Admin Only) -->
-                <form method="POST" class="d-inline">
-                    <input type="hidden" name="action" value="toggle_status">
-                    <input type="hidden" name="status" value="<?= $mgr['status'] === 'active' ? 'inactive' : 'active' ?>">
-                    <?php if ($mgr['status'] === 'active'): ?>
-                        <button type="submit" class="btn btn-outline-warning btn-sm rounded-pill px-3" onclick="return confirm('Suspend this Manager account?');">
-                            <i class="fa-solid fa-pause me-1"></i> Deactivate
-                        </button>
-                    <?php else: ?>
-                        <button type="submit" class="btn btn-outline-success btn-sm rounded-pill px-3">
-                            <i class="fa-solid fa-play me-1"></i> Activate Account
-                        </button>
-                    <?php endif; ?>
-                </form>
-                <?php endif; ?>
+                <!-- Deactivate button removed as requested -->
             </div>
         </div>
 
