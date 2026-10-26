@@ -1158,7 +1158,15 @@ if ($last_debit) {
                 <?php endif; ?>
                 <div class="profile-info">
                     <h5><?= htmlspecialchars($user['full_name'] ?: 'Unknown Name') ?></h5>
-                    <p class="mb-1"><?= htmlspecialchars($user['username']) ?></p>
+                    <p class="mb-1 d-inline-flex align-items-center gap-2">
+                        <span class="fw-bold text-primary font-monospace"><?= htmlspecialchars($user['username']) ?></span>
+                        <button type="button" 
+                                class="copy-user-btn" 
+                                onclick="copyToClipboard(event, '<?= addslashes(htmlspecialchars($user['username'])) ?>', this)" 
+                                title="Copy Username">
+                            <i class="fa-regular fa-copy" style="font-size: 0.8rem;"></i>
+                        </button>
+                    </p>
                     <div class="d-flex align-items-center gap-2 flex-wrap mt-1">
                         <span class="status-badge <?= $header_badge_class ?>"><?= $profile_status ?></span>
                         <?php if ($online): ?>

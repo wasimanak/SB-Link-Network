@@ -1285,10 +1285,20 @@ $map_subscribers = $pdo->query("
                 <tr>
                     <td><?= $s['id'] ?></td>
                     <td><div class="avatar-circle"><i class="fa-solid fa-user"></i></div></td>
-                    <td>
-                        <a href="subscriber_view.php?id=<?= $s['id'] ?>">
-                            <span class="badge rounded-pill badge-soft-success px-3 py-2"><?= htmlspecialchars($s['username']) ?></span>
-                        </a>
+                    <td data-search="<?= htmlspecialchars($s['username']) ?>" data-sort="<?= htmlspecialchars($s['username']) ?>">
+                        <div class="d-inline-flex align-items-center gap-1">
+                            <a href="subscriber_view.php?id=<?= $s['id'] ?>" class="text-decoration-none">
+                                <span class="badge rounded-pill badge-soft-success px-3 py-2 fw-bold">
+                                    <i class="fa-solid fa-user me-1"></i> <?= htmlspecialchars($s['username']) ?>
+                                </span>
+                            </a>
+                            <button type="button" 
+                                    class="copy-user-btn" 
+                                    onclick="copyToClipboard(event, '<?= addslashes(htmlspecialchars($s['username'])) ?>', this)" 
+                                    title="Copy Username">
+                                <i class="fa-regular fa-copy" style="font-size: 0.82rem;"></i>
+                            </button>
+                        </div>
                     </td>
                     <td><?= htmlspecialchars($s['mobile'] ?: ($s['phone'] ?: 'N/A')) ?></td>
                     <td><?= htmlspecialchars($s['package_name'] ?? 'N/A') ?></td>
@@ -1528,7 +1538,18 @@ $map_subscribers = $pdo->query("
                 <tbody>
                   <?php foreach($allPaymentUsers as $s): ?>
                   <tr>
-                    <td class="fw-bold text-primary"><?= htmlspecialchars($s['username']) ?></td>
+                    <td>
+                      <div class="d-inline-flex align-items-center gap-1">
+                        <span class="fw-bold text-primary"><?= htmlspecialchars($s['username']) ?></span>
+                        <button type="button" 
+                                class="copy-user-btn" 
+                                style="width: 22px; height: 22px;"
+                                onclick="copyToClipboard(event, '<?= addslashes(htmlspecialchars($s['username'])) ?>', this)" 
+                                title="Copy Username">
+                            <i class="fa-regular fa-copy" style="font-size: 0.72rem;"></i>
+                        </button>
+                      </div>
+                    </td>
                     <td><?= htmlspecialchars($s['full_name'] ?: 'N/A') ?></td>
                     <td>
                       <?php if($s['status'] === 'active'): ?>
@@ -2519,9 +2540,18 @@ function createSubscriberPopup(u) {
         <div style="min-width: 230px; font-family: inherit;">
             <div class="d-flex align-items-center justify-content-between border-bottom pb-2 mb-2">
                 <div>
-                    <a href="${profileUrl}" class="fw-bold fs-6 text-primary text-decoration-none" title="Click to view profile">
-                        <i class="fa-solid fa-user me-1"></i> ${escapeHtml(u.username)}
-                    </a>
+                    <div class="d-flex align-items-center gap-1">
+                        <a href="${profileUrl}" class="fw-bold fs-6 text-primary text-decoration-none" title="Click to view profile">
+                            <i class="fa-solid fa-user me-1"></i> ${escapeHtml(u.username)}
+                        </a>
+                        <button type="button" 
+                                class="copy-user-btn" 
+                                style="width: 22px; height: 22px;"
+                                onclick="copyToClipboard(event, '${escapeHtml(u.username)}', this)" 
+                                title="Copy Username">
+                            <i class="fa-regular fa-copy" style="font-size: 0.72rem;"></i>
+                        </button>
+                    </div>
                     <div class="text-secondary small">${escapeHtml(u.full_name || 'N/A')}</div>
                 </div>
                 <div>${statusBadge}</div>

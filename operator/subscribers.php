@@ -887,12 +887,20 @@ $count_offline = max(0, $count_all - $count_online);
                             <i class="fa-solid fa-user"></i>
                         </div>
                     </td>
-                    <td>
-                        <a href="subscriber_view.php?id=<?= $s['id'] ?>" class="text-decoration-none">
-                            <span class="badge rounded-pill badge-soft-primary px-3 py-2 fw-bold" style="font-size: 0.88rem;">
-                                <i class="fa-solid fa-user me-1"></i> <?= htmlspecialchars($s['username']) ?>
-                            </span>
-                        </a>
+                    <td data-search="<?= htmlspecialchars($s['username']) ?>" data-sort="<?= htmlspecialchars($s['username']) ?>">
+                        <div class="d-inline-flex align-items-center gap-1">
+                            <a href="subscriber_view.php?id=<?= $s['id'] ?>" class="text-decoration-none">
+                                <span class="badge rounded-pill badge-soft-primary px-3 py-2 fw-bold" style="font-size: 0.88rem;">
+                                    <i class="fa-solid fa-user me-1"></i> <?= htmlspecialchars($s['username']) ?>
+                                </span>
+                            </a>
+                            <button type="button" 
+                                    class="copy-user-btn" 
+                                    onclick="copyToClipboard(event, '<?= addslashes(htmlspecialchars($s['username'])) ?>', this)" 
+                                    title="Copy Username">
+                                <i class="fa-regular fa-copy" style="font-size: 0.82rem;"></i>
+                            </button>
+                        </div>
                     </td>
                     <td class="font-monospace small"><?= htmlspecialchars($s['password']) ?></td>
                     <td class="fw-medium text-dark"><?= htmlspecialchars($s['full_name']) ?></td>
