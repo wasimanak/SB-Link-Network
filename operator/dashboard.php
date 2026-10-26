@@ -1,6 +1,8 @@
 <?php
 require_once 'header.php';
 $client_id = $_SESSION['operator_id'];
+$is_mgr = !empty($_SESSION['is_manager']);
+$current_manager_id = $is_mgr ? (int)($_SESSION['manager_id'] ?? 0) : null;
 
 // Auto-Sync & Block Expired Users (runs once every 60 seconds max to maintain blazing performance)
 if (!isset($_SESSION['last_expiry_sync']) || (time() - $_SESSION['last_expiry_sync']) > 60) {
@@ -1787,6 +1789,7 @@ $renewPackages = $pdo->query("SELECT id, name, price, validity_days FROM package
                     </select>
                 </div>
                 
+                <?php if (!$is_mgr): ?>
                 <div class="col-md-6 mb-3">
                     <label class="col-form-label text-secondary small fw-bold">Expiry Type <span class="text-danger">*</span></label>
                     <select name="expiry_type" id="renew_expiry_type" class="form-select form-select-sm" onchange="toggleCustomExpiry()">
@@ -1798,6 +1801,23 @@ $renewPackages = $pdo->query("SELECT id, name, price, validity_days FROM package
                 <div class="col-md-6 mb-3 d-none" id="custom_expiry_container">
                     <label class="col-form-label text-secondary small fw-bold">Custom Expiry Date/Time <span class="text-danger">*</span></label>
                     <input type="datetime-local" name="custom_expiry" id="renew_custom_expiry" class="form-control form-control-sm" onchange="updateRenewDetails()">
+                </div>
+                <?php else: ?>
+                <input type="hidden" name="expiry_type" id="renew_expiry_type" value="default">
+                <div class="col-md-6 mb-3">
+                    <label class="col-form-label text-secondary small fw-bold">Expiry Duration</label>
+                    <div class="form-control form-control-sm bg-light text-primary fw-bold"><i class="fa-solid fa-calendar-check text-success me-1"></i> Auto Package Duration</div>
+                </div>
+                <?php endif; ?>
+
+                <div class="col-md-6 mb-3">
+                    <label class="col-form-label text-secondary small fw-bold">
+                        <i class="fa-solid fa-money-bill-wave text-success me-1"></i> Payment Received (Rs)
+                    </label>
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text bg-white fw-bold text-success border-success-subtle">Rs.</span>
+                        <input type="number" step="any" min="0" name="payment_amount" id="dash_renew_payment" class="form-control form-control-sm fw-bold text-success border-success-subtle shadow-none" placeholder="0.00" oninput="updateRenewDetails()">
+                    </div>
                 </div>
             </div>
 
@@ -1931,7 +1951,12 @@ function updateRenewDetails() {
         oldCredit = Math.round(((cd - now) / 86400000) * oldDaily * 100) / 100;
     }
 
-    var netPayable = parseFloat(pPrice);
+        var netPayable = parseFloat(pPrice);
+    var payField = document.getElementById('dash_renew_payment');
+    if (payField && (payField.dataset.lastPkg !== String(pkgSelect.value) || payField.value === "")) {
+        payField.value = isNaN(netPayable) ? 0 : netPayable;
+        payField.dataset.lastPkg = String(pkgSelect.value);
+    }
     var adjustmentRow = '';
     if (isPkgChanged && oldCredit > 0) {
         netPayable = Math.max(0, Math.round(parseFloat(pPrice) - oldCredit));
@@ -1951,6 +1976,10 @@ function updateRenewDetails() {
         <tr><td class="fw-bold ps-3">Package Duration</td><td>${pDur} Days</td></tr>
         <tr><td class="fw-bold ps-3">Package Price</td><td class="text-success fw-bold">Rs ${pPrice}</td></tr>
         ${adjustmentRow}
+        <tr>
+            <td class="fw-bold ps-3 text-success"><i class="fa-solid fa-money-bill-wave me-1"></i> Payment Received (Cash)</td>
+            <td class="text-success fw-bold fs-6">Rs. ${parseFloat(payField ? (payField.value || 0) : 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+        </tr>
     `;
 }
 

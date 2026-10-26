@@ -42,6 +42,9 @@ function kick_user_mikrotik($pdo, $client_id, $username) {
 }
 
 // --- HANDLE ACTIONS ---
+$is_manager = !empty($_SESSION['is_manager']);
+$current_manager_id = $is_manager ? (int)($_SESSION['manager_id'] ?? 0) : null;
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     $uStmt = $pdo->prepare("SELECT username FROM subscribers WHERE id = ? AND client_id = ?");
@@ -154,6 +157,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $package_id = (int)$_POST['package_id'];
             $dealer_id = !empty($_POST['dealer_id']) ? (int)$_POST['dealer_id'] : null;
             $expiry = !empty($_POST['expiry_date']) ? $_POST['expiry_date'] : null;
+            if ($is_manager) {
+                // Manager cannot set or alter custom expiry
+                $expiry = (!empty($cur_sub['expiry_date']) && $cur_sub['expiry_date'] !== '0000-00-00 00:00:00') ? $cur_sub['expiry_date'] : null;
+            }
             $mobile = trim($_POST['mobile']);
             $phone = trim($_POST['phone']);
             $email = trim($_POST['email']);
@@ -192,6 +199,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $now = time();
             $cur_exp_ts = (!empty($cur_sub['expiry_date']) && $cur_sub['expiry_date'] !== '0000-00-00 00:00:00') ? strtotime($cur_sub['expiry_date']) : 0;
             $new_exp_ts = !empty($expiry) ? strtotime($expiry) : 0;
+            if ($is_manager) {
+                $new_exp_ts = $cur_exp_ts;
+                $exp_changed = false;
+            }
 
             // Fetch selected package details
             $pkgStmt = $pdo->prepare("SELECT id, name, price, validity_days, rate_limit, pool_id FROM packages WHERE id = ?");
@@ -543,12 +554,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         elseif ($action === 'renew_user') {
             $package_id = (int)$_POST['package_id'];
             $expiry_date = trim($_POST['expiry_date'] ?? '');
+            $payment_amount = isset($_POST['payment_amount']) ? (float)$_POST['payment_amount'] : 0;
+            if ($payment_amount < 0) $payment_amount = 0;
             
             $p = $pdo->prepare("SELECT p.name, p.rate_limit, p.price, p.validity_days, p.pool_id, pl.pool_name FROM packages p LEFT JOIN ip_pools pl ON p.pool_id = pl.id WHERE p.id = ? AND (p.client_id = ? OR p.client_id = 0)");
             $p->execute([$package_id, $client_id]);
             $pkg = $p->fetch();
 
-            if ($pkg && !empty($expiry_date)) {
+            if ($pkg) {
                 // Fetch full subscriber details including current package details
                 $subStmt = $pdo->prepare("
                     SELECT s.id, s.username, s.balance, s.status, s.expiry_date, s.package_id, s.dealer_id,
@@ -567,11 +580,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $now = time();
                 $cur_exp_ts = (!empty($sub['expiry_date']) && $sub['expiry_date'] !== '0000-00-00 00:00:00') ? strtotime($sub['expiry_date']) : 0;
-                $new_exp_ts = strtotime($expiry_date);
+                $pkg_val = (int)(($pkg['validity_days'] ?? 0) > 0 ? $pkg['validity_days'] : 30);
 
-                if ($new_exp_ts === false || $new_exp_ts <= 0) {
-                    echo "<script>alert('Invalid Expiry Date & Time.'); window.location='subscriber_view.php?id=$id';</script>";
-                    exit;
+                if ($is_manager) {
+                    // Manager is strictly restricted: NO custom expiry allowed!
+                    // Calculated strictly from current expiry (if active) or now (if expired) + package validity days
+                    $base_ts = ($cur_exp_ts > $now) ? $cur_exp_ts : $now;
+                    $new_exp_ts = $base_ts + ($pkg_val * 86400);
+                    $expiry_date = date('Y-m-d H:i:s', $new_exp_ts);
+                } else {
+                    if (empty($expiry_date)) {
+                        $base_ts = ($cur_exp_ts > $now) ? $cur_exp_ts : $now;
+                        $new_exp_ts = $base_ts + ($pkg_val * 86400);
+                        $expiry_date = date('Y-m-d H:i:s', $new_exp_ts);
+                    } else {
+                        $new_exp_ts = strtotime($expiry_date);
+                    }
+                    if ($new_exp_ts === false || $new_exp_ts <= 0) {
+                        echo "<script>alert('Invalid Expiry Date & Time.'); window.location='subscriber_view.php?id=$id';</script>";
+                        exit;
+                    }
                 }
 
                 // 1. Calculate remaining credit on currently active period (if user was still active)
@@ -601,7 +629,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $net_adjustment = round($new_total_cost - $old_remaining_credit, 2);
 
                 $current_bal = (float)$sub['balance'];
-                $new_bal = round($current_bal - $net_adjustment, 2);
+                $bal_after_debit = round($current_bal - $net_adjustment, 2);
+                $final_bal = round($bal_after_debit + $payment_amount, 2);
 
                 $pdo->beginTransaction();
 
@@ -648,7 +677,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 // Update subscriber record
                 $pdo->prepare("UPDATE subscribers SET package_id = ?, expiry_date = ?, status = ?, balance = ? WHERE id = ?")
-                    ->execute([$package_id, $formatted_expiry_db, $new_status, $new_bal, $id]);
+                    ->execute([$package_id, $formatted_expiry_db, $new_status, $final_bal, $id]);
 
                 // RADIUS sync
                 $formatted_expiry_rad = date('d M Y H:i:s', $new_exp_ts);
@@ -680,33 +709,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 // Actor details (Admin or Manager)
-                $actor_role = !empty($_SESSION['is_manager']) ? 'Manager' : 'Admin';
-                $actor_name = !empty($_SESSION['manager_name']) ? $_SESSION['manager_name'] : (!empty($_SESSION['operator_name']) ? $_SESSION['operator_name'] : 'Admin');
-                $actor_mgr_id = !empty($_SESSION['is_manager']) ? (int)($_SESSION['manager_id'] ?? 0) : null;
+                $actor_role = $is_manager ? 'Manager' : 'Admin';
+                $actor_name = $is_manager ? ($_SESSION['manager_name'] ?? ($_SESSION['manager_username'] ?? 'Manager')) : (!empty($_SESSION['operator_username']) ? $_SESSION['operator_username'] : 'Admin');
+                $actor_mgr_id = $is_manager ? (int)($_SESSION['manager_id'] ?? 0) : null;
 
                 // Activity Log
-                if ($net_adjustment > 0) {
-                    $act_text = "Renewed / Extended Expiry to " . date('d M Y, h:i A', $new_exp_ts) . ". Charged Rs. " . number_format($net_adjustment, 2) . " ({$pkg['name']})";
-                } elseif ($net_adjustment < 0) {
-                    $act_text = "Reduced Expiry to " . date('d M Y, h:i A', $new_exp_ts) . ". Credited Rs. " . number_format(abs($net_adjustment), 2) . " ({$pkg['name']})";
-                } else {
-                    $act_text = "Updated Expiry Date to " . date('d M Y, h:i A', $new_exp_ts) . " ({$pkg['name']})";
+                $act_text = "Renewed Package ({$pkg['name']}) to " . date('d M Y, h:i A', $new_exp_ts);
+                if ($payment_amount > 0) {
+                    $act_text .= ". Payment received: Rs. " . number_format($payment_amount, 2);
                 }
+                if ($net_adjustment > 0) {
+                    $act_text .= ". Charged: Rs. " . number_format($net_adjustment, 2);
+                } elseif ($net_adjustment < 0) {
+                    $act_text .= ". Credited: Rs. " . number_format(abs($net_adjustment), 2);
+                }
+                $act_text .= " by $actor_role: $actor_name";
 
                 $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, ?, ?, ?, 'User', ?)")
                     ->execute([$client_id, $actor_mgr_id, $actor_name, $actor_role, $u, $act_text]);
 
-                // Ledger Entry
+                // Ledger Entry 1: Renewal debit / pro-rata adjustment
                 if ($net_adjustment > 0) {
                     $days_label = ($new_exp_ts > $now) ? round(($new_exp_ts - max($now, $cur_exp_ts)) / 86400, 1) : 0;
-                    $desc = "Expiry Extended (+{$days_label}d) to " . date('d M Y, h:i A', $new_exp_ts) . " ({$pkg['name']}) by $actor_role ($actor_name)";
+                    $desc = "Expiry Extended (+{$days_label}d) to " . date('d M Y, h:i A', $new_exp_ts) . " ({$pkg['name']}) by $actor_role: $actor_name";
                     $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'debit', ?, ?, ?)")
-                        ->execute([$client_id, $u, $net_adjustment, $new_bal, $desc]);
+                        ->execute([$client_id, $u, $net_adjustment, $bal_after_debit, $desc]);
                 } elseif ($net_adjustment < 0) {
                     $abs_refund = abs($net_adjustment);
-                    $desc = "Expiry Reduced to " . date('d M Y, h:i A', $new_exp_ts) . " (Pro-rata Refund) by $actor_role ($actor_name)";
+                    $desc = "Expiry Reduced to " . date('d M Y, h:i A', $new_exp_ts) . " (Pro-rata Refund) by $actor_role: $actor_name";
                     $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'credit', ?, ?, ?)")
-                        ->execute([$client_id, $u, $abs_refund, $new_bal, $desc]);
+                        ->execute([$client_id, $u, $abs_refund, $bal_after_debit, $desc]);
+                }
+
+                // Ledger Entry 2: Payment Received Credit
+                if ($payment_amount > 0) {
+                    $pay_desc = "Payment received during Renewal (Cash) by $actor_role: $actor_name";
+                    $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'credit', ?, ?, ?)")
+                        ->execute([$client_id, $u, $payment_amount, $final_bal, $pay_desc]);
+
+                    // Add to Manager cash_in_hand
+                    if ($is_manager && $actor_mgr_id > 0) {
+                        try {
+                            $pdo->prepare("UPDATE managers SET cash_in_hand = cash_in_hand + ? WHERE id = ? AND client_id = ?")
+                                ->execute([$payment_amount, $actor_mgr_id, $client_id]);
+                        } catch (Exception $e) {}
+                    }
                 }
 
                 $pdo->commit();
@@ -720,16 +767,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 $alert_msg = "Successfully updated! Expiry set to " . date('d M Y, h:i A', $new_exp_ts) . ". ";
-                if ($net_adjustment > 0) {
-                    $alert_msg .= "Charged Rs. " . number_format($net_adjustment, 2) . ". New Balance: Rs. " . number_format($new_bal, 2);
-                } elseif ($net_adjustment < 0) {
-                    $alert_msg .= "Credited Rs. " . number_format(abs($net_adjustment), 2) . ". New Balance: Rs. " . number_format($new_bal, 2);
-                } else {
-                    $alert_msg .= "Balance unchanged.";
+                if ($payment_amount > 0) {
+                    $alert_msg .= "Payment Collected: Rs. " . number_format($payment_amount, 2) . ". ";
                 }
+                if ($net_adjustment > 0) {
+                    $alert_msg .= "Charged Rs. " . number_format($net_adjustment, 2) . ". ";
+                }
+                $alert_msg .= "Current Balance: Rs. " . number_format($final_bal, 2);
 
                 $ret = urlencode("subscriber_view.php?id=$id");
-                $paid_val = ($current_bal > 0) ? min((float)$current_bal, (float)$net_adjustment) : 0;
+                $paid_val = ($payment_amount > 0) ? $payment_amount : (($current_bal > 0) ? min((float)$current_bal, (float)$net_adjustment) : 0);
                 $target_url = "print_receipt.php?sub_id={$id}&paid={$paid_val}&type=renew&return={$ret}";
                 $json_alert = json_encode($alert_msg);
 
@@ -1441,7 +1488,7 @@ if ($last_debit) {
     <div class="modal-content shadow-lg border-0 rounded-4">
       <div class="modal-header bg-light border-bottom px-4 py-3">
         <h5 class="modal-title fw-bold text-dark">
-          <i class="fa-solid fa-rotate text-primary me-2"></i> Renew &amp; Custom Expiry Management
+          <i class="fa-solid fa-rotate text-primary me-2"></i> <?= $is_manager ? 'Renew Subscriber Package' : 'Renew &amp; Custom Expiry Management' ?>
         </h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
@@ -1508,14 +1555,48 @@ if ($last_debit) {
                     </select>
                 </div>
 
+                <?php if (!$is_manager): ?>
                 <div class="col-md-6">
                     <label class="form-label fw-semibold text-secondary small">Set Expiry Date &amp; Time <span class="text-danger">*</span></label>
                     <input type="datetime-local" name="expiry_date" id="renew_expiry_input" class="form-control form-control-sm" 
                            value="<?= (!empty($user['expiry_date']) && $user['expiry_date'] !== '0000-00-00 00:00:00') ? date('Y-m-d\TH:i', strtotime($user['expiry_date'])) : date('Y-m-d\TH:i', strtotime('+30 days')) ?>" 
                            required oninput="recalculateRenewAdjustment()">
                 </div>
+                <?php else: ?>
+                <div class="col-md-6">
+                    <label class="form-label fw-semibold text-secondary small">Package Validity / Expiry</label>
+                    <div class="form-control form-control-sm bg-light text-primary fw-bold d-flex align-items-center justify-content-between">
+                        <span><i class="fa-solid fa-calendar-check me-2 text-success"></i> Auto (+<span id="mgr_pkg_days_display">30</span> Days)</span>
+                        <span class="badge bg-primary text-white" id="mgr_target_expiry_display">Calculating...</span>
+                    </div>
+                    <input type="hidden" name="expiry_date" id="renew_expiry_input" value="">
+                </div>
+                <?php endif; ?>
+
+                <!-- Dedicated Payment Received Field -->
+                <div class="col-12 mt-2">
+                    <div class="p-3 rounded-3 border border-success-subtle bg-success bg-opacity-10 shadow-sm">
+                        <div class="row align-items-center g-2">
+                            <div class="col-md-7">
+                                <label class="form-label fw-bold text-success mb-0 d-flex align-items-center fs-6">
+                                    <i class="fa-solid fa-money-bill-wave me-2 text-success fs-5"></i> Payment Received (Rs)
+                                </label>
+                                <div class="text-muted small mt-1" style="font-size: 0.78rem;">
+                                    Enter cash received from subscriber at renewal. Recorded in Ledger <?= $is_manager ? "and added to your <strong>Cash in Hand</strong>" : "and subscriber balance" ?>.
+                                </div>
+                            </div>
+                            <div class="col-md-5">
+                                <div class="input-group">
+                                    <span class="input-group-text bg-white fw-bold text-success border-success-subtle">Rs.</span>
+                                    <input type="number" step="any" min="0" name="payment_amount" id="renew_payment_amount" class="form-control form-control-lg fw-bold text-success border-success-subtle shadow-none" placeholder="0.00" value="<?= (float)($user['pkg_price'] ?? 0) ?>" oninput="recalculateRenewAdjustment()">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
+            <?php if (!$is_manager): ?>
             <!-- Quick Preset Helper Buttons -->
             <div class="mt-3">
                 <label class="form-label fw-semibold text-secondary small mb-1">
@@ -1530,6 +1611,7 @@ if ($last_debit) {
                     <button type="button" class="btn btn-sm btn-light border rounded-pill px-2 text-muted" onclick="resetToCurrentExpiry()" title="Reset back to current saved expiry">Reset</button>
                 </div>
             </div>
+            <?php endif; ?>
 
             <!-- Live Financial Calculation Container -->
             <div class="mt-4">
@@ -1545,7 +1627,7 @@ if ($last_debit) {
         <div class="modal-footer bg-light border-top px-4 py-3">
           <button type="button" class="btn btn-outline-secondary rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
           <button type="submit" class="btn btn-primary fw-semibold rounded-pill px-4 shadow-sm">
-              <i class="fa-solid fa-check me-1"></i> Save Expiry &amp; Apply Ledger
+              <i class="fa-solid fa-check me-1"></i> <?= $is_manager ? 'Confirm Renewal' : 'Save Expiry &amp; Apply Ledger' ?>
           </button>
         </div>
       </form>
@@ -1554,6 +1636,7 @@ if ($last_debit) {
 </div>
 
 <script>
+const isManagerUser = <?= $is_manager ? 'true' : 'false' ?>;
 const userCurBal = <?= (float)($user['balance'] ?? 0) ?>;
 const userCurExpStr = <?= json_encode((!empty($user['expiry_date']) && $user['expiry_date'] !== '0000-00-00 00:00:00') ? $user['expiry_date'] : '') ?>;
 const userCurPkgPrice = <?= (float)($user['pkg_price'] ?? 0) ?>;
@@ -1563,6 +1646,7 @@ function recalculateRenewAdjustment() {
     const pkgSelect = document.getElementById('renew_package_select');
     const expiryInput = document.getElementById('renew_expiry_input');
     const resultBox = document.getElementById('renew_calculation_result');
+    const payInput = document.getElementById('renew_payment_amount');
     if (!pkgSelect || !expiryInput || !resultBox) return;
 
     const opt = pkgSelect.options[pkgSelect.selectedIndex];
@@ -1573,6 +1657,28 @@ function recalculateRenewAdjustment() {
     const now = Math.floor(Date.now() / 1000);
     let curExpTs = userCurExpStr ? Math.floor(new Date(userCurExpStr).getTime() / 1000) : 0;
     if (isNaN(curExpTs)) curExpTs = 0;
+
+    // If manager, auto-calculate target expiry strictly from validity days
+    if (isManagerUser) {
+        const mgrDaysDisp = document.getElementById('mgr_pkg_days_display');
+        const mgrExpDisp = document.getElementById('mgr_target_expiry_display');
+        if (mgrDaysDisp) mgrDaysDisp.innerText = newValidity;
+
+        const baseTs = (curExpTs > now) ? curExpTs : now;
+        const targetTs = baseTs + (newValidity * 86400);
+        const targetDate = new Date(targetTs * 1000);
+        
+        const y = targetDate.getFullYear();
+        const m = String(targetDate.getMonth() + 1).padStart(2, '0');
+        const d = String(targetDate.getDate()).padStart(2, '0');
+        const h = String(targetDate.getHours()).padStart(2, '0');
+        const min = String(targetDate.getMinutes()).padStart(2, '0');
+        expiryInput.value = `${y}-${m}-${d}T${h}:${min}`;
+
+        if (mgrExpDisp) {
+            mgrExpDisp.innerText = targetDate.toLocaleDateString('en-GB', {day: '2-digit', month: 'short', year: 'numeric'}) + ', ' + targetDate.toLocaleTimeString('en-US', {hour: '2-digit', minute: '2-digit', hour12: true});
+        }
+    }
 
     let newExpTs = expiryInput.value ? Math.floor(new Date(expiryInput.value).getTime() / 1000) : 0;
     if (isNaN(newExpTs) || newExpTs <= 0) {
@@ -1599,28 +1705,45 @@ function recalculateRenewAdjustment() {
 
     // 3. Net adjustment: positive = charge (balance minus), negative = refund (balance plus)
     const net = Math.round((newCost - oldCredit) * 100) / 100;
-    const projectedBal = Math.round((userCurBal - net) * 100) / 100;
+    
+    // Read payment amount
+    let paymentVal = payInput ? parseFloat(payInput.value || 0) : 0;
+    if (isNaN(paymentVal) || paymentVal < 0) paymentVal = 0;
+
+    const balAfterDebit = Math.round((userCurBal - net) * 100) / 100;
+    const projectedBal = Math.round((balAfterDebit + paymentVal) * 100) / 100;
 
     let html = '';
     const diffSecs = newExpTs - Math.max(now, curExpTs);
     const diffDays = Math.round((diffSecs / 86400) * 10) / 10;
+
+    const cashBadge = isManagerUser ? (
+        paymentVal > 0 
+            ? `<div class="mt-2 pt-2 border-top d-flex align-items-center justify-content-between small text-success fw-bold"><span><i class="fa-solid fa-hand-holding-dollar me-1"></i> Manager Cash in Hand:</span><span>+ Rs. ${paymentVal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></div>`
+            : `<div class="mt-2 pt-2 border-top small text-muted"><i class="fa-solid fa-info-circle me-1"></i> No payment entered (Renewal on credit). Manager Cash in Hand unchanged.</div>`
+    ) : '';
 
     if (net > 0) {
         html = `
             <div class="alert alert-warning border border-warning-subtle rounded-3 p-3 mb-0" style="background:#fffbeb;">
                 <div class="d-flex align-items-center justify-content-between mb-2">
                     <span class="fw-bold text-dark"><i class="fa-solid fa-arrow-up-right-dots text-danger me-1"></i> Date Extended (+${Math.abs(diffDays)} Days)</span>
-                    <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-2 py-1 fw-bold fs-6">- Rs. ${net.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                    <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-2 py-1 fw-bold fs-6">Charge: - Rs. ${net.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
                 </div>
                 <div class="small text-muted mb-2">
-                    Package Daily Rate: <strong>Rs. ${newDaily.toFixed(2)}/day</strong> (${opt ? opt.dataset.name : ''}).
+                    Package: <strong>${opt ? opt.dataset.name : ''}</strong> (Rs. ${newPrice} / ${newValidity}d). 
                     ${oldCredit > 0 ? `Unused Credit: <strong>Rs. ${oldCredit.toFixed(2)}</strong>. ` : ''}
                     New Cost: <strong>Rs. ${newCost.toFixed(2)}</strong>.
                 </div>
                 <div class="d-flex justify-content-between align-items-center pt-2 border-top small">
-                    <span class="text-secondary">Balance Impact (Minus):</span>
+                    <span class="text-secondary">Cash Payment Received:</span>
+                    <span class="fw-bold text-success fs-6">+ Rs. ${paymentVal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                </div>
+                <div class="d-flex justify-content-between align-items-center pt-1 small">
+                    <span class="text-secondary">Net Balance After Renewal:</span>
                     <span class="fw-bold text-dark">Rs. ${userCurBal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} &rarr; <span class="${projectedBal < 0 ? 'text-danger' : 'text-success'} fw-bold">Rs. ${projectedBal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></span>
                 </div>
+                ${cashBadge}
             </div>
         `;
     } else if (net < 0) {
@@ -1638,21 +1761,32 @@ function recalculateRenewAdjustment() {
                     New Cost: <strong>Rs. ${newCost.toFixed(2)}</strong>.
                 </div>
                 <div class="d-flex justify-content-between align-items-center pt-2 border-top small">
-                    <span class="text-secondary">Balance Impact (Plus):</span>
+                    <span class="text-secondary">Net Balance After Renewal:</span>
                     <span class="fw-bold text-dark">Rs. ${userCurBal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} &rarr; <span class="${projectedBal < 0 ? 'text-danger' : 'text-success'} fw-bold">Rs. ${projectedBal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></span>
                 </div>
+                ${cashBadge}
             </div>
         `;
     } else {
         html = `
-            <div class="alert alert-secondary border rounded-3 p-2 px-3 mb-0 small text-secondary">
-                <i class="fa-solid fa-check text-success me-1"></i> Expiry date unchanged. No balance will be deducted or added.
+            <div class="alert alert-secondary border rounded-3 p-3 mb-0 small text-secondary">
+                <div class="d-flex justify-content-between align-items-center">
+                    <span><i class="fa-solid fa-check text-success me-1"></i> Expiry date unchanged.</span>
+                    <span class="fw-bold text-success">+ Rs. ${paymentVal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} (Payment)</span>
+                </div>
+                <div class="d-flex justify-content-between align-items-center pt-2 mt-2 border-top small">
+                    <span class="text-secondary">Balance Impact:</span>
+                    <span class="fw-bold text-dark">Rs. ${userCurBal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} &rarr; <span class="${projectedBal < 0 ? 'text-danger' : 'text-success'} fw-bold">Rs. ${projectedBal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></span>
+                </div>
+                ${cashBadge}
             </div>
         `;
     }
 
     resultBox.innerHTML = html;
+    return;
 }
+
 
 function setRenewPreset(days) {
     const input = document.getElementById('renew_expiry_input');
@@ -1885,16 +2019,25 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <?php endforeach; ?>
                             </select>
                         </div>
+                        <?php if (!$is_manager): ?>
                         <div class="col-md-6 mb-3">
                             <label class="col-form-label">Custom Expiry</label>
                             <input type="datetime-local" name="expiry_date" id="edit_expiry_input" class="form-control" 
                                    value="<?= $user['expiry_date'] ? date('Y-m-d\TH:i', strtotime($user['expiry_date'])) : '' ?>"
                                    oninput="recalculateEditProfileAdjustment()">
                         </div>
+                        <?php else: ?>
+                        <div class="col-md-6 mb-3">
+                            <label class="col-form-label text-muted">Package Expiry Date</label>
+                            <input type="text" class="form-control bg-light text-muted fw-bold" value="<?= !empty($user['expiry_date']) ? date('d M Y, h:i A', strtotime($user['expiry_date'])) : 'N/A' ?>" readonly disabled>
+                            <small class="text-muted" style="font-size: 11px;"><i class="fa-solid fa-lock text-secondary me-1"></i> Custom Expiry locked for Manager. Use "Renew" button.</small>
+                        </div>
+                        <?php endif; ?>
                         <div class="col-md-6 mb-3">
                             <label class="col-form-label text-muted"><i class="fa-solid fa-calendar-plus text-primary me-1"></i> Registration Date (Created)</label>
                             <input type="text" class="form-control bg-light" value="<?= !empty($user['created_at']) ? date('d M Y, h:i A', strtotime($user['created_at'])) : 'N/A' ?>" readonly disabled>
                         </div>
+                        <?php if (!$is_manager): ?>
                         <div class="col-md-12 mb-3">
                             <label class="form-label fw-semibold text-secondary small mb-1">
                                 <i class="fa-solid fa-calculator text-primary me-1"></i> Financial Impact &amp; Balance Adjustment Preview:
@@ -1903,6 +2046,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <!-- Populated dynamically by JavaScript -->
                             </div>
                         </div>
+                        <?php endif; ?>
                     </div>
                 </div>
 

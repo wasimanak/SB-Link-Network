@@ -10,7 +10,14 @@ $packages = $pkgStmt->fetchAll();
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $password = trim($_POST['password']);
     $package_id = (int)$_POST['package_id'];
-    $expiry = $_POST['expiry_date'] ?: null;
+        $is_mgr = !empty($_SESSION['is_manager']);
+    if ($is_mgr) {
+        $curExpStmt = $pdo->prepare("SELECT expiry_date FROM subscribers WHERE id = ? AND client_id = ?");
+        $curExpStmt->execute([$id, $client_id]);
+        $expiry = $curExpStmt->fetchColumn() ?: null;
+    } else {
+        $expiry = $_POST['expiry_date'] ?: null;
+    }
 
     $p = $pdo->prepare("SELECT p.name, p.rate_limit, p.wan_provider, p.pool_id, pl.pool_name 
                         FROM packages p 
@@ -98,7 +105,11 @@ $sub = $stmt->fetch();
                     </select>
                 </div>
             </div>
+                        <?php if (empty($_SESSION['is_manager'])): ?>
             <div class="mb-3"><label>Expiry Date</label><input type="date" name="expiry_date" class="form-control" value="<?= $sub['expiry_date'] ?>"></div>
+            <?php else: ?>
+            <div class="mb-3"><label>Expiry Date</label><input type="text" class="form-control bg-light text-muted" value="<?= !empty($sub['expiry_date']) ? date('d M Y, h:i A', strtotime($sub['expiry_date'])) : 'N/A' ?>" readonly disabled><small class="text-muted"><i class="fa-solid fa-lock text-secondary me-1"></i> Custom Expiry locked for Manager.</small></div>
+            <?php endif; ?>
             <button class="btn btn-primary">Save Changes</button>
         </form>
     </div>

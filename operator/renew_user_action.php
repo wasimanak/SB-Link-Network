@@ -7,8 +7,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $client_id = $_SESSION['operator_id'];
     $user_id = (int)$_POST['user_id'];
     $package_id = (int)$_POST['package_id'];
-    $expiry_type = $_POST['expiry_type']; // 'default' or 'custom'
-    $custom_expiry = $_POST['custom_expiry'] ?? '';
+    $is_mgr = !empty($_SESSION['is_manager']);
+    $mgr_id = $is_mgr ? (int)($_SESSION['manager_id'] ?? 0) : null;
+    $expiry_type = $is_mgr ? 'default' : ($_POST['expiry_type'] ?? 'default'); // Managers cannot set custom expiry!
+    $custom_expiry = $is_mgr ? '' : ($_POST['custom_expiry'] ?? '');
+    $payment_amount = isset($_POST['payment_amount']) ? (float)$_POST['payment_amount'] : 0;
+    if ($payment_amount < 0) $payment_amount = 0;
     $redirect_url = (!empty($_POST['redirect_to']) && strpos($_POST['redirect_to'], 'subscribers') !== false) ? 'subscribers.php' : 'dashboard.php';
     
     try {
@@ -92,7 +96,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         
         $current_bal = (float)$uData['balance'];
-        $new_bal = round($current_bal - $net_adjustment, 2);
+        $bal_after_debit = round($current_bal - $net_adjustment, 2);
+        $final_bal = round($bal_after_debit + $payment_amount, 2);
+        $new_bal = $bal_after_debit; // For debit ledger entry
         
         $pdo->beginTransaction();
 
@@ -144,7 +150,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         // Update DB
         $pdo->prepare("UPDATE subscribers SET package_id = ?, expiry_date = ?, status = ?, balance = ? WHERE id = ?")
-            ->execute([$package_id, $expiry_date, $new_status, $new_bal, $user_id]);
+            ->execute([$package_id, $expiry_date, $new_status, $final_bal, $user_id]);
             
         // Update Radius
         $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Rate-Limit'")->execute([$u]);
@@ -182,17 +188,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         // Logs
         $act_dealer_id = ($sub_dealer_id > 0) ? $sub_dealer_id : null;
-        if ($net_adjustment > 0) {
-            $act_log_text = "Package Renewed / Extended Expiry to " . date('d M Y, h:i A', $new_exp_ts) . ". Charged Rs. " . number_format($net_adjustment, 2) . " ({$pkg['name']}) by $actor_role ($actor_name)";
-        } elseif ($net_adjustment < 0) {
-            $act_log_text = "Package Expiry Reduced to " . date('d M Y, h:i A', $new_exp_ts) . ". Credited Rs. " . number_format(abs($net_adjustment), 2) . " ({$pkg['name']}) by $actor_role ($actor_name)";
-        } else {
-            $act_log_text = "Updated Package & Expiry Date to " . date('d M Y, h:i A', $new_exp_ts) . " ({$pkg['name']}) by $actor_role ($actor_name)";
+        $act_log_text = "Package Renewed to " . date('d M Y, h:i A', $new_exp_ts);
+        if ($payment_amount > 0) {
+            $act_log_text .= ". Payment received: Rs. " . number_format($payment_amount, 2);
         }
+        if ($net_adjustment > 0) {
+            $act_log_text .= ". Charged: Rs. " . number_format($net_adjustment, 2);
+        } elseif ($net_adjustment < 0) {
+            $act_log_text .= ". Credited: Rs. " . number_format(abs($net_adjustment), 2);
+        }
+        $act_log_text .= " ({$pkg['name']}) by $actor_role: $actor_name";
 
         $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, dealer_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, ?, ?, ?, ?, 'User', ?)")
             ->execute([$client_id, $actor_mgr_id, $act_dealer_id, $actor_name, $actor_role, $u, $act_log_text]);
             
+        // Ledger Entry 1: Renewal debit
         if ($net_adjustment > 0) {
             if (!empty($package_changed) && !empty($old_remaining_credit) && $old_remaining_credit > 0) {
                 $ledger_desc = "Package Upgraded to {$pkg['name']} (Full Month Rs. " . number_format($new_total_cost, 2) . " minus Unused Credit Rs. " . number_format($old_remaining_credit, 2) . ") by $actor_role: $actor_name";
@@ -200,11 +210,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $ledger_desc = "Package Renewed: {$pkg['name']} by $actor_role: $actor_name";
             }
             $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'debit', ?, ?, ?)")
-                ->execute([$client_id, $u, $net_adjustment, $new_bal, $ledger_desc]);
+                ->execute([$client_id, $u, $net_adjustment, $bal_after_debit, $ledger_desc]);
         } elseif ($net_adjustment < 0) {
             $abs_refund = abs($net_adjustment);
             $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'credit', ?, ?, ?)")
-                ->execute([$client_id, $u, $abs_refund, $new_bal, "Expiry Adjustment Refund ({$pkg['name']}) by $actor_role: $actor_name"]);
+                ->execute([$client_id, $u, $abs_refund, $bal_after_debit, "Expiry Adjustment Refund ({$pkg['name']}) by $actor_role: $actor_name"]);
+        }
+
+        // Ledger Entry 2: Payment Received Credit
+        if ($payment_amount > 0) {
+            $pay_desc = "Payment received during Renewal (Cash) by $actor_role: $actor_name";
+            $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'credit', ?, ?, ?)")
+                ->execute([$client_id, $u, $payment_amount, $final_bal, $pay_desc]);
+
+            // Add to Manager cash_in_hand
+            if ($is_mgr && $actor_mgr_id > 0) {
+                try {
+                    $pdo->prepare("UPDATE managers SET cash_in_hand = cash_in_hand + ? WHERE id = ? AND client_id = ?")
+                        ->execute([$payment_amount, $actor_mgr_id, $client_id]);
+                } catch (Exception $e) {}
+            }
         }
         
         $pdo->commit();
@@ -215,7 +240,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } catch (Exception $e) {}
 
         $ret = urlencode($redirect_url);
-        $paid_val = ($current_bal > 0) ? min((float)$current_bal, (float)$net_adjustment) : 0;
+        $paid_val = ($payment_amount > 0) ? $payment_amount : (($current_bal > 0) ? min((float)$current_bal, (float)$net_adjustment) : 0);
         $target_url = "print_receipt.php?sub_id={$user_id}&paid={$paid_val}&type=renew&return={$ret}";
         $json_alert = json_encode("User renewed successfully! Opening 80mm Print Receipt...");
 
