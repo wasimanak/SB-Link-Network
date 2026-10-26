@@ -134,7 +134,12 @@ function log_staff_activity($pdo, $activity, $against_to = 'System', $against_ro
             INSERT INTO activity_logs (client_id, manager_id, dealer_id, by_user, by_role, against_to, against_role, activity, station_ip) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
-        $stmt->execute([
+        
+    // Auto-prune login logs older than 24 hours to prevent table bloat
+    try {
+        $pdo->exec("DELETE FROM activity_logs WHERE (activity LIKE '%Login%' OR activity LIKE '%Logged in%' OR against_role = 'Login') AND created_at < NOW() - INTERVAL 24 HOUR");
+    } catch (Exception $ex) {}
+    $stmt->execute([
             $client_id,
             $manager_id,
             $dealer_id,

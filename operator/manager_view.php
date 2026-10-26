@@ -252,17 +252,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // Manager record already loaded above
 
 // 1. Maintain activity retention:
-// Login activities: strictly 7 days retention
+// Login activities: strictly 24 hours retention
 // All other actions (renewals, billing, edits, financial events): 2 Years (730 days) retention
 try {
     $pdo->exec("DELETE FROM activity_logs 
                 WHERE (activity LIKE '%Login%' OR activity LIKE '%Logged in%' OR against_role = 'Login') 
-                  AND created_at < NOW() - INTERVAL 7 DAY");
+                  AND created_at < NOW() - INTERVAL 24 HOUR");
     $pdo->exec("DELETE FROM activity_logs WHERE created_at < NOW() - INTERVAL 730 DAY");
 } catch (Exception $e) {}
 
 // Fetch Manager Activity History:
-// Login activities: retained for 7 Days only.
+// Login activities: retained for 24 Hours only.
 // Administrative, Financial & Audit actions: retained for 2 Years (730 Days).
 $mgr_full_safe = trim($mgr['full_name'] ?? '');
 $mgr_user_safe = trim($mgr['username'] ?? '');
@@ -289,7 +289,7 @@ if (!empty($mgr_full_safe) || !empty($mgr_user_safe)) {
           AND by_user NOT LIKE 'Admin%'
           AND by_user NOT LIKE 'Operator%'
           AND (
-              ((activity LIKE '%Login%' OR activity LIKE '%Logged in%' OR against_role = 'Login') AND created_at >= NOW() - INTERVAL 7 DAY)
+              ((activity LIKE '%Login%' OR activity LIKE '%Logged in%' OR against_role = 'Login') AND created_at >= NOW() - INTERVAL 24 HOUR)
               OR
               ((activity NOT LIKE '%Login%' AND activity NOT LIKE '%Logged in%' AND (against_role != 'Login' OR against_role IS NULL)) AND created_at >= NOW() - INTERVAL 730 DAY)
           )
@@ -735,10 +735,7 @@ $mgr['cash_in_hand'] = $pending_difference;
                 </div>
             </div>
             <div class="d-flex gap-2">
-                <!-- Edit Profile & Salary Button -->
-                <button class="btn btn-outline-primary btn-sm rounded-pill px-3" data-bs-toggle="modal" data-bs-target="#editManagerProfileModal">
-                    <i class="fa-solid fa-user-pen me-1"></i> Edit Profile &amp; Salary
-                </button>
+                <!-- Edit Profile & Salary Button removed as requested -->
                 <!-- Change Password Button -->
                 <button class="btn btn-outline-secondary btn-sm rounded-pill px-3" data-bs-toggle="modal" data-bs-target="#changePasswordModal">
                     <i class="fa-solid fa-key me-1"></i> Reset Password

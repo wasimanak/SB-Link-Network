@@ -49,7 +49,9 @@ if ($is_blocked) {
                         }
 
                         clear_failed_attempts($pdo, 'staff');
-                        session_regenerate_id(true);
+                        // Prune login activity logs older than 24 hours
+                    try { $pdo->exec("DELETE FROM activity_logs WHERE (activity LIKE '%Login%' OR activity LIKE '%Logged in%' OR against_role = 'Login') AND created_at < NOW() - INTERVAL 24 HOUR"); } catch (Exception $e) {}
+                    session_regenerate_id(true);
                         $_SESSION['operator_logged_in'] = true;
                         $_SESSION['operator_id'] = $client['id'];
                         $_SESSION['operator_email'] = $client['email'];
