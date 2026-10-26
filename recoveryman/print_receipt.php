@@ -63,13 +63,34 @@ if ($ledger_id > 0) {
         if ($ledger_entry) {
             $invoice_id = (int)$ledger_entry['id'];
             $custom_date = date('d M Y h:i A', strtotime($ledger_entry['created_at']));
-            $paid_amount = (float)$ledger_entry['amount'];
             $transaction_desc = $ledger_entry['description'];
 
-            if ($ledger_entry['type'] === 'debit' || stripos($ledger_entry['description'], 'renew') !== false || stripos($ledger_entry['description'], 'package') !== false) {
+            if ($ledger_entry['type'] === 'debit') {
                 $type = 'renew';
+                // Check if there was a payment (credit) made during this same renewal (within 5 minutes)
+                $target_user = !empty($ledger_entry['username']) ? $ledger_entry['username'] : $username;
+                $target_sub = !empty($ledger_entry['subscriber_id']) ? (int)$ledger_entry['subscriber_id'] : $sub_id;
+                $cStmt = $pdo->prepare("
+                    SELECT amount, description FROM user_ledger 
+                    WHERE (subscriber_id = ? OR username = ?) 
+                      AND type = 'credit' 
+                      AND (created_at >= DATE_SUB(?, INTERVAL 5 MINUTE) AND created_at <= DATE_ADD(?, INTERVAL 5 MINUTE))
+                    ORDER BY id DESC LIMIT 1
+                ");
+                $cStmt->execute([$target_sub, $target_user, $ledger_entry['created_at'], $ledger_entry['created_at']]);
+                $cRow = $cStmt->fetch(PDO::FETCH_ASSOC);
+                if ($cRow) {
+                    $paid_amount = (float)$cRow['amount'];
+                } else {
+                    $paid_amount = 0; // Unpaid renewal on credit
+                }
             } else {
-                $type = 'collect';
+                $paid_amount = (float)$ledger_entry['amount'];
+                if (stripos($ledger_entry['description'], 'renew') !== false) {
+                    $type = 'renew';
+                } else {
+                    $type = 'collect';
+                }
             }
 
             if (preg_match('/by\s+([A-Za-z0-9_\-\s\(\)]+)/i', $ledger_entry['description'], $m_by)) {
@@ -195,27 +216,76 @@ $date = !empty($custom_date) ? $custom_date : date('d M Y h:i A');
 // 4. Fetch or Create Permanent Transaction Record in user_ledger for Invoice#
 if (empty($invoice_id)) {
     try {
-        // Search by subscriber_id or username in user_ledger
+        // Fetch recent ledger transactions for this subscriber
         $invStmt = $pdo->prepare("
-            SELECT id, created_at, amount, description, type 
+            SELECT id, created_at, amount, description, type, balance_after 
             FROM user_ledger 
             WHERE (subscriber_id = ? OR username = ?) 
-            ORDER BY id DESC LIMIT 1
+            ORDER BY id DESC LIMIT 10
         ");
         $invStmt->execute([$sub_id, $sub['username']]);
-        $existing_ledger = $invStmt->fetch(PDO::FETCH_ASSOC);
+        $recent_entries = $invStmt->fetchAll(PDO::FETCH_ASSOC);
 
-        if ($existing_ledger) {
-            $invoice_id = (int)$existing_ledger['id'];
-            if (empty($custom_date) && !empty($existing_ledger['created_at'])) {
-                $custom_date = date('d M Y h:i A', strtotime($existing_ledger['created_at']));
+        if (!empty($recent_entries)) {
+            $latest = $recent_entries[0];
+            $invoice_id = (int)$latest['id'];
+            if (empty($custom_date) && !empty($latest['created_at'])) {
+                $custom_date = date('d M Y h:i A', strtotime($latest['created_at']));
                 $date = $custom_date;
             }
-            if (!isset($_GET['paid']) && empty($paid_amount)) {
-                $paid_amount = (float)$existing_ledger['amount'];
+            if (empty($transaction_desc) && !empty($latest['description'])) {
+                $transaction_desc = $latest['description'];
             }
-            if (empty($transaction_desc) && !empty($existing_ledger['description'])) {
-                $transaction_desc = $existing_ledger['description'];
+
+            // Determine type and paid_amount when not explicitly passed in URL
+            if (!isset($_GET['paid'])) {
+                if ($latest['type'] === 'credit') {
+                    // Latest entry is a payment received (e.g. Payment received during Renewal or collection)
+                    $paid_amount = (float)$latest['amount'];
+                    if (stripos($latest['description'], 'renew') !== false) {
+                        $type = 'renew';
+                    } else {
+                        // Check if a renewal debit exists around the same time (within 5 minutes)
+                        $has_renew_debit = false;
+                        foreach ($recent_entries as $re) {
+                            if ($re['type'] === 'debit' && (stripos($re['description'], 'renew') !== false || stripos($re['description'], 'package') !== false || stripos($re['description'], 'expiry') !== false)) {
+                                if (abs(strtotime($re['created_at']) - strtotime($latest['created_at'])) <= 300) {
+                                    $has_renew_debit = true;
+                                    break;
+                                }
+                            }
+                        }
+                        $type = $has_renew_debit ? 'renew' : 'collect';
+                    }
+                } else {
+                    // Latest entry is a debit (e.g. Package Renewed / Expiry Extended)
+                    $type = 'renew';
+                    // Check if there was a payment (credit) made during this same renewal (within 5 minutes)
+                    $found_credit = false;
+                    foreach ($recent_entries as $re) {
+                        if ($re['type'] === 'credit') {
+                            if (stripos($re['description'], 'renew') !== false || abs(strtotime($re['created_at']) - strtotime($latest['created_at'])) <= 300) {
+                                $paid_amount = (float)$re['amount'];
+                                $transaction_desc = $re['description'];
+                                $found_credit = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!$found_credit) {
+                        // Unpaid renewal on credit
+                        $paid_amount = 0;
+                    }
+                }
+            }
+
+            // Extract collector / agent name from description
+            if (!empty($transaction_desc)) {
+                if (preg_match('/by\s+([A-Za-z0-9_\-\s\(\)]+)/i', $transaction_desc, $m_by)) {
+                    $rm_name = trim($m_by[1]);
+                } elseif (preg_match('/collected\s+by\s+([A-Za-z0-9_\-\s\(\)]+)/i', $transaction_desc, $m_col)) {
+                    $rm_name = trim($m_col[1]);
+                }
             }
         } else {
             // No ledger entry exists yet in DB: Save a permanent initial billing/receipt invoice in user_ledger
@@ -256,26 +326,30 @@ $invoice_number = "INV-" . str_pad($invoice_id, 6, "0", STR_PAD_LEFT);
 
 // Financial amounts
 $package_price = (float)($sub['package_price'] ?? 0);
-// Actual cash received is displayed; no forced overwrite
-// Preserve actual collected amount
-//
 $due_amount = $sub['balance'] < 0 ? abs((float)$sub['balance']) : 0;
 $adv_amount = $sub['balance'] > 0 ? (float)$sub['balance'] : 0;
 
-// If paid was not explicitly supplied in URL and not from ledger, determine actual payment
-if (!isset($_GET['paid']) && $ledger_id <= 0) {
-    if ($due_amount > 0) {
-        $paid_amount = 0;
-    } else {
-        try {
-            $lastPayStmt = $pdo->prepare("SELECT amount FROM user_ledger WHERE username = ? AND type = 'credit' ORDER BY id DESC LIMIT 1");
-            $lastPayStmt->execute([$sub['username']]);
-            $lastPay = $lastPayStmt->fetchColumn();
-            $paid_amount = ($lastPay !== false) ? (float)$lastPay : 0;
-        } catch (Exception $e) {
-            $paid_amount = 0;
+// If paid was explicitly supplied in GET query string, honor it directly
+if (isset($_GET['paid'])) {
+    $paid_amount = (float)$_GET['paid'];
+} elseif ($ledger_id <= 0 && (!isset($paid_amount) || $paid_amount <= 0)) {
+    // Fallback: If paid_amount is still 0 (e.g. no recent renewal credit found), check if subscriber ever made a payment
+    try {
+        $lastCreditStmt = $pdo->prepare("
+            SELECT id, amount, description, created_at 
+            FROM user_ledger 
+            WHERE (subscriber_id = ? OR username = ?) AND type = 'credit' 
+            ORDER BY id DESC LIMIT 1
+        ");
+        $lastCreditStmt->execute([$sub_id, $sub['username']]);
+        $lastCredit = $lastCreditStmt->fetch(PDO::FETCH_ASSOC);
+        if ($lastCredit && isset($lastCredit['amount'])) {
+            $paid_amount = (float)$lastCredit['amount'];
+            if (empty($transaction_desc)) {
+                $transaction_desc = $lastCredit['description'];
+            }
         }
-    }
+    } catch (Exception $e) {}
 }
 
 // Customer Phone Logic
