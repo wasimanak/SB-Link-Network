@@ -630,865 +630,649 @@ if (!$has_date_filter) {
     $mgr['cash_in_hand'] = $pending_difference;
 }
 ?>
-
 <!-- DataTables CSS -->
 <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
 <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.2/css/buttons.bootstrap5.min.css">
 <link rel="stylesheet" href="https://cdn.datatables.net/responsive/2.5.0/css/responsive.bootstrap5.min.css">
 
 <style>
-.profile-card {
-    background: #fff;
-    border-radius: 16px;
-    border: 1px solid #f1f5f9;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.03);
-    overflow: hidden;
-}
-.profile-banner {
-    height: 90px;
-    background: linear-gradient(135deg, #6366f1, #8b5cf6, #d946ef);
-}
-.profile-avatar-wrap {
-    margin-top: -45px;
-    padding: 0 24px;
-}
-.profile-avatar {
-    width: 90px;
-    height: 90px;
-    border-radius: 50%;
-    background: #fff;
-    border: 4px solid #fff;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 2.2rem;
-    font-weight: 800;
-    color: #7c3aed;
-}
-.perm-card {
-    background: #f8fafc;
-    border-radius: 12px;
-    padding: 16px;
-    border: 1px solid #e2e8f0;
-    height: 100%;
-}
-.mini-stat-card {
-    background: #fff;
-    border-radius: 12px;
-    padding: 14px 18px;
-    border: 1px solid #f1f5f9;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.02);
-    display: flex;
-    align-items: center;
-    gap: 14px;
-}
-.mini-stat-icon {
-    width: 42px;
-    height: 42px;
-    border-radius: 10px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.2rem;
-    flex-shrink: 0;
-}
-.badge-soft-success { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
-.badge-soft-info { background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; }
-.badge-soft-warning { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
-.badge-soft-secondary { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
-.dt-buttons .btn {
-    background: #475569;
-    color: #fff;
-    border: none;
-    border-radius: 20px;
-    padding: 4px 14px;
-    font-size: 0.8rem;
-    margin-right: 4px;
-}
-.dt-buttons .btn:hover { background: #334155; }
-.nav-tabs .nav-link {
-    font-weight: 600;
-    color: #64748b;
-    border: none;
-    border-bottom: 3px solid transparent;
-    padding: 12px 22px;
-    font-size: 0.95rem;
-    transition: all 0.2s ease;
-}
-.nav-tabs .nav-link:hover {
-    color: #0f172a;
-    border-bottom-color: #cbd5e1;
-}
-.nav-tabs .nav-link.active {
-    color: #2563eb;
-    border-bottom-color: #2563eb;
-    background: transparent;
-}
-.table-custom-ui th {
-    background-color: #f8fafc !important;
-    color: #64748b;
-    font-weight: 700;
-    text-transform: uppercase;
-    font-size: 0.78rem;
-    letter-spacing: 0.5px;
-    border-bottom: 2px solid #e2e8f0;
-}
-.table-custom-ui td {
-    vertical-align: middle;
-    border-bottom: 1px solid #f1f5f9;
-    color: #475569;
-    font-size: 0.9rem;
-}
-.table-custom-ui tbody tr:hover {
-    background-color: #f8fafc;
-}
+    .card-custom { border: none; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+    .nav-tabs .nav-link { font-weight: 600; color: #64748b; border: none; border-bottom: 3px solid transparent; padding: 12px 20px; }
+    .nav-tabs .nav-link:hover { color: #0f172a; }
+    .nav-tabs .nav-link.active { color: #3b82f6; border-bottom-color: #3b82f6; background: transparent; }
+    .table-custom-ui th { background-color: #f8fafc !important; color: #64748b; font-weight: 700; text-transform: uppercase; font-size: 0.78rem; letter-spacing: 0.5px; border-bottom: 2px solid #e2e8f0; }
+    .table-custom-ui td { vertical-align: middle; border-bottom: 1px solid #f1f5f9; color: #475569; font-size: 0.9rem; }
+    .table-custom-ui tbody tr:hover { background-color: #f8fafc; }
+    .dt-buttons .btn {
+        background: #475569;
+        color: #fff;
+        border: none;
+        border-radius: 20px;
+        padding: 4px 14px;
+        font-size: 0.8rem;
+        margin-right: 4px;
+    }
+    .dt-buttons .btn:hover { background: #334155; }
+    .badge-soft-success { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
+    .badge-soft-info { background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; }
+    .badge-soft-warning { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
+    .badge-soft-secondary { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
+    .w-15px { width: 15px; text-align: center; }
 </style>
 
-<div class="container-fluid px-3 px-md-4 py-3">
+<!-- Flash Message -->
+<?php if ($flash_msg): ?>
+    <div class="alert alert-<?= $flash_type ?> alert-dismissible fade show shadow-sm mb-4" role="alert">
+        <i class="fa-solid fa-circle-check me-2"></i> <?= $flash_msg ?>
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+<?php endif; ?>
 
-    <!-- Flash Message -->
-    <?php if ($flash_msg): ?>
-        <div class="alert alert-<?= $flash_type ?> alert-dismissible fade show shadow-sm mb-4" role="alert">
-            <i class="fa-solid fa-circle-check me-2"></i> <?= $flash_msg ?>
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        </div>
-    <?php endif; ?>
-
-    <!-- Breadcrumb & Back button -->
-    <div class="d-flex justify-content-between align-items-center mb-3">
+<!-- Top Navigation & Heading -->
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
         <?php if ($is_logged_manager): ?>
-            <a href="dashboard" class="btn btn-outline-secondary btn-sm rounded-pill px-3">
-                <i class="fa-solid fa-arrow-left me-1"></i> Dashboard
-            </a>
-            <div class="text-muted small">
-                <i class="fa-solid fa-user-shield text-primary me-1"></i> My Manager Profile &amp; Recovery Dashboard
-            </div>
+            <a href="dashboard" class="text-decoration-none text-muted small"><i class="fa-solid fa-arrow-left me-1"></i> Back to Dashboard</a>
+            <h4 class="mb-0 fw-bold mt-1"><i class="fa-solid fa-user-tie text-primary me-2"></i> My Manager Profile</h4>
         <?php else: ?>
-            <a href="managers" class="btn btn-outline-secondary btn-sm rounded-pill px-3">
-                <i class="fa-solid fa-arrow-left me-1"></i> Back to Managers
-            </a>
-            <div class="text-muted small">
-                <i class="fa-solid fa-shield-halved text-primary me-1"></i> Operator Governance Panel
-            </div>
+            <a href="managers" class="text-decoration-none text-muted small"><i class="fa-solid fa-arrow-left me-1"></i> Back to List</a>
+            <h4 class="mb-0 fw-bold mt-1"><i class="fa-solid fa-user-tie text-primary me-2"></i> <?= htmlspecialchars($mgr['full_name'] ?: "Manager #{$manager_id}") ?>'s Profile</h4>
         <?php endif; ?>
     </div>
+</div>
 
-    <!-- Manager Profile Overview -->
-    <div class="profile-card mb-4">
-        <div class="profile-banner"></div>
-        <div class="profile-avatar-wrap d-flex flex-wrap justify-content-between align-items-end gap-3 pb-3">
-            <div class="d-flex align-items-end gap-3">
-                <div class="profile-avatar">
-                    <?= !empty($mgr_full_safe) ? strtoupper(substr($mgr_full_safe, 0, 1)) : '<i class="fa-solid fa-user-gear"></i>' ?>
+<!-- Ghost Account Alert (if corrupt/empty) -->
+<?php if (empty($mgr_full_safe) && empty($mgr_user_safe)): ?>
+<div class="alert alert-warning border border-warning-subtle rounded-4 p-3 mb-4 d-flex flex-wrap align-items-center justify-content-between gap-3 shadow-sm">
+    <div>
+        <i class="fa-solid fa-triangle-exclamation text-warning fs-5 me-2 align-middle"></i>
+        <strong>Ghost / Unconfigured Manager Account:</strong> This Manager account (#<?= $manager_id ?>) has no name or username. All financial recoveries are strictly isolated to <strong>Rs. 0</strong>.
+    </div>
+    <form method="POST" onsubmit="return confirm('Are you sure you want to permanently delete this unused ghost manager account?');" class="m-0">
+        <input type="hidden" name="action" value="delete_manager">
+        <input type="hidden" name="id" value="<?= $manager_id ?>">
+        <button type="submit" class="btn btn-danger btn-sm rounded-pill px-3 fw-bold shadow-sm">
+            <i class="fa-solid fa-trash me-1"></i> Delete Ghost Manager #<?= $manager_id ?>
+        </button>
+    </form>
+</div>
+<?php endif; ?>
+
+<div class="row g-4 mb-4">
+    <!-- Profile Info -->
+    <div class="col-md-4">
+        <div class="card card-custom h-100 bg-white">
+            <div class="card-body p-4 text-center">
+                <div class="bg-primary bg-opacity-10 text-primary rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style="width: 80px; height: 80px;">
+                    <i class="fa-solid fa-user-tie fs-1"></i>
                 </div>
-                <div>
-                    <h4 class="fw-bold mb-0 text-dark"><?= !empty($mgr_full_safe) ? htmlspecialchars($mgr_full_safe) : "Manager #{$manager_id}" ?></h4>
-                    <div class="d-flex align-items-center gap-2 mt-1">
-                        <span class="badge bg-purple-subtle text-primary border rounded-pill px-2 py-1 font-monospace" style="background:#ede9fe; color:#7c3aed !important; border-color:#ddd6fe !important;">
-                            <i class="fa-solid fa-user-shield me-1"></i> <?= !empty($mgr_user_safe) ? htmlspecialchars($mgr_user_safe) : "no-username" ?>
-                        </span>
-                        <?php if ($mgr['status'] === 'active'): ?>
-                            <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2 py-1">Active</span>
+                <h5 class="fw-bold mb-1"><?= htmlspecialchars($mgr['full_name'] ?: "Manager #{$manager_id}") ?></h5>
+                <span class="badge bg-secondary mb-2">@<?= htmlspecialchars($mgr['username'] ?: 'no-username') ?></span>
+                
+                <div class="d-flex justify-content-center align-items-center gap-2 mb-3">
+                    <?php if ($mgr['status'] === 'active'): ?>
+                        <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2.5 py-1">Active</span>
+                    <?php else: ?>
+                        <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle rounded-pill px-2.5 py-1">Inactive</span>
+                    <?php endif; ?>
+                    <button class="btn btn-outline-secondary btn-sm rounded-pill px-2.5 py-0" style="font-size: 11px;" data-bs-toggle="modal" data-bs-target="#changePasswordModal">
+                        <i class="fa-solid fa-key me-1"></i> Reset Password
+                    </button>
+                </div>
+
+                <div class="text-start mt-4 border-top pt-3">
+                    <div class="mb-2"><i class="fa-solid fa-phone text-muted me-2 w-15px"></i> <?= htmlspecialchars($mgr['phone'] ?: 'N/A') ?></div>
+                    <div class="mb-2"><i class="fa-solid fa-envelope text-muted me-2 w-15px"></i> <?= htmlspecialchars($mgr['email'] ?: 'N/A') ?></div>
+                    <div class="mb-2"><i class="fa-solid fa-city text-muted me-2 w-15px"></i> <?= htmlspecialchars($mgr['city'] ?: 'N/A') ?></div>
+                    <div class="mb-2"><i class="fa-solid fa-location-dot text-muted me-2 w-15px"></i> <?= htmlspecialchars($mgr['address'] ?: 'N/A') ?></div>
+                    <div class="mb-2"><i class="fa-solid fa-money-bill-wave text-muted me-2 w-15px"></i> Salary: <strong class="text-success">Rs. <?= number_format($mgr['monthly_salary'] ?? 0) ?></strong></div>
+                    <div class="mb-2"><i class="fa-solid fa-calendar text-muted me-2 w-15px"></i> Joined <?= (!empty($mgr['created_at']) && strtotime($mgr['created_at']) > 0 && date('Y', strtotime($mgr['created_at'])) > 1970) ? date('d M Y', strtotime($mgr['created_at'])) : 'N/A' ?></div>
+                </div>
+
+                <!-- Manager Governance Permissions -->
+                <div class="text-start mt-3 border-top pt-3">
+                    <div class="text-muted small fw-bold text-uppercase mb-2"><i class="fa-solid fa-shield-halved me-1"></i> Permissions</div>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="small fw-semibold text-dark"><i class="fa-solid fa-box-open text-primary me-1"></i> Manage Packages</span>
+                        <?php if (!$is_logged_manager): ?>
+                        <form method="POST" class="m-0">
+                            <input type="hidden" name="action" value="toggle_permission">
+                            <input type="hidden" name="permission" value="can_manage_packages">
+                            <input type="hidden" name="value" value="<?= $mgr['can_manage_packages'] === 'yes' ? 'no' : 'yes' ?>">
+                            <button type="submit" class="btn btn-sm <?= $mgr['can_manage_packages'] === 'yes' ? 'btn-success' : 'btn-outline-secondary' ?> rounded-pill py-0 px-2.5" style="font-size: 11px;">
+                                <?= $mgr['can_manage_packages'] === 'yes' ? '<i class="fa-solid fa-check me-1"></i>Permitted' : '<i class="fa-solid fa-lock me-1"></i>Locked' ?>
+                            </button>
+                        </form>
                         <?php else: ?>
-                            <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle rounded-pill px-2 py-1">Inactive</span>
+                            <span class="badge <?= $mgr['can_manage_packages'] === 'yes' ? 'bg-success' : 'bg-secondary' ?> rounded-pill" style="font-size: 11px;"><?= $mgr['can_manage_packages'] === 'yes' ? 'Permitted' : 'Locked' ?></span>
                         <?php endif; ?>
-                        <span class="text-muted small ms-2"><i class="fa-regular fa-calendar me-1"></i> Joined <?= (!empty($mgr['created_at']) && strtotime($mgr['created_at']) > 0 && date('Y', strtotime($mgr['created_at'])) > 1970) ? date('d M Y', strtotime($mgr['created_at'])) : 'N/A' ?></span>
                     </div>
-                </div>
-            </div>
-            <div class="d-flex gap-2">
-                <!-- Edit Profile & Salary Button removed as requested -->
-                <!-- Change Password Button -->
-                <button class="btn btn-outline-secondary btn-sm rounded-pill px-3" data-bs-toggle="modal" data-bs-target="#changePasswordModal">
-                    <i class="fa-solid fa-key me-1"></i> Reset Password
-                </button>
-                <!-- Deactivate button removed as requested -->
-            </div>
-        </div>
-
-        <div class="p-4 pt-2 border-top">
-            <div class="row g-3">
-                <div class="col-md-3 col-sm-6">
-                    <div class="text-secondary small fw-semibold text-uppercase">Monthly Salary</div>
-                    <div class="fw-bold text-success mt-1"><i class="fa-solid fa-money-bill-wave me-1 small"></i> Rs. <?= number_format($mgr['monthly_salary'] ?? 0) ?></div>
-                </div>
-                <div class="col-md-2 col-sm-6">
-                    <div class="text-secondary small fw-semibold text-uppercase">Phone Number</div>
-                    <div class="fw-bold text-dark mt-1"><i class="fa-solid fa-phone text-muted me-1 small"></i> <?= htmlspecialchars($mgr['phone'] ?: 'N/A') ?></div>
-                </div>
-                <div class="col-md-3 col-sm-6">
-                    <div class="text-secondary small fw-semibold text-uppercase">Email Address</div>
-                    <div class="fw-bold text-dark mt-1"><i class="fa-regular fa-envelope text-muted me-1 small"></i> <?= htmlspecialchars($mgr['email'] ?: 'N/A') ?></div>
-                </div>
-                <div class="col-md-2 col-sm-6">
-                    <div class="text-secondary small fw-semibold text-uppercase">City / Region</div>
-                    <div class="fw-bold text-dark mt-1"><i class="fa-solid fa-city text-muted me-1 small"></i> <?= htmlspecialchars($mgr['city'] ?: 'N/A') ?></div>
-                </div>
-                <div class="col-md-2 col-sm-6">
-                    <div class="text-secondary small fw-semibold text-uppercase">Address</div>
-                    <div class="fw-bold text-dark mt-1 text-truncate" title="<?= htmlspecialchars($mgr['address'] ?: 'N/A') ?>"><i class="fa-solid fa-location-dot text-muted me-1 small"></i> <?= htmlspecialchars($mgr['address'] ?: 'N/A') ?></div>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <span class="small fw-semibold text-dark"><i class="fa-solid fa-hand-holding-dollar text-warning me-1"></i> RM Recovery</span>
+                        <?php if (!$is_logged_manager): ?>
+                        <form method="POST" class="m-0">
+                            <input type="hidden" name="action" value="toggle_permission">
+                            <input type="hidden" name="permission" value="can_collect_recovery">
+                            <input type="hidden" name="value" value="<?= $mgr['can_collect_recovery'] === 'yes' ? 'no' : 'yes' ?>">
+                            <button type="submit" class="btn btn-sm <?= $mgr['can_collect_recovery'] === 'yes' ? 'btn-success' : 'btn-outline-secondary' ?> rounded-pill py-0 px-2.5" style="font-size: 11px;">
+                                <?= $mgr['can_collect_recovery'] === 'yes' ? '<i class="fa-solid fa-check me-1"></i>Permitted' : '<i class="fa-solid fa-lock me-1"></i>Locked' ?>
+                            </button>
+                        </form>
+                        <?php else: ?>
+                            <span class="badge <?= $mgr['can_collect_recovery'] === 'yes' ? 'bg-success' : 'bg-secondary' ?> rounded-pill" style="font-size: 11px;"><?= $mgr['can_collect_recovery'] === 'yes' ? 'Permitted' : 'Locked' ?></span>
+                        <?php endif; ?>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
-
-    <!-- Ghost Account Alert & Quick Delete (if account is empty/corrupted) -->
-    <?php if (empty($mgr_full_safe) && empty($mgr_user_safe)): ?>
-    <div class="alert alert-warning border border-warning-subtle rounded-4 p-3 mb-4 d-flex flex-wrap align-items-center justify-content-between gap-3 shadow-sm">
-        <div>
-            <i class="fa-solid fa-triangle-exclamation text-warning fs-5 me-2 align-middle"></i>
-            <strong>Ghost / Unconfigured Manager Account:</strong> This Manager account (#<?= $manager_id ?>) has no name or username. All financial recoveries are strictly isolated to <strong>Rs. 0</strong>.
+    
+    <!-- Balance & Collect -->
+    <div class="col-md-8">
+        <div class="card card-custom h-100 <?= ($mgr['cash_in_hand'] > 0) ? 'bg-success bg-opacity-10 border border-success border-opacity-25' : 'bg-light' ?>">
+            <div class="card-body p-4 d-flex flex-column justify-content-center align-items-center text-center">
+                <h6 class="fw-bold text-uppercase text-muted tracking-wider mb-2">Pending Cash in Hand</h6>
+                <h1 class="display-3 fw-bold <?= ($mgr['cash_in_hand'] > 0) ? 'text-success' : 'text-dark' ?> mb-2">
+                    Rs. <?= number_format($mgr['cash_in_hand'], 0) ?>
+                </h1>
+                <div class="text-muted small mb-4">
+                    Already Submitted to Admin: <strong class="text-dark">Rs. <?= number_format($total_submitted_to_admin, 0) ?></strong>
+                    <?= $has_date_filter ? ' <span class="badge bg-primary-subtle text-primary border border-primary-subtle rounded-pill px-2 py-0 ms-1">Filtered Range</span>' : '' ?>
+                </div>
+                
+                <?php if($mgr['cash_in_hand'] > 0): ?>
+                    <?php if (!$is_logged_manager): ?>
+                        <button class="btn btn-success btn-lg rounded-pill px-5 fw-bold shadow-sm" data-bs-toggle="modal" data-bs-target="#collectManagerCashModal">
+                            <i class="fa-solid fa-hand-holding-dollar me-2"></i> Collect Cash
+                        </button>
+                    <?php else: ?>
+                        <div class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle p-2.5 px-4 rounded-pill fs-6 fw-bold">
+                            <i class="fa-solid fa-clock-rotate-left me-1"></i> Pending Handover to Admin
+                        </div>
+                    <?php endif; ?>
+                <?php else: ?>
+                    <div class="badge bg-secondary p-2.5 px-4 rounded-pill fs-6"><i class="fa-solid fa-check-circle me-1"></i> Accounts Cleared</div>
+                <?php endif; ?>
+            </div>
         </div>
-        <form method="POST" onsubmit="return confirm('Are you sure you want to permanently delete this unused ghost manager account?');" class="m-0">
-            <input type="hidden" name="action" value="delete_manager">
+    </div>
+</div>
+
+<!-- Date Range Filter Card -->
+<div class="card card-custom bg-white mb-4 shadow-sm rounded-4">
+    <div class="card-body p-3 p-md-4">
+        <form method="GET" class="row g-2 align-items-end" id="mgrDateFilterForm">
             <input type="hidden" name="id" value="<?= $manager_id ?>">
-            <button type="submit" class="btn btn-danger btn-sm rounded-pill px-3 fw-bold shadow-sm">
-                <i class="fa-solid fa-trash me-1"></i> Delete Ghost Manager #<?= $manager_id ?>
-            </button>
+            
+            <div class="col-12 col-md-auto mb-1 mb-md-0 d-flex align-items-center">
+                <span class="fw-bold text-dark fs-6 me-2">
+                    <i class="fa-solid fa-calendar-days text-primary me-1"></i> Date Filter:
+                </span>
+            </div>
+
+            <div class="col-6 col-md-3">
+                <label class="form-label text-secondary small fw-semibold mb-1">From Date</label>
+                <input type="date" name="from_date" id="filter_from_date" class="form-control form-control-sm" value="<?= htmlspecialchars($from_date) ?>" max="<?= date('Y-m-d') ?>">
+            </div>
+
+            <div class="col-6 col-md-3">
+                <label class="form-label text-secondary small fw-semibold mb-1">To Date</label>
+                <input type="date" name="to_date" id="filter_to_date" class="form-control form-control-sm" value="<?= htmlspecialchars($to_date) ?>" max="<?= date('Y-m-d') ?>">
+            </div>
+
+            <div class="col-12 col-md-auto d-flex gap-2">
+                <button type="submit" class="btn btn-primary btn-sm rounded-pill px-3 shadow-sm fw-semibold">
+                    <i class="fa-solid fa-filter me-1"></i> Apply Filter
+                </button>
+                <?php if ($has_date_filter): ?>
+                    <a href="?id=<?= $manager_id ?>" class="btn btn-outline-secondary btn-sm rounded-pill px-3">
+                        <i class="fa-solid fa-rotate-left me-1"></i> Reset
+                    </a>
+                <?php endif; ?>
+            </div>
+
+            <!-- Quick Date Presets -->
+            <div class="col-12 mt-2 pt-2 border-top d-flex flex-wrap align-items-center gap-1">
+                <span class="text-muted small me-2"><i class="fa-solid fa-bolt text-warning me-1"></i> Quick Presets:</span>
+                <button type="button" class="btn btn-sm btn-light border rounded-pill px-2 py-0 text-secondary" style="font-size: 11px;" onclick="applyMgrDatePreset('today')">Today</button>
+                <button type="button" class="btn btn-sm btn-light border rounded-pill px-2 py-0 text-secondary" style="font-size: 11px;" onclick="applyMgrDatePreset('yesterday')">Yesterday</button>
+                <button type="button" class="btn btn-sm btn-light border rounded-pill px-2 py-0 text-secondary" style="font-size: 11px;" onclick="applyMgrDatePreset('last7')">Last 7 Days</button>
+                <button type="button" class="btn btn-sm btn-light border rounded-pill px-2 py-0 text-secondary" style="font-size: 11px;" onclick="applyMgrDatePreset('this_month')">This Month</button>
+                <button type="button" class="btn btn-sm btn-light border rounded-pill px-2 py-0 text-secondary" style="font-size: 11px;" onclick="applyMgrDatePreset('last_month')">Last Month</button>
+
+                <?php if ($has_date_filter): ?>
+                    <div class="ms-auto d-flex align-items-center">
+                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle rounded-pill px-2.5 py-1 small">
+                            <i class="fa-solid fa-circle-check me-1"></i> Active Range: <?= !empty($from_date) ? date('d M Y', strtotime($from_date)) : 'Start' ?> &rarr; <?= !empty($to_date) ? date('d M Y', strtotime($to_date)) : 'Today' ?>
+                        </span>
+                        <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2.5 py-1 small ms-1">
+                            Recovered: Rs. <?= number_format($total_recovered_amount, 0) ?>
+                        </span>
+                    </div>
+                <?php endif; ?>
+            </div>
         </form>
     </div>
-    <?php endif; ?>
+</div>
 
-    <!-- Operator-Controlled Permissions & Real-time Toggles -->
-    <div class="row g-3 mb-4">
-        <div class="col-md-6">
-            <div class="perm-card d-flex justify-content-between align-items-center">
-                <div>
-                    <h6 class="fw-bold mb-1 text-dark">
-                        <i class="fa-solid fa-box-open text-primary me-2"></i> Package &amp; Pricing Management
-                    </h6>
-                    <p class="text-muted small mb-0">Allow manager to create new packages, edit existing packages, and change rates.</p>
-                </div>
-                <?php if (!$is_logged_manager): ?>
-                <form method="POST" class="ms-3 flex-shrink-0">
-                    <input type="hidden" name="action" value="toggle_permission">
-                    <input type="hidden" name="permission" value="can_manage_packages">
-                    <input type="hidden" name="value" value="<?= $mgr['can_manage_packages'] === 'yes' ? 'no' : 'yes' ?>">
-                    <?php if ($mgr['can_manage_packages'] === 'yes'): ?>
-                        <button type="submit" class="btn btn-success rounded-pill px-3 py-1 btn-sm fw-semibold shadow-sm" title="Click to Revoke">
-                            <i class="fa-solid fa-check-circle me-1"></i> Permitted
-                        </button>
-                    <?php else: ?>
-                        <button type="submit" class="btn btn-outline-secondary rounded-pill px-3 py-1 btn-sm fw-semibold" title="Click to Grant Permission">
-                            <i class="fa-solid fa-lock me-1"></i> Locked
-                        </button>
-                    <?php endif; ?>
-                </form>
-                <?php else: ?>
-                    <div class="ms-3 flex-shrink-0">
-                        <?php if ($mgr['can_manage_packages'] === 'yes'): ?>
-                            <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-3 py-2 fw-semibold"><i class="fa-solid fa-check-circle me-1"></i> Permitted</span>
-                        <?php else: ?>
-                            <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle rounded-pill px-3 py-2 fw-semibold"><i class="fa-solid fa-lock me-1"></i> Locked</span>
-                        <?php endif; ?>
-                    </div>
-                <?php endif; ?>
-            </div>
-        </div>
+<script>
+function applyMgrDatePreset(preset) {
+    const fromInput = document.getElementById('filter_from_date');
+    const toInput = document.getElementById('filter_to_date');
+    if (!fromInput || !toInput) return;
 
-        <div class="col-md-6">
-            <div class="perm-card d-flex justify-content-between align-items-center">
-                <div>
-                    <h6 class="fw-bold mb-1 text-dark">
-                        <i class="fa-solid fa-hand-holding-dollar text-warning me-2"></i> Operator Cash Collection
-                    </h6>
-                    <p class="text-muted small mb-0">Allow manager to receive and collect cash in hand from field Operators.</p>
-                </div>
-                <?php if (!$is_logged_manager): ?>
-                <form method="POST" class="ms-3 flex-shrink-0">
-                    <input type="hidden" name="action" value="toggle_permission">
-                    <input type="hidden" name="permission" value="can_collect_recovery">
-                    <input type="hidden" name="value" value="<?= $mgr['can_collect_recovery'] === 'yes' ? 'no' : 'yes' ?>">
-                    <?php if ($mgr['can_collect_recovery'] === 'yes'): ?>
-                        <button type="submit" class="btn btn-success rounded-pill px-3 py-1 btn-sm fw-semibold shadow-sm" title="Click to Revoke">
-                            <i class="fa-solid fa-check-circle me-1"></i> Permitted
-                        </button>
-                    <?php else: ?>
-                        <button type="submit" class="btn btn-outline-secondary rounded-pill px-3 py-1 btn-sm fw-semibold" title="Click to Grant Permission">
-                            <i class="fa-solid fa-lock me-1"></i> Locked
-                        </button>
-                    <?php endif; ?>
-                </form>
-                <?php else: ?>
-                    <div class="ms-3 flex-shrink-0">
-                        <?php if ($mgr['can_collect_recovery'] === 'yes'): ?>
-                            <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-3 py-2 fw-semibold"><i class="fa-solid fa-check-circle me-1"></i> Permitted</span>
-                        <?php else: ?>
-                            <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle rounded-pill px-3 py-2 fw-semibold"><i class="fa-solid fa-lock me-1"></i> Locked</span>
-                        <?php endif; ?>
-                    </div>
-                <?php endif; ?>
-            </div>
-        </div>
+    const today = new Date();
+    const formatDate = (d) => {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+    };
+
+    if (preset === 'today') {
+        fromInput.value = formatDate(today);
+        toInput.value = formatDate(today);
+    } else if (preset === 'yesterday') {
+        const yest = new Date();
+        yest.setDate(yest.getDate() - 1);
+        fromInput.value = formatDate(yest);
+        toInput.value = formatDate(yest);
+    } else if (preset === 'last7') {
+        const past7 = new Date();
+        past7.setDate(past7.getDate() - 7);
+        fromInput.value = formatDate(past7);
+        toInput.value = formatDate(today);
+    } else if (preset === 'this_month') {
+        const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+        fromInput.value = formatDate(firstDay);
+        toInput.value = formatDate(today);
+    } else if (preset === 'last_month') {
+        const firstDay = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+        const lastDay = new Date(today.getFullYear(), today.getMonth(), 0);
+        fromInput.value = formatDate(firstDay);
+        toInput.value = formatDate(lastDay);
+    }
+    document.getElementById('mgrDateFilterForm').submit();
+}
+</script>
+
+<!-- Statement Tabs -->
+<div class="card card-custom bg-white mb-4">
+    <div class="card-header bg-transparent border-bottom-0 p-0 pt-2 px-3">
+        <ul class="nav nav-tabs border-bottom" id="statementTabs" role="tablist">
+            <!-- Tab 1: All Manager Recovery & Renewals -->
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="recovery-tab" data-bs-toggle="tab" data-bs-target="#tab-recovery" type="button" role="tab">
+                    <i class="fa-solid fa-bolt me-1 text-warning"></i> Manager Activities &amp; Renewals
+                    <span class="badge bg-primary ms-1"><?= count($all_recoveries) ?></span>
+                </button>
+            </li>
+            <!-- Tab 2: Activity Audit Trail -->
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="activity-tab" data-bs-toggle="tab" data-bs-target="#tab-activity" type="button" role="tab">
+                    <i class="fa-solid fa-list-check me-1 text-primary"></i> Activity Audit Trail
+                    <span class="badge bg-secondary ms-1"><?= count($activities) ?></span>
+                </button>
+            </li>
+            <!-- Tab 3: Salary & Advances -->
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="salary-tab" data-bs-toggle="tab" data-bs-target="#tab-salary" type="button" role="tab">
+                    <i class="fa-solid fa-wallet me-1 text-success"></i> Salary &amp; Advances
+                </button>
+            </li>
+            <!-- Tab 4: Submissions to Admin -->
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="submissions-tab" data-bs-toggle="tab" data-bs-target="#tab-submissions" type="button" role="tab">
+                    <i class="fa-solid fa-building-columns me-1 text-danger"></i> Submissions to Admin
+                    <span class="badge bg-secondary ms-1"><?= count($submissions) ?></span>
+                </button>
+            </li>
+        </ul>
     </div>
+    <div class="card-body p-0">
+        <div class="tab-content p-4" id="statementTabsContent">
 
-    <!-- Activity & Financial Audit Stat Overview -->
-    <div class="row g-3 mb-4">
-        <div class="col-6 col-lg-3">
-            <div class="mini-stat-card">
-                <div class="mini-stat-icon" style="background: rgba(99, 102, 241, 0.1); color: #6366f1;">
-                    <i class="fa-solid fa-clock-rotate-left"></i>
-                </div>
-                <div>
-                    <div class="fs-4 fw-bold text-dark"><?= $total_acts ?></div>
-                    <div class="text-muted small fw-semibold text-uppercase" style="font-size: 0.72rem;">Total Actions (2-Yr Audit)</div>
-                </div>
-            </div>
-        </div>
-        <div class="col-6 col-lg-3">
-            <div class="mini-stat-card">
-                <div class="mini-stat-icon" style="background: rgba(16, 185, 129, 0.1); color: #10b981;">
-                    <i class="fa-solid fa-arrows-rotate"></i>
-                </div>
-                <div>
-                    <div class="fs-4 fw-bold text-dark"><?= $renew_count ?></div>
-                    <div class="text-muted small fw-semibold text-uppercase" style="font-size: 0.72rem;">Package Renewals</div>
-                </div>
-            </div>
-        </div>
-        <div class="col-6 col-lg-3">
-            <div class="mini-stat-card">
-                <div class="mini-stat-icon" style="background: rgba(14, 165, 233, 0.1); color: #0ea5e9;">
-                    <i class="fa-solid fa-user-plus"></i>
-                </div>
-                <div>
-                    <div class="fs-4 fw-bold text-dark"><?= $user_create_count ?></div>
-                    <div class="text-muted small fw-semibold text-uppercase" style="font-size: 0.72rem;">Users Created</div>
-                </div>
-            </div>
-        </div>
-        <div class="col-6 col-lg-3">
-            <div class="mini-stat-card">
-                <div class="mini-stat-icon" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b;">
-                    <i class="fa-solid fa-right-to-bracket"></i>
-                </div>
-                <div>
-                    <div class="fs-4 fw-bold text-dark"><?= $login_count ?></div>
-                    <div class="text-muted small fw-semibold text-uppercase" style="font-size: 0.72rem;">Logins (Last 7 Days)</div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Financial Overview: Pending Cash in Hand & Collections -->
-    <div class="row g-3 mb-4">
-        <!-- Total Recoveries Card -->
-        <div class="col-md-4">
-            <div class="card border-0 shadow-sm rounded-4 h-100 bg-white p-4 text-center d-flex flex-column justify-content-center">
-                <div class="text-secondary small fw-bold text-uppercase tracking-wider mb-2">Total Recoveries (2-Yr)</div>
-                <h2 class="display-6 fw-bold text-primary mb-1">
-                    Rs. <?= number_format($total_recovered_amount, 0) ?>
-                </h2>
-                <div class="text-muted small mt-1">
-                    <i class="fa-solid fa-hand-holding-dollar text-success me-1"></i> From <?= number_format(count($all_recoveries)) ?> Transactions
-                </div>
-            </div>
-        </div>
-        
-        <!-- Pending Cash in Hand & Admin Collection Card -->
-        <div class="col-md-8">
-            <div class="card border-0 shadow-sm rounded-4 h-100 <?= ($mgr['cash_in_hand'] > 0) ? 'bg-success bg-opacity-10 border border-success border-opacity-25' : 'bg-white' ?> p-4">
-                <div class="d-flex flex-column flex-sm-row justify-content-between align-items-center text-center text-sm-start gap-3 h-100">
-                    <div>
-                        <div class="d-flex align-items-center gap-2 mb-1 justify-content-center justify-content-sm-start">
-                            <span class="badge bg-success text-white px-2.5 py-1 rounded-pill small fw-bold">Cash in Hand</span>
-                            <span class="text-muted small fw-bold text-uppercase">Pending Cash to Collect</span>
-                        </div>
-                        <h1 class="display-5 fw-bold <?= ($mgr['cash_in_hand'] > 0) ? 'text-success' : 'text-dark' ?> mb-1">
-                            Rs. <?= number_format($mgr['cash_in_hand'], 0) ?>
-                        </h1>
-                        <div class="text-muted small">
-                            Already Submitted to Admin: <strong class="text-dark">Rs. <?= number_format($total_submitted_to_admin, 0) ?></strong>
-                        </div>
-                    </div>
-                    
-                    <div class="text-center flex-shrink-0">
-                        <?php if($mgr['cash_in_hand'] > 0): ?>
-                            <?php if (!$is_logged_manager): ?>
-                                <button class="btn btn-success btn-lg rounded-pill px-4 fw-bold shadow-sm" data-bs-toggle="modal" data-bs-target="#collectManagerCashModal">
-                                    <i class="fa-solid fa-hand-holding-dollar me-2"></i> Collect Cash
-                                </button>
-                            <?php else: ?>
-                                <div class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle p-2.5 px-3 rounded-pill fs-6 fw-bold">
-                                    <i class="fa-solid fa-clock-rotate-left me-1"></i> Pending Handover to Admin
-                                </div>
-                            <?php endif; ?>
-                        <?php else: ?>
-                            <div class="badge bg-secondary p-2.5 px-3 rounded-pill fs-6"><i class="fa-solid fa-check-circle me-1"></i> Accounts Cleared</div>
-                        <?php endif; ?>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Date Range Filter Card -->
-    <div class="card border-0 shadow-sm rounded-4 mb-4 bg-white">
-        <div class="card-body p-3 p-md-4">
-            <form method="GET" class="row g-2 align-items-end" id="mgrDateFilterForm">
-                <input type="hidden" name="id" value="<?= $manager_id ?>">
+            <!-- Tab 1 Content: All Recovery & Renewals -->
+            <div class="tab-pane fade show active" id="tab-recovery" role="tabpanel">
                 
-                <div class="col-12 col-md-auto mb-1 mb-md-0 d-flex align-items-center">
-                    <span class="fw-bold text-dark fs-6 me-2">
-                        <i class="fa-solid fa-calendar-days text-primary me-1"></i> Date Filter:
+                <!-- Quick Mini Stats -->
+                <div class="row g-3 mb-4">
+                    <div class="col-6 col-md-3">
+                        <div class="p-3 bg-light border rounded text-center">
+                            <div class="text-muted small fw-bold text-uppercase">Renewals Done</div>
+                            <h4 class="mb-0 fw-bold text-primary mt-1"><?= number_format($total_renewals_count) ?></h4>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="p-3 bg-light border rounded text-center">
+                            <div class="text-muted small fw-bold text-uppercase">Unique Subscribers</div>
+                            <h4 class="mb-0 fw-bold text-info mt-1"><?= number_format($unique_subscribers_count) ?></h4>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="p-3 bg-light border rounded text-center">
+                            <div class="text-muted small fw-bold text-uppercase">Total Activities</div>
+                            <h4 class="mb-0 fw-bold text-dark mt-1"><?= number_format(count($all_recoveries)) ?></h4>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="p-3 bg-success bg-opacity-10 border border-success border-opacity-25 rounded text-center">
+                            <div class="text-success small fw-bold text-uppercase">Total Recovered</div>
+                            <h4 class="mb-0 fw-bold text-success mt-1">Rs. <?= number_format($total_recovered_amount, 0) ?></h4>
+                        </div>
+                    </div>
+                </div>
+
+                <?php if (empty($all_recoveries)): ?>
+                    <div class="text-center py-5 text-muted">
+                        <i class="fa-solid fa-hand-holding-dollar fs-1 text-secondary opacity-50 mb-3 d-block"></i>
+                        <h6 class="fw-bold text-dark">No Recovery or Renewal Records Found</h6>
+                        <p class="small text-secondary mb-0">Whenever this Manager renews subscriber packages, collects payments, or adds balances, full records will appear here.</p>
+                    </div>
+                <?php else: ?>
+                <div class="table-responsive">
+                    <table id="managerRecoveryTable" class="table table-hover table-custom-ui align-middle w-100">
+                        <thead>
+                            <tr>
+                                <th>Date &amp; Time</th>
+                                <th>Subscriber</th>
+                                <th>Package Detail</th>
+                                <th>Expiry Date</th>
+                                <th>Recovered (Paid)</th>
+                                <th>Fee Charged</th>
+                                <th>Current Balance</th>
+                                <th>Recovery Type &amp; Details</th>
+                                <th class="text-center">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($all_recoveries as $rec): 
+                                $exp_text = '<span class="text-muted small">N/A</span>';
+                                if (!empty($rec['expiry_date'])) {
+                                    $exp_time = strtotime($rec['expiry_date']);
+                                    if ($exp_time > 0) {
+                                        $formatted_date = date('d M Y, h:i A', $exp_time);
+                                        $diff_days = ceil(($exp_time - time()) / 86400);
+                                        if ($diff_days < 0) {
+                                            $badge = '<span class="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-2 py-0 ms-1 small">Expired</span>';
+                                        } elseif ($diff_days <= 3) {
+                                            $badge = '<span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle rounded-pill px-2 py-0 ms-1 small">' . $diff_days . 'd left</span>';
+                                        } else {
+                                            $badge = '<span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2 py-0 ms-1 small">' . $diff_days . 'd left</span>';
+                                        }
+                                        $exp_text = '<div class="fw-semibold text-dark" style="white-space:nowrap;">' . $formatted_date . '</div>' . $badge;
+                                    }
+                                }
+                                $bal = (float)$rec['current_balance'];
+                            ?>
+                            <tr>
+                                <td class="text-secondary small fw-bold" style="white-space: nowrap;">
+                                    <div class="text-dark"><?= date('d M Y', strtotime($rec['created_at'])) ?></div>
+                                    <div class="text-muted small font-monospace"><?= date('h:i:s A', strtotime($rec['created_at'])) ?></div>
+                                </td>
+                                <td>
+                                    <?php if (!empty($rec['sub_id'])): ?>
+                                        <a href="subscriber_view.php?id=<?= $rec['sub_id'] ?>" class="fw-bold text-primary text-decoration-none">
+                                            <i class="fa-solid fa-user me-1 small"></i><?= htmlspecialchars($rec['username']) ?>
+                                        </a>
+                                    <?php else: ?>
+                                        <span class="fw-bold text-dark"><?= htmlspecialchars($rec['username']) ?></span>
+                                    <?php endif; ?>
+                                    <div class="small text-secondary"><?= htmlspecialchars($rec['full_name']) ?></div>
+                                    <?php if (!empty($rec['mobile']) && $rec['mobile'] !== 'N/A'): ?>
+                                        <div class="small text-muted font-monospace"><i class="fa-solid fa-phone me-1 text-success"></i><?= htmlspecialchars($rec['mobile']) ?></div>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <?php if (!empty($rec['package_name']) && $rec['package_name'] !== 'N/A'): ?>
+                                        <span class="badge bg-light text-dark border px-2 py-1 fw-bold">
+                                            <i class="fa-solid fa-box-open text-primary me-1"></i><?= htmlspecialchars($rec['package_name']) ?>
+                                        </span>
+                                        <?php if ($rec['package_price'] > 0): ?>
+                                            <div class="small text-muted mt-1">Rate: Rs. <?= number_format($rec['package_price'], 0) ?></div>
+                                        <?php endif; ?>
+                                    <?php else: ?>
+                                        <span class="text-muted small">-</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <?= $exp_text ?>
+                                </td>
+                                <td>
+                                    <?php if ($rec['collected_amount'] > 0): ?>
+                                        <span class="text-success fw-bold fs-6" style="white-space:nowrap;">
+                                            + Rs. <?= number_format($rec['collected_amount'], 0) ?>
+                                        </span>
+                                    <?php else: ?>
+                                        <span class="text-muted fw-bold">Rs. 0</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <?php if ($rec['charged_amount'] > 0): ?>
+                                        <span class="text-dark fw-semibold" style="white-space:nowrap;">
+                                            Rs. <?= number_format($rec['charged_amount'], 0) ?>
+                                        </span>
+                                    <?php else: ?>
+                                        <span class="text-muted small">-</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <?php if ($bal < 0): ?>
+                                        <span class="badge bg-danger-subtle text-danger border border-danger-subtle fw-bold px-2 py-1" style="white-space:nowrap;">
+                                            <i class="fa-solid fa-triangle-exclamation me-1"></i> - Rs. <?= number_format(abs($bal), 0) ?>
+                                        </span>
+                                    <?php elseif ($bal > 0): ?>
+                                        <span class="badge bg-success-subtle text-success border border-success-subtle fw-bold px-2 py-1" style="white-space:nowrap;">
+                                            <i class="fa-solid fa-check me-1"></i> + Rs. <?= number_format($bal, 0) ?>
+                                        </span>
+                                    <?php else: ?>
+                                        <span class="badge bg-light text-secondary border fw-bold px-2 py-1">
+                                            Rs. 0 (Cleared)
+                                        </span>
+                                    <?php endif; ?>
+                                </td>
+                                <td class="small" style="max-width: 250px;">
+                                    <?php if ($rec['type'] === 'renewal'): ?>
+                                        <span class="badge badge-soft-success rounded-pill px-2 py-1 me-1"><i class="fa-solid fa-rotate me-1"></i>Renew</span>
+                                    <?php elseif ($rec['type'] === 'collection'): ?>
+                                        <span class="badge badge-soft-info rounded-pill px-2 py-1 me-1"><i class="fa-solid fa-hand-holding-dollar me-1"></i>Collected</span>
+                                    <?php elseif ($rec['type'] === 'balance_add'): ?>
+                                        <span class="badge badge-soft-warning rounded-pill px-2 py-1 me-1"><i class="fa-solid fa-plus-circle me-1"></i>Funds Added</span>
+                                    <?php endif; ?>
+                                    <span class="text-muted"><?= htmlspecialchars($rec['activity_text']) ?></span>
+                                </td>
+                                <td class="text-center" style="white-space:nowrap;">
+                                    <?php if (!empty($rec['sub_id'])): ?>
+                                        <a href="subscriber_view.php?id=<?= $rec['sub_id'] ?>" class="btn btn-sm btn-outline-primary rounded-pill px-3" title="View Full Subscriber Profile">
+                                            <i class="fa-solid fa-eye me-1"></i> View
+                                        </a>
+                                    <?php else: ?>
+                                        <span class="text-muted small">-</span>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+                <?php endif; ?>
+
+            </div>
+
+            <!-- Tab 2 Content: Activity Audit Trail -->
+            <div class="tab-pane fade" id="tab-activity" role="tabpanel">
+                
+                <!-- Quick Mini Stats -->
+                <div class="row g-3 mb-4">
+                    <div class="col-6 col-md-3">
+                        <div class="p-3 bg-light border rounded text-center">
+                            <div class="text-muted small fw-bold text-uppercase">Total Actions</div>
+                            <h4 class="mb-0 fw-bold text-primary mt-1"><?= number_format($total_acts) ?></h4>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="p-3 bg-light border rounded text-center">
+                            <div class="text-muted small fw-bold text-uppercase">Renewals</div>
+                            <h4 class="mb-0 fw-bold text-success mt-1"><?= number_format($renew_count) ?></h4>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="p-3 bg-light border rounded text-center">
+                            <div class="text-muted small fw-bold text-uppercase">Users Created</div>
+                            <h4 class="mb-0 fw-bold text-info mt-1"><?= number_format($user_create_count) ?></h4>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <div class="p-3 bg-light border rounded text-center">
+                            <div class="text-muted small fw-bold text-uppercase">Logins (24h)</div>
+                            <h4 class="mb-0 fw-bold text-warning mt-1"><?= number_format($login_count) ?></h4>
+                        </div>
+                    </div>
+                </div>
+
+                <?php if (empty($activities)): ?>
+                    <div class="text-center py-5 text-muted">
+                        <i class="fa-solid fa-circle-check fs-1 text-success opacity-50 mb-3 d-block"></i>
+                        <h6 class="fw-bold text-dark">No Activities Recorded Yet</h6>
+                        <p class="small text-secondary mb-0">Activities performed by this Manager will appear here automatically.</p>
+                    </div>
+                <?php else: ?>
+                <div class="table-responsive">
+                    <table id="managerLogsTable" class="table table-hover table-custom-ui align-middle w-100">
+                        <thead>
+                            <tr>
+                                <th style="width: 50px;">#ID</th>
+                                <th>Datetime</th>
+                                <th>Activity Description</th>
+                                <th>Against To</th>
+                                <th>Against Role</th>
+                                <th>Station IP</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($activities as $act): ?>
+                                <tr>
+                                    <td class="fw-bold text-secondary"><?= $act['id'] ?></td>
+                                    <td style="white-space: nowrap;">
+                                        <div class="fw-semibold text-dark"><?= date('d M Y', strtotime($act['created_at'])) ?></div>
+                                        <div class="text-muted small"><?= date('h:i:s A', strtotime($act['created_at'])) ?></div>
+                                    </td>
+                                    <td>
+                                        <?php 
+                                            $act_text = htmlspecialchars($act['activity']);
+                                            if (stripos($act_text, 'renew') !== false) {
+                                                echo "<span class='badge badge-soft-success px-2 py-1 rounded-pill me-1'><i class='fa-solid fa-arrows-rotate me-1'></i>Renew</span> " . $act_text;
+                                            } elseif (stripos($act_text, 'create') !== false) {
+                                                echo "<span class='badge badge-soft-info px-2 py-1 rounded-pill me-1'><i class='fa-solid fa-plus-circle me-1'></i>Create</span> " . $act_text;
+                                            } elseif (stripos($act_text, 'login') !== false) {
+                                                echo "<span class='badge badge-soft-secondary px-2 py-1 rounded-pill me-1'><i class='fa-solid fa-arrow-right-to-bracket me-1'></i>Login</span> " . $act_text;
+                                            } else {
+                                                echo "<span class='fw-medium text-dark'>" . $act_text . "</span>";
+                                            }
+                                        ?>
+                                    </td>
+                                    <td>
+                                        <?php if ($act['against_to'] && $act['against_to'] !== 'N/A'): ?>
+                                            <span class="badge bg-light text-dark border px-2 py-1 rounded-pill">
+                                                <?= htmlspecialchars($act['against_to']) ?>
+                                            </span>
+                                        <?php else: ?>
+                                            <span class="text-muted small">N/A</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-secondary-subtle text-secondary rounded-pill px-2 py-1">
+                                            <?= htmlspecialchars($act['against_role'] ?: 'System') ?>
+                                        </span>
+                                    </td>
+                                    <td class="font-monospace text-muted small">
+                                        <?= htmlspecialchars($act['station_ip'] ?: '127.0.0.1') ?>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+                <?php endif; ?>
+            </div>
+
+            <!-- Tab 3 Content: Salary & Advances -->
+            <div class="tab-pane fade" id="tab-salary" role="tabpanel">
+                <?php
+                $staff_type = 'manager';
+                $staff_id = (int)$mgr['id'];
+                $staff_name = $mgr['full_name'];
+                $monthly_sal = (int)($mgr['monthly_salary'] ?? 0);
+                $joined_date = $mgr['created_at'];
+                require __DIR__ . '/staff_salary_view.php';
+                ?>
+            </div>
+
+            <!-- Tab 4 Content: Submissions to Admin -->
+            <div class="tab-pane fade" id="tab-submissions" role="tabpanel">
+                <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+                    <div>
+                        <h6 class="fw-bold mb-1 text-dark">
+                            <i class="fa-solid fa-building-columns text-danger me-2"></i> Cash Submissions to Admin
+                        </h6>
+                        <div class="text-muted small">
+                            Complete audit log of all cash handovers and collections received by Admin from Manager <strong><?= htmlspecialchars($mgr['full_name']) ?></strong>.
+                        </div>
+                    </div>
+                    <span class="badge bg-light text-dark border px-3 py-2 rounded-pill font-monospace">
+                        Total Collected: Rs. <?= number_format($total_submitted_to_admin, 0) ?>
                     </span>
                 </div>
 
-                <div class="col-6 col-md-3">
-                    <label class="form-label text-secondary small fw-semibold mb-1">From Date</label>
-                    <input type="date" name="from_date" id="filter_from_date" class="form-control form-control-sm" value="<?= htmlspecialchars($from_date) ?>" max="<?= date('Y-m-d') ?>">
-                </div>
-
-                <div class="col-6 col-md-3">
-                    <label class="form-label text-secondary small fw-semibold mb-1">To Date</label>
-                    <input type="date" name="to_date" id="filter_to_date" class="form-control form-control-sm" value="<?= htmlspecialchars($to_date) ?>" max="<?= date('Y-m-d') ?>">
-                </div>
-
-                <div class="col-12 col-md-auto d-flex gap-2">
-                    <button type="submit" class="btn btn-primary btn-sm rounded-pill px-3 shadow-sm fw-semibold">
-                        <i class="fa-solid fa-filter me-1"></i> Apply Filter
-                    </button>
-                    <?php if ($has_date_filter): ?>
-                        <a href="?id=<?= $manager_id ?>" class="btn btn-outline-secondary btn-sm rounded-pill px-3">
-                            <i class="fa-solid fa-rotate-left me-1"></i> Reset
-                        </a>
-                    <?php endif; ?>
-                </div>
-
-                <!-- Quick Date Presets -->
-                <div class="col-12 mt-2 pt-2 border-top d-flex flex-wrap align-items-center gap-1">
-                    <span class="text-muted small me-2"><i class="fa-solid fa-bolt text-warning me-1"></i> Quick Presets:</span>
-                    <button type="button" class="btn btn-sm btn-light border rounded-pill px-2 py-0 text-secondary" style="font-size: 11px;" onclick="applyMgrDatePreset('today')">Today</button>
-                    <button type="button" class="btn btn-sm btn-light border rounded-pill px-2 py-0 text-secondary" style="font-size: 11px;" onclick="applyMgrDatePreset('yesterday')">Yesterday</button>
-                    <button type="button" class="btn btn-sm btn-light border rounded-pill px-2 py-0 text-secondary" style="font-size: 11px;" onclick="applyMgrDatePreset('last7')">Last 7 Days</button>
-                    <button type="button" class="btn btn-sm btn-light border rounded-pill px-2 py-0 text-secondary" style="font-size: 11px;" onclick="applyMgrDatePreset('this_month')">This Month</button>
-                    <button type="button" class="btn btn-sm btn-light border rounded-pill px-2 py-0 text-secondary" style="font-size: 11px;" onclick="applyMgrDatePreset('last_month')">Last Month</button>
-
-                    <?php if ($has_date_filter): ?>
-                        <div class="ms-auto d-flex align-items-center">
-                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle rounded-pill px-2.5 py-1 small">
-                                <i class="fa-solid fa-circle-check me-1"></i> Active Range: <?= !empty($from_date) ? date('d M Y', strtotime($from_date)) : 'Start' ?> &rarr; <?= !empty($to_date) ? date('d M Y', strtotime($to_date)) : 'Today' ?>
-                            </span>
-                            <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2.5 py-1 small ms-1">
-                                Recovered: Rs. <?= number_format($total_recovered_amount, 0) ?>
-                            </span>
-                        </div>
-                    <?php endif; ?>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <script>
-    function applyMgrDatePreset(preset) {
-        const fromInput = document.getElementById('filter_from_date');
-        const toInput = document.getElementById('filter_to_date');
-        if (!fromInput || !toInput) return;
-
-        const today = new Date();
-        const formatDate = (d) => {
-            const y = d.getFullYear();
-            const m = String(d.getMonth() + 1).padStart(2, '0');
-            const day = String(d.getDate()).padStart(2, '0');
-            return `${y}-${m}-${day}`;
-        };
-
-        if (preset === 'today') {
-            fromInput.value = formatDate(today);
-            toInput.value = formatDate(today);
-        } else if (preset === 'yesterday') {
-            const yest = new Date();
-            yest.setDate(yest.getDate() - 1);
-            fromInput.value = formatDate(yest);
-            toInput.value = formatDate(yest);
-        } else if (preset === 'last7') {
-            const past7 = new Date();
-            past7.setDate(past7.getDate() - 7);
-            fromInput.value = formatDate(past7);
-            toInput.value = formatDate(today);
-        } else if (preset === 'this_month') {
-            const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-            fromInput.value = formatDate(firstDay);
-            toInput.value = formatDate(today);
-        } else if (preset === 'last_month') {
-            const firstDay = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-            const lastDay = new Date(today.getFullYear(), today.getMonth(), 0);
-            fromInput.value = formatDate(firstDay);
-            toInput.value = formatDate(lastDay);
-        }
-        document.getElementById('mgrDateFilterForm').submit();
-    }
-    </script>
-
-    <!-- Manager Governance Tabs Container -->
-    <div class="card card-custom bg-white mb-4 border-0 shadow-sm rounded-4 overflow-hidden">
-        <div class="card-header bg-white border-bottom p-0 pt-3 px-3">
-            <ul class="nav nav-tabs border-bottom-0" id="managerTabs" role="tablist">
-                <!-- Tab 1: All Recovery & Renewals -->
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link active fw-bold" id="recovery-tab" data-bs-toggle="tab" data-bs-target="#tab-recovery" type="button" role="tab">
-                        <i class="fa-solid fa-hand-holding-dollar text-success me-2"></i> All Recovery &amp; Renewals
-                        <span class="badge bg-success ms-1"><?= count($all_recoveries) ?></span>
-                    </button>
-                </li>
-                <!-- Tab 2: Activity Audit Trail -->
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link fw-bold" id="activity-tab" data-bs-toggle="tab" data-bs-target="#tab-activity" type="button" role="tab">
-                        <i class="fa-solid fa-list-check text-primary me-2"></i> Activity Audit Trail
-                        <span class="badge bg-primary ms-1"><?= count($activities) ?></span>
-                    </button>
-                </li>
-                <!-- Tab 3: Salary & Advances -->
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link fw-bold" id="salary-tab" data-bs-toggle="tab" data-bs-target="#tab-salary" type="button" role="tab">
-                        <i class="fa-solid fa-wallet text-warning me-2"></i> Salary &amp; Advances
-                    </button>
-                </li>
-                <!-- Tab 4: Submissions to Admin -->
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link fw-bold" id="submissions-tab" data-bs-toggle="tab" data-bs-target="#tab-submissions" type="button" role="tab">
-                        <i class="fa-solid fa-building-columns text-danger me-2"></i> Submissions to Admin
-                        <span class="badge bg-danger ms-1"><?= count($submissions) ?></span>
-                    </button>
-                </li>
-            </ul>
-        </div>
-
-        <div class="card-body p-3 p-md-4">
-            <div class="tab-content" id="managerTabsContent">
-
-                <!-- Tab 1 Content: All Recovery & Renewals -->
-                <div class="tab-pane fade show active" id="tab-recovery" role="tabpanel">
-                    
-                    <!-- Recovery Mini Stat Cards -->
-                    <div class="row g-3 mb-4">
-                        <div class="col-6 col-md-3">
-                            <div class="p-3 bg-success bg-opacity-10 border border-success border-opacity-25 rounded-3 text-center">
-                                <div class="text-success small fw-bold text-uppercase">Total Cash Recovered</div>
-                                <h3 class="mb-0 fw-bold text-success mt-1">Rs. <?= number_format($total_recovered_amount, 0) ?></h3>
-                                <div class="text-muted small mt-1"><i class="fa-solid fa-shield-halved me-1"></i> 2-Year Audit Preserved</div>
-                            </div>
-                        </div>
-                        <div class="col-6 col-md-3">
-                            <div class="p-3 bg-primary bg-opacity-10 border border-primary border-opacity-25 rounded-3 text-center">
-                                <div class="text-primary small fw-bold text-uppercase">Package Renewals</div>
-                                <h3 class="mb-0 fw-bold text-primary mt-1"><?= number_format($total_renewals_count) ?></h3>
-                                <div class="text-muted small mt-1">Subscriber Extensions</div>
-                            </div>
-                        </div>
-                        <div class="col-6 col-md-3">
-                            <div class="p-3 bg-info bg-opacity-10 border border-info border-opacity-25 rounded-3 text-center">
-                                <div class="text-info-emphasis small fw-bold text-uppercase">Unique Subscribers</div>
-                                <h3 class="mb-0 fw-bold text-dark mt-1"><?= number_format($unique_subscribers_count) ?></h3>
-                                <div class="text-muted small mt-1">Customers Served</div>
-                            </div>
-                        </div>
-                        <div class="col-6 col-md-3">
-                            <div class="p-3 bg-warning bg-opacity-10 border border-warning border-opacity-25 rounded-3 text-center">
-                                <div class="text-warning-emphasis small fw-bold text-uppercase">Total Transactions</div>
-                                <h3 class="mb-0 fw-bold text-dark mt-1"><?= number_format(count($all_recoveries)) ?></h3>
-                                <div class="text-muted small mt-1">Lifetime Events Logged</div>
-                            </div>
-                        </div>
+                <?php if (empty($submissions)): ?>
+                    <div class="text-center py-5 text-muted">
+                        <i class="fa-solid fa-building-columns fs-1 text-secondary opacity-50 mb-3 d-block"></i>
+                        <h6 class="fw-bold text-dark">No Cash Submissions Yet</h6>
+                        <p class="small text-secondary mb-0">Whenever Admin collects pending cash in hand from this Manager, full payment audit records will appear here.</p>
                     </div>
-
-                    <?php if (empty($all_recoveries)): ?>
-                        <div class="text-center py-5 text-muted">
-                            <i class="fa-solid fa-hand-holding-dollar fs-1 text-secondary opacity-50 mb-3 d-block"></i>
-                            <h6 class="fw-bold text-dark">No Recovery or Renewal Records Found</h6>
-                            <p class="small text-secondary mb-0">Whenever this Manager renews subscriber packages, collects payments, or adds balances, full records with username, package, and expiry will automatically appear here.</p>
-                        </div>
-                    <?php else: ?>
-                    <div class="table-responsive">
-                        <table id="managerRecoveryTable" class="table table-hover table-custom-ui align-middle w-100">
-                            <thead>
-                                <tr>
-                                    <th>Date &amp; Time</th>
-                                    <th>Subscriber</th>
-                                    <th>Package Detail</th>
-                                    <th>Expiry Date</th>
-                                    <th>Recovered (Paid)</th>
-                                    <th>Fee Charged</th>
-                                    <th>Current Balance</th>
-                                    <th>Recovery Type &amp; Details</th>
-                                    <th class="text-center">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($all_recoveries as $rec): 
-                                    $exp_text = '<span class="text-muted small">N/A</span>';
-                                    if (!empty($rec['expiry_date'])) {
-                                        $exp_time = strtotime($rec['expiry_date']);
-                                        if ($exp_time > 0) {
-                                            $formatted_date = date('d M Y, h:i A', $exp_time);
-                                            $diff_days = ceil(($exp_time - time()) / 86400);
-                                            if ($diff_days < 0) {
-                                                $badge = '<span class="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-2 py-0 ms-1 small">Expired</span>';
-                                            } elseif ($diff_days <= 3) {
-                                                $badge = '<span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle rounded-pill px-2 py-0 ms-1 small">' . $diff_days . 'd left</span>';
-                                            } else {
-                                                $badge = '<span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2 py-0 ms-1 small">' . $diff_days . 'd left</span>';
-                                            }
-                                            $exp_text = '<div class="fw-semibold text-dark" style="white-space:nowrap;">' . $formatted_date . '</div>' . $badge;
-                                        }
-                                    }
-                                    $bal = (float)$rec['current_balance'];
-                                ?>
-                                <tr>
-                                    <td class="text-secondary small fw-bold" style="white-space: nowrap;">
-                                        <div class="text-dark"><?= date('d M Y', strtotime($rec['created_at'])) ?></div>
-                                        <div class="text-muted small font-monospace"><?= date('h:i:s A', strtotime($rec['created_at'])) ?></div>
-                                    </td>
-                                    <td>
-                                        <?php if (!empty($rec['sub_id'])): ?>
-                                            <a href="subscriber_view.php?id=<?= $rec['sub_id'] ?>" class="fw-bold text-primary text-decoration-none">
-                                                <i class="fa-solid fa-user me-1 small"></i><?= htmlspecialchars($rec['username']) ?>
-                                            </a>
-                                        <?php else: ?>
-                                            <span class="fw-bold text-dark"><?= htmlspecialchars($rec['username']) ?></span>
-                                        <?php endif; ?>
-                                        <div class="small text-secondary"><?= htmlspecialchars($rec['full_name']) ?></div>
-                                        <?php if (!empty($rec['mobile']) && $rec['mobile'] !== 'N/A'): ?>
-                                            <div class="small text-muted font-monospace"><i class="fa-solid fa-phone me-1 text-success"></i><?= htmlspecialchars($rec['mobile']) ?></div>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td>
-                                        <?php if (!empty($rec['package_name']) && $rec['package_name'] !== 'N/A'): ?>
-                                            <span class="badge bg-light text-dark border px-2 py-1 fw-bold">
-                                                <i class="fa-solid fa-box-open text-primary me-1"></i><?= htmlspecialchars($rec['package_name']) ?>
-                                            </span>
-                                            <?php if ($rec['package_price'] > 0): ?>
-                                                <div class="small text-muted mt-1">Rate: Rs. <?= number_format($rec['package_price'], 0) ?></div>
-                                            <?php endif; ?>
-                                        <?php else: ?>
-                                            <span class="text-muted small">-</span>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td>
-                                        <?= $exp_text ?>
-                                    </td>
-                                    <td>
-                                        <?php if ($rec['collected_amount'] > 0): ?>
-                                            <span class="text-success fw-bold fs-6" style="white-space:nowrap;">
-                                                + Rs. <?= number_format($rec['collected_amount'], 0) ?>
-                                            </span>
-                                        <?php else: ?>
-                                            <span class="text-muted fw-bold">Rs. 0</span>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td>
-                                        <?php if ($rec['charged_amount'] > 0): ?>
-                                            <span class="text-dark fw-semibold" style="white-space:nowrap;">
-                                                Rs. <?= number_format($rec['charged_amount'], 0) ?>
-                                            </span>
-                                        <?php else: ?>
-                                            <span class="text-muted small">-</span>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td>
-                                        <?php if ($bal < 0): ?>
-                                            <span class="badge bg-danger-subtle text-danger border border-danger-subtle fw-bold px-2 py-1" style="white-space:nowrap;">
-                                                <i class="fa-solid fa-triangle-exclamation me-1"></i> - Rs. <?= number_format(abs($bal), 0) ?>
-                                            </span>
-                                        <?php elseif ($bal > 0): ?>
-                                            <span class="badge bg-success-subtle text-success border border-success-subtle fw-bold px-2 py-1" style="white-space:nowrap;">
-                                                <i class="fa-solid fa-check me-1"></i> + Rs. <?= number_format($bal, 0) ?>
-                                            </span>
-                                        <?php else: ?>
-                                            <span class="badge bg-light text-secondary border fw-bold px-2 py-1">
-                                                Rs. 0 (Cleared)
-                                            </span>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td class="small" style="max-width: 250px;">
-                                        <?php if ($rec['type'] === 'renewal'): ?>
-                                            <span class="badge badge-soft-success rounded-pill px-2 py-1 me-1"><i class="fa-solid fa-rotate me-1"></i>Renew</span>
-                                        <?php elseif ($rec['type'] === 'collection'): ?>
-                                            <span class="badge badge-soft-info rounded-pill px-2 py-1 me-1"><i class="fa-solid fa-hand-holding-dollar me-1"></i>Collected</span>
-                                        <?php elseif ($rec['type'] === 'balance_add'): ?>
-                                            <span class="badge badge-soft-warning rounded-pill px-2 py-1 me-1"><i class="fa-solid fa-plus-circle me-1"></i>Funds Added</span>
-                                        <?php endif; ?>
-                                        <span class="text-muted"><?= htmlspecialchars($rec['activity_text']) ?></span>
-                                    </td>
-                                    <td class="text-center" style="white-space:nowrap;">
-                                        <?php if (!empty($rec['sub_id'])): ?>
-                                            <a href="subscriber_view.php?id=<?= $rec['sub_id'] ?>" class="btn btn-sm btn-outline-primary rounded-pill px-3" title="View Full Subscriber Profile">
-                                                <i class="fa-solid fa-eye me-1"></i> View
-                                            </a>
-                                        <?php else: ?>
-                                            <span class="text-muted small">-</span>
-                                        <?php endif; ?>
-                                    </td>
-                                </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    </div>
-                    <?php endif; ?>
-
+                <?php else: ?>
+                <div class="table-responsive">
+                    <table id="managerSubmissionsTable" class="table table-hover table-custom-ui align-middle w-100">
+                        <thead>
+                            <tr>
+                                <th>Date &amp; Time</th>
+                                <th>Collected By</th>
+                                <th>Amount Collected</th>
+                                <th>Audit Details</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($submissions as $sub): ?>
+                            <?php
+                                $amt = "N/A";
+                                if (preg_match('/Rs\.\s*([\d,.]+)/', $sub['activity'], $m)) {
+                                    $amt = $m[1];
+                                }
+                            ?>
+                            <tr>
+                                <td class="text-secondary small fw-bold" style="white-space: nowrap;">
+                                    <div class="text-dark"><?= date('d M Y', strtotime($sub['created_at'])) ?></div>
+                                    <div class="text-muted small font-monospace"><?= date('h:i:s A', strtotime($sub['created_at'])) ?></div>
+                                </td>
+                                <td>
+                                    <span class="badge bg-dark px-2.5 py-1">
+                                        <i class="fa-solid fa-user-shield me-1"></i> <?= htmlspecialchars($sub['by_user']) ?> (Admin)
+                                    </span>
+                                </td>
+                                <td>
+                                    <span class="text-danger fw-bold fs-6">Rs. <?= $amt ?></span>
+                                </td>
+                                <td class="small text-muted">
+                                    <?= htmlspecialchars($sub['activity']) ?>
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
                 </div>
-
-                <!-- Tab 2 Content: Activity Audit Trail -->
-                <div class="tab-pane fade" id="tab-activity" role="tabpanel">
-                    <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
-                        <div>
-                            <h6 class="fw-bold mb-1 text-dark">
-                                <i class="fa-solid fa-list-check text-primary me-2"></i> Manager Activity Audit Trail
-                            </h6>
-                            <div class="text-muted small">
-                                Login activities are preserved for 7 days, and all other administrative &amp; financial actions are retained for 2 years (730 days).
-                            </div>
-                        </div>
-                        <span class="badge bg-light text-dark border px-3 py-2 rounded-pill font-monospace">
-                            <?= count($activities) ?> Recorded Events
-                        </span>
-                    </div>
-
-                    <?php if (empty($activities)): ?>
-                        <div class="text-center py-5 text-muted">
-                            <i class="fa-solid fa-circle-check fs-1 text-success opacity-50 mb-3 d-block"></i>
-                            <h6 class="fw-bold text-dark">No Activities Recorded Yet</h6>
-                            <p class="small text-secondary mb-0">Activities performed by this Manager will appear here automatically.</p>
-                        </div>
-                    <?php else: ?>
-                    <div class="table-responsive">
-                        <table id="managerLogsTable" class="table table-hover table-custom-ui align-middle w-100">
-                            <thead>
-                                <tr>
-                                    <th style="width: 50px;">#ID</th>
-                                    <th>Datetime</th>
-                                    <th>Activity Description</th>
-                                    <th>Against To</th>
-                                    <th>Against Role</th>
-                                    <th>Station IP</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($activities as $act): ?>
-                                    <tr>
-                                        <td class="fw-bold text-secondary"><?= $act['id'] ?></td>
-                                        <td style="white-space: nowrap;">
-                                            <div class="fw-semibold text-dark"><?= date('d M Y', strtotime($act['created_at'])) ?></div>
-                                            <div class="text-muted small"><?= date('h:i:s A', strtotime($act['created_at'])) ?></div>
-                                        </td>
-                                        <td>
-                                            <?php 
-                                                $act_text = htmlspecialchars($act['activity']);
-                                                if (stripos($act_text, 'renew') !== false) {
-                                                    echo "<span class='badge badge-soft-success px-2 py-1 rounded-pill me-1'><i class='fa-solid fa-arrows-rotate me-1'></i>Renew</span> " . $act_text;
-                                                } elseif (stripos($act_text, 'create') !== false) {
-                                                    echo "<span class='badge badge-soft-info px-2 py-1 rounded-pill me-1'><i class='fa-solid fa-plus-circle me-1'></i>Create</span> " . $act_text;
-                                                } elseif (stripos($act_text, 'login') !== false) {
-                                                    echo "<span class='badge badge-soft-secondary px-2 py-1 rounded-pill me-1'><i class='fa-solid fa-arrow-right-to-bracket me-1'></i>Login</span> " . $act_text;
-                                                } else {
-                                                    echo "<span class='fw-medium text-dark'>" . $act_text . "</span>";
-                                                }
-                                            ?>
-                                        </td>
-                                        <td>
-                                            <?php if ($act['against_to'] && $act['against_to'] !== 'N/A'): ?>
-                                                <span class="badge bg-light text-dark border px-2 py-1 rounded-pill">
-                                                    <?= htmlspecialchars($act['against_to']) ?>
-                                                </span>
-                                            <?php else: ?>
-                                                <span class="text-muted small">N/A</span>
-                                            <?php endif; ?>
-                                        </td>
-                                        <td>
-                                            <span class="badge bg-secondary-subtle text-secondary rounded-pill px-2 py-1">
-                                                <?= htmlspecialchars($act['against_role'] ?: 'System') ?>
-                                            </span>
-                                        </td>
-                                        <td class="font-monospace text-muted small">
-                                            <?= htmlspecialchars($act['station_ip'] ?: '127.0.0.1') ?>
-                                        </td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    </div>
-                    <?php endif; ?>
-                </div>
-
-                <!-- Tab 3 Content: Salary & Advances -->
-                <div class="tab-pane fade" id="tab-salary" role="tabpanel">
-                    <?php
-                    $staff_type = 'manager';
-                    $staff_id = (int)$mgr['id'];
-                    $staff_name = $mgr['full_name'];
-                    $monthly_sal = (int)($mgr['monthly_salary'] ?? 0);
-                    $joined_date = $mgr['created_at'];
-                    require __DIR__ . '/staff_salary_view.php';
-                    ?>
-                </div>
-
-                <!-- Tab 4 Content: Submissions to Admin -->
-                <div class="tab-pane fade" id="tab-submissions" role="tabpanel">
-                    <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
-                        <div>
-                            <h6 class="fw-bold mb-1 text-dark">
-                                <i class="fa-solid fa-building-columns text-danger me-2"></i> Cash Submissions to Admin
-                            </h6>
-                            <div class="text-muted small">
-                                Complete audit log of all cash handovers and collections received by Admin from Manager <strong><?= htmlspecialchars($mgr['full_name']) ?></strong>.
-                            </div>
-                        </div>
-                        <span class="badge bg-light text-dark border px-3 py-2 rounded-pill font-monospace">
-                            Total Collected: Rs. <?= number_format($total_submitted_to_admin, 0) ?>
-                        </span>
-                    </div>
-
-                    <?php if (empty($submissions)): ?>
-                        <div class="text-center py-5 text-muted">
-                            <i class="fa-solid fa-building-columns fs-1 text-secondary opacity-50 mb-3 d-block"></i>
-                            <h6 class="fw-bold text-dark">No Cash Submissions Yet</h6>
-                            <p class="small text-secondary mb-0">Whenever Admin collects pending cash in hand from this Manager, full payment audit records will appear here.</p>
-                        </div>
-                    <?php else: ?>
-                    <div class="table-responsive">
-                        <table id="managerSubmissionsTable" class="table table-hover table-custom-ui align-middle w-100">
-                            <thead>
-                                <tr>
-                                    <th>Date &amp; Time</th>
-                                    <th>Collected By</th>
-                                    <th>Amount Collected</th>
-                                    <th>Audit Details</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($submissions as $sub): ?>
-                                <?php
-                                    $amt = "N/A";
-                                    if (preg_match('/Rs\.\s*([\d,.]+)/', $sub['activity'], $m)) {
-                                        $amt = $m[1];
-                                    }
-                                ?>
-                                <tr>
-                                    <td class="text-secondary small fw-bold" style="white-space: nowrap;">
-                                        <div class="text-dark"><?= date('d M Y', strtotime($sub['created_at'])) ?></div>
-                                        <div class="text-muted small font-monospace"><?= date('h:i:s A', strtotime($sub['created_at'])) ?></div>
-                                    </td>
-                                    <td>
-                                        <span class="badge bg-dark px-2.5 py-1">
-                                            <i class="fa-solid fa-user-shield me-1"></i> <?= htmlspecialchars($sub['by_user']) ?> (Admin)
-                                        </span>
-                                    </td>
-                                    <td>
-                                        <span class="text-danger fw-bold fs-6">Rs. <?= $amt ?></span>
-                                    </td>
-                                    <td class="small text-muted">
-                                        <?= htmlspecialchars($sub['activity']) ?>
-                                    </td>
-                                </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    </div>
-                    <?php endif; ?>
-                </div>
-
+                <?php endif; ?>
             </div>
+
         </div>
     </div>
 </div>
@@ -1530,7 +1314,7 @@ if (!$has_date_filter) {
   </div>
 </div>
 
-<!-- Edit Manager Profile & Salary Modal -->
+<!-- Edit Manager Profile & Salary Modal (Reserved for administrative updates) -->
 <div class="modal fade" id="editManagerProfileModal" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered modal-lg">
         <div class="modal-content border-0 shadow-lg" style="border-radius: 16px;">
