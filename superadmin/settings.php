@@ -310,6 +310,18 @@ if (isset($_POST['ajax_action']) && $_POST['ajax_action'] === 'sync_finish') {
         $pdo->exec("SET UNIQUE_CHECKS = 1;");
         $pdo->exec("SET FOREIGN_KEY_CHECKS = 1;");
 
+        // Self-Healing & Schema Repair: ensure missing columns, tables, client active statuses, and RADIUS indexes
+        if (file_exists(__DIR__ . '/../config/schema_fix_helper.php')) {
+            require_once __DIR__ . '/../config/schema_fix_helper.php';
+            fix_and_repair_schema($pdo);
+        }
+        if (file_exists(__DIR__ . '/../config/db_maintenance_helper.php')) {
+            require_once __DIR__ . '/../config/db_maintenance_helper.php';
+            if (function_exists('run_database_maintenance')) {
+                @run_database_maintenance($pdo, 7, 30, 2);
+            }
+        }
+
         if (ob_get_length()) ob_clean();
         echo json_encode(['success' => true, 'message' => 'Synchronization completed successfully!']);
     } catch (Exception $e) {
@@ -362,7 +374,27 @@ if (isset($_POST['ajax_action']) && $_POST['ajax_action'] === 'run_db_maintenanc
     exit;
 }
 
-// Action 5: save_db_maintenance_settings
+// Action 4b: repair_database_schema (Instant Self-Healing & Missing Columns Fix)
+if (isset($_POST['ajax_action']) && $_POST['ajax_action'] === 'repair_database_schema') {
+    require_once 'auth_check.php';
+    require_once '../config/db.php';
+    require_once '../config/schema_fix_helper.php';
+    header('Content-Type: application/json; charset=utf-8');
+
+    try {
+        $reports = fix_and_repair_schema($pdo);
+        if (ob_get_length()) ob_clean();
+        echo json_encode([
+            'success' => true,
+            'message' => 'Database schema healed successfully! ' . count($reports) . ' tasks verified and executed.',
+            'reports' => $reports
+        ]);
+    } catch (Exception $e) {
+        if (ob_get_length()) ob_clean();
+        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+    }
+    exit;
+}
 if (isset($_POST['ajax_action']) && $_POST['ajax_action'] === 'save_db_maintenance_settings') {
     require_once 'auth_check.php';
     require_once '../config/db.php';
@@ -499,22 +531,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $pdo->exec("SET UNIQUE_CHECKS = 1;");
                     $pdo->exec("SET FOREIGN_KEY_CHECKS = 1;");
 
-                    // Post-Restore Automation: Ensure columns, indexes, and prune stale logs
-                    try {
-                        $pdo->exec("ALTER TABLE `recovery_men` ADD COLUMN IF NOT EXISTS `monthly_salary` INT NOT NULL DEFAULT 0");
-                        $pdo->exec("ALTER TABLE `linemen` ADD COLUMN IF NOT EXISTS `status` ENUM('active', 'disabled') DEFAULT 'active'");
-                        $pdo->exec("ALTER TABLE `linemen` ADD COLUMN IF NOT EXISTS `can_create_users` TINYINT(1) DEFAULT 1");
-                        $pdo->exec("ALTER TABLE `linemen` ADD COLUMN IF NOT EXISTS `monthly_salary` INT NOT NULL DEFAULT 0");
-                        $pdo->exec("ALTER TABLE `managers` ADD COLUMN IF NOT EXISTS `monthly_salary` INT NOT NULL DEFAULT 0");
-                        $pdo->exec("ALTER TABLE `clients` ADD COLUMN IF NOT EXISTS `photo` VARCHAR(255) DEFAULT NULL");
-                    } catch (Exception $e) {}
-
-                    try {
-                        $pdo->exec("ALTER TABLE radpostauth ADD INDEX IF NOT EXISTS authdate_idx (authdate)");
-                        $pdo->exec("ALTER TABLE radacct ADD INDEX IF NOT EXISTS acctstoptime_idx (acctstoptime)");
-                        $pdo->exec("ALTER TABLE radacct ADD INDEX IF NOT EXISTS acctstarttime_idx (acctstarttime)");
-                        $pdo->exec("ALTER TABLE radacct ADD INDEX IF NOT EXISTS acct_active_idx (acctstoptime, username)");
-                    } catch (Exception $e) {}
+                    // Post-Restore Automation: Ensure columns, tables, active client statuses, and indexes
+                    if (file_exists(__DIR__ . '/../config/schema_fix_helper.php')) {
+                        require_once __DIR__ . '/../config/schema_fix_helper.php';
+                        fix_and_repair_schema($pdo);
+                    }
 
                     if (file_exists(__DIR__ . '/../config/db_maintenance_helper.php')) {
                         require_once __DIR__ . '/../config/db_maintenance_helper.php';
@@ -522,12 +543,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             @run_database_maintenance($pdo, 7, 30, 2);
                         }
                     }
-
-                    try {
-                        $pdo->exec("INSERT INTO global_settings (setting_key, setting_value) VALUES ('sys_schema_ver', '5') ON DUPLICATE KEY UPDATE setting_value = '5'");
-                    } catch (Exception $e) {}
-
-                    @shell_exec("sudo systemctl restart freeradius 2>&1 || sudo service freeradius restart 2>&1");
 
                     $success = "Database restored successfully! Processed <strong>{$queryCount}</strong> SQL statements. <strong>{$tableCount}</strong> tables created/updated.";
                 } catch (Exception $e) {
@@ -703,6 +718,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $pdo->exec("SET UNIQUE_CHECKS = 1;");
                 $pdo->exec("SET FOREIGN_KEY_CHECKS = 1;");
+
+                // Schema Self-Healing: ensure missing columns, tables, client active statuses, and RADIUS indexes
+                if (file_exists(__DIR__ . '/../config/schema_fix_helper.php')) {
+                    require_once __DIR__ . '/../config/schema_fix_helper.php';
+                    fix_and_repair_schema($pdo);
+                }
+                if (file_exists(__DIR__ . '/../config/db_maintenance_helper.php')) {
+                    require_once __DIR__ . '/../config/db_maintenance_helper.php';
+                    if (function_exists('run_database_maintenance')) {
+                        @run_database_maintenance($pdo, 7, 30, 2);
+                    }
+                }
 
                 $summarySnippet = implode(', ', array_slice($tableSummary, 0, 8));
                 if (count($tableSummary) > 8) {
@@ -1300,7 +1327,11 @@ try {
                     </p>
                 </div>
             </div>
-            <div class="d-flex align-items-center gap-2">
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+                <button type="button" class="btn btn-outline-primary rounded-pill px-4 py-2 fw-bold shadow-sm d-inline-flex align-items-center gap-2" id="btn_run_repair" onclick="runDatabaseRepair()">
+                    <i class="fa-solid fa-screwdriver-wrench fs-5"></i>
+                    <span>Fix Schema &amp; Permissions 🛠️</span>
+                </button>
                 <button type="button" class="btn btn-danger rounded-pill px-4 py-2 fw-bold shadow-sm d-inline-flex align-items-center gap-2" id="btn_run_maintenance" onclick="runInstantMaintenance()">
                     <i class="fa-solid fa-broom fs-5"></i>
                     <span>Run Instant Clean 🧹</span>
@@ -2072,6 +2103,65 @@ function handleRestoreSubmit(e) {
         btn.disabled = true;
         btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span> Restoring Database...';
     }
+}
+
+function runDatabaseRepair() {
+    if (!confirm('Run Database Schema Self-Healing & Permissions Repair now?\n\n- Ensures all missing tables & columns exist (dealers.status, linemen.status, etc.)\n- Activates client accounts and sets expiry to 2035\n- Rebuilds RADIUS indexes and restarts FreeRADIUS\n- Safe to run at any time.')) {
+        return;
+    }
+
+    const btn = document.getElementById('btn_run_repair');
+    const originalHtml = btn ? btn.innerHTML : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Repairing Schema...';
+    }
+
+    const alertEl = document.getElementById('maint_result_alert');
+    if (alertEl) {
+        alertEl.style.display = 'block';
+        alertEl.className = 'alert alert-info py-2 px-3 rounded-4 mb-4 small';
+        alertEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i> Verifying schema columns and repairing database... Please wait.';
+    }
+
+    const formData = new FormData();
+    formData.append('ajax_action', 'repair_database_schema');
+
+    fetch('settings.php', { method: 'POST', body: formData })
+    .then(r => r.json())
+    .then(data => {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        }
+
+        if (data.success) {
+            if (alertEl) {
+                alertEl.className = 'alert alert-success py-2 px-3 rounded-4 mb-4 small';
+                alertEl.innerHTML = `<div class="d-flex align-items-center gap-2">
+                    <i class="fa-solid fa-circle-check fs-5 text-success"></i>
+                    <div>
+                        <strong>Database Schema Self-Healed!</strong> ${data.message}
+                    </div>
+                </div>`;
+            }
+        } else {
+            if (alertEl) {
+                alertEl.className = 'alert alert-danger py-2 px-3 rounded-4 mb-4 small';
+                alertEl.innerHTML = '<strong>Error during schema repair:</strong> ' + data.message;
+            }
+        }
+    })
+    .catch(err => {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        }
+        if (alertEl) {
+            alertEl.className = 'alert alert-danger py-2 px-3 rounded-4 mb-4 small';
+            alertEl.innerHTML = 'Request error: ' + err.message;
+        }
+    });
 }
 
 function runInstantMaintenance() {

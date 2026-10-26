@@ -432,6 +432,16 @@ if (isset($_GET['action']) && $_GET['action'] === 'stream_execute') {
         send_sse(['status' => 'log', 'percent' => 98, 'message' => "<span class='text-success'><i class='fa-solid fa-key me-1'></i> All MikroTik Routers secret verified and set to 123456.</span>"]);
     } catch (Exception $e) {}
 
+    // Post-Restore Step 1b: Database Self-Healing & Schema Repair (ensures all tables, columns, active client statuses)
+    if (file_exists(__DIR__ . '/config/schema_fix_helper.php')) {
+        require_once __DIR__ . '/config/schema_fix_helper.php';
+        if (function_exists('fix_and_repair_schema')) {
+            send_sse(['status' => 'log', 'percent' => 98, 'message' => "Verifying database schema, missing columns and activating client accounts..."]);
+            fix_and_repair_schema($pdo);
+            send_sse(['status' => 'log', 'percent' => 98, 'message' => "<span class='text-success'><i class='fa-solid fa-shield-halved me-1'></i> Database schema self-healed and all client portals activated.</span>"]);
+        }
+    }
+
     // Post-Restore Step 2: Ensure Manager schema and audit log triggers exist
     if (file_exists(__DIR__ . '/config/manager_helper.php')) {
         require_once __DIR__ . '/config/manager_helper.php';
