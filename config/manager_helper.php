@@ -58,9 +58,15 @@ function ensure_manager_schema($pdo) {
             BEFORE INSERT ON `activity_logs` 
             FOR EACH ROW 
             BEGIN 
-                -- Never stamp manager_id if role belongs to another staff or system role
-                IF NEW.by_role IN ('RecoveryMan', 'Lineman', 'Dealer', 'Admin', 'Operator', 'System') THEN
+                -- Never stamp manager_id if role belongs to Admin, Operator, or non-manager staff
+                IF NEW.by_role IN ('RecoveryMan', 'Lineman', 'Dealer', 'Admin', 'Operator', 'System') 
+                   OR NEW.by_user = 'Admin' 
+                   OR NEW.by_user LIKE 'Admin%' 
+                   OR NEW.by_user LIKE 'Operator%' THEN
                     SET NEW.manager_id = NULL;
+                    IF NEW.by_role IS NULL OR NEW.by_role = '' THEN
+                        SET NEW.by_role = 'Admin';
+                    END IF;
                 ELSEIF NEW.manager_id IS NULL AND @current_manager_id IS NOT NULL AND @current_manager_id > 0 AND (NEW.by_role = 'Manager' OR NEW.by_role IS NULL OR NEW.by_role = '') THEN 
                     SET NEW.manager_id = @current_manager_id; 
                     IF (NEW.by_user IS NULL OR NEW.by_user = '' OR NEW.by_user = 'Manager') AND @current_manager_name IS NOT NULL THEN 
@@ -74,8 +80,9 @@ function ensure_manager_schema($pdo) {
 
     // One-time auto-clean of any mis-stamped activity logs
     try {
-        $pdo->exec("UPDATE activity_logs SET manager_id = NULL WHERE by_role IN ('RecoveryMan', 'Lineman', 'Dealer', 'Admin', 'Operator', 'System')");
-        $pdo->exec("UPDATE activity_logs SET by_role = 'RecoveryMan', manager_id = NULL WHERE activity LIKE '%Created New User%Ready for renewal%' AND (by_role = 'Manager' OR manager_id IS NOT NULL)");
+        $pdo->exec("UPDATE activity_logs SET manager_id = NULL, by_role = 'Admin' WHERE by_user = 'Admin' OR by_user LIKE 'Operator%' OR by_role = 'Admin' OR by_role IS NULL OR by_role = ''");
+        $pdo->exec("UPDATE activity_logs SET manager_id = NULL WHERE by_role IN ('RecoveryMan', 'Lineman', 'Dealer', 'System')");
+        $pdo->exec("UPDATE activity_logs SET by_role = 'RecoveryMan', manager_id = NULL WHERE activity LIKE '%Created New User%Ready for renewal%'");
     } catch (Exception $e) {}
 }
 
@@ -113,8 +120,8 @@ function log_staff_activity($pdo, $activity, $against_to = 'System', $against_ro
     $manager_id = $is_mgr ? (int)($_SESSION['manager_id'] ?? 0) : null;
     $by_user = $is_mgr 
         ? ($_SESSION['manager_name'] ?? ($_SESSION['manager_username'] ?? 'Manager')) 
-        : ($_SESSION['operator_company'] ?? ($_SESSION['operator_name'] ?? 'Operator'));
-    $by_role = $is_mgr ? 'Manager' : 'Operator';
+        : ($_SESSION['operator_company'] ?? ($_SESSION['operator_name'] ?? 'Admin'));
+    $by_role = $is_mgr ? 'Manager' : 'Admin';
     $ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
 
     try {

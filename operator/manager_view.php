@@ -34,8 +34,12 @@ try {
 
 // One-time data cleanup: isolate manager logs and restore role on any mis-stamped activity logs
 try {
-    $pdo->exec("UPDATE activity_logs SET manager_id = NULL WHERE by_role IN ('RecoveryMan', 'Lineman', 'Dealer', 'Admin', 'Operator', 'System')");
-    $pdo->exec("UPDATE activity_logs SET by_role = 'RecoveryMan', manager_id = NULL WHERE activity LIKE '%Created New User%Ready for renewal%' AND (by_role = 'Manager' OR manager_id IS NOT NULL)");
+    // Clear manager_id from all logs done by Admin or non-manager roles
+    $pdo->exec("UPDATE activity_logs SET manager_id = NULL, by_role = 'Admin' WHERE by_user = 'Admin' OR by_user LIKE 'Admin%' OR by_user LIKE 'Operator%' OR by_role = 'Admin' OR by_role IS NULL OR by_role = ''");
+    // Clear manager_id from non-manager staff
+    $pdo->exec("UPDATE activity_logs SET manager_id = NULL WHERE by_role IN ('RecoveryMan', 'Lineman', 'Dealer', 'System')");
+    // User creation logs by RecoveryMan must be RecoveryMan
+    $pdo->exec("UPDATE activity_logs SET by_role = 'RecoveryMan', manager_id = NULL WHERE activity LIKE '%Created New User%Ready for renewal%'");
 } catch (Exception $e) {}
 
 // Manager record already loaded above
@@ -168,12 +172,14 @@ $actStmt = $pdo->prepare("
     SELECT * 
     FROM activity_logs 
     WHERE client_id = ? 
+      AND by_role = 'Manager'
+      AND by_user != 'Admin'
+      AND by_user NOT LIKE 'Admin%'
       AND (
           manager_id = ? 
-          OR ((by_role = 'Manager' OR by_role IS NULL OR by_role = '') AND (by_user = ? OR by_user = ?))
+          OR by_user = ? 
+          OR by_user = ?
       )
-      AND (by_role = 'Manager' OR by_role IS NULL OR by_role = '')
-      AND by_role NOT IN ('RecoveryMan', 'Lineman', 'Dealer', 'Admin')
       AND (
           ((activity LIKE '%Login%' OR activity LIKE '%Logged in%' OR against_role = 'Login') AND created_at >= NOW() - INTERVAL 7 DAY)
           OR
@@ -221,12 +227,15 @@ $recStmt = $pdo->prepare("
     LEFT JOIN subscribers s ON a.against_to = s.username COLLATE utf8mb4_general_ci AND s.client_id = a.client_id
     LEFT JOIN packages p ON s.package_id = p.id
     WHERE a.client_id = ?
+      AND a.by_role = 'Manager'
+      AND a.by_user != 'Admin'
+      AND a.by_user NOT LIKE 'Admin%'
       AND (
           a.manager_id = ? 
-          OR ((a.by_role = 'Manager' OR a.by_role IS NULL OR a.by_role = '') AND (a.by_user = ? OR a.by_user = ? OR a.by_user = ?))
+          OR a.by_user = ? 
+          OR a.by_user = ? 
+          OR a.by_user = ?
       )
-      AND (a.by_role = 'Manager' OR a.by_role IS NULL OR a.by_role = '')
-      AND a.by_role NOT IN ('RecoveryMan', 'Lineman', 'Dealer', 'Admin')
       AND a.created_at >= NOW() - INTERVAL 730 DAY
       AND (
           (a.activity LIKE '%Renew%' AND a.activity NOT LIKE '%Ready for renewal%')
@@ -272,21 +281,29 @@ $ledStmt = $pdo->prepare("
     LEFT JOIN packages p ON s.package_id = p.id
     WHERE l.client_id = ?
       AND l.created_at >= NOW() - INTERVAL 730 DAY
+      AND l.description LIKE '%Manager%'
+      AND l.description NOT LIKE '%Admin%'
+      AND l.description NOT LIKE '%RecoveryMan%'
+      AND l.description NOT LIKE '%RM:%'
+      AND l.description NOT LIKE '%Lineman%'
+      AND l.description NOT LIKE '%Dealer%'
       AND (
           l.description LIKE ? 
           OR l.description LIKE ? 
           OR l.description LIKE ?
       )
-      AND l.description NOT LIKE '%RecoveryMan%'
-      AND l.description NOT LIKE '%RM:%'
-      AND l.description NOT LIKE '%Lineman%'
-      AND l.description NOT LIKE '%Dealer%'
     ORDER BY l.created_at DESC
 ");
+
+$mgr_full_safe = trim($mgr['full_name'] ?? '');
+$mgr_user_safe = trim($mgr['username'] ?? '');
+$search_name = !empty($mgr_full_safe) ? "%{$mgr_full_safe}%" : "%Manager #{$manager_id}%";
+$search_user = !empty($mgr_user_safe) ? "%{$mgr_user_safe}%" : "%Manager #{$manager_id}%";
+
 $ledStmt->execute([
     $client_id,
-    "%{$mgr['full_name']}%",
-    "%{$mgr['username']}%",
+    $search_name,
+    $search_user,
     "%Manager #{$manager_id}%"
 ]);
 $raw_ledgers = $ledStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -426,12 +443,10 @@ foreach ($submissions as $sub) {
     }
 }
 
-// Auto-sync initial cash_in_hand if not previously initialized and recoveries exist
+// Auto-sync verified cash_in_hand for this manager (clearing any previous cross-contaminated balances)
 $pending_difference = max(0, $total_recovered_amount - $total_submitted_to_admin);
-if ((float)($mgr['cash_in_hand'] ?? 0) <= 0 && $pending_difference > 0) {
-    $pdo->prepare("UPDATE managers SET cash_in_hand = ? WHERE id = ? AND client_id = ?")->execute([$pending_difference, $manager_id, $client_id]);
-    $mgr['cash_in_hand'] = $pending_difference;
-}
+$pdo->prepare("UPDATE managers SET cash_in_hand = ? WHERE id = ? AND client_id = ?")->execute([$pending_difference, $manager_id, $client_id]);
+$mgr['cash_in_hand'] = $pending_difference;
 ?>
 
 <!-- DataTables CSS -->

@@ -59,7 +59,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         elseif ($action === 'disconnect_user') {
             kick_user_mikrotik($pdo, $client_id, $u);
-            $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, 'Admin', ?, 'User', 'User Disconnected')")->execute([$client_id, $u]);
+            $is_mgr = !empty($_SESSION['is_manager']);
+            $mgr_id = $is_mgr ? (int)($_SESSION['manager_id'] ?? 0) : null;
+            $actor_name = $is_mgr ? ($_SESSION['manager_name'] ?? ($_SESSION['manager_username'] ?? 'Manager')) : (!empty($_SESSION['operator_username']) ? $_SESSION['operator_username'] : 'Admin');
+            $actor_role = $is_mgr ? 'Manager' : 'Admin';
+            $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, ?, ?, ?, 'User', 'User Disconnected by $actor_role ($actor_name)')")->execute([$client_id, $mgr_id, $actor_name, $actor_role, $u]);
             echo "<script>alert('User Kicked Successfully!'); window.location='subscriber_view.php?id=$id';</script>";
             exit;
         }
@@ -68,14 +72,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->prepare("UPDATE subscribers SET status = 'disabled' WHERE id = ?")->execute([$id]);
             $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute = 'Auth-Type'")->execute([$u]);
             $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Auth-Type', ':=', 'Reject')")->execute([$u]);
-            $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, 'Admin', ?, 'User', 'Profile Disabled')")->execute([$client_id, $u]);
+            $is_mgr = !empty($_SESSION['is_manager']);
+            $mgr_id = $is_mgr ? (int)($_SESSION['manager_id'] ?? 0) : null;
+            $actor_name = $is_mgr ? ($_SESSION['manager_name'] ?? ($_SESSION['manager_username'] ?? 'Manager')) : (!empty($_SESSION['operator_username']) ? $_SESSION['operator_username'] : 'Admin');
+            $actor_role = $is_mgr ? 'Manager' : 'Admin';
+            $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, ?, ?, ?, 'User', 'Profile Disabled by $actor_role ($actor_name)')")->execute([$client_id, $mgr_id, $actor_name, $actor_role, $u]);
             echo "<script>alert('Internet Disabled & User Kicked!'); window.location='subscriber_view.php?id=$id';</script>";
             exit;
         }
         elseif ($action === 'enable_net') {
             $pdo->prepare("UPDATE subscribers SET status = 'active' WHERE id = ?")->execute([$id]);
             $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute = 'Auth-Type' AND value = 'Reject'")->execute([$u]);
-            $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, 'Admin', ?, 'User', 'Profile Enabled')")->execute([$client_id, $u]);
+            $is_mgr = !empty($_SESSION['is_manager']);
+            $mgr_id = $is_mgr ? (int)($_SESSION['manager_id'] ?? 0) : null;
+            $actor_name = $is_mgr ? ($_SESSION['manager_name'] ?? ($_SESSION['manager_username'] ?? 'Manager')) : (!empty($_SESSION['operator_username']) ? $_SESSION['operator_username'] : 'Admin');
+            $actor_role = $is_mgr ? 'Manager' : 'Admin';
+            $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, ?, ?, ?, 'User', 'Profile Enabled by $actor_role ($actor_name)')")->execute([$client_id, $mgr_id, $actor_name, $actor_role, $u]);
             echo "<script>alert('Internet Enabled!'); window.location='subscriber_view.php?id=$id';</script>";
             exit;
         }
@@ -83,7 +95,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $new_pass = trim($_POST['new_password']);
             $pdo->prepare("UPDATE subscribers SET password = ? WHERE id = ?")->execute([$new_pass, $id]);
             $pdo->prepare("UPDATE radcheck SET value = ? WHERE username = ? AND attribute = 'Cleartext-Password'")->execute([$new_pass, $u]);
-            $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, 'Admin', ?, 'User', 'Changed Password')")->execute([$client_id, $u]);
+            $is_mgr = !empty($_SESSION['is_manager']);
+            $mgr_id = $is_mgr ? (int)($_SESSION['manager_id'] ?? 0) : null;
+            $actor_name = $is_mgr ? ($_SESSION['manager_name'] ?? ($_SESSION['manager_username'] ?? 'Manager')) : (!empty($_SESSION['operator_username']) ? $_SESSION['operator_username'] : 'Admin');
+            $actor_role = $is_mgr ? 'Manager' : 'Admin';
+            $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, ?, ?, ?, 'User', 'Changed Password by $actor_role ($actor_name)')")->execute([$client_id, $mgr_id, $actor_name, $actor_role, $u]);
             echo "<script>alert('Password updated successfully!'); window.location='subscriber_view.php?id=$id';</script>";
             exit;
         }
@@ -428,7 +444,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                     
                     $pdo->prepare('UPDATE subscribers SET photo = ? WHERE id=?')->execute([$filename, $id]);
-                    $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, 'Admin', ?, 'User', 'Updated Profile Photo')")->execute([$client_id, $u]);
+                    $is_mgr = !empty($_SESSION['is_manager']);
+                    $mgr_id = $is_mgr ? (int)($_SESSION['manager_id'] ?? 0) : null;
+                    $actor_name = $is_mgr ? ($_SESSION['manager_name'] ?? ($_SESSION['manager_username'] ?? 'Manager')) : (!empty($_SESSION['operator_username']) ? $_SESSION['operator_username'] : 'Admin');
+                    $actor_role = $is_mgr ? 'Manager' : 'Admin';
+                    $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, ?, ?, ?, 'User', 'Updated Profile Photo by $actor_role ($actor_name)')")->execute([$client_id, $mgr_id, $actor_name, $actor_role, $u]);
                     
                     echo "<script>window.location='subscriber_view.php?id=$id';</script>";
                     exit;
@@ -469,8 +489,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     } catch (Exception $e) {}
                 }
 
-                $desc = $amount > 0 ? "Funds added by $actor_role ($actor_name)" : "Funds deducted by $actor_role ($actor_name)";
-                $actStr = $amount > 0 ? "Added Balance: Rs. $absAmount" : "Deducted Balance: Rs. $absAmount";
+                $desc = $amount > 0 
+                    ? "Funds added by $actor_role: $actor_name" 
+                    : "Funds deducted by $actor_role: $actor_name";
+                $actStr = $amount > 0 
+                    ? "Added Balance: Rs. " . number_format($absAmount, 2) . " by $actor_role ($actor_name)" 
+                    : "Deducted Balance: Rs. " . number_format($absAmount, 2) . " by $actor_role ($actor_name)";
 
                 $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, ?, ?, ?, 'User', ?)")
                     ->execute([$client_id, $mgr_id, $actor_name, $actor_role, $u, $actStr]);

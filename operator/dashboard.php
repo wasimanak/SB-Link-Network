@@ -265,8 +265,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 }
 
                 // Log the creation
-                $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, 'Admin', ?, 'User', 'Created New User (Default: Expired - Awaiting Renewal)')")
-                    ->execute([$client_id, $username]);
+                $is_mgr = !empty($_SESSION['is_manager']);
+                $mgr_id = $is_mgr ? (int)($_SESSION['manager_id'] ?? 0) : null;
+                $actor_name = $is_mgr ? ($_SESSION['manager_name'] ?? ($_SESSION['manager_username'] ?? 'Manager')) : (!empty($_SESSION['operator_username']) ? $_SESSION['operator_username'] : 'Admin');
+                $actor_role = $is_mgr ? 'Manager' : 'Admin';
+                $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, ?, ?, ?, 'User', 'Created New User (Default: Expired - Awaiting Renewal) by $actor_role ($actor_name)')")
+                    ->execute([$client_id, $mgr_id, $actor_name, $actor_role, $username]);
 
                 $pdo->commit();
                 echo "<script>alert('User created successfully with Expired status! Please Renew the user to activate service and generate financial ledger records.'); window.location='dashboard.php';</script>";
@@ -305,14 +309,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
                 $type = $final_amount > 0 ? 'credit' : 'debit';
                 $absAmount = abs($final_amount);
-                $desc = !empty($custom_desc) ? $custom_desc : ($final_amount > 0 ? 'Manual Balance Added' : 'Manual Balance Deducted');
+
+                $is_mgr = !empty($_SESSION['is_manager']);
+                $mgr_id = $is_mgr ? (int)($_SESSION['manager_id'] ?? 0) : null;
+                $actor_name = $is_mgr ? ($_SESSION['manager_name'] ?? ($_SESSION['manager_username'] ?? 'Manager')) : (!empty($_SESSION['operator_username']) ? $_SESSION['operator_username'] : 'Admin');
+                $actor_role = $is_mgr ? 'Manager' : 'Admin';
+
+                // If Manager collects payment in cash, add to manager's cash_in_hand
+                if ($is_mgr && $mgr_id > 0 && $final_amount > 0) {
+                    try {
+                        $pdo->prepare("UPDATE managers SET cash_in_hand = cash_in_hand + ? WHERE id = ? AND client_id = ?")
+                            ->execute([$absAmount, $mgr_id, $client_id]);
+                    } catch (Exception $e) {}
+                }
+
+                $prefix = $final_amount > 0 ? "Funds added by $actor_role: $actor_name" : "Funds deducted by $actor_role: $actor_name";
+                $desc = !empty($custom_desc) ? $custom_desc . " ($prefix)" : $prefix;
 
                 $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, description, balance_after) VALUES (?, ?, ?, ?, ?, ?)")
                     ->execute([$client_id, $sub_user, $type, $absAmount, $desc, $finalBal]);
                 
-                $actStr = $final_amount > 0 ? "Added Balance: Rs. " . number_format($absAmount, 0) . " ($desc)" : "Deducted Balance: Rs. " . number_format($absAmount, 0) . " ($desc)";
-                $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, 'Admin', ?, 'User', ?)")
-                    ->execute([$client_id, $sub_user, $actStr]);
+                $actStr = $final_amount > 0 
+                    ? "Added Balance: Rs. " . number_format($absAmount, 2) . " by $actor_role ($actor_name)" 
+                    : "Deducted Balance: Rs. " . number_format($absAmount, 2) . " by $actor_role ($actor_name)";
+                $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, ?, ?, ?, 'User', ?)")
+                    ->execute([$client_id, $mgr_id, $actor_name, $actor_role, $sub_user, $actStr]);
                 
                 $pdo->commit();
                 if ($final_amount > 0) {

@@ -183,28 +183,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Logs
         $act_dealer_id = ($sub_dealer_id > 0) ? $sub_dealer_id : null;
         if ($net_adjustment > 0) {
-            $act_log_text = "Package Renewed / Extended Expiry to " . date('d M Y, h:i A', $new_exp_ts) . ". Charged Rs. " . number_format($net_adjustment, 2) . " ({$pkg['name']})";
+            $act_log_text = "Package Renewed / Extended Expiry to " . date('d M Y, h:i A', $new_exp_ts) . ". Charged Rs. " . number_format($net_adjustment, 2) . " ({$pkg['name']}) by $actor_role ($actor_name)";
         } elseif ($net_adjustment < 0) {
-            $act_log_text = "Package Expiry Reduced to " . date('d M Y, h:i A', $new_exp_ts) . ". Credited Rs. " . number_format(abs($net_adjustment), 2) . " ({$pkg['name']})";
+            $act_log_text = "Package Expiry Reduced to " . date('d M Y, h:i A', $new_exp_ts) . ". Credited Rs. " . number_format(abs($net_adjustment), 2) . " ({$pkg['name']}) by $actor_role ($actor_name)";
         } else {
-            $act_log_text = "Updated Package & Expiry Date to " . date('d M Y, h:i A', $new_exp_ts) . " ({$pkg['name']})";
+            $act_log_text = "Updated Package & Expiry Date to " . date('d M Y, h:i A', $new_exp_ts) . " ({$pkg['name']}) by $actor_role ($actor_name)";
         }
 
-        $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, dealer_id, by_user, against_to, against_role, activity) VALUES (?, ?, ?, ?, ?, 'User', ?)")
-            ->execute([$client_id, $actor_mgr_id, $act_dealer_id, $actor_name, $u, $act_log_text]);
+        $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, dealer_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, ?, ?, ?, ?, 'User', ?)")
+            ->execute([$client_id, $actor_mgr_id, $act_dealer_id, $actor_name, $actor_role, $u, $act_log_text]);
             
         if ($net_adjustment > 0) {
             if (!empty($package_changed) && !empty($old_remaining_credit) && $old_remaining_credit > 0) {
-                $ledger_desc = "Package Upgraded to {$pkg['name']} (Full Month Rs. " . number_format($new_total_cost, 2) . " minus Unused Credit Rs. " . number_format($old_remaining_credit, 2) . ") by $actor_role ($actor_name)";
+                $ledger_desc = "Package Upgraded to {$pkg['name']} (Full Month Rs. " . number_format($new_total_cost, 2) . " minus Unused Credit Rs. " . number_format($old_remaining_credit, 2) . ") by $actor_role: $actor_name";
             } else {
-                $ledger_desc = "Package Renewed: {$pkg['name']} by $actor_role ($actor_name)";
+                $ledger_desc = "Package Renewed: {$pkg['name']} by $actor_role: $actor_name";
             }
             $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'debit', ?, ?, ?)")
                 ->execute([$client_id, $u, $net_adjustment, $new_bal, $ledger_desc]);
         } elseif ($net_adjustment < 0) {
             $abs_refund = abs($net_adjustment);
             $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'credit', ?, ?, ?)")
-                ->execute([$client_id, $u, $abs_refund, $new_bal, "Expiry Adjustment Refund ({$pkg['name']}) by $actor_role ($actor_name)"]);
+                ->execute([$client_id, $u, $abs_refund, $new_bal, "Expiry Adjustment Refund ({$pkg['name']}) by $actor_role: $actor_name"]);
         }
         
         $pdo->commit();

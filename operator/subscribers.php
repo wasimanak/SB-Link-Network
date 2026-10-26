@@ -67,16 +67,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $id = (int)$_POST['id'];
         $amount = (float)$_POST['amount'];
         if ($amount != 0) {
-            $uStmt = $pdo->prepare("SELECT username FROM subscribers WHERE id = ? AND client_id = ?");
+            $uStmt = $pdo->prepare("SELECT username, balance FROM subscribers WHERE id = ? AND client_id = ?");
             $uStmt->execute([$id, $client_id]);
-            $sub_user = $uStmt->fetchColumn();
-            if ($sub_user) {
-                $pdo->prepare("UPDATE subscribers SET balance = balance + ? WHERE id = ?")->execute([$amount, $id]);
+            $subRow = $uStmt->fetch(PDO::FETCH_ASSOC);
+            if ($subRow) {
+                $sub_user = $subRow['username'];
+                $new_bal = round((float)$subRow['balance'] + $amount, 2);
+                $pdo->prepare("UPDATE subscribers SET balance = ? WHERE id = ?")->execute([$new_bal, $id]);
+                
                 $type = $amount > 0 ? 'credit' : 'debit';
                 $absAmount = abs($amount);
-                $desc = $amount > 0 ? 'Payment received by Admin' : 'Balance deducted by Admin';
+
+                $is_mgr = !empty($_SESSION['is_manager']);
+                $mgr_id = $is_mgr ? (int)($_SESSION['manager_id'] ?? 0) : null;
+                $actor_name = $is_mgr ? ($_SESSION['manager_name'] ?? ($_SESSION['manager_username'] ?? 'Manager')) : (!empty($_SESSION['operator_username']) ? $_SESSION['operator_username'] : 'Admin');
+                $actor_role = $is_mgr ? 'Manager' : 'Admin';
+
+                // If Manager collects payment in cash, add to manager's cash_in_hand
+                if ($is_mgr && $mgr_id > 0 && $amount > 0) {
+                    try {
+                        $pdo->prepare("UPDATE managers SET cash_in_hand = cash_in_hand + ? WHERE id = ? AND client_id = ?")
+                            ->execute([$absAmount, $mgr_id, $client_id]);
+                    } catch (Exception $e) {}
+                }
+
+                $desc = $amount > 0 
+                    ? "Payment received by $actor_role: $actor_name" 
+                    : "Balance deducted by $actor_role: $actor_name";
+                $actStr = $amount > 0 
+                    ? "Payment Collected: Rs. " . number_format($absAmount, 2) . " by $actor_role ($actor_name)" 
+                    : "Balance Deducted: Rs. " . number_format($absAmount, 2) . " by $actor_role ($actor_name)";
+
+                $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, ?, ?, ?, 'User', ?)")
+                    ->execute([$client_id, $mgr_id, $actor_name, $actor_role, $sub_user, $actStr]);
+
                 $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, ?, ?, ?, ?)")
-                    ->execute([$client_id, $sub_user, $type, $absAmount, 0, $desc]);
+                    ->execute([$client_id, $sub_user, $type, $absAmount, $new_bal, $desc]);
 
                 if ($amount > 0) {
                     $ret = urlencode("subscribers.php");
@@ -228,12 +254,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $pdo->prepare("UPDATE subscribers SET package_id = ?, expiry_date = ?, status = 'active', balance = ? WHERE id = ?")
                         ->execute([$package_id, $expiry_date, $new_bal, $id]);
 
+                    $is_mgr = !empty($_SESSION['is_manager']);
+                    $mgr_id = $is_mgr ? (int)($_SESSION['manager_id'] ?? 0) : null;
+                    $actor_name = $is_mgr ? ($_SESSION['manager_name'] ?? ($_SESSION['manager_username'] ?? 'Manager')) : (!empty($_SESSION['operator_username']) ? $_SESSION['operator_username'] : 'Admin');
+                    $actor_role = $is_mgr ? 'Manager' : 'Admin';
+
                     if ($net_adjustment > 0) {
-                        $desc = "Package Upgrade/Renew to {$pkg['name']} (Net Charged Rs. " . number_format($net_adjustment, 2) . ") by Admin";
+                        $desc = "Package Upgrade/Renew to {$pkg['name']} (Net Charged Rs. " . number_format($net_adjustment, 2) . ") by $actor_role: $actor_name";
                         $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'debit', ?, ?, ?)")
                             ->execute([$client_id, $u, $net_adjustment, $new_bal, $desc]);
                     } elseif ($net_adjustment < 0) {
-                        $desc = "Package Change/Credit for {$pkg['name']} (Credited Rs. " . number_format(abs($net_adjustment), 2) . ") by Admin";
+                        $desc = "Package Change/Credit for {$pkg['name']} (Credited Rs. " . number_format(abs($net_adjustment), 2) . ") by $actor_role: $actor_name";
                         $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'credit', ?, ?, ?)")
                             ->execute([$client_id, $u, abs($net_adjustment), $new_bal, $desc]);
                     }
@@ -259,7 +290,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Expiration', ':=', ?)")->execute([$u, $formatted_expiry]);
                     
                     $act_dealer_id = ($sub_dealer_id > 0) ? $sub_dealer_id : null;
-                    $pdo->prepare("INSERT INTO activity_logs (client_id, dealer_id, by_user, against_to, against_role, activity) VALUES (?, ?, 'Admin', ?, 'User', 'Package Renewed & Expiry Updated')")->execute([$client_id, $act_dealer_id, $u]);
+                    $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, dealer_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, ?, ?, ?, ?, 'User', ?)")
+                        ->execute([$client_id, $mgr_id, $act_dealer_id, $actor_name, $actor_role, $u, "Package Renewed & Expiry Updated by $actor_role ($actor_name)"]);
                     $pdo->commit();
                     $ret = urlencode("subscribers.php");
                     $paid_val = ($cur_bal > 0) ? min((float)$cur_bal, (float)$net_adjustment) : 0;
@@ -397,8 +429,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Group', '=', ?)")->execute([$username, $target_profile]);
                     }
                     
+                    $is_mgr = !empty($_SESSION['is_manager']);
+                    $mgr_id = $is_mgr ? (int)($_SESSION['manager_id'] ?? 0) : null;
+                    $actor_name = $is_mgr ? ($_SESSION['manager_name'] ?? ($_SESSION['manager_username'] ?? 'Manager')) : (!empty($_SESSION['operator_username']) ? $_SESSION['operator_username'] : 'Admin');
+                    $actor_role = $is_mgr ? 'Manager' : 'Admin';
                     $act_dealer_id = ($dealer_id > 0) ? $dealer_id : null;
-                    $pdo->prepare("INSERT INTO activity_logs (client_id, dealer_id, by_user, against_to, against_role, activity) VALUES (?, ?, 'Admin', ?, 'User', 'Created New User')")->execute([$client_id, $act_dealer_id, $username]);
+                    $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, dealer_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, ?, ?, ?, ?, 'User', 'Created New User by $actor_role ($actor_name)')")
+                        ->execute([$client_id, $mgr_id, $act_dealer_id, $actor_name, $actor_role, $username]);
                     
                     $pdo->commit();
                     echo "<script>alert('User created successfully!'); window.location='subscribers.php';</script>";
