@@ -77,8 +77,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 // Activity Log
-                $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, 'Admin', ?, 'User', 'Created New User (Default: Expired - Awaiting Renewal)')")
-                    ->execute([$client_id, $username]);
+                $is_mgr = !empty($_SESSION['is_manager']);
+                $mgr_id = $is_mgr ? (int)($_SESSION['manager_id'] ?? 0) : null;
+                $creator_user = $is_mgr ? ($_SESSION['manager_name'] ?? 'Manager') : (!empty($_SESSION['operator_username']) ? $_SESSION['operator_username'] : 'Admin');
+                $creator_role = $is_mgr ? 'Manager' : 'Admin';
+
+                $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, ?, ?, ?, 'User', 'Created New User (Default: Expired - Awaiting Renewal)')")
+                    ->execute([$client_id, $mgr_id, $creator_user, $creator_role, $username]);
                 
                 $pdo->commit();
                 header("Location: subscribers.php");

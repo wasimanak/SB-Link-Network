@@ -24,12 +24,67 @@ if ($manager_id <= 0) {
     exit;
 }
 
-// Handle Direct Quick Actions (Toggle permissions, profile edit, or reset password)
+// Auto-upgrade managers table schema for cash_in_hand
+try {
+    $col = $pdo->query("SHOW COLUMNS FROM managers LIKE 'cash_in_hand'")->fetch();
+    if (!$col) {
+        $pdo->exec("ALTER TABLE managers ADD COLUMN cash_in_hand DECIMAL(10,2) NOT NULL DEFAULT 0.00 AFTER status");
+    }
+} catch (Exception $e) {}
+
+// One-time data cleanup: isolate manager logs and restore role on any mis-stamped activity logs
+try {
+    $pdo->exec("UPDATE activity_logs SET manager_id = NULL WHERE by_role IN ('RecoveryMan', 'Lineman', 'Dealer', 'Admin', 'Operator', 'System')");
+    $pdo->exec("UPDATE activity_logs SET by_role = 'RecoveryMan', manager_id = NULL WHERE activity LIKE '%Created New User%Ready for renewal%' AND (by_role = 'Manager' OR manager_id IS NOT NULL)");
+} catch (Exception $e) {}
+
+// Manager record already loaded above
+
+// Handle Direct Quick Actions (Toggle permissions, profile edit, collect cash, or reset password)
 $flash_msg = '';
 $flash_type = 'success';
 $activeTabToOpen = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $action = $_POST['action'] ?? '';
+
+    // Handle Admin Collecting Cash in Hand from this Manager
+    if ($action === 'collect_cash') {
+        $amount = (float)($_POST['amount'] ?? 0);
+        $current_cash = (float)($mgr['cash_in_hand'] ?? 0);
+
+        if ($amount > 0 && $amount <= $current_cash) {
+            try {
+                $pdo->beginTransaction();
+                // Deduct from manager's cash in hand
+                $pdo->prepare("UPDATE managers SET cash_in_hand = cash_in_hand - ? WHERE id = ? AND client_id = ?")
+                    ->execute([$amount, $manager_id, $client_id]);
+
+                // Log the activity
+                $log_msg = "Collected Cash Rs. " . number_format($amount, 0) . " from Manager";
+                $admin_user = $_SESSION['operator_username'] ?? ($_SESSION['operator_name'] ?? 'Admin');
+                $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, 'Admin', ?, 'Manager', ?)")
+                    ->execute([$client_id, $admin_user, $mgr['full_name'], $log_msg]);
+
+                $pdo->commit();
+                $flash_msg = "Successfully collected Rs. " . number_format($amount, 0) . " from Manager {$mgr['full_name']}!";
+                $flash_type = "success";
+                $activeTabToOpen = 'submissions';
+
+                // Re-fetch manager record
+                $stmt = $pdo->prepare("SELECT * FROM managers WHERE id = ? AND client_id = ?");
+                $stmt->execute([$manager_id, $client_id]);
+                $mgr = $stmt->fetch(PDO::FETCH_ASSOC);
+            } catch (Exception $e) {
+                $pdo->rollBack();
+                $flash_msg = "Error collecting cash: " . $e->getMessage();
+                $flash_type = "danger";
+            }
+        } else {
+            $flash_msg = "Invalid collection amount. Must be greater than 0 and not exceed Pending Cash in Hand (Rs. " . number_format($current_cash, 0) . ").";
+            $flash_type = "danger";
+        }
+    }
     $action = $_POST['action'] ?? '';
 
     if (in_array($action, ['record_staff_payment', 'delete_staff_transaction', 'edit_manager_profile'])) {
@@ -94,16 +149,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// Fetch Manager Details
-$stmt = $pdo->prepare("SELECT * FROM managers WHERE id = ? AND client_id = ?");
-$stmt->execute([$manager_id, $client_id]);
-$mgr = $stmt->fetch(PDO::FETCH_ASSOC);
-
-if (!$mgr) {
-    echo "<div class='container py-5'><div class='alert alert-danger'>Manager not found or access unauthorized.</div><a href='managers' class='btn btn-primary'>Back to Managers</a></div>";
-    require_once 'footer.php';
-    exit;
-}
+// Manager record already loaded above
 
 // 1. Maintain activity retention:
 // Login activities: strictly 7 days retention
@@ -122,7 +168,12 @@ $actStmt = $pdo->prepare("
     SELECT * 
     FROM activity_logs 
     WHERE client_id = ? 
-      AND (manager_id = ? OR by_user = ? OR by_user = ?)
+      AND (
+          manager_id = ? 
+          OR ((by_role = 'Manager' OR by_role IS NULL OR by_role = '') AND (by_user = ? OR by_user = ?))
+      )
+      AND (by_role = 'Manager' OR by_role IS NULL OR by_role = '')
+      AND by_role NOT IN ('RecoveryMan', 'Lineman', 'Dealer', 'Admin')
       AND (
           ((activity LIKE '%Login%' OR activity LIKE '%Logged in%' OR against_role = 'Login') AND created_at >= NOW() - INTERVAL 7 DAY)
           OR
@@ -172,13 +223,13 @@ $recStmt = $pdo->prepare("
     WHERE a.client_id = ?
       AND (
           a.manager_id = ? 
-          OR a.by_user = ? 
-          OR a.by_user = ? 
-          OR a.by_user = ?
+          OR ((a.by_role = 'Manager' OR a.by_role IS NULL OR a.by_role = '') AND (a.by_user = ? OR a.by_user = ? OR a.by_user = ?))
       )
+      AND (a.by_role = 'Manager' OR a.by_role IS NULL OR a.by_role = '')
+      AND a.by_role NOT IN ('RecoveryMan', 'Lineman', 'Dealer', 'Admin')
       AND a.created_at >= NOW() - INTERVAL 730 DAY
       AND (
-          a.activity LIKE '%Renew%'
+          (a.activity LIKE '%Renew%' AND a.activity NOT LIKE '%Ready for renewal%')
           OR a.activity LIKE '%Collected%'
           OR a.activity LIKE '%Balance%'
           OR a.activity LIKE '%Payment%'
@@ -226,6 +277,10 @@ $ledStmt = $pdo->prepare("
           OR l.description LIKE ? 
           OR l.description LIKE ?
       )
+      AND l.description NOT LIKE '%RecoveryMan%'
+      AND l.description NOT LIKE '%RM:%'
+      AND l.description NOT LIKE '%Lineman%'
+      AND l.description NOT LIKE '%Dealer%'
     ORDER BY l.created_at DESC
 ");
 $ledStmt->execute([
@@ -345,6 +400,38 @@ usort($all_recoveries, function($a, $b) {
 });
 
 $unique_subscribers_count = count($unique_subs);
+
+// Fetch Submissions to Admin (Cash Collected from this Manager)
+$submissionStmt = $pdo->prepare("
+    SELECT * FROM activity_logs 
+    WHERE client_id = ? 
+      AND against_role = 'Manager' 
+      AND (against_to = ? OR against_to = ? OR against_to = ?) 
+      AND activity LIKE 'Collected Cash Rs.%'
+    ORDER BY created_at DESC 
+    LIMIT 200
+");
+$submissionStmt->execute([
+    $client_id, 
+    $mgr['full_name'], 
+    $mgr['username'], 
+    "Manager #{$manager_id}"
+]);
+$submissions = $submissionStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$total_submitted_to_admin = 0;
+foreach ($submissions as $sub) {
+    if (preg_match('/Collected Cash Rs\.\s*([\d,.]+)/i', $sub['activity'], $m)) {
+        $total_submitted_to_admin += (float)str_replace(',', '', $m[1]);
+    }
+}
+
+// Auto-sync initial cash_in_hand if not previously initialized and recoveries exist
+$pending_difference = max(0, $total_recovered_amount - $total_submitted_to_admin);
+if ((float)($mgr['cash_in_hand'] ?? 0) <= 0 && $pending_difference > 0) {
+    $pdo->prepare("UPDATE managers SET cash_in_hand = ? WHERE id = ? AND client_id = ?")->execute([$pending_difference, $manager_id, $client_id]);
+    $mgr['cash_in_hand'] = $pending_difference;
+}
 ?>
 
 <!-- DataTables CSS -->
@@ -657,6 +744,52 @@ $unique_subscribers_count = count($unique_subs);
         </div>
     </div>
 
+    <!-- Financial Overview: Pending Cash in Hand & Collections -->
+    <div class="row g-3 mb-4">
+        <!-- Total Recoveries Card -->
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm rounded-4 h-100 bg-white p-4 text-center d-flex flex-column justify-content-center">
+                <div class="text-secondary small fw-bold text-uppercase tracking-wider mb-2">Total Recoveries (2-Yr)</div>
+                <h2 class="display-6 fw-bold text-primary mb-1">
+                    Rs. <?= number_format($total_recovered_amount, 0) ?>
+                </h2>
+                <div class="text-muted small mt-1">
+                    <i class="fa-solid fa-hand-holding-dollar text-success me-1"></i> From <?= number_format(count($all_recoveries)) ?> Transactions
+                </div>
+            </div>
+        </div>
+        
+        <!-- Pending Cash in Hand & Admin Collection Card -->
+        <div class="col-md-8">
+            <div class="card border-0 shadow-sm rounded-4 h-100 <?= ($mgr['cash_in_hand'] > 0) ? 'bg-success bg-opacity-10 border border-success border-opacity-25' : 'bg-white' ?> p-4">
+                <div class="d-flex flex-column flex-sm-row justify-content-between align-items-center text-center text-sm-start gap-3 h-100">
+                    <div>
+                        <div class="d-flex align-items-center gap-2 mb-1 justify-content-center justify-content-sm-start">
+                            <span class="badge bg-success text-white px-2.5 py-1 rounded-pill small fw-bold">Cash in Hand</span>
+                            <span class="text-muted small fw-bold text-uppercase">Pending Cash to Collect</span>
+                        </div>
+                        <h1 class="display-5 fw-bold <?= ($mgr['cash_in_hand'] > 0) ? 'text-success' : 'text-dark' ?> mb-1">
+                            Rs. <?= number_format($mgr['cash_in_hand'], 0) ?>
+                        </h1>
+                        <div class="text-muted small">
+                            Already Submitted to Admin: <strong class="text-dark">Rs. <?= number_format($total_submitted_to_admin, 0) ?></strong>
+                        </div>
+                    </div>
+                    
+                    <div class="text-center flex-shrink-0">
+                        <?php if($mgr['cash_in_hand'] > 0): ?>
+                            <button class="btn btn-success btn-lg rounded-pill px-4 fw-bold shadow-sm" data-bs-toggle="modal" data-bs-target="#collectManagerCashModal">
+                                <i class="fa-solid fa-hand-holding-dollar me-2"></i> Collect Cash
+                            </button>
+                        <?php else: ?>
+                            <div class="badge bg-secondary p-2.5 px-3 rounded-pill fs-6"><i class="fa-solid fa-check-circle me-1"></i> Accounts Cleared</div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Manager Governance Tabs Container -->
     <div class="card card-custom bg-white mb-4 border-0 shadow-sm rounded-4 overflow-hidden">
         <div class="card-header bg-white border-bottom p-0 pt-3 px-3">
@@ -679,6 +812,13 @@ $unique_subscribers_count = count($unique_subs);
                 <li class="nav-item" role="presentation">
                     <button class="nav-link fw-bold" id="salary-tab" data-bs-toggle="tab" data-bs-target="#tab-salary" type="button" role="tab">
                         <i class="fa-solid fa-wallet text-warning me-2"></i> Salary &amp; Advances
+                    </button>
+                </li>
+                <!-- Tab 4: Submissions to Admin -->
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link fw-bold" id="submissions-tab" data-bs-toggle="tab" data-bs-target="#tab-submissions" type="button" role="tab">
+                        <i class="fa-solid fa-building-columns text-danger me-2"></i> Submissions to Admin
+                        <span class="badge bg-danger ms-1"><?= count($submissions) ?></span>
                     </button>
                 </li>
             </ul>
@@ -952,9 +1092,111 @@ $unique_subscribers_count = count($unique_subs);
                     ?>
                 </div>
 
+                <!-- Tab 4 Content: Submissions to Admin -->
+                <div class="tab-pane fade" id="tab-submissions" role="tabpanel">
+                    <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+                        <div>
+                            <h6 class="fw-bold mb-1 text-dark">
+                                <i class="fa-solid fa-building-columns text-danger me-2"></i> Cash Submissions to Admin
+                            </h6>
+                            <div class="text-muted small">
+                                Complete audit log of all cash handovers and collections received by Admin from Manager <strong><?= htmlspecialchars($mgr['full_name']) ?></strong>.
+                            </div>
+                        </div>
+                        <span class="badge bg-light text-dark border px-3 py-2 rounded-pill font-monospace">
+                            Total Collected: Rs. <?= number_format($total_submitted_to_admin, 0) ?>
+                        </span>
+                    </div>
+
+                    <?php if (empty($submissions)): ?>
+                        <div class="text-center py-5 text-muted">
+                            <i class="fa-solid fa-building-columns fs-1 text-secondary opacity-50 mb-3 d-block"></i>
+                            <h6 class="fw-bold text-dark">No Cash Submissions Yet</h6>
+                            <p class="small text-secondary mb-0">Whenever Admin collects pending cash in hand from this Manager, full payment audit records will appear here.</p>
+                        </div>
+                    <?php else: ?>
+                    <div class="table-responsive">
+                        <table id="managerSubmissionsTable" class="table table-hover table-custom-ui align-middle w-100">
+                            <thead>
+                                <tr>
+                                    <th>Date &amp; Time</th>
+                                    <th>Collected By</th>
+                                    <th>Amount Collected</th>
+                                    <th>Audit Details</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($submissions as $sub): ?>
+                                <?php
+                                    $amt = "N/A";
+                                    if (preg_match('/Rs\.\s*([\d,.]+)/', $sub['activity'], $m)) {
+                                        $amt = $m[1];
+                                    }
+                                ?>
+                                <tr>
+                                    <td class="text-secondary small fw-bold" style="white-space: nowrap;">
+                                        <div class="text-dark"><?= date('d M Y', strtotime($sub['created_at'])) ?></div>
+                                        <div class="text-muted small font-monospace"><?= date('h:i:s A', strtotime($sub['created_at'])) ?></div>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-dark px-2.5 py-1">
+                                            <i class="fa-solid fa-user-shield me-1"></i> <?= htmlspecialchars($sub['by_user']) ?> (Admin)
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="text-danger fw-bold fs-6">Rs. <?= $amt ?></span>
+                                    </td>
+                                    <td class="small text-muted">
+                                        <?= htmlspecialchars($sub['activity']) ?>
+                                    </td>
+                                </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                    <?php endif; ?>
+                </div>
+
             </div>
         </div>
     </div>
+</div>
+
+<!-- Collect Cash from Manager Modal -->
+<div class="modal fade" id="collectManagerCashModal" tabindex="-1" aria-labelledby="collectManagerCashModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow rounded-4 overflow-hidden">
+      <form method="POST">
+        <input type="hidden" name="action" value="collect_cash">
+        <div class="modal-header bg-success text-white p-3 px-4">
+          <h5 class="modal-title fw-bold" id="collectManagerCashModalLabel">
+            <i class="fa-solid fa-hand-holding-dollar me-2"></i> Collect Cash from Manager
+          </h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body p-4 text-center">
+            <div class="text-muted small fw-semibold text-uppercase mb-1">Pending Cash in Hand</div>
+            <h2 class="display-6 fw-bold text-success mb-3">Rs. <?= number_format($mgr['cash_in_hand'], 0) ?></h2>
+            <p class="text-muted small mb-4">Manager: <strong><?= htmlspecialchars($mgr['full_name']) ?> (@<?= htmlspecialchars($mgr['username']) ?>)</strong></p>
+            
+            <div class="mb-3 text-start">
+                <label class="form-label fw-bold small text-secondary">Amount to Receive (Rs) <span class="text-danger">*</span></label>
+                <div class="input-group input-group-lg">
+                    <span class="input-group-text bg-light fw-bold text-secondary">Rs.</span>
+                    <input type="number" step="1" min="1" max="<?= (float)$mgr['cash_in_hand'] ?>" name="amount" class="form-control bg-light fw-bold text-dark" placeholder="Enter amount..." value="<?= (float)$mgr['cash_in_hand'] ?>" required>
+                </div>
+                <div class="form-text small">Maximum available: Rs. <?= number_format($mgr['cash_in_hand'], 0) ?></div>
+            </div>
+        </div>
+        <div class="modal-footer border-top p-3 bg-light d-flex justify-content-between">
+          <button type="button" class="btn btn-outline-secondary rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-success rounded-pill px-4 fw-bold shadow-sm" onclick="return confirm('Confirm cash collection from manager?');">
+            <i class="fa-solid fa-check me-1"></i> Confirm Received
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
 </div>
 
 <!-- Edit Manager Profile & Salary Modal -->
@@ -1095,6 +1337,25 @@ $(document).ready(function() {
         });
     }
 
+    if ($('#managerSubmissionsTable').length) {
+        $('#managerSubmissionsTable').DataTable({
+            dom: "<'row mb-3'<'col-sm-6'B><'col-sm-6 text-end'f>>" +
+                 "<'row'<'col-sm-12'tr>>" +
+                 "<'row mt-3'<'col-sm-5'i><'col-sm-7'p>>",
+            buttons: [
+                { extend: 'excel', text: '<i class="fa-solid fa-file-excel me-1"></i> Excel', className: 'btn btn-sm btn-outline-success' },
+                { extend: 'csv', text: '<i class="fa-solid fa-file-csv me-1"></i> CSV', className: 'btn btn-sm btn-outline-primary' },
+                { extend: 'print', text: '<i class="fa-solid fa-print me-1"></i> Print', className: 'btn btn-sm btn-outline-dark' }
+            ],
+            order: [[0, 'desc']],
+            pageLength: 25,
+            language: {
+                search: "_INPUT_",
+                searchPlaceholder: "Search submissions..."
+            }
+        });
+    }
+
     // Auto-adjust DataTables on tab switch
     $('button[data-bs-toggle="tab"]').on('shown.bs.tab', function (e) {
         $($.fn.dataTable.tables(true)).DataTable().columns.adjust();
@@ -1110,6 +1371,11 @@ $(document).ready(function() {
         }
     } else if (activeTabParam === 'activity' || activeTabParam === 'tab-activity' || activeTabParam === 'activityLogs') {
         const triggerEl = document.querySelector('#activity-tab');
+        if (triggerEl) {
+            bootstrap.Tab.getOrCreateInstance(triggerEl).show();
+        }
+    } else if (activeTabParam === 'submissions' || activeTabParam === 'tab-submissions') {
+        const triggerEl = document.querySelector('#submissions-tab');
         if (triggerEl) {
             bootstrap.Tab.getOrCreateInstance(triggerEl).show();
         }

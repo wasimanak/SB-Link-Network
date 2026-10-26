@@ -46,6 +46,11 @@ try {
         // Apply to MySQL (Try named timezone, fallback to offset if mysql timezones are not loaded)
         $offset = date('P'); // Gets offset like '+05:00'
         $pdo->exec("SET time_zone = '$offset'");
+
+        // Reset MySQL session variables so no cross-request state lingers
+        try {
+            $pdo->exec("SET @current_manager_id = NULL, @current_manager_name = NULL");
+        } catch (Exception $e) {}
         
         // Auto-update app_name in global_settings if it's still SB Link
         try {

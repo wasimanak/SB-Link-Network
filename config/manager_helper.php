@@ -27,6 +27,8 @@ function ensure_manager_schema($pdo) {
               `address` TEXT DEFAULT NULL,
               `city` VARCHAR(50) DEFAULT NULL,
               `status` ENUM('active', 'inactive') DEFAULT 'active',
+              `cash_in_hand` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+              `monthly_salary` INT NOT NULL DEFAULT 0,
               `can_manage_packages` ENUM('yes', 'no') DEFAULT 'no',
               `can_collect_recovery` ENUM('yes', 'no') DEFAULT 'no',
               `permissions` TEXT DEFAULT NULL,
@@ -38,12 +40,17 @@ function ensure_manager_schema($pdo) {
         ");
     } catch (Exception $e) {}
 
+    // Add cash_in_hand column to managers if missing
+    try {
+        $pdo->exec("ALTER TABLE `managers` ADD COLUMN `cash_in_hand` DECIMAL(10,2) NOT NULL DEFAULT 0.00 AFTER `status`");
+    } catch (Exception $e) {}
+
     // Add manager_id to activity_logs if missing
     try {
         $pdo->exec("ALTER TABLE `activity_logs` ADD COLUMN `manager_id` INT DEFAULT NULL");
     } catch (Exception $e) {}
 
-    // Auto-stamp trigger for all activity log inserts
+    // Auto-stamp trigger for all activity log inserts (strictly role guarded)
     try {
         $pdo->exec("DROP TRIGGER IF EXISTS `trg_activity_logs_manager`");
         $pdo->exec("
@@ -51,15 +58,24 @@ function ensure_manager_schema($pdo) {
             BEFORE INSERT ON `activity_logs` 
             FOR EACH ROW 
             BEGIN 
-                IF NEW.manager_id IS NULL AND @current_manager_id IS NOT NULL THEN 
+                -- Never stamp manager_id if role belongs to another staff or system role
+                IF NEW.by_role IN ('RecoveryMan', 'Lineman', 'Dealer', 'Admin', 'Operator', 'System') THEN
+                    SET NEW.manager_id = NULL;
+                ELSEIF NEW.manager_id IS NULL AND @current_manager_id IS NOT NULL AND @current_manager_id > 0 AND (NEW.by_role = 'Manager' OR NEW.by_role IS NULL OR NEW.by_role = '') THEN 
                     SET NEW.manager_id = @current_manager_id; 
-                    IF @current_manager_name IS NOT NULL THEN 
+                    IF (NEW.by_user IS NULL OR NEW.by_user = '' OR NEW.by_user = 'Manager') AND @current_manager_name IS NOT NULL THEN 
                         SET NEW.by_user = @current_manager_name; 
                     END IF; 
                     SET NEW.by_role = 'Manager'; 
                 END IF; 
             END;
         ");
+    } catch (Exception $e) {}
+
+    // One-time auto-clean of any mis-stamped activity logs
+    try {
+        $pdo->exec("UPDATE activity_logs SET manager_id = NULL WHERE by_role IN ('RecoveryMan', 'Lineman', 'Dealer', 'Admin', 'Operator', 'System')");
+        $pdo->exec("UPDATE activity_logs SET by_role = 'RecoveryMan', manager_id = NULL WHERE activity LIKE '%Created New User%Ready for renewal%' AND (by_role = 'Manager' OR manager_id IS NOT NULL)");
     } catch (Exception $e) {}
 }
 

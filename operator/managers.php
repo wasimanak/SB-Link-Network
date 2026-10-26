@@ -184,10 +184,12 @@ $total_mgrs = count($managers);
 $active_mgrs = 0;
 $pkg_permitted = 0;
 $coll_permitted = 0;
+$total_mgr_cash = 0;
 foreach ($managers as $m) {
     if ($m['status'] === 'active') $active_mgrs++;
     if ($m['can_manage_packages'] === 'yes') $pkg_permitted++;
     if ($m['can_collect_recovery'] === 'yes') $coll_permitted++;
+    $total_mgr_cash += (float)($m['cash_in_hand'] ?? 0);
 }
 ?>
 
@@ -339,12 +341,12 @@ foreach ($managers as $m) {
         </div>
         <div class="col-6 col-lg-3">
             <div class="stat-widget">
-                <div class="stat-icon" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b;">
+                <div class="stat-icon" style="background: rgba(16, 185, 129, 0.1); color: #10b981;">
                     <i class="fa-solid fa-hand-holding-dollar"></i>
                 </div>
                 <div>
-                    <div class="stat-val"><?= $coll_permitted ?></div>
-                    <div class="stat-lbl">RM Collection Permitted</div>
+                    <div class="stat-val text-success">Rs. <?= number_format($total_mgr_cash, 0) ?></div>
+                    <div class="stat-lbl">Pending Cash to Collect</div>
                 </div>
             </div>
         </div>
@@ -371,6 +373,7 @@ foreach ($managers as $m) {
                         <th>Username</th>
                         <th>Contact</th>
                         <th>Monthly Salary</th>
+                        <th>Pending Cash</th>
                         <th>Package Perm</th>
                         <th>RM Collection</th>
                         <th>Status</th>
@@ -409,6 +412,11 @@ foreach ($managers as $m) {
                             <td>
                                 <div class="fw-bold text-dark"><i class="fa-solid fa-money-bill-wave text-success me-1 small"></i> Rs. <?= number_format($m['monthly_salary'] ?? 0) ?></div>
                                 <div class="text-muted small">per month</div>
+                            </td>
+                            <td>
+                                <div class="fw-bold <?= ((float)($m['cash_in_hand'] ?? 0) > 0) ? 'text-success' : 'text-muted' ?>">
+                                    Rs. <?= number_format($m['cash_in_hand'] ?? 0, 0) ?>
+                                </div>
                             </td>
                             <td>
                                 <form method="POST" class="d-inline">

@@ -33,13 +33,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         try {
             $pdo->beginTransaction();
             
-            // Deduct cash
+            // Deduct cash from RM
             $pdo->prepare("UPDATE recovery_men SET cash_in_hand = cash_in_hand - ? WHERE id = ?")->execute([$amount, $rm_id]);
             
+            $is_mgr = !empty($_SESSION['is_manager']);
+            $mgr_id = $is_mgr ? (int)($_SESSION['manager_id'] ?? 0) : null;
+            $collector_name = $is_mgr ? ($_SESSION['manager_name'] ?? 'Manager') : $operator_name;
+            $collector_role = $is_mgr ? 'Manager' : 'Admin';
+
+            // If a Manager collected the cash from RM, add it to Manager's cash_in_hand
+            if ($is_mgr && $mgr_id > 0) {
+                try {
+                    $pdo->prepare("UPDATE managers SET cash_in_hand = cash_in_hand + ? WHERE id = ? AND client_id = ?")
+                        ->execute([$amount, $mgr_id, $client_id]);
+                } catch (Exception $e) {}
+            }
+
             // Log the activity
             $log_msg = "Collected Cash Rs. " . number_format($amount, 0) . " from Operator";
-            $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, 'Admin', ?, 'RecoveryMan', ?)")
-                ->execute([$client_id, $operator_name, $rm['full_name'], $log_msg]);
+            $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, ?, ?, ?, 'RecoveryMan', ?)")
+                ->execute([$client_id, $mgr_id, $collector_name, $collector_role, $rm['full_name'], $log_msg]);
                 
             $pdo->commit();
             echo "<script>alert('Cash collected successfully!'); window.location='recoveryman_profile.php?id=$rm_id';</script>";

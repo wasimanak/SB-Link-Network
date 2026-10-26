@@ -455,10 +455,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
                 $type = $amount > 0 ? 'credit' : 'debit';
                 $absAmount = abs($amount);
-                $desc = $amount > 0 ? 'Funds added by Admin' : 'Funds deducted by Admin';
+
+                $is_mgr = !empty($_SESSION['is_manager']);
+                $mgr_id = $is_mgr ? (int)($_SESSION['manager_id'] ?? 0) : null;
+                $actor_name = $is_mgr ? ($_SESSION['manager_name'] ?? 'Manager') : (!empty($_SESSION['operator_username']) ? $_SESSION['operator_username'] : 'Admin');
+                $actor_role = $is_mgr ? 'Manager' : 'Admin';
+
+                // If Manager collects payment in cash, add to manager's cash_in_hand
+                if ($is_mgr && $mgr_id > 0 && $amount > 0) {
+                    try {
+                        $pdo->prepare("UPDATE managers SET cash_in_hand = cash_in_hand + ? WHERE id = ? AND client_id = ?")
+                            ->execute([$absAmount, $mgr_id, $client_id]);
+                    } catch (Exception $e) {}
+                }
+
+                $desc = $amount > 0 ? "Funds added by $actor_role ($actor_name)" : "Funds deducted by $actor_role ($actor_name)";
                 $actStr = $amount > 0 ? "Added Balance: Rs. $absAmount" : "Deducted Balance: Rs. $absAmount";
 
-                $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, 'Admin', ?, 'User', ?)")->execute([$client_id, $u, $actStr]);
+                $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, ?, ?, ?, 'User', ?)")
+                    ->execute([$client_id, $mgr_id, $actor_name, $actor_role, $u, $actStr]);
                 
                 // Insert into ledger
                 $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, ?, ?, ?, ?)")

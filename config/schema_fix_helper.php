@@ -171,6 +171,7 @@ function fix_and_repair_schema($pdo) {
             KEY `client_id` (`client_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
 
+        add_column_if_missing($pdo, 'managers', 'cash_in_hand', "DECIMAL(10,2) DEFAULT 0.00");
         add_column_if_missing($pdo, 'managers', 'monthly_salary', "INT NOT NULL DEFAULT 0");
         add_column_if_missing($pdo, 'managers', 'status', "ENUM('active','disabled') DEFAULT 'active'");
         add_column_if_missing($pdo, 'managers', 'can_manage_packages', "TINYINT(1) DEFAULT 1");
