@@ -94,11 +94,12 @@ function run_database_maintenance($pdo, $auth_retention_days = 7, $acct_retentio
         // Ignored if user lacks SUPER/BINLOG_ADMIN privilege
     }
 
-    // 5c. Server-Level Temp & Journal Cleanup (Linux VPS only)
+    // 5c. Server-Level Temp, Radacct & Journal Cleanup (Linux VPS only)
     if (DIRECTORY_SEPARATOR !== '\\' && function_exists('shell_exec')) {
         @shell_exec("sudo journalctl --vacuum-size=100M >/dev/null 2>&1");
         @shell_exec("find /tmp -type f \\( -name '*.sql' -o -name '*.sql.gz' -o -name 'restore_chunk_*' \\) -mtime +1 -delete 2>/dev/null");
         @shell_exec("find /var/tmp -type f \\( -name '*.sql' -o -name '*.sql.gz' \\) -mtime +1 -delete 2>/dev/null");
+        @shell_exec("rm -rf /var/log/freeradius/radacct/* 2>/dev/null");
     }
 
     $result['duration_seconds'] = round(microtime(true) - $startTime, 3);
