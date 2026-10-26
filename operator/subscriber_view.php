@@ -129,8 +129,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         ->execute([$client_id, $sub['username'], $refund_amount, $new_bal, $desc]);
                     
                     // Activity log
-                    $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, by_user, against_to, against_role, activity) VALUES (?, ?, ?, ?, 'User', ?)")
-                        ->execute([$client_id, $actor_mgr_id, $actor_name, $sub['username'], "Reconciliation: Credited Rs. " . number_format($refund_amount, 2) . " into balance for backward expiry adjustment"]);
+                    $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, ?, ?, ?, 'User', ?)")
+                        ->execute([$client_id, $actor_mgr_id, $actor_name, $actor_role, $sub['username'], "Reconciliation: Credited Rs. " . number_format($refund_amount, 2) . " into balance for backward expiry adjustment"]);
                     
                     // Dealer handling if applicable
                     $dealer_id = (int)($sub['dealer_id'] ?? 0);
@@ -354,8 +354,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ->execute([$client_id, $new_username, $net_adjustment, $new_bal, $desc]);
 
                 $act_text = "Profile Edit: Extended Expiry to " . date('d M Y, h:i A', $new_exp_ts) . ". Charged Rs. " . number_format($net_adjustment, 2) . " ({$pkg_row['name']})";
-                $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, by_user, against_to, against_role, activity) VALUES (?, ?, ?, ?, 'User', ?)")
-                    ->execute([$client_id, $actor_mgr_id, $actor_name, $new_username, $act_text]);
+                $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, ?, ?, ?, 'User', ?)")
+                    ->execute([$client_id, $actor_mgr_id, $actor_name, $actor_role, $new_username, $act_text]);
             } elseif ($net_adjustment < 0) {
                 $abs_refund = abs($net_adjustment);
                 $desc = "Profile Edit: Expiry Reduced to " . date('d M Y, h:i A', $new_exp_ts) . " (Pro-rata Refund) by $actor_role ($actor_name)";
@@ -363,11 +363,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ->execute([$client_id, $new_username, $abs_refund, $new_bal, $desc]);
 
                 $act_text = "Profile Edit: Reduced Expiry to " . date('d M Y, h:i A', $new_exp_ts) . ". Credited Rs. " . number_format($abs_refund, 2) . " ({$pkg_row['name']})";
-                $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, by_user, against_to, against_role, activity) VALUES (?, ?, ?, ?, 'User', ?)")
-                    ->execute([$client_id, $actor_mgr_id, $actor_name, $new_username, $act_text]);
+                $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, ?, ?, ?, 'User', ?)")
+                    ->execute([$client_id, $actor_mgr_id, $actor_name, $actor_role, $new_username, $act_text]);
             } else {
-                $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, by_user, against_to, against_role, activity) VALUES (?, ?, ?, ?, 'User', 'Updated Profile Details')")
-                    ->execute([$client_id, $actor_mgr_id, $actor_name, $new_username]);
+                $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, ?, ?, ?, 'User', 'Updated Profile Details')")
+                    ->execute([$client_id, $actor_mgr_id, $actor_name, $actor_role, $new_username]);
             }
 
             $pdo->commit();
@@ -693,8 +693,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $act_text = "Updated Expiry Date to " . date('d M Y, h:i A', $new_exp_ts) . " ({$pkg['name']})";
                 }
 
-                $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, by_user, against_to, against_role, activity) VALUES (?, ?, ?, ?, 'User', ?)")
-                    ->execute([$client_id, $actor_mgr_id, $actor_name, $u, $act_text]);
+                $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, ?, ?, ?, 'User', ?)")
+                    ->execute([$client_id, $actor_mgr_id, $actor_name, $actor_role, $u, $act_text]);
 
                 // Ledger Entry
                 if ($net_adjustment > 0) {

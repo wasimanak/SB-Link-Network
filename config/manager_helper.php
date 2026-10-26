@@ -67,12 +67,17 @@ function ensure_manager_schema($pdo) {
                     IF NEW.by_role IS NULL OR NEW.by_role = '' THEN
                         SET NEW.by_role = 'Admin';
                     END IF;
-                ELSEIF NEW.manager_id IS NULL AND @current_manager_id IS NOT NULL AND @current_manager_id > 0 AND (NEW.by_role = 'Manager' OR NEW.by_role IS NULL OR NEW.by_role = '') THEN 
+                ELSEIF @current_manager_id IS NOT NULL AND @current_manager_id > 0 AND (NEW.by_role = 'Manager' OR NEW.by_role IS NULL OR NEW.by_role = '') THEN 
                     SET NEW.manager_id = @current_manager_id; 
                     IF (NEW.by_user IS NULL OR NEW.by_user = '' OR NEW.by_user = 'Manager') AND @current_manager_name IS NOT NULL THEN 
                         SET NEW.by_user = @current_manager_name; 
                     END IF; 
                     SET NEW.by_role = 'Manager'; 
+                ELSE
+                    SET NEW.manager_id = NULL;
+                    IF NEW.by_role IS NULL OR NEW.by_role = '' THEN
+                        SET NEW.by_role = 'Admin';
+                    END IF;
                 END IF; 
             END;
         ");
@@ -80,7 +85,7 @@ function ensure_manager_schema($pdo) {
 
     // One-time auto-clean of any mis-stamped activity logs
     try {
-        $pdo->exec("UPDATE activity_logs SET manager_id = NULL, by_role = 'Admin' WHERE by_user = 'Admin' OR by_user LIKE 'Operator%' OR by_role = 'Admin' OR by_role IS NULL OR by_role = ''");
+        $pdo->exec("UPDATE activity_logs SET manager_id = NULL, by_role = 'Admin' WHERE by_user = 'Admin' OR by_user LIKE 'Admin%' OR by_user LIKE 'Operator%' OR by_role = 'Admin' OR by_role IS NULL OR by_role = ''");
         $pdo->exec("UPDATE activity_logs SET manager_id = NULL WHERE by_role IN ('RecoveryMan', 'Lineman', 'Dealer', 'System')");
         $pdo->exec("UPDATE activity_logs SET by_role = 'RecoveryMan', manager_id = NULL WHERE activity LIKE '%Created New User%Ready for renewal%'");
     } catch (Exception $e) {}

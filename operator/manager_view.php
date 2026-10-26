@@ -24,6 +24,22 @@ if ($manager_id <= 0) {
     exit;
 }
 
+// Fetch Manager Record
+$stmt = $pdo->prepare("SELECT * FROM managers WHERE id = ? AND client_id = ?");
+$stmt->execute([$manager_id, $client_id]);
+$mgr = $stmt->fetch(PDO::FETCH_ASSOC);
+
+if (!$mgr) {
+    echo "<div class='container py-5'>
+            <div class='alert alert-warning shadow-sm'>
+                <i class='fa-solid fa-triangle-exclamation me-2'></i> Manager #{$manager_id} not found or access unauthorized.
+            </div>
+            <a href='managers' class='btn btn-primary'><i class='fa-solid fa-arrow-left me-1'></i> Return to Managers</a>
+          </div>";
+    require_once 'footer.php';
+    exit;
+}
+
 // Auto-upgrade managers table schema for cash_in_hand
 try {
     $col = $pdo->query("SHOW COLUMNS FROM managers LIKE 'cash_in_hand'")->fetch();
@@ -33,24 +49,63 @@ try {
 } catch (Exception $e) {}
 
 // One-time data cleanup: isolate manager logs and restore role on any mis-stamped activity logs
+$adminIdentifiers = ['Admin', 'admin', 'Operator', 'operator', 'System'];
 try {
-    // Clear manager_id from all logs done by Admin or non-manager roles
-    $pdo->exec("UPDATE activity_logs SET manager_id = NULL, by_role = 'Admin' WHERE by_user = 'Admin' OR by_user LIKE 'Admin%' OR by_user LIKE 'Operator%' OR by_role = 'Admin' OR by_role IS NULL OR by_role = ''");
-    // Clear manager_id from non-manager staff
-    $pdo->exec("UPDATE activity_logs SET manager_id = NULL WHERE by_role IN ('RecoveryMan', 'Lineman', 'Dealer', 'System')");
-    // User creation logs by RecoveryMan must be RecoveryMan
-    $pdo->exec("UPDATE activity_logs SET by_role = 'RecoveryMan', manager_id = NULL WHERE activity LIKE '%Created New User%Ready for renewal%'");
+    // 1. Fetch Admin info for this tenant
+    $cStmt = $pdo->prepare("SELECT company_name, email, full_name, username FROM clients WHERE id = ?");
+    $cStmt->execute([$client_id]);
+    $adminRow = $cStmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!empty($adminRow['company_name'])) $adminIdentifiers[] = $adminRow['company_name'];
+    if (!empty($adminRow['email'])) $adminIdentifiers[] = $adminRow['email'];
+    if (!empty($adminRow['full_name'])) $adminIdentifiers[] = $adminRow['full_name'];
+    if (!empty($adminRow['username'])) $adminIdentifiers[] = $adminRow['username'];
+    $adminIdentifiers = array_unique(array_filter($adminIdentifiers));
+
+    // Clear manager_id and set by_role = 'Admin' on all logs done by Admin identifiers
+    if (!empty($adminIdentifiers)) {
+        $inClause = implode(',', array_fill(0, count($adminIdentifiers), '?'));
+        $adminParams = array_merge([$client_id], $adminIdentifiers);
+        $pdo->prepare("UPDATE activity_logs SET manager_id = NULL, by_role = 'Admin' WHERE client_id = ? AND by_user IN ($inClause)")
+            ->execute($adminParams);
+    }
+
+    // Clear manager_id from all logs done by staff roles
+    $pdo->exec("UPDATE activity_logs SET manager_id = NULL WHERE client_id = {$client_id} AND by_role IN ('RecoveryMan', 'Lineman', 'Dealer', 'System')");
+
+    // Also clear manager_id from all logs where by_user matches any RecoveryMan
+    $pdo->exec("UPDATE activity_logs a JOIN recovery_men r ON a.client_id = r.client_id AND a.by_user = r.full_name 
+                SET a.manager_id = NULL, a.by_role = 'RecoveryMan' WHERE a.client_id = {$client_id}");
+
+    // Also clear manager_id from all logs where by_user matches any Lineman
+    $pdo->exec("UPDATE activity_logs a JOIN linemen l ON a.client_id = l.client_id AND a.by_user = l.full_name 
+                SET a.manager_id = NULL, a.by_role = 'Lineman' WHERE a.client_id = {$client_id}");
+
+    // Clear manager_id on any log where by_role is 'Admin' or by_user LIKE 'Admin%' or 'Operator%'
+    $pdo->exec("UPDATE activity_logs SET manager_id = NULL, by_role = 'Admin' 
+                WHERE client_id = {$client_id} AND (by_user LIKE 'Admin%' OR by_user LIKE 'Operator%' OR by_role = 'Admin' OR by_role IS NULL OR by_role = '')");
+
+    // If an invalid/dummy manager row exists with empty name/username, reset its cash_in_hand to 0
+    $pdo->exec("UPDATE managers SET cash_in_hand = 0 WHERE client_id = {$client_id} AND (full_name IS NULL OR full_name = '' OR username IS NULL OR username = '')");
 } catch (Exception $e) {}
 
-// Manager record already loaded above
-
-// Handle Direct Quick Actions (Toggle permissions, profile edit, collect cash, or reset password)
+// Handle Direct Quick Actions (Toggle permissions, profile edit, collect cash, delete manager, or reset password)
 $flash_msg = '';
 $flash_type = 'success';
 $activeTabToOpen = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
+
+    // Handle Admin Deleting a Manager (e.g. ghost account)
+    if ($action === 'delete_manager') {
+        $del_id = (int)($_POST['id'] ?? 0);
+        if ($del_id === $manager_id) {
+            $pdo->prepare("DELETE FROM managers WHERE id = ? AND client_id = ?")->execute([$manager_id, $client_id]);
+            echo "<script>alert('Manager account deleted successfully.'); window.location='managers.php';</script>";
+            exit;
+        }
+    }
 
     // Handle Admin Collecting Cash in Hand from this Manager
     if ($action === 'collect_cash') {
@@ -168,27 +223,47 @@ try {
 // Fetch Manager Activity History:
 // Login activities: retained for 7 Days only.
 // Administrative, Financial & Audit actions: retained for 2 Years (730 Days).
-$actStmt = $pdo->prepare("
-    SELECT * 
-    FROM activity_logs 
-    WHERE client_id = ? 
-      AND by_role = 'Manager'
-      AND by_user != 'Admin'
-      AND by_user NOT LIKE 'Admin%'
-      AND (
-          manager_id = ? 
-          OR by_user = ? 
-          OR by_user = ?
-      )
-      AND (
-          ((activity LIKE '%Login%' OR activity LIKE '%Logged in%' OR against_role = 'Login') AND created_at >= NOW() - INTERVAL 7 DAY)
-          OR
-          ((activity NOT LIKE '%Login%' AND activity NOT LIKE '%Logged in%' AND (against_role != 'Login' OR against_role IS NULL)) AND created_at >= NOW() - INTERVAL 730 DAY)
-      )
-    ORDER BY id DESC
-");
-$actStmt->execute([$client_id, $manager_id, $mgr['username'], $mgr['full_name']]);
-$activities = $actStmt->fetchAll(PDO::FETCH_ASSOC);
+$mgr_full_safe = trim($mgr['full_name'] ?? '');
+$mgr_user_safe = trim($mgr['username'] ?? '');
+$admin_comp_safe = $adminRow['company_name'] ?? 'Admin';
+
+$activities = [];
+$raw_recoveries = [];
+$raw_ledgers = [];
+
+// Only query activities and ledger if this manager has a valid name or username
+if (!empty($mgr_full_safe) || !empty($mgr_user_safe)) {
+    $actStmt = $pdo->prepare("
+        SELECT * 
+        FROM activity_logs 
+        WHERE client_id = ? 
+          AND by_role = 'Manager'
+          AND (
+              manager_id = ? 
+              OR by_user = ? 
+              OR by_user = ?
+              OR by_user = ?
+          )
+          AND by_user NOT IN ('Admin', 'Operator', 'System', ?)
+          AND by_user NOT LIKE 'Admin%'
+          AND by_user NOT LIKE 'Operator%'
+          AND (
+              ((activity LIKE '%Login%' OR activity LIKE '%Logged in%' OR against_role = 'Login') AND created_at >= NOW() - INTERVAL 7 DAY)
+              OR
+              ((activity NOT LIKE '%Login%' AND activity NOT LIKE '%Logged in%' AND (against_role != 'Login' OR against_role IS NULL)) AND created_at >= NOW() - INTERVAL 730 DAY)
+          )
+        ORDER BY id DESC
+    ");
+    $actStmt->execute([
+        $client_id, 
+        $manager_id, 
+        $mgr_user_safe, 
+        $mgr_full_safe,
+        'Manager: ' . $mgr_user_safe,
+        $admin_comp_safe
+    ]);
+    $activities = $actStmt->fetchAll(PDO::FETCH_ASSOC);
+}
 
 // Activity Breakdown stats
 $total_acts = count($activities);
@@ -203,110 +278,113 @@ foreach ($activities as $act) {
     if (strpos($txt, 'login') !== false || strpos($txt, 'logged in') !== false) $login_count++;
 }
 
-// Fetch All Recoveries, Renewals & Payment Collections for this Manager (Up to 2 Years)
-$recStmt = $pdo->prepare("
-    SELECT 
-        a.id as act_id,
-        a.created_at,
-        a.activity,
-        a.against_to as username,
-        a.against_role,
-        a.station_ip,
-        s.id as sub_id,
-        s.full_name as sub_fullname,
-        s.mobile as sub_mobile,
-        s.phone as sub_phone,
-        s.balance as sub_balance,
-        s.status as sub_status,
-        s.expiry_date as sub_expiry,
-        p.id as package_id,
-        p.name as package_name,
-        p.price as package_price,
-        p.rate_limit as package_speed
-    FROM activity_logs a
-    LEFT JOIN subscribers s ON a.against_to = s.username COLLATE utf8mb4_general_ci AND s.client_id = a.client_id
-    LEFT JOIN packages p ON s.package_id = p.id
-    WHERE a.client_id = ?
-      AND a.by_role = 'Manager'
-      AND a.by_user != 'Admin'
-      AND a.by_user NOT LIKE 'Admin%'
-      AND (
-          a.manager_id = ? 
-          OR a.by_user = ? 
-          OR a.by_user = ? 
-          OR a.by_user = ?
-      )
-      AND a.created_at >= NOW() - INTERVAL 730 DAY
-      AND (
-          (a.activity LIKE '%Renew%' AND a.activity NOT LIKE '%Ready for renewal%')
-          OR a.activity LIKE '%Collected%'
-          OR a.activity LIKE '%Balance%'
-          OR a.activity LIKE '%Payment%'
-          OR a.activity LIKE '%Charged%'
-      )
-    ORDER BY a.created_at DESC
-");
-$recStmt->execute([
-    $client_id, 
-    $manager_id, 
-    $mgr['username'], 
-    $mgr['full_name'],
-    'Manager: ' . $mgr['username']
-]);
-$raw_recoveries = $recStmt->fetchAll(PDO::FETCH_ASSOC);
+// Only fetch recoveries and ledgers if manager has valid name/username
+if (!empty($mgr_full_safe) || !empty($mgr_user_safe)) {
+    // Fetch All Recoveries, Renewals & Payment Collections for this Manager (Up to 2 Years)
+    $recStmt = $pdo->prepare("
+        SELECT 
+            a.id as act_id,
+            a.created_at,
+            a.activity,
+            a.against_to as username,
+            a.against_role,
+            a.station_ip,
+            s.id as sub_id,
+            s.full_name as sub_fullname,
+            s.mobile as sub_mobile,
+            s.phone as sub_phone,
+            s.balance as sub_balance,
+            s.status as sub_status,
+            s.expiry_date as sub_expiry,
+            p.id as package_id,
+            p.name as package_name,
+            p.price as package_price,
+            p.rate_limit as package_speed
+        FROM activity_logs a
+        LEFT JOIN subscribers s ON a.against_to = s.username COLLATE utf8mb4_general_ci AND s.client_id = a.client_id
+        LEFT JOIN packages p ON s.package_id = p.id
+        WHERE a.client_id = ?
+          AND a.by_role = 'Manager'
+          AND (
+              a.manager_id = ? 
+              OR a.by_user = ? 
+              OR a.by_user = ? 
+              OR a.by_user = ?
+          )
+          AND a.by_user NOT IN ('Admin', 'Operator', 'System', ?)
+          AND a.by_user NOT LIKE 'Admin%'
+          AND a.by_user NOT LIKE 'Operator%'
+          AND a.created_at >= NOW() - INTERVAL 730 DAY
+          AND (
+              (a.activity LIKE '%Renew%' AND a.activity NOT LIKE '%Ready for renewal%')
+              OR a.activity LIKE '%Collected%'
+              OR a.activity LIKE '%Balance%'
+              OR a.activity LIKE '%Payment%'
+              OR a.activity LIKE '%Charged%'
+          )
+        ORDER BY a.created_at DESC
+    ");
+    $recStmt->execute([
+        $client_id, 
+        $manager_id, 
+        $mgr_user_safe, 
+        $mgr_full_safe,
+        'Manager: ' . $mgr_user_safe,
+        $admin_comp_safe
+    ]);
+    $raw_recoveries = $recStmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Also fetch user_ledger records if manager name or username is in description
-$ledStmt = $pdo->prepare("
-    SELECT 
-        l.id as ledger_id,
-        l.created_at,
-        l.description,
-        l.username,
-        l.type,
-        l.amount,
-        l.balance_after,
-        s.id as sub_id,
-        s.full_name as sub_fullname,
-        s.mobile as sub_mobile,
-        s.phone as sub_phone,
-        s.balance as sub_balance,
-        s.status as sub_status,
-        s.expiry_date as sub_expiry,
-        p.id as package_id,
-        p.name as package_name,
-        p.price as package_price,
-        p.rate_limit as package_speed
-    FROM user_ledger l
-    LEFT JOIN subscribers s ON l.username = s.username COLLATE utf8mb4_general_ci AND s.client_id = l.client_id
-    LEFT JOIN packages p ON s.package_id = p.id
-    WHERE l.client_id = ?
-      AND l.created_at >= NOW() - INTERVAL 730 DAY
-      AND l.description LIKE '%Manager%'
-      AND l.description NOT LIKE '%Admin%'
-      AND l.description NOT LIKE '%RecoveryMan%'
-      AND l.description NOT LIKE '%RM:%'
-      AND l.description NOT LIKE '%Lineman%'
-      AND l.description NOT LIKE '%Dealer%'
-      AND (
-          l.description LIKE ? 
-          OR l.description LIKE ? 
-          OR l.description LIKE ?
-      )
-    ORDER BY l.created_at DESC
-");
+    // Also fetch user_ledger records if manager name or username is in description
+    $ledStmt = $pdo->prepare("
+        SELECT 
+            l.id as ledger_id,
+            l.created_at,
+            l.description,
+            l.username,
+            l.type,
+            l.amount,
+            l.balance_after,
+            s.id as sub_id,
+            s.full_name as sub_fullname,
+            s.mobile as sub_mobile,
+            s.phone as sub_phone,
+            s.balance as sub_balance,
+            s.status as sub_status,
+            s.expiry_date as sub_expiry,
+            p.id as package_id,
+            p.name as package_name,
+            p.price as package_price,
+            p.rate_limit as package_speed
+        FROM user_ledger l
+        LEFT JOIN subscribers s ON l.username = s.username COLLATE utf8mb4_general_ci AND s.client_id = l.client_id
+        LEFT JOIN packages p ON s.package_id = p.id
+        WHERE l.client_id = ?
+          AND l.created_at >= NOW() - INTERVAL 730 DAY
+          AND l.description LIKE '%Manager%'
+          AND l.description NOT LIKE '%Admin%'
+          AND l.description NOT LIKE '%RecoveryMan%'
+          AND l.description NOT LIKE '%RM:%'
+          AND l.description NOT LIKE '%Lineman%'
+          AND l.description NOT LIKE '%Dealer%'
+          AND (
+              l.description LIKE ? 
+              OR l.description LIKE ? 
+              OR l.description LIKE ?
+          )
+        ORDER BY l.created_at DESC
+    ");
 
-$mgr_full_safe = trim($mgr['full_name'] ?? '');
-$mgr_user_safe = trim($mgr['username'] ?? '');
-$search_name = !empty($mgr_full_safe) ? "%{$mgr_full_safe}%" : "%Manager #{$manager_id}%";
-$search_user = !empty($mgr_user_safe) ? "%{$mgr_user_safe}%" : "%Manager #{$manager_id}%";
+    $search_name = !empty($mgr_full_safe) ? "%{$mgr_full_safe}%" : "___NO_MATCH___";
+    $search_user = !empty($mgr_user_safe) ? "%{$mgr_user_safe}%" : "___NO_MATCH___";
 
-$ledStmt->execute([
-    $client_id,
-    $search_name,
-    $search_user,
-    "%Manager #{$manager_id}%"
-]);
-$raw_ledgers = $ledStmt->fetchAll(PDO::FETCH_ASSOC);
+    $ledStmt->execute([
+        $client_id,
+        $search_name,
+        $search_user,
+        "%Manager #{$manager_id}%"
+    ]);
+    $raw_ledgers = $ledStmt->fetchAll(PDO::FETCH_ASSOC);
+}
 
 // Build Unified All Recoveries List
 $all_recoveries = [];
@@ -341,7 +419,7 @@ foreach ($raw_recoveries as $rec) {
     if (preg_match('/Charged(?:: Rs\.| Rs\.)\s*([\d,.]+)/i', $act_text, $m)) {
         $charged = (float)str_replace(',', '', $m[1]);
     }
-    if (preg_match('/(?:Collected|Added Balance)(?:: Rs\.| Rs\.)\s*([\d,.]+)/i', $act_text, $m)) {
+    if (preg_match('/(?:Collected(?:\s+Cash)?|Added Balance|Funds added|Payment received|Payment Collected)(?:: Rs\.| Rs\.)\s*([\d,.]+)/i', $act_text, $m)) {
         $collected = (float)str_replace(',', '', $m[1]);
     }
 
@@ -589,20 +667,20 @@ $mgr['cash_in_hand'] = $pending_difference;
         <div class="profile-avatar-wrap d-flex flex-wrap justify-content-between align-items-end gap-3 pb-3">
             <div class="d-flex align-items-end gap-3">
                 <div class="profile-avatar">
-                    <?= strtoupper(substr($mgr['full_name'], 0, 1)) ?>
+                    <?= !empty($mgr_full_safe) ? strtoupper(substr($mgr_full_safe, 0, 1)) : '<i class="fa-solid fa-user-gear"></i>' ?>
                 </div>
                 <div>
-                    <h4 class="fw-bold mb-0 text-dark"><?= htmlspecialchars($mgr['full_name']) ?></h4>
+                    <h4 class="fw-bold mb-0 text-dark"><?= !empty($mgr_full_safe) ? htmlspecialchars($mgr_full_safe) : "Manager #{$manager_id}" ?></h4>
                     <div class="d-flex align-items-center gap-2 mt-1">
                         <span class="badge bg-purple-subtle text-primary border rounded-pill px-2 py-1 font-monospace" style="background:#ede9fe; color:#7c3aed !important; border-color:#ddd6fe !important;">
-                            <i class="fa-solid fa-user-shield me-1"></i> <?= htmlspecialchars($mgr['username']) ?>
+                            <i class="fa-solid fa-user-shield me-1"></i> <?= !empty($mgr_user_safe) ? htmlspecialchars($mgr_user_safe) : "no-username" ?>
                         </span>
                         <?php if ($mgr['status'] === 'active'): ?>
                             <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2 py-1">Active</span>
                         <?php else: ?>
                             <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle rounded-pill px-2 py-1">Inactive</span>
                         <?php endif; ?>
-                        <span class="text-muted small ms-2"><i class="fa-regular fa-calendar me-1"></i> Joined <?= date('d M Y', strtotime($mgr['created_at'])) ?></span>
+                        <span class="text-muted small ms-2"><i class="fa-regular fa-calendar me-1"></i> Joined <?= (!empty($mgr['created_at']) && strtotime($mgr['created_at']) > 0 && date('Y', strtotime($mgr['created_at'])) > 1970) ? date('d M Y', strtotime($mgr['created_at'])) : 'N/A' ?></span>
                     </div>
                 </div>
             </div>
@@ -657,6 +735,23 @@ $mgr['cash_in_hand'] = $pending_difference;
             </div>
         </div>
     </div>
+
+    <!-- Ghost Account Alert & Quick Delete (if account is empty/corrupted) -->
+    <?php if (empty($mgr_full_safe) && empty($mgr_user_safe)): ?>
+    <div class="alert alert-warning border border-warning-subtle rounded-4 p-3 mb-4 d-flex flex-wrap align-items-center justify-content-between gap-3 shadow-sm">
+        <div>
+            <i class="fa-solid fa-triangle-exclamation text-warning fs-5 me-2 align-middle"></i>
+            <strong>Ghost / Unconfigured Manager Account:</strong> This Manager account (#<?= $manager_id ?>) has no name or username. All financial recoveries are strictly isolated to <strong>Rs. 0</strong>.
+        </div>
+        <form method="POST" onsubmit="return confirm('Are you sure you want to permanently delete this unused ghost manager account?');" class="m-0">
+            <input type="hidden" name="action" value="delete_manager">
+            <input type="hidden" name="id" value="<?= $manager_id ?>">
+            <button type="submit" class="btn btn-danger btn-sm rounded-pill px-3 fw-bold shadow-sm">
+                <i class="fa-solid fa-trash me-1"></i> Delete Ghost Manager #<?= $manager_id ?>
+            </button>
+        </form>
+    </div>
+    <?php endif; ?>
 
     <!-- Operator-Controlled Permissions & Real-time Toggles -->
     <div class="row g-3 mb-4">
