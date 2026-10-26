@@ -355,8 +355,8 @@ $wa_text_encoded = urlencode($wa_text);
         body {
             font-family: 'Consolas', 'Courier New', Courier, monospace, 'Segoe UI', Tahoma, sans-serif;
             color: #000000;
-            font-size: 12.5px;
-            font-weight: 800;
+            font-size: 14px;
+            font-weight: 500;
             background-color: #ffffff;
             margin: 0;
             padding: 0;
@@ -367,7 +367,8 @@ $wa_text_encoded = urlencode($wa_text);
 
         #receipt-content {
             color: #000000 !important;
-            font-weight: 800 !important;
+            font-weight: 500 !important;
+            font-size: 14px !important;
             -webkit-font-smoothing: antialiased;
             -moz-osx-font-smoothing: grayscale;
             text-rendering: optimizeLegibility;
@@ -382,63 +383,63 @@ $wa_text_encoded = urlencode($wa_text);
         .text-center { text-align: center; }
         .text-right { text-align: right; }
         .text-left { text-align: left; }
-        .fw-bold { font-weight: 900 !important; }
-        .font-mono { font-family: 'Consolas', 'Courier New', monospace; font-weight: 900 !important; }
+        .fw-bold { font-weight: 600 !important; }
+        .font-mono { font-family: 'Consolas', 'Courier New', monospace; font-weight: 500 !important; }
 
         /* Brand Typography */
         .brand-title {
-            font-size: 20px !important;
-            font-weight: 900 !important;
-            letter-spacing: 0.8px;
+            font-size: 22px !important;
+            font-weight: 700 !important;
+            letter-spacing: 0.5px;
             text-transform: uppercase;
-            line-height: 1.25;
+            line-height: 1.2;
             color: #000000 !important;
         }
         .brand-sub {
-            font-size: 11.5px !important;
-            letter-spacing: 1.2px;
+            font-size: 12.5px !important;
+            letter-spacing: 1px;
             color: #000000 !important;
-            font-weight: 800 !important;
+            font-weight: 500 !important;
             text-transform: uppercase;
             margin-top: 2px;
         }
         .brand-phone {
-            font-size: 12px !important;
+            font-size: 13.5px !important;
             margin-top: 2px;
             color: #000000 !important;
-            font-weight: 800 !important;
+            font-weight: 500 !important;
         }
 
         /* Receipt Title Typography */
         .receipt-title {
-            font-size: 13.5px !important;
-            font-weight: 900 !important;
-            letter-spacing: 1px;
+            font-size: 15px !important;
+            font-weight: 700 !important;
+            letter-spacing: 0.8px;
             text-transform: uppercase;
             color: #000000 !important;
         }
         .receipt-subtitle {
-            font-size: 11.5px !important;
+            font-size: 12.5px !important;
             color: #000000 !important;
-            font-weight: 900 !important;
+            font-weight: 500 !important;
             letter-spacing: 0.5px;
             margin-top: 1px;
         }
 
         /* Thermal Divider Lines */
         .divider-dashed {
-            border-bottom: 2px dashed #000000 !important;
-            margin: 7px 0;
+            border-bottom: 1.5px dashed #000000 !important;
+            margin: 6px 0;
             height: 1px;
         }
         .divider-double {
-            border-bottom: 4px double #000000 !important;
-            margin: 8px 0;
+            border-bottom: 3px double #000000 !important;
+            margin: 7px 0;
             height: 3px;
         }
         .divider-solid {
-            border-bottom: 2px solid #000000 !important;
-            margin: 7px 0;
+            border-bottom: 1.5px solid #000000 !important;
+            margin: 6px 0;
             height: 1px;
         }
 
@@ -447,17 +448,17 @@ $wa_text_encoded = urlencode($wa_text);
             display: flex;
             justify-content: space-between;
             align-items: flex-start;
-            padding: 2px 0;
-            font-size: 12.5px;
+            padding: 2.5px 0;
+            font-size: 14px;
             width: 100%;
             box-sizing: border-box;
         }
         .receipt-row .label {
             color: #000000 !important;
-            font-weight: 800 !important;
+            font-weight: 500 !important;
             flex-shrink: 0;
             margin-right: 6px;
-            font-size: 12.5px;
+            font-size: 14px;
             max-width: 50%;
         }
         .receipt-row .val {
@@ -465,49 +466,50 @@ $wa_text_encoded = urlencode($wa_text);
             word-break: break-word;
             overflow-wrap: anywhere;
             color: #000000 !important;
-            font-size: 12.5px;
-            font-weight: 800 !important;
+            font-size: 14px;
+            font-weight: 500 !important;
             flex: 1;
         }
 
         /* Highlighted rows: New Expiry & Amount Received */
         .receipt-row-highlight {
-            font-size: 13.5px !important;
+            font-size: 15.5px !important;
+            padding: 3px 0 !important;
         }
         .receipt-row-highlight .label {
-            font-size: 13.5px !important;
-            font-weight: 900 !important;
+            font-size: 15px !important;
+            font-weight: 600 !important;
         }
         .receipt-row-highlight .val {
-            font-size: 14.5px !important;
-            font-weight: 900 !important;
+            font-size: 16.5px !important;
+            font-weight: 700 !important;
         }
 
-        /* Due Amount Row: Extra Bold & Prominent */
+        /* Due Amount Row: Prominent & Clear */
         .receipt-row-due {
-            font-size: 14.5px !important;
+            font-size: 16px !important;
             padding: 3px 0 !important;
         }
         .receipt-row-due .label {
-            font-size: 14px !important;
-            font-weight: 900 !important;
+            font-size: 15.5px !important;
+            font-weight: 600 !important;
         }
         .receipt-row-due .val {
-            font-size: 15px !important;
-            font-weight: 900 !important;
+            font-size: 17px !important;
+            font-weight: 700 !important;
         }
 
         /* Section Subheading */
         .section-tag {
-            font-size: 12px !important;
-            font-weight: 900 !important;
-            letter-spacing: 1.2px;
+            font-size: 13px !important;
+            font-weight: 600 !important;
+            letter-spacing: 1px;
             text-transform: uppercase;
             color: #000000 !important;
             border-bottom: 1.5px solid #000000;
             padding-bottom: 1px;
             margin-bottom: 3px;
-            margin-top: 2px;
+            margin-top: 3px;
             display: block;
             width: 100%;
         }
@@ -657,7 +659,7 @@ $wa_text_encoded = urlencode($wa_text);
             margin: 0 auto;
         }
 
-        /* 80mm Thermal Printer Image Export Styles (Pure Black & Heavy Bold) */
+        /* 80mm Thermal Printer Image Export Styles (Clean & High Legibility) */
         .thermal-export-canvas {
             position: fixed !important;
             left: -9999px !important;
@@ -672,7 +674,8 @@ $wa_text_encoded = urlencode($wa_text);
             font-family: 'Consolas', 'Courier New', Courier, monospace, sans-serif !important;
             z-index: -9999 !important;
             color: #000000 !important;
-            font-weight: 800 !important;
+            font-weight: 500 !important;
+            font-size: 16px !important;
         }
 
         .thermal-export-canvas * {
@@ -685,68 +688,68 @@ $wa_text_encoded = urlencode($wa_text);
         }
 
         .thermal-export-canvas .brand-title {
-            font-size: 24px !important;
-            font-weight: 900 !important;
-            letter-spacing: 1px !important;
+            font-size: 26px !important;
+            font-weight: 700 !important;
+            letter-spacing: 0.8px !important;
             text-transform: uppercase !important;
             line-height: 1.25 !important;
         }
 
         .thermal-export-canvas .brand-sub {
-            font-size: 13px !important;
-            letter-spacing: 1.5px !important;
-            font-weight: 800 !important;
+            font-size: 14.5px !important;
+            letter-spacing: 1px !important;
+            font-weight: 500 !important;
             text-transform: uppercase !important;
             margin-top: 3px !important;
         }
 
         .thermal-export-canvas .brand-phone {
-            font-size: 13.5px !important;
-            font-weight: 800 !important;
+            font-size: 15px !important;
+            font-weight: 500 !important;
             margin-top: 3px !important;
         }
 
         .thermal-export-canvas .receipt-title {
-            font-size: 15.5px !important;
-            font-weight: 900 !important;
-            letter-spacing: 1.2px !important;
+            font-size: 17.5px !important;
+            font-weight: 700 !important;
+            letter-spacing: 1px !important;
         }
 
         .thermal-export-canvas .receipt-subtitle {
-            font-size: 13px !important;
-            font-weight: 900 !important;
-            letter-spacing: 0.6px !important;
+            font-size: 14px !important;
+            font-weight: 500 !important;
+            letter-spacing: 0.5px !important;
         }
 
         .thermal-export-canvas .amount-box {
-            border: 3px solid #000000 !important;
+            border: 2px solid #000000 !important;
             background-color: #ffffff !important;
             padding: 8px 12px !important;
             margin: 8px 0 !important;
         }
 
         .thermal-export-canvas .divider-dashed {
-            border-bottom: 2.5px dashed #000000 !important;
+            border-bottom: 2px dashed #000000 !important;
             margin: 8px 0 !important;
             height: 2px !important;
         }
 
         .thermal-export-canvas .divider-double {
-            border-bottom: 5px double #000000 !important;
+            border-bottom: 4px double #000000 !important;
             margin: 10px 0 !important;
-            height: 5px !important;
+            height: 4px !important;
         }
 
         .thermal-export-canvas .divider-solid {
-            border-bottom: 2.5px solid #000000 !important;
+            border-bottom: 2px solid #000000 !important;
             margin: 8px 0 !important;
             height: 2px !important;
         }
 
         .thermal-export-canvas .section-tag {
-            font-size: 13.5px !important;
-            font-weight: 900 !important;
-            letter-spacing: 1.2px !important;
+            font-size: 15px !important;
+            font-weight: 600 !important;
+            letter-spacing: 1px !important;
             border-bottom: 2px solid #000000 !important;
             margin-bottom: 5px !important;
             padding-bottom: 2px !important;
@@ -754,7 +757,7 @@ $wa_text_encoded = urlencode($wa_text);
         }
 
         .thermal-export-canvas .receipt-row {
-            font-size: 14.5px !important;
+            font-size: 16px !important;
             padding: 3px 0 !important;
             line-height: 1.35 !important;
             width: 100% !important;
@@ -762,41 +765,41 @@ $wa_text_encoded = urlencode($wa_text);
         }
 
         .thermal-export-canvas .receipt-row .label {
-            font-size: 14.5px !important;
-            font-weight: 800 !important;
+            font-size: 16px !important;
+            font-weight: 500 !important;
             max-width: 50% !important;
         }
 
         .thermal-export-canvas .receipt-row .val {
-            font-size: 14.5px !important;
-            font-weight: 800 !important;
+            font-size: 16px !important;
+            font-weight: 500 !important;
             word-break: break-word !important;
             overflow-wrap: anywhere !important;
             flex: 1 !important;
         }
 
         .thermal-export-canvas .receipt-row-highlight {
-            font-size: 16px !important;
+            font-size: 17.5px !important;
         }
         .thermal-export-canvas .receipt-row-highlight .label {
-            font-size: 16px !important;
-            font-weight: 900 !important;
+            font-size: 17px !important;
+            font-weight: 600 !important;
         }
         .thermal-export-canvas .receipt-row-highlight .val {
-            font-size: 17px !important;
-            font-weight: 900 !important;
+            font-size: 18.5px !important;
+            font-weight: 700 !important;
         }
 
         .thermal-export-canvas .receipt-row-due {
-            font-size: 17px !important;
+            font-size: 18.5px !important;
         }
         .thermal-export-canvas .receipt-row-due .label {
-            font-size: 16.5px !important;
-            font-weight: 900 !important;
+            font-size: 18px !important;
+            font-weight: 600 !important;
         }
         .thermal-export-canvas .receipt-row-due .val {
-            font-size: 18px !important;
-            font-weight: 900 !important;
+            font-size: 19.5px !important;
+            font-weight: 700 !important;
         }
 
         .thermal-export-canvas .barcode-section {
@@ -987,7 +990,7 @@ $wa_text_encoded = urlencode($wa_text);
                     <span class="label">Remaining Due:</span>
                     <span class="val font-mono">Rs. -(<?= number_format($due_amount, 0) ?>)</span>
                 </div>
-                <div style="font-size: 11.5px; color: #000000; font-weight: 800; margin-top: 2px;">
+                <div style="font-size: 13px; color: #000000; font-weight: 500; margin-top: 2px;">
                     * Kindly clear pending due at your earliest.
                 </div>
                 <?php elseif($adv_amount > 0): ?>
@@ -995,7 +998,7 @@ $wa_text_encoded = urlencode($wa_text);
                     <span class="label fw-bold">Advance Credit:</span>
                     <span class="val fw-bold font-mono">Rs. <?= number_format($adv_amount, 0) ?></span>
                 </div>
-                <div style="font-size: 11.5px; color: #000000; font-weight: 800; margin-top: 2px;">
+                <div style="font-size: 13px; color: #000000; font-weight: 500; margin-top: 2px;">
                     * Balance credited to your advance wallet.
                 </div>
                 <?php else: ?>
@@ -1003,7 +1006,7 @@ $wa_text_encoded = urlencode($wa_text);
                     <span class="label fw-bold">Account Balance:</span>
                     <span class="val fw-bold">Rs. 0.00 (All Clear)</span>
                 </div>
-                <div style="font-size: 11.5px; color: #000000; font-weight: 800; margin-top: 2px;">
+                <div style="font-size: 13px; color: #000000; font-weight: 500; margin-top: 2px;">
                     * No outstanding dues pending on this account.
                 </div>
                 <?php endif; ?>
@@ -1018,11 +1021,11 @@ $wa_text_encoded = urlencode($wa_text);
 
             <!-- Footer Notes -->
             <div class="text-center" style="margin-top: 8px;">
-                <div class="fw-bold" style="font-size: 12.5px; margin-bottom: 2px;">Thank you for your business!</div>
-                <div style="font-size: 11px; color: #000000; font-weight: 800; line-height: 1.35;">
+                <div class="fw-bold" style="font-size: 14px; margin-bottom: 2px;">Thank you for your business!</div>
+                <div style="font-size: 12px; color: #000000; font-weight: 400; line-height: 1.35;">
                     This is a computer generated thermal receipt.<br>Valid without physical signature or stamp.
                 </div>
-                <div style="font-size: 12px; margin-top: 5px; color: #000000; font-weight: 900;">
+                <div style="font-size: 12.5px; margin-top: 5px; color: #000000; font-weight: 600;">
                     Powered by <strong><?= defined('BRAND_POWERED_BY') ? BRAND_POWERED_BY : 'SB Link Network' ?></strong>
                 </div>
             </div>
