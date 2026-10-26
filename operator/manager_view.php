@@ -3,25 +3,35 @@ require_once 'header.php';
 require_once __DIR__ . '/staff_salary_helper.php';
 init_staff_salary_schema($pdo);
 
-// Access Control: Only Operator can view manager profiles & activity logs
-if (!empty($_SESSION['is_manager'])) {
-    echo "<div class='container py-5'>
-            <div class='alert alert-danger shadow-sm'>
-                <i class='fa-solid fa-shield-halved me-2'></i> Access Denied: Managers are not authorized to view manager audit logs.
-            </div>
-            <a href='dashboard' class='btn btn-outline-secondary'><i class='fa-solid fa-arrow-left me-1'></i> Return to Dashboard</a>
-          </div>";
-    require_once 'footer.php';
-    exit;
-}
+
 
 $client_id = (int)$_SESSION['operator_id'];
 $manager_id = (int)($_GET['id'] ?? 0);
+$is_logged_manager = !empty($_SESSION['is_manager']);
+$logged_manager_id = (int)($_SESSION['manager_id'] ?? 0);
 
-if ($manager_id <= 0) {
-    echo "<div class='container py-5'><div class='alert alert-warning'>Invalid Manager ID specified.</div><a href='managers' class='btn btn-primary'>Back to Managers</a></div>";
-    require_once 'footer.php';
-    exit;
+// Manager Access Control: Manager can view their own profile and recoveries, but not other managers
+if ($is_logged_manager) {
+    if ($manager_id <= 0) {
+        $manager_id = $logged_manager_id;
+    }
+    if ($manager_id !== $logged_manager_id) {
+        echo "<div class='container py-5'>
+                <div class='alert alert-danger shadow-sm'>
+                    <i class='fa-solid fa-shield-halved me-2'></i> Access Denied: You are only authorized to view your own manager profile and recovery records.
+                </div>
+                <a href='manager_view.php?id={$logged_manager_id}' class='btn btn-primary'><i class='fa-solid fa-user me-1'></i> Go to My Profile</a>
+                <a href='dashboard' class='btn btn-outline-secondary ms-2'><i class='fa-solid fa-arrow-left me-1'></i> Return to Dashboard</a>
+              </div>";
+        require_once 'footer.php';
+        exit;
+    }
+} else {
+    if ($manager_id <= 0) {
+        echo "<div class='container py-5'><div class='alert alert-warning'>Invalid Manager ID specified.</div><a href='managers' class='btn btn-primary'>Back to Managers</a></div>";
+        require_once 'footer.php';
+        exit;
+    }
 }
 
 // Fetch Manager Record
@@ -109,7 +119,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // Handle Admin Collecting Cash in Hand from this Manager
     if ($action === 'collect_cash') {
-        $amount = (float)($_POST['amount'] ?? 0);
+        if ($is_logged_manager) {
+            $flash_msg = "Access Denied: Managers cannot collect cash from themselves. Only the Admin can confirm cash received.";
+            $flash_type = "danger";
+        } else {
+            $amount = (float)($_POST['amount'] ?? 0);
         $current_cash = (float)($mgr['cash_in_hand'] ?? 0);
 
         if ($amount > 0 && $amount <= $current_cash) {
@@ -143,6 +157,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $flash_msg = "Invalid collection amount. Must be greater than 0 and not exceed Pending Cash in Hand (Rs. " . number_format($current_cash, 0) . ").";
             $flash_type = "danger";
         }
+        }
     }
     $action = $_POST['action'] ?? '';
 
@@ -156,8 +171,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $email = trim($_POST['email'] ?? '');
         $city = trim($_POST['city'] ?? '');
         $address = trim($_POST['address'] ?? '');
-        $monthly_salary = (int)($_POST['monthly_salary'] ?? 0);
-        $status = in_array($_POST['status'] ?? '', ['active', 'inactive']) ? $_POST['status'] : 'active';
+        
+        if ($is_logged_manager) {
+            // Manager cannot alter their own salary or status
+            $monthly_salary = (int)($mgr['monthly_salary'] ?? 0);
+            $status = $mgr['status'] ?? 'active';
+        } else {
+            $monthly_salary = (int)($_POST['monthly_salary'] ?? 0);
+            $status = in_array($_POST['status'] ?? '', ['active', 'inactive']) ? $_POST['status'] : 'active';
+        }
 
         if (!empty($full_name)) {
             $upd = $pdo->prepare("
@@ -167,11 +189,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ");
             $upd->execute([$full_name, $phone, $email, $city, $address, $monthly_salary, $status, $manager_id, $client_id]);
 
-            sync_staff_monthly_salary($pdo, $client_id, 'manager', $manager_id, $full_name, $monthly_salary);
+            if (!$is_logged_manager) {
+                sync_staff_monthly_salary($pdo, $client_id, 'manager', $manager_id, $full_name, $monthly_salary);
+            }
 
-            log_staff_activity($pdo, "Updated Profile & Salary (Rs. {$monthly_salary}) for Manager #{$manager_id}", $full_name, "Manager");
-            $flash_msg = "Manager profile and monthly salary updated successfully!";
+            log_staff_activity($pdo, "Updated Profile Details for Manager #{$manager_id}", $full_name, "Manager");
+            $flash_msg = "Profile updated successfully!";
             $flash_type = "success";
+            
+            // Refresh in-memory mgr
+            $mgr['full_name'] = $full_name;
+            $mgr['phone'] = $phone;
+            $mgr['email'] = $email;
+            $mgr['city'] = $city;
+            $mgr['address'] = $address;
         } else {
             $flash_msg = "Full Name cannot be empty.";
             $flash_type = "danger";
@@ -179,6 +210,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($action === 'toggle_permission') {
+        if ($is_logged_manager) {
+            $flash_msg = "Permission Denied: Only Admin can modify permissions.";
+            $flash_type = "danger";
+        } else {
         $field = $_POST['permission'] ?? '';
         $val = ($_POST['value'] ?? '') === 'yes' ? 'yes' : 'no';
 
@@ -188,13 +223,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             log_staff_activity($pdo, "Changed {$permLabel} permission to '{$val}' for Manager #{$manager_id}", "Manager #{$manager_id}", "Manager");
             $flash_msg = "Permission updated successfully!";
         }
+        }
     }
 
     if ($action === 'toggle_status') {
+        if ($is_logged_manager) {
+            $flash_msg = "Permission Denied: Only Admin can modify account status.";
+            $flash_type = "danger";
+        } else {
         $new_status = ($_POST['status'] ?? '') === 'active' ? 'active' : 'inactive';
         $pdo->prepare("UPDATE managers SET status = ? WHERE id = ? AND client_id = ?")->execute([$new_status, $manager_id, $client_id]);
         log_staff_activity($pdo, "Changed status to '{$new_status}' for Manager #{$manager_id}", "Manager #{$manager_id}", "Manager");
         $flash_msg = "Account status updated to {$new_status}!";
+        }
     }
 
     if ($action === 'change_password') {
@@ -653,12 +694,21 @@ $mgr['cash_in_hand'] = $pending_difference;
 
     <!-- Breadcrumb & Back button -->
     <div class="d-flex justify-content-between align-items-center mb-3">
-        <a href="managers" class="btn btn-outline-secondary btn-sm rounded-pill px-3">
-            <i class="fa-solid fa-arrow-left me-1"></i> Back to Managers
-        </a>
-        <div class="text-muted small">
-            <i class="fa-solid fa-shield-halved text-primary me-1"></i> Operator Governance Panel
-        </div>
+        <?php if ($is_logged_manager): ?>
+            <a href="dashboard" class="btn btn-outline-secondary btn-sm rounded-pill px-3">
+                <i class="fa-solid fa-arrow-left me-1"></i> Dashboard
+            </a>
+            <div class="text-muted small">
+                <i class="fa-solid fa-user-shield text-primary me-1"></i> My Manager Profile &amp; Recovery Dashboard
+            </div>
+        <?php else: ?>
+            <a href="managers" class="btn btn-outline-secondary btn-sm rounded-pill px-3">
+                <i class="fa-solid fa-arrow-left me-1"></i> Back to Managers
+            </a>
+            <div class="text-muted small">
+                <i class="fa-solid fa-shield-halved text-primary me-1"></i> Operator Governance Panel
+            </div>
+        <?php endif; ?>
     </div>
 
     <!-- Manager Profile Overview -->
@@ -693,7 +743,8 @@ $mgr['cash_in_hand'] = $pending_difference;
                 <button class="btn btn-outline-secondary btn-sm rounded-pill px-3" data-bs-toggle="modal" data-bs-target="#changePasswordModal">
                     <i class="fa-solid fa-key me-1"></i> Reset Password
                 </button>
-                <!-- Status Toggle -->
+                <?php if (!$is_logged_manager): ?>
+                <!-- Status Toggle (Admin Only) -->
                 <form method="POST" class="d-inline">
                     <input type="hidden" name="action" value="toggle_status">
                     <input type="hidden" name="status" value="<?= $mgr['status'] === 'active' ? 'inactive' : 'active' ?>">
@@ -707,6 +758,7 @@ $mgr['cash_in_hand'] = $pending_difference;
                         </button>
                     <?php endif; ?>
                 </form>
+                <?php endif; ?>
             </div>
         </div>
 
@@ -763,6 +815,7 @@ $mgr['cash_in_hand'] = $pending_difference;
                     </h6>
                     <p class="text-muted small mb-0">Allow manager to create new packages, edit existing packages, and change rates.</p>
                 </div>
+                <?php if (!$is_logged_manager): ?>
                 <form method="POST" class="ms-3 flex-shrink-0">
                     <input type="hidden" name="action" value="toggle_permission">
                     <input type="hidden" name="permission" value="can_manage_packages">
@@ -777,6 +830,15 @@ $mgr['cash_in_hand'] = $pending_difference;
                         </button>
                     <?php endif; ?>
                 </form>
+                <?php else: ?>
+                    <div class="ms-3 flex-shrink-0">
+                        <?php if ($mgr['can_manage_packages'] === 'yes'): ?>
+                            <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-3 py-2 fw-semibold"><i class="fa-solid fa-check-circle me-1"></i> Permitted</span>
+                        <?php else: ?>
+                            <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle rounded-pill px-3 py-2 fw-semibold"><i class="fa-solid fa-lock me-1"></i> Locked</span>
+                        <?php endif; ?>
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
 
@@ -788,6 +850,7 @@ $mgr['cash_in_hand'] = $pending_difference;
                     </h6>
                     <p class="text-muted small mb-0">Allow manager to receive and collect cash in hand from field Operators.</p>
                 </div>
+                <?php if (!$is_logged_manager): ?>
                 <form method="POST" class="ms-3 flex-shrink-0">
                     <input type="hidden" name="action" value="toggle_permission">
                     <input type="hidden" name="permission" value="can_collect_recovery">
@@ -802,6 +865,15 @@ $mgr['cash_in_hand'] = $pending_difference;
                         </button>
                     <?php endif; ?>
                 </form>
+                <?php else: ?>
+                    <div class="ms-3 flex-shrink-0">
+                        <?php if ($mgr['can_collect_recovery'] === 'yes'): ?>
+                            <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-3 py-2 fw-semibold"><i class="fa-solid fa-check-circle me-1"></i> Permitted</span>
+                        <?php else: ?>
+                            <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle rounded-pill px-3 py-2 fw-semibold"><i class="fa-solid fa-lock me-1"></i> Locked</span>
+                        <?php endif; ?>
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
     </div>
@@ -888,9 +960,15 @@ $mgr['cash_in_hand'] = $pending_difference;
                     
                     <div class="text-center flex-shrink-0">
                         <?php if($mgr['cash_in_hand'] > 0): ?>
-                            <button class="btn btn-success btn-lg rounded-pill px-4 fw-bold shadow-sm" data-bs-toggle="modal" data-bs-target="#collectManagerCashModal">
-                                <i class="fa-solid fa-hand-holding-dollar me-2"></i> Collect Cash
-                            </button>
+                            <?php if (!$is_logged_manager): ?>
+                                <button class="btn btn-success btn-lg rounded-pill px-4 fw-bold shadow-sm" data-bs-toggle="modal" data-bs-target="#collectManagerCashModal">
+                                    <i class="fa-solid fa-hand-holding-dollar me-2"></i> Collect Cash
+                                </button>
+                            <?php else: ?>
+                                <div class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle p-2.5 px-3 rounded-pill fs-6 fw-bold">
+                                    <i class="fa-solid fa-clock-rotate-left me-1"></i> Pending Handover to Admin
+                                </div>
+                            <?php endif; ?>
                         <?php else: ?>
                             <div class="badge bg-secondary p-2.5 px-3 rounded-pill fs-6"><i class="fa-solid fa-check-circle me-1"></i> Accounts Cleared</div>
                         <?php endif; ?>
@@ -1335,16 +1413,21 @@ $mgr['cash_in_hand'] = $pending_difference;
                             <label class="form-label small fw-bold text-secondary">Monthly Salary (Rs)</label>
                             <div class="input-group">
                                 <span class="input-group-text bg-light text-muted fw-bold">Rs</span>
-                                <input type="number" step="1" min="0" name="monthly_salary" class="form-control" placeholder="e.g. 35000" value="<?= (int)($mgr['monthly_salary'] ?? 0) ?>">
+                                <input type="number" step="1" min="0" name="monthly_salary" class="form-control <?= $is_logged_manager ? 'bg-light' : '' ?>" placeholder="e.g. 35000" value="<?= (int)($mgr['monthly_salary'] ?? 0) ?>" <?= $is_logged_manager ? 'readonly' : '' ?>>
                             </div>
-                            <div class="text-muted small mt-1">Updates staff ledger auto-accruals and lifetime ledger balance.</div>
+                            <div class="text-muted small mt-1"><?= $is_logged_manager ? 'Salary is configured and managed by Admin.' : 'Updates staff ledger auto-accruals and lifetime ledger balance.' ?></div>
                         </div>
                         <div class="col-md-6">
                             <label class="form-label fw-semibold text-secondary small">Account Status</label>
+                            <?php if (!$is_logged_manager): ?>
                             <select name="status" class="form-select">
                                 <option value="active" <?= ($mgr['status'] ?? 'active') === 'active' ? 'selected' : '' ?>>Active</option>
                                 <option value="inactive" <?= ($mgr['status'] ?? '') === 'inactive' ? 'selected' : '' ?>>Inactive / Suspended</option>
                             </select>
+                            <?php else: ?>
+                            <input type="text" class="form-control bg-light" value="<?= ucfirst($mgr['status'] ?? 'active') ?>" readonly>
+                            <div class="text-muted small mt-1">Account status is managed by Admin.</div>
+                            <?php endif; ?>
                         </div>
                         <div class="col-md-6">
                             <label class="form-label fw-semibold text-secondary small">Phone Number</label>

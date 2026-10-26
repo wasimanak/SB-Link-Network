@@ -745,7 +745,12 @@ $map_subscribers = $pdo->query("
 <!-- Top 7 Quick Actions -->
 <div class="quick-actions-grid mb-4">
     <!-- 1. My Profile -->
-    <a href="profile" class="quick-action-card">
+    <?php
+        $dashProfileLink = !empty($_SESSION['is_manager']) 
+            ? "manager_view.php?id=" . (int)$_SESSION['manager_id'] 
+            : "profile";
+    ?>
+    <a href="<?= $dashProfileLink ?>" class="quick-action-card">
         <div class="quick-action-icon" style="background: linear-gradient(135deg, #3b82f6, #1d4ed8);">
             <i class="fa-solid fa-user"></i>
         </div>

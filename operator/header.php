@@ -510,11 +510,19 @@ $userRoleLabel = !empty($_SESSION['is_manager']) ? 'MANAGER' : 'ADMIN';
                 <span class="nav-text">Dashboard</span>
             </a>
 
+            <?php if (empty($_SESSION['is_manager'])): ?>
             <!-- 2. Company Profile -->
             <a href="profile" class="nav-item-link <?= in_array($p, ['profile.php', 'profile']) ? 'active-parent' : '' ?>">
                 <i class="fa-solid fa-building nav-icon"></i>
                 <span class="nav-text">Company Profile</span>
             </a>
+            <?php else: ?>
+            <!-- 2. My Profile (For Manager) -->
+            <a href="manager_view.php?id=<?= (int)$_SESSION['manager_id'] ?>" class="nav-item-link <?= in_array($p, ['manager_view.php', 'manager_view']) ? 'active-parent' : '' ?>">
+                <i class="fa-solid fa-user-shield nav-icon"></i>
+                <span class="nav-text">My Profile</span>
+            </a>
+            <?php endif; ?>
 
             <!-- 3. Users Profile -->
             <a href="#usersMenu" data-bs-toggle="collapse" class="nav-item-link has-submenu <?= $isUserMenu ? 'active-parent' : 'collapsed' ?>" aria-expanded="<?= $isUserMenu ? 'true' : 'false' ?>">
@@ -645,7 +653,12 @@ $userRoleLabel = !empty($_SESSION['is_manager']) ? 'MANAGER' : 'ADMIN';
 
         <!-- Bottom User Profile Strip (ADMINCHECK1 from Screenshot) -->
         <div class="sidebar-footer-user">
-            <a href="profile" style="text-decoration: none; display: flex; align-items: center; gap: 10px; flex-grow: 1; min-width: 0; color: inherit;">
+            <?php
+                $sidebarProfileLink = !empty($_SESSION['is_manager']) 
+                    ? "manager_view.php?id=" . (int)$_SESSION['manager_id'] 
+                    : "profile";
+            ?>
+            <a href="<?= $sidebarProfileLink ?>" style="text-decoration: none; display: flex; align-items: center; gap: 10px; flex-grow: 1; min-width: 0; color: inherit;" title="View Profile">
                 <div class="user-avatar">
                     <?php if (!empty($tenant['photo']) && file_exists(__DIR__ . '/../uploads/profiles/' . $tenant['photo'])): ?>
                         <img src="../uploads/profiles/<?= htmlspecialchars($tenant['photo']) ?>?v=<?= time() ?>" alt="Avatar">

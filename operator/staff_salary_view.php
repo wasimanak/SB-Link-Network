@@ -147,12 +147,20 @@ $ledgerEntries = $ledgerStmt->fetchAll(PDO::FETCH_ASSOC);
     <!-- 4. Action Button Card: Pay Salary / Advance -->
     <div class="col-sm-6 col-xl-3">
         <div class="salary-kpi-card d-flex flex-column justify-content-center align-items-center text-center p-3" style="background: linear-gradient(135deg, #0f172a, #1e293b); color: #fff;">
-            <div class="small text-white-50 mb-2">Payroll Quick Action</div>
-            <button type="button" class="btn btn-success rounded-pill px-4 py-2 fw-bold shadow-sm d-inline-flex align-items-center gap-2" data-bs-toggle="modal" data-bs-target="#payStaffSalaryModal" style="background: linear-gradient(135deg, #10b981, #059669); border: none;">
-                <i class="fa-solid fa-plus-circle"></i>
-                <span>Pay Salary / Advance</span>
-            </button>
-            <span class="text-white-50 small mt-2" style="font-size: 0.72rem;">Auto-logged to Daily Expenses</span>
+            <?php if (empty($_SESSION['is_manager'])): ?>
+                <div class="small text-white-50 mb-2">Payroll Quick Action</div>
+                <button type="button" class="btn btn-success rounded-pill px-4 py-2 fw-bold shadow-sm d-inline-flex align-items-center gap-2" data-bs-toggle="modal" data-bs-target="#payStaffSalaryModal" style="background: linear-gradient(135deg, #10b981, #059669); border: none;">
+                    <i class="fa-solid fa-plus-circle"></i>
+                    <span>Pay Salary / Advance</span>
+                </button>
+                <span class="text-white-50 small mt-2" style="font-size: 0.72rem;">Auto-logged to Daily Expenses</span>
+            <?php else: ?>
+                <div class="small text-white-50 mb-2">Statement Status</div>
+                <div class="badge bg-success-subtle text-success border border-success-subtle px-3 py-2 rounded-pill fs-6 fw-bold">
+                    <i class="fa-solid fa-file-invoice-dollar me-1"></i> Salary Ledger Active
+                </div>
+                <span class="text-white-50 small mt-2" style="font-size: 0.72rem;">Payroll managed by Admin</span>
+            <?php endif; ?>
         </div>
     </div>
 </div>

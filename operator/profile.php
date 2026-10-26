@@ -1,4 +1,13 @@
 <?php
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+// Block Manager from accessing Company Profile - redirect directly to their own profile and recoveries
+if (!empty($_SESSION['is_manager'])) {
+    $my_mgr_id = (int)($_SESSION['manager_id'] ?? 0);
+    header("Location: manager_view.php?id=" . $my_mgr_id);
+    exit;
+}
 require_once 'header.php';
 
 $client_id = (int)($_SESSION['operator_id'] ?? 1);
