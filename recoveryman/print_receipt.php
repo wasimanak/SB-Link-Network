@@ -324,15 +324,10 @@ if (!$invoice_id) {
 }
 $invoice_number = "INV-" . str_pad($invoice_id, 6, "0", STR_PAD_LEFT);
 
-// Financial amounts
+// Financial amounts strictly from subscriber account balance
 $package_price = (float)($sub['package_price'] ?? 0);
 $due_amount = $sub['balance'] < 0 ? abs((float)$sub['balance']) : 0;
 $adv_amount = $sub['balance'] > 0 ? (float)$sub['balance'] : 0;
-
-// If user is currently expired and has not paid, due amount should reflect package price if balance is 0
-if ($is_user_expired && $paid_amount <= 0 && $due_amount <= 0 && $adv_amount <= 0 && $package_price > 0) {
-    $due_amount = $package_price;
-}
 
 // If paid was explicitly supplied in GET query string, honor it directly
 if (isset($_GET['paid'])) {
@@ -359,12 +354,9 @@ if (isset($_GET['paid'])) {
     } catch (Exception $e) {}
 }
 
-// Final guarantee: If user is expired and no explicit payment was passed, paid amount MUST be 0!
+// Final guarantee: If user is expired / new unrenewed and no payment was passed, paid amount MUST be 0!
 if ($is_user_expired && !isset($_GET['paid']) && $ledger_id <= 0) {
     $paid_amount = 0;
-    if ($due_amount <= 0 && $adv_amount <= 0 && $package_price > 0) {
-        $due_amount = $package_price;
-    }
 }
 
 // Customer Phone Logic
