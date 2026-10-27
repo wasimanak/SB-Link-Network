@@ -9,7 +9,7 @@ $client_id = $_SESSION['operator_id'] ?? $_SESSION['client_id'] ?? null;
 $username = trim($_GET['username'] ?? '');
 
 if (!$client_id || empty($username)) {
-    echo json_encode(['bytes_in' => 0, 'bytes_out' => 0, 'error' => 'Unauthorized or missing params']);
+    echo json_encode(['bytes_in' => 0, 'bytes_out' => 0, 'status' => 'offline', 'error' => 'Unauthorized or missing params']);
     exit;
 }
 
@@ -22,6 +22,30 @@ $rx_bps = 0;
 $tx_bps = 0;
 $uptime_str = null;
 $found = false;
+
+/**
+ * Executes a RouterOS API command supporting both arguments (=key=val) and queries (?prop=val).
+ * Standard comm() prepends '=' which breaks MikroTik API query syntax.
+ */
+function ros_run($api, $cmd, $params = []) {
+    if (empty($params)) {
+        return $api->comm($cmd);
+    }
+    $api->write($cmd, false);
+    $count = count($params);
+    $i = 0;
+    foreach ($params as $k => $v) {
+        $is_last = ($i === $count - 1);
+        if (strpos($k, '?') === 0) {
+            $word = $k . ($v !== '' ? '=' . $v : '');
+        } else {
+            $word = '=' . $k . '=' . $v;
+        }
+        $api->write($word, $is_last);
+        $i++;
+    }
+    return $api->read();
+}
 
 try {
     // 1. Check if user currently has an active accounting session in radacct
@@ -44,8 +68,13 @@ try {
         }
     }
 
-    // Include all other routers configured for this operator
-    $allNasStmt = $pdo->prepare("SELECT * FROM nas WHERE client_id = ? ORDER BY id ASC");
+    // Include all other real routers configured for this operator (exclude subnets / wildcards)
+    $allNasStmt = $pdo->prepare("SELECT * FROM nas 
+        WHERE client_id = ? 
+        AND nasname NOT LIKE '%/%' 
+        AND nasname != '0.0.0.0' 
+        AND nasname != '127.0.0.1' 
+        ORDER BY id ASC");
     $allNasStmt->execute([$client_id]);
     $all_nas = $allNasStmt->fetchAll(PDO::FETCH_ASSOC);
     foreach ($all_nas as $r) {
@@ -63,30 +92,44 @@ try {
 
     // 3. Connect to routers and look for live session
     foreach ($target_routers as $nas) {
-        if (empty($nas['nasname']) || empty($nas['api_user'])) {
+        $nas_ip = trim($nas['nasname'] ?? '');
+        $api_user = trim($nas['api_user'] ?? '');
+        $api_pass = (string)($nas['api_password'] ?? '');
+        $api_port = !empty($nas['api_port']) ? (int)$nas['api_port'] : 8728;
+
+        if (empty($nas_ip) || empty($api_user) || strpos($nas_ip, '/') !== false) {
             continue;
         }
 
+        // Fast socket check (0.8s) so unreachable router IPs don't stall the request
+        $errno = 0;
+        $errstr = '';
+        $sock = @fsockopen($nas_ip, $api_port, $errno, $errstr, 0.8);
+        if (!$sock) {
+            continue;
+        }
+        fclose($sock);
+
         $api = new RouterosAPI();
         $api->timeout = 3;
-        $api_port = !empty($nas['api_port']) ? (int)$nas['api_port'] : 8728;
+        $api->attempts = 1;
 
-        if (!$api->connect($nas['nasname'], $nas['api_user'], $nas['api_password'] ?? '', $api_port)) {
+        if (!$api->connect($nas_ip, $api_user, $api_pass, $api_port)) {
             continue;
         }
 
         // A. Check PPPoE active sessions
         $exact_mikrotik_username = null;
-        $ppp = $api->comm('/ppp/active/print', ['?name' => $username]);
+        $ppp = ros_run($api, '/ppp/active/print', ['?name' => $username]);
         if (empty($ppp)) {
-            $ppp = $api->comm('/ppp/active/print', ['?name' => $username_lower]);
+            $ppp = ros_run($api, '/ppp/active/print', ['?name' => $username_lower]);
         }
         if (!empty($ppp) && isset($ppp[0]['name'])) {
             $exact_mikrotik_username = $ppp[0]['name'];
             $uptime_str = $ppp[0]['uptime'] ?? null;
         }
 
-        // Fallback scan if case differed or filter was unsupported
+        // Fallback scan if case differed or filter didn't match
         if (!$exact_mikrotik_username) {
             $all_ppp = $api->comm('/ppp/active/print');
             if (is_array($all_ppp)) {
@@ -113,7 +156,7 @@ try {
             ];
 
             foreach ($candidates as $cand) {
-                $iface_res = $api->comm('/interface/print', ['?name' => $cand]);
+                $iface_res = ros_run($api, '/interface/print', ['?name' => $cand]);
                 if (!empty($iface_res) && isset($iface_res[0]['name'])) {
                     $target_iface_name = $iface_res[0]['name'];
                     $bytes_in = (float)($iface_res[0]['rx-byte'] ?? 0);
@@ -125,7 +168,7 @@ try {
 
             // If not found by candidate name, search all PPPoE dynamic interfaces for partial match
             if (!$target_iface_name) {
-                $all_pppoe = $api->comm('/interface/print', ['?type' => 'pppoe-in']);
+                $all_pppoe = ros_run($api, '/interface/print', ['?type' => 'pppoe-in']);
                 if (is_array($all_pppoe)) {
                     foreach ($all_pppoe as $pif) {
                         if (isset($pif['name']) && stripos($pif['name'], $exact_mikrotik_username) !== false) {
@@ -141,7 +184,7 @@ try {
 
             // Query monitor-traffic for live instantaneous bitrate
             if ($target_iface_name) {
-                $traffic = $api->comm('/interface/monitor-traffic', [
+                $traffic = ros_run($api, '/interface/monitor-traffic', [
                     'interface' => $target_iface_name,
                     'once'      => ''
                 ]);
@@ -156,9 +199,9 @@ try {
 
         // C. Check Hotspot active if not found in PPPoE
         if (!$found) {
-            $hs = $api->comm('/ip/hotspot/active/print', ['?user' => $username]);
+            $hs = ros_run($api, '/ip/hotspot/active/print', ['?user' => $username]);
             if (empty($hs)) {
-                $hs = $api->comm('/ip/hotspot/active/print', ['?user' => $username_lower]);
+                $hs = ros_run($api, '/ip/hotspot/active/print', ['?user' => $username_lower]);
             }
             if (!empty($hs) && isset($hs[0]['user'])) {
                 $bytes_in = (float)($hs[0]['bytes-in'] ?? 0);
@@ -200,13 +243,12 @@ try {
             'status'    => 'offline',
             'bytes_in'  => 0, 
             'bytes_out' => 0, 
-            'rx_bps'    => 0,
-            'tx_bps'    => 0,
+            'rx_bps'    => 0, 
+            'tx_bps'    => 0, 
             'msg'       => 'User not active in MikroTik'
         ]);
     }
 } catch (Exception $e) {
-    // If any error occurred, try fallback to radacct
     if (!empty($rad_active)) {
         $bytes_in = (float)($rad_active['acctinputoctets'] ?? 0);
         $bytes_out = (float)($rad_active['acctoutputoctets'] ?? 0);
@@ -223,7 +265,7 @@ try {
             'uptime'    => $uptime_str
         ]);
     } else {
-        echo json_encode(['bytes_in' => 0, 'bytes_out' => 0, 'error' => $e->getMessage()]);
+        echo json_encode(['bytes_in' => 0, 'bytes_out' => 0, 'status' => 'offline', 'error' => $e->getMessage()]);
     }
 }
 ?>

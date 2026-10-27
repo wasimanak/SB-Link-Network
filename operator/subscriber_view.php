@@ -1328,14 +1328,17 @@ if ($last_debit) {
                     <canvas id="ledgerChart" height="200"></canvas>
                 </div>
                 <div class="col-md-6">
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                        <span class="fw-semibold text-secondary small"><i class="fa-solid fa-gauge-high me-1"></i> Live Bandwidth Monitor</span>
+                    <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="fw-semibold text-secondary small"><i class="fa-solid fa-gauge-high me-1"></i> Live Bandwidth</span>
+                            <span id="live_status_badge" class="badge bg-secondary bg-opacity-10 text-secondary border px-2 py-0.5" style="font-size: 0.72rem;">Connecting...</span>
+                        </div>
                         <div class="d-flex gap-2">
                             <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 px-2 py-1" style="font-size: 0.8rem;">
-                                <i class="fa-solid fa-arrow-down me-1"></i> Down: <span id="live_down_mbps" class="font-monospace fw-bold">0.00</span> Mbps
+                                <i class="fa-solid fa-arrow-down me-1"></i> Down: <span id="live_down_mbps" class="font-monospace fw-bold">0.00 Mbps</span>
                             </span>
                             <span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25 px-2 py-1" style="font-size: 0.8rem;">
-                                <i class="fa-solid fa-arrow-up me-1"></i> Up: <span id="live_up_mbps" class="font-monospace fw-bold">0.00</span> Mbps
+                                <i class="fa-solid fa-arrow-up me-1"></i> Up: <span id="live_up_mbps" class="font-monospace fw-bold">0.00 Mbps</span>
                             </span>
                         </div>
                     </div>
@@ -2365,8 +2368,16 @@ let prevBytesOut = null;
 let lastTime = null;
 const pastBytes = <?= (int)$past_bytes ?>;
 
+function formatSpeed(mbps) {
+    if (isNaN(mbps) || mbps <= 0) return '0.00 Mbps';
+    if (mbps < 0.1) {
+        return (mbps * 1024).toFixed(1) + ' Kbps';
+    }
+    return mbps.toFixed(2) + ' Mbps';
+}
+
 function fetchLiveBandwidth() {
-    fetch(`api_bandwidth.php?username=<?= urlencode($user['username']) ?>`)
+    fetch(`api_bandwidth.php?username=<?= urlencode($user['username']) ?>&sub_id=<?= (int)$user['id'] ?>`)
         .then(res => res.json())
         .then(data => {
             if (data.bytes_in !== undefined && data.bytes_out !== undefined) {
@@ -2377,8 +2388,20 @@ function fetchLiveBandwidth() {
                     if (svcU) svcU.innerText = data.uptime;
                 }
                 
+                // Update live status pill
+                let sBadge = document.getElementById('live_status_badge');
+                if (sBadge) {
+                    if (data.status === 'online') {
+                        sBadge.className = 'badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-2 py-0.5';
+                        sBadge.innerHTML = '<i class="fa-solid fa-circle text-success me-1" style="font-size:0.45rem; vertical-align:middle;"></i>Active';
+                    } else {
+                        sBadge.className = 'badge bg-secondary bg-opacity-10 text-secondary border px-2 py-0.5';
+                        sBadge.innerHTML = '<i class="fa-solid fa-circle text-muted me-1" style="font-size:0.45rem; vertical-align:middle;"></i>Offline';
+                    }
+                }
+
                 // Update Used Volume LIVE
-                let currentLiveBytes = data.bytes_in + data.bytes_out;
+                let currentLiveBytes = parseFloat(data.bytes_in) + parseFloat(data.bytes_out);
                 let totalCurrentBytes = pastBytes + currentLiveBytes;
                 
                 let volStr = "0 MB";
@@ -2435,9 +2458,9 @@ function fetchLiveBandwidth() {
 
                 // Update live speed badges
                 let dEl = document.getElementById('live_down_mbps');
-                if (dEl) dEl.innerText = tx_mbps.toFixed(2);
+                if (dEl) dEl.innerText = formatSpeed(tx_mbps);
                 let uEl2 = document.getElementById('live_up_mbps');
-                if (uEl2) uEl2.innerText = rx_mbps.toFixed(2);
+                if (uEl2) uEl2.innerText = formatSpeed(rx_mbps);
 
                 // Shift old data
                 bwChart.data.labels.shift();
