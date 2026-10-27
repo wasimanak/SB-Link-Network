@@ -257,7 +257,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
                     }
 
-                    $pdo->prepare("UPDATE subscribers SET package_id = ?, expiry_date = ?, status = 'active', balance = ? WHERE id = ?")
+                    $pdo->prepare("UPDATE subscribers SET package_id = ?, expiry_date = ?, status = 'active', balance = ?, last_renewed_at = NOW() WHERE id = ?")
                         ->execute([$package_id, $expiry_date, $new_bal, $id]);
 
                     $is_mgr = !empty($_SESSION['is_manager']);

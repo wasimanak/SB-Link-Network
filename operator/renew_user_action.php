@@ -149,7 +149,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $new_status = ($new_exp_ts > $now) ? 'active' : 'expired';
 
         // Update DB
-        $pdo->prepare("UPDATE subscribers SET package_id = ?, expiry_date = ?, status = ?, balance = ? WHERE id = ?")
+        $pdo->prepare("UPDATE subscribers SET package_id = ?, expiry_date = ?, status = ?, balance = ?, last_renewed_at = NOW() WHERE id = ?")
             ->execute([$package_id, $expiry_date, $new_status, $final_bal, $user_id]);
             
         // Update Radius

@@ -10,6 +10,13 @@ $id = (int)$_GET['id'];
 
 require_once '../config/routeros_api.class.php';
 
+try {
+    $cols = $pdo->query("SHOW COLUMNS FROM subscribers LIKE 'last_renewed_at'")->fetchAll();
+    if (empty($cols)) {
+        $pdo->exec("ALTER TABLE subscribers ADD COLUMN last_renewed_at DATETIME DEFAULT NULL");
+    }
+} catch (Exception $e) {}
+
 function kick_user_mikrotik($pdo, $client_id, $username) {
     $stmt = $pdo->prepare("SELECT * FROM nas WHERE client_id = ? LIMIT 1");
     $stmt->execute([$client_id]);
@@ -675,9 +682,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $new_status = ($new_exp_ts > $now) ? 'active' : 'expired';
                 $formatted_expiry_db = date('Y-m-d H:i:s', $new_exp_ts);
 
-                // Update subscriber record
-                $pdo->prepare("UPDATE subscribers SET package_id = ?, expiry_date = ?, status = ?, balance = ? WHERE id = ?")
-                    ->execute([$package_id, $formatted_expiry_db, $new_status, $final_bal, $id]);
+                // Update subscriber record with current renewal timestamp (resets data usage for new cycle)
+                $now_dt = date('Y-m-d H:i:s');
+                $pdo->prepare("UPDATE subscribers SET package_id = ?, expiry_date = ?, status = ?, balance = ?, last_renewed_at = ? WHERE id = ?")
+                    ->execute([$package_id, $formatted_expiry_db, $new_status, $final_bal, $now_dt, $id]);
 
                 // RADIUS sync
                 $formatted_expiry_rad = date('d M Y H:i:s', $new_exp_ts);
@@ -832,22 +840,81 @@ $pkgStmt = $pdo->prepare("SELECT * FROM packages WHERE client_id = ?");
 $pkgStmt->execute([$client_id]);
 $packages = $pkgStmt->fetchAll();
 
-// Fetch metrics from past sessions (closed sessions)
-$volStmt = $pdo->prepare("SELECT SUM(acctinputoctets) as up, SUM(acctoutputoctets) as down FROM radacct WHERE username = ?");
-$volStmt->execute([$user['username']]);
+// Determine current package cycle start date (reset point for data usage & session uptime)
+// If last_renewed_at is set, use it. Otherwise use the most recent renewal activity log or calculated cycle start.
+$cycle_start = null;
+if (!empty($user['last_renewed_at']) && $user['last_renewed_at'] !== '0000-00-00 00:00:00') {
+    $cycle_start = $user['last_renewed_at'];
+} else {
+    // Check if there is a recorded renewal activity log
+    $actStmt = $pdo->prepare("SELECT created_at FROM activity_logs WHERE against_to = ? AND (activity LIKE '%Package Renewed%' OR activity LIKE '%Renewed Package%') ORDER BY id DESC LIMIT 1");
+    $actStmt->execute([$user['username']]);
+    $last_renewal_log = $actStmt->fetchColumn();
+
+    $validity_days = (int)(($user['validity_days'] ?? 0) > 0 ? $user['validity_days'] : 30);
+    $created_at = !empty($user['created_at']) ? $user['created_at'] : '2000-01-01 00:00:00';
+
+    if (!empty($last_renewal_log)) {
+        $cycle_start = $last_renewal_log;
+    } elseif (!empty($user['expiry_date']) && $user['expiry_date'] !== '0000-00-00 00:00:00') {
+        $computed_start = date('Y-m-d H:i:s', strtotime($user['expiry_date'] . " -{$validity_days} days"));
+        // Current cycle can NEVER begin before the subscriber account was actually created
+        $cycle_start = ($computed_start > $created_at) ? $computed_start : $created_at;
+    } else {
+        $cycle_start = $created_at;
+    }
+}
+$last_act = $cycle_start;
+
+// 1. Fetch data usage from CLOSED sessions in this current cycle
+$volStmt = $pdo->prepare("SELECT SUM(acctinputoctets) as up, SUM(acctoutputoctets) as down 
+    FROM radacct 
+    WHERE username = ? 
+      AND acctstoptime IS NOT NULL 
+      AND acctstarttime >= ?");
+$volStmt->execute([$user['username'], $cycle_start]);
 $vol = $volStmt->fetch();
 
-$past_bytes = ($vol['up'] ?? 0) + ($vol['down'] ?? 0);
-$total_bytes = $past_bytes; // Initial total (will be updated by JS if online)
-if ($total_bytes >= 1073741824) {
-    $used_volume_str = round($total_bytes / 1073741824, 2) . " GB";
-} elseif ($total_bytes >= 1048576) {
-    $used_volume_str = round($total_bytes / 1048576, 2) . " MB";
-} elseif ($total_bytes > 0) {
-    $used_volume_str = round($total_bytes / 1024, 2) . " KB";
-} else {
-    $used_volume_str = "0 MB";
+$closed_up = (float)($vol['up'] ?? 0);
+$closed_down = (float)($vol['down'] ?? 0);
+$past_bytes = $closed_up + $closed_down;
+
+// 2. Fetch active session in radacct (if online and started within current cycle)
+$liveStmt = $pdo->prepare("SELECT acctinputoctets, acctoutputoctets 
+    FROM radacct 
+    WHERE username = ? 
+      AND acctstoptime IS NULL 
+      AND acctstarttime >= ? 
+    ORDER BY radacctid DESC LIMIT 1");
+$liveStmt->execute([$user['username'], $cycle_start]);
+$live_rad = $liveStmt->fetch();
+
+$live_rad_up = (float)($live_rad['acctinputoctets'] ?? 0);
+$live_rad_down = (float)($live_rad['acctoutputoctets'] ?? 0);
+$live_rad_bytes = $live_rad_up + $live_rad_down;
+
+// Initial total bytes (closed + active in radacct) - dynamically updated in real-time by JS if online
+$total_bytes = $past_bytes + $live_rad_bytes;
+
+if (!function_exists('formatSubscriberBytes')) {
+    function formatSubscriberBytes($bytes) {
+        if ($bytes >= 1073741824) return round($bytes / 1073741824, 2) . " GB";
+        if ($bytes >= 1048576) return round($bytes / 1048576, 2) . " MB";
+        if ($bytes > 0) return round($bytes / 1024, 2) . " KB";
+        return "0 MB";
+    }
 }
+
+$used_volume_str = formatSubscriberBytes($total_bytes);
+$cycle_up_str = formatSubscriberBytes($closed_up + $live_rad_up);
+$cycle_down_str = formatSubscriberBytes($closed_down + $live_rad_down);
+
+// 3. Lifetime all-time volume across entire history (for reference in service details)
+$lifeStmt = $pdo->prepare("SELECT SUM(acctinputoctets) as up, SUM(acctoutputoctets) as down FROM radacct WHERE username = ?");
+$lifeStmt->execute([$user['username']]);
+$lifeVol = $lifeStmt->fetch();
+$lifetime_bytes = (float)($lifeVol['up'] ?? 0) + (float)($lifeVol['down'] ?? 0);
+$lifetime_vol_str = formatSubscriberBytes($lifetime_bytes);
 
 // Check if currently online
 $onStmt = $pdo->prepare("SELECT * FROM radacct WHERE username = ? AND acctstoptime IS NULL ORDER BY radacctid DESC LIMIT 1");
@@ -863,9 +930,9 @@ if ($online) {
     $uptime_str = "{$hours}h {$mins}m";
 }
 
-// Additional Service Details
-$sessStmt = $pdo->prepare("SELECT SUM(acctsessiontime) as total_time FROM radacct WHERE username = ?");
-$sessStmt->execute([$user['username']]);
+// Session hours in current cycle
+$sessStmt = $pdo->prepare("SELECT SUM(acctsessiontime) as total_time FROM radacct WHERE username = ? AND acctstarttime >= ?");
+$sessStmt->execute([$user['username'], $cycle_start]);
 $total_time_sec = (int)$sessStmt->fetchColumn();
 $used_sess_hours = floor($total_time_sec / 3600);
 $used_sess_mins = floor(($total_time_sec % 3600) / 60);
@@ -874,11 +941,6 @@ $used_sess_str = sprintf("%02d Hours %02d Minutes", $used_sess_hours, $used_sess
 $latestStmt = $pdo->prepare("SELECT * FROM radacct WHERE username = ? ORDER BY radacctid DESC LIMIT 1");
 $latestStmt->execute([$user['username']]);
 $latest_conn = $latestStmt->fetch();
-
-$actStmt = $pdo->prepare("SELECT created_at FROM activity_logs WHERE against_to = ? AND activity LIKE '%Package Renewed%' ORDER BY id DESC LIMIT 1");
-$actStmt->execute([$user['username']]);
-$last_act = $actStmt->fetchColumn();
-if (!$last_act) $last_act = $user['created_at'];
 
 // Calculate Remaining Volume
 $data_limit_gb = (float)($user['data_limit_gb'] ?? 0);
@@ -1301,6 +1363,7 @@ if ($last_debit) {
                     <div class="metric-data">
                         <h6>Used Volume</h6>
                         <h4 id="live_used_volume"><?= $used_volume_str ?></h4>
+                        <small class="text-muted" style="font-size: 0.72rem;" title="Resets to 0 upon package renewal">Since <?= $cycle_start ? date('d M Y', strtotime($cycle_start)) : 'Activation' ?></small>
                     </div>
                 </div>
             </div>
@@ -1436,8 +1499,16 @@ if ($last_debit) {
                                 <tr><td class="fw-bold">Created / Registered Date</td><td><?= !empty($user['created_at']) ? date('d M Y H:i:s', strtotime($user['created_at'])) : 'N/A' ?></td></tr>
                                 <tr><td class="fw-bold">Last Expiration Date</td><td><?= $user['expiry_date'] ? date('d M Y H:i:s', strtotime($user['expiry_date'])) : 'N/A' ?></td></tr>
                                 <tr><td class="fw-bold">Total Volume</td><td><?= $total_vol_str ?></td></tr>
-                                <tr><td class="fw-bold">Used Volume</td><td id="svc_used_volume"><?= $used_volume_str ?></td></tr>
+                                <tr>
+                                    <td class="fw-bold">Used Volume (Current Cycle)</td>
+                                    <td id="svc_used_volume">
+                                        <strong><?= $used_volume_str ?></strong>
+                                        <span class="text-muted small ms-1">(Up: <?= $cycle_up_str ?> | Down: <?= $cycle_down_str ?>)</span>
+                                    </td>
+                                </tr>
                                 <tr><td class="fw-bold">Remaining Volume</td><td id="svc_rem_volume"><?= $rem_vol_str ?></td></tr>
+                                <tr><td class="fw-bold">All-Time Lifetime Usage</td><td><span class="text-muted"><?= $lifetime_vol_str ?></span></td></tr>
+                                <tr><td class="fw-bold">Current Cycle Started</td><td><?= $cycle_start ? date('d M Y, h:i A', strtotime($cycle_start)) : 'N/A' ?></td></tr>
                                 <tr><td class="fw-bold">Total Session Time</td><td>Unlimited</td></tr>
                                 <tr><td class="fw-bold">Used Session Time</td><td><?= $used_sess_str ?></td></tr>
                                 <tr><td class="fw-bold">Remaining Session Time</td><td>Unlimited</td></tr>
