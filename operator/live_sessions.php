@@ -51,7 +51,7 @@ function formatMikroTikUptime($seconds) {
     return trim($out);
 }
 
-// Get Live Sessions mapped to this operator
+// Get Live Sessions mapped strictly to this operator's subscribers
 $sql = "SELECT r.*, s.id as subscriber_id, s.package_id, p.name as package_name, s.expiry_date, s.status as sub_status, s.full_name, s.mobile 
         FROM radacct r 
         INNER JOIN (
@@ -60,16 +60,12 @@ $sql = "SELECT r.*, s.id as subscriber_id, s.package_id, p.name as package_name,
             WHERE acctstoptime IS NULL 
             GROUP BY username
         ) as latest ON r.radacctid = latest.max_id
-        LEFT JOIN subscribers s ON LOWER(TRIM(r.username)) = LOWER(TRIM(s.username)) COLLATE utf8mb4_general_ci
+        INNER JOIN subscribers s ON LOWER(TRIM(r.username)) = LOWER(TRIM(s.username)) COLLATE utf8mb4_general_ci
         LEFT JOIN packages p ON s.package_id = p.id
-        WHERE (
-            s.client_id = ? 
-            OR r.nasipaddress IN (SELECT nasname FROM nas WHERE client_id = ?)
-            OR r.username IN (SELECT username FROM subscribers WHERE client_id = ?)
-        )" . (isset($_GET['filter']) && $_GET['filter'] === 'expired_online' ? " AND (s.expiry_date <= NOW() OR s.status = 'expired')" : "") . "
+        WHERE s.client_id = ?" . (isset($_GET['filter']) && $_GET['filter'] === 'expired_online' ? " AND (s.expiry_date <= NOW() OR s.status = 'expired')" : "") . "
         ORDER BY r.acctstarttime DESC";
 $stmt = $pdo->prepare($sql);
-$stmt->execute([$client_id, $client_id, $client_id]);
+$stmt->execute([$client_id]);
 $sessions = $stmt->fetchAll();
 $total_live = count($sessions);
 ?>
@@ -183,20 +179,24 @@ $total_live = count($sessions);
                             <?php endif; ?>
                             <button type="button" class="copy-user-btn ms-1" onclick="copyToClipboard(event, '<?= addslashes(htmlspecialchars($sess['username'])) ?>', this)" title="Copy Username"><i class="fa-regular fa-copy" style="font-size: 0.75rem;"></i></button>
                         </div>
-                        <div class="text-muted small text-truncate">
-                            <i class="fa-solid fa-box text-secondary me-1"></i> <?= htmlspecialchars($sess['package_name'] ?? 'Active Connection') ?>
+                        <div class="text-muted small text-truncate d-flex align-items-center flex-wrap gap-1">
+                            <i class="fa-solid fa-box text-secondary me-1"></i> <?= htmlspecialchars($sess['package_name'] ?? 'Active Package') ?>
                             <?php if (!empty($sess['full_name'])): ?>
-                                <span class="ms-1 text-secondary">(<?= htmlspecialchars($sess['full_name']) ?>)</span>
+                                <span class="text-secondary">(<?= htmlspecialchars($sess['full_name']) ?>)</span>
                             <?php endif; ?>
+                            <span class="badge bg-light text-primary border" style="font-size: 0.65rem;" title="Authenticated via this FreeRADIUS server"><i class="fa-solid fa-server me-1"></i>Radius</span>
                             <?php if (!empty($sess['sub_status']) && ($sess['sub_status'] === 'expired' || (!empty($sess['expiry_date']) && strtotime($sess['expiry_date']) <= time()))): ?>
-                                <span class="badge bg-danger ms-1" style="font-size: 0.65rem;">Expired (Online)</span>
+                                <span class="badge bg-danger" style="font-size: 0.65rem;">Expired (Online)</span>
                             <?php endif; ?>
                         </div>
                     </div>
                 </div>
                 <div class="col-12 col-xl-2 col-md-3">
-                    <div class="text-dark fw-bold font-monospace small mb-1"><i class="fa-solid fa-server text-muted me-1"></i><?= htmlspecialchars($sess['framedipaddress'] ?? 'N/A') ?></div>
-                    <div class="text-secondary font-monospace small"><i class="fa-solid fa-microchip text-muted me-1"></i><?= htmlspecialchars($sess['callingstationid'] ?? 'N/A') ?></div>
+                    <div class="text-dark fw-bold font-monospace small mb-1"><i class="fa-solid fa-network-wired text-primary me-1"></i><?= htmlspecialchars($sess['framedipaddress'] ?? 'N/A') ?></div>
+                    <div class="text-secondary font-monospace small mb-1"><i class="fa-solid fa-microchip text-muted me-1"></i><?= htmlspecialchars($sess['callingstationid'] ?? 'N/A') ?></div>
+                    <div class="text-muted" style="font-size: 0.72rem;" title="Exact connection start time recorded by RADIUS">
+                        <i class="fa-regular fa-clock me-1 text-secondary"></i><?= !empty($sess['acctstarttime']) ? date('d M, h:i A', strtotime($sess['acctstarttime'])) : 'N/A' ?>
+                    </div>
                 </div>
                 <div class="col-12 col-xl-4 col-md-4">
                     <div class="row g-2 text-center">

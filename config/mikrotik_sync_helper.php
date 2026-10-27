@@ -623,10 +623,31 @@ function sync_operator_mikrotik_active_sessions($pdo, $client_id) {
         return ['success' => false, 'error' => 'No MikroTik router found. Please add a router in Routers menu.'];
     }
 
+    // 2. Load all registered subscribers belonging strictly to this operator
+    // This is CRITICAL: We MUST NEVER sync or touch active connections that belong to another RADIUS server,
+    // another operator, or local router accounts!
+    $subMap = []; // lowercase username => actual exact username in subscribers table
+    try {
+        $subStmt = $pdo->prepare("SELECT LOWER(TRIM(username)) as lu, username FROM subscribers WHERE client_id = ?");
+        $subStmt->execute([$client_id]);
+        while ($sRow = $subStmt->fetch(PDO::FETCH_ASSOC)) {
+            if (!empty($sRow['lu'])) {
+                $subMap[$sRow['lu']] = $sRow['username'];
+            }
+        }
+    } catch (Exception $e) {
+        return ['success' => false, 'error' => 'Database error loading subscribers: ' . $e->getMessage()];
+    }
+
+    if (empty($subMap)) {
+        return ['success' => false, 'error' => 'No subscribers found for this operator.'];
+    }
+
     $total_router_active = 0;
     $total_synced_new = 0;
     $total_updated = 0;
     $total_ghosts_cleared = 0;
+    $total_external_ignored = 0;
     $routers_connected = 0;
     $router_errors = [];
 
@@ -726,13 +747,16 @@ function sync_operator_mikrotik_active_sessions($pdo, $client_id) {
 
         $total_router_active += count($router_active_users);
 
-        // Fetch open sessions in radacct for this router
+        // Fetch open sessions in radacct ONLY for this operator's subscribers on this router
         $dbStmt = $pdo->prepare("
-            SELECT radacctid, username, framedipaddress, callingstationid 
-            FROM radacct 
-            WHERE (nasipaddress = ? OR nasipaddress LIKE ?) AND acctstoptime IS NULL
+            SELECT r.radacctid, r.username, r.framedipaddress, r.callingstationid 
+            FROM radacct r
+            JOIN subscribers s ON LOWER(TRIM(r.username)) = LOWER(TRIM(s.username))
+            WHERE (r.nasipaddress = ? OR r.nasipaddress LIKE ?) 
+              AND r.acctstoptime IS NULL
+              AND s.client_id = ?
         ");
-        $dbStmt->execute([$nas_ip, "%{$nas_ip}%"]);
+        $dbStmt->execute([$nas_ip, "%{$nas_ip}%", $client_id]);
         $db_open_sessions = $dbStmt->fetchAll(PDO::FETCH_ASSOC);
 
         $db_active_map = []; // lowercase username => row
@@ -740,8 +764,18 @@ function sync_operator_mikrotik_active_sessions($pdo, $client_id) {
             $db_active_map[strtolower(trim($row['username']))] = $row;
         }
 
-        // 1. Sync every active MikroTik user into radacct
+        // 1. Sync every active user who belongs to THIS operator into radacct
         foreach ($router_active_users as $lower_u => $mdata) {
+            // STRICT FILTER: If user is not in this operator's subscribers list,
+            // they belong to another RADIUS server, another operator, or local router accounts.
+            // Safely ignore them completely: DO NOT insert into radacct!
+            if (!isset($subMap[$lower_u])) {
+                $total_external_ignored++;
+                continue;
+            }
+
+            $exact_username = $subMap[$lower_u];
+
             if (isset($db_active_map[$lower_u])) {
                 $existing = $db_active_map[$lower_u];
                 $updateSessStmt->execute([
@@ -752,10 +786,11 @@ function sync_operator_mikrotik_active_sessions($pdo, $client_id) {
                 ]);
                 $total_updated++;
             } else {
-                // User is active in MikroTik but missing in radacct: Insert it!
+                // User is a registered subscriber of this operator and active in MikroTik, but missing in radacct:
+                // Insert with exact start time calculated from MikroTik uptime!
                 $sess_id = !empty($mdata['session_id']) ? $mdata['session_id'] : ('mt-' . bin2hex(random_bytes(4)));
                 $insertSessStmt->execute([
-                    $mdata['username'],
+                    $exact_username,
                     $nas_ip,
                     $mdata['ip'] ?: '10.0.0.1',
                     $mdata['caller_id'] ?: 'N/A',
@@ -767,7 +802,7 @@ function sync_operator_mikrotik_active_sessions($pdo, $client_id) {
             }
         }
 
-        // 2. Clear ghost sessions in radacct that are no longer active in MikroTik
+        // 2. Clear ghost sessions in radacct that belong to THIS operator and are no longer active in MikroTik
         foreach ($db_open_sessions as $row) {
             $lower_u = strtolower(trim($row['username']));
             if (!isset($router_active_users[$lower_u])) {
@@ -776,6 +811,11 @@ function sync_operator_mikrotik_active_sessions($pdo, $client_id) {
             }
         }
     }
+
+    // Clean any orphan sync rows that don't belong to any subscriber
+    try {
+        $pdo->exec("DELETE FROM radacct WHERE acctsessionid LIKE 'mt-%' AND LOWER(TRIM(username)) NOT IN (SELECT LOWER(TRIM(username)) FROM subscribers)");
+    } catch (Exception $e) {}
 
     if ($routers_connected === 0 && !empty($router_errors)) {
         return [
@@ -786,20 +826,26 @@ function sync_operator_mikrotik_active_sessions($pdo, $client_id) {
         ];
     }
 
-    $msg = "Synced with MikroTik: {$total_router_active} active connections verified across {$routers_connected} router(s).";
+    $our_verified = $total_updated + $total_synced_new;
+    $msg = "MikroTik Sync: Verified {$our_verified} active connection(s) for your RADIUS subscribers.";
     if ($total_synced_new > 0 || $total_ghosts_cleared > 0) {
-        $msg .= " ({$total_synced_new} missing sessions restored, {$total_ghosts_cleared} stale sessions cleared).";
+        $msg .= " ({$total_synced_new} missing restored, {$total_ghosts_cleared} stale cleared).";
+    }
+    if ($total_external_ignored > 0) {
+        $msg .= " [Note: {$total_external_ignored} active connection(s) on router belong to other RADIUS/local accounts and were safely excluded.]";
     }
 
     return [
-        'success'           => true,
-        'msg'               => $msg,
-        'active_count'      => $total_router_active,
-        'synced_new'        => $total_synced_new,
-        'updated'           => $total_updated,
-        'ghosts_cleared'    => $total_ghosts_cleared,
-        'routers_connected' => $routers_connected,
-        'errors'            => $router_errors
+        'success'             => true,
+        'msg'                 => $msg,
+        'active_count'        => $our_verified,
+        'total_router_active' => $total_router_active,
+        'external_ignored'    => $total_external_ignored,
+        'synced_new'          => $total_synced_new,
+        'updated'             => $total_updated,
+        'ghosts_cleared'      => $total_ghosts_cleared,
+        'routers_connected'   => $routers_connected,
+        'errors'              => $router_errors
     ];
 }
 }
