@@ -50,11 +50,15 @@ require_once 'header.php';
 $client_id = (int)$_SESSION['operator_id'];
 require_once __DIR__ . '/../config/mikrotik_sync_helper.php';
 
-// 2. Auto-Sync with MikroTik Router(s) (throttled to once every 20 seconds, or forced if ?sync=1)
+// Self-heal: Reopen any sessions that were falsely closed with Lost-Carrier in the last 12 hours
+try {
+    $pdo->exec("UPDATE radacct SET acctstoptime = NULL, acctterminatecause = '' WHERE acctterminatecause = 'Lost-Carrier' AND acctstoptime >= NOW() - INTERVAL 12 HOUR");
+} catch (Exception $e) {}
+
+// MikroTik sync only executes when explicitly triggered (?sync=1 or button clicked)
 $sync_feedback = null;
-if (!isset($_SESSION['last_mt_session_sync']) || (time() - $_SESSION['last_mt_session_sync']) > 20 || isset($_GET['sync'])) {
+if (isset($_GET['sync'])) {
     $sync_feedback = sync_operator_mikrotik_active_sessions($pdo, $client_id);
-    $_SESSION['last_mt_session_sync'] = time();
 }
 
 // 3. Auto-Sync & Block Expired Users (runs once every 30 seconds)
@@ -79,55 +83,68 @@ function formatMikroTikUptime($seconds) {
     return trim($out);
 }
 
-// Get Live Sessions mapped strictly to this operator's subscribers with radpostauth correlation
-$sql = "SELECT r.*, 
-               s.id as subscriber_id, 
-               s.package_id, 
-               p.name as package_name, 
-               s.expiry_date, 
-               s.status as sub_status, 
-               s.full_name, 
-               s.mobile,
-               -- 1. Check if our FreeRADIUS accepted this connection around session start (+/- 2 hours)
-               (
-                   SELECT COUNT(*) 
-                   FROM radpostauth rp 
-                   WHERE LOWER(TRIM(rp.username)) = LOWER(TRIM(r.username)) 
-                     AND rp.reply = 'Access-Accept' 
-                     AND rp.authdate >= IF(r.acctstarttime REGEXP '^[0-9]+$', FROM_UNIXTIME(r.acctstarttime), r.acctstarttime) - INTERVAL 2 HOUR 
-                     AND rp.authdate <= IF(r.acctstarttime REGEXP '^[0-9]+$', FROM_UNIXTIME(r.acctstarttime), r.acctstarttime) + INTERVAL 2 HOUR
-                   LIMIT 1
-               ) as auth_accepted_by_us,
-               -- 2. Latest reply from radpostauth for this user
-               (
-                   SELECT rp.reply 
-                   FROM radpostauth rp 
-                   WHERE LOWER(TRIM(rp.username)) = LOWER(TRIM(r.username)) 
-                   ORDER BY rp.authdate DESC 
-                   LIMIT 1
-               ) as latest_auth_reply,
-               -- 3. Latest auth date
-               (
-                   SELECT rp.authdate 
-                   FROM radpostauth rp 
-                   WHERE LOWER(TRIM(rp.username)) = LOWER(TRIM(r.username)) 
-                   ORDER BY rp.authdate DESC 
-                   LIMIT 1
-               ) as latest_auth_date
-        FROM radacct r 
-        INNER JOIN (
-            SELECT username, MAX(radacctid) as max_id 
-            FROM radacct 
-            WHERE acctstoptime IS NULL 
-            GROUP BY username
-        ) as latest ON r.radacctid = latest.max_id
-        INNER JOIN subscribers s ON LOWER(TRIM(r.username)) = LOWER(TRIM(s.username)) COLLATE utf8mb4_general_ci
-        LEFT JOIN packages p ON s.package_id = p.id
-        WHERE s.client_id = ?
-        ORDER BY r.acctstarttime DESC";
-$stmt = $pdo->prepare($sql);
-$stmt->execute([$client_id]);
-$all_sessions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+// Get Live Sessions mapped strictly to this operator's subscribers
+// Uses resilient open-session check (handles NULL, empty, or 0) and safe join
+$all_sessions = [];
+try {
+    $sql = "SELECT r.*, 
+                   s.id as subscriber_id, 
+                   s.package_id, 
+                   p.name as package_name, 
+                   s.expiry_date, 
+                   s.status as sub_status, 
+                   s.full_name, 
+                   s.mobile 
+            FROM radacct r 
+            INNER JOIN (
+                SELECT username, MAX(radacctid) as max_id 
+                FROM radacct 
+                WHERE (acctstoptime IS NULL OR acctstoptime = '' OR acctstoptime = '0' OR acctstoptime = '0000-00-00 00:00:00')
+                GROUP BY username
+            ) as latest ON r.radacctid = latest.max_id
+            JOIN subscribers s ON LOWER(TRIM(r.username)) = LOWER(TRIM(s.username))
+            LEFT JOIN packages p ON s.package_id = p.id
+            WHERE s.client_id = ?
+            ORDER BY r.acctstarttime DESC";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute([$client_id]);
+    $all_sessions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) {
+    try {
+        $fbSql = "SELECT r.*, s.id as subscriber_id, s.package_id, p.name as package_name, s.expiry_date, s.status as sub_status, s.full_name, s.mobile 
+                  FROM radacct r 
+                  JOIN subscribers s ON r.username = s.username 
+                  LEFT JOIN packages p ON s.package_id = p.id
+                  WHERE (r.acctstoptime IS NULL OR r.acctstoptime = '' OR r.acctstoptime = '0') 
+                    AND s.client_id = ?
+                  ORDER BY r.acctstarttime DESC";
+        $fbStmt = $pdo->prepare($fbSql);
+        $fbStmt->execute([$client_id]);
+        $all_sessions = $fbStmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Exception $e2) {}
+}
+
+// Safe radpostauth lookup in PHP to avoid MySQL illegal mix of collations!
+$auth_status_map = [];
+if (!empty($all_sessions)) {
+    $uList = array_unique(array_filter(array_map(function($s) {
+        return trim($s['username']);
+    }, $all_sessions)));
+
+    if (!empty($uList)) {
+        try {
+            $inClause = implode(',', array_fill(0, count($uList), '?'));
+            $authStmt = $pdo->prepare("SELECT username, reply, authdate FROM radpostauth WHERE username IN ($inClause) ORDER BY id DESC");
+            $authStmt->execute(array_values($uList));
+            while ($arow = $authStmt->fetch(PDO::FETCH_ASSOC)) {
+                $uKey = strtolower(trim($arow['username']));
+                if (!isset($auth_status_map[$uKey])) {
+                    $auth_status_map[$uKey] = $arow;
+                }
+            }
+        } catch (Exception $e) {}
+    }
+}
 
 $count_total = count($all_sessions);
 $count_our_radius = 0;
@@ -135,13 +152,22 @@ $count_other_radius = 0;
 $count_expired_online = 0;
 
 foreach ($all_sessions as $k => $s) {
-    // Determine if authenticated by our FreeRADIUS
-    $is_our = (!empty($s['auth_accepted_by_us']) && (int)$s['auth_accepted_by_us'] > 0) 
-              || ($s['latest_auth_reply'] === 'Access-Accept');
+    $uKey = strtolower(trim($s['username']));
+    $authInfo = $auth_status_map[$uKey] ?? null;
+
+    $reply = $authInfo['reply'] ?? '';
+    $authDate = $authInfo['authdate'] ?? '';
+
+    // If Access-Reject, it was rejected by this server
+    $is_rejected = ($reply === 'Access-Reject');
+    // If Access-Accept OR no explicit reject, it's Our RADIUS (session exists in radacct for our subscriber)
+    $is_our = ($reply === 'Access-Accept' || empty($reply));
     $is_exp = (!empty($s['sub_status']) && $s['sub_status'] === 'expired') 
               || (!empty($s['expiry_date']) && strtotime($s['expiry_date']) <= time());
 
     $all_sessions[$k]['is_our_radius'] = $is_our;
+    $all_sessions[$k]['latest_auth_reply'] = $reply;
+    $all_sessions[$k]['latest_auth_date'] = $authDate;
     $all_sessions[$k]['is_expired_online'] = $is_exp;
 
     if ($is_our) {

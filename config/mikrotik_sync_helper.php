@@ -587,6 +587,10 @@ function parseMikroTikUptimeSeconds($uptime) {
  */
 if (!function_exists('sync_operator_mikrotik_active_sessions')) {
 function sync_operator_mikrotik_active_sessions($pdo, $client_id) {
+    // Self-healing: Reopen any sessions that were falsely closed by sync script
+    try {
+        $pdo->exec("UPDATE radacct SET acctstoptime = NULL, acctterminatecause = '' WHERE acctterminatecause = 'Lost-Carrier' AND acctstoptime >= NOW() - INTERVAL 12 HOUR");
+    } catch (Exception $e) {}
     if (empty($client_id)) {
         return ['success' => false, 'error' => 'Invalid client ID'];
     }
@@ -799,13 +803,17 @@ function sync_operator_mikrotik_active_sessions($pdo, $client_id) {
                 // CRITICAL AUTH VERIFICATION: Check radpostauth!
                 // Did OUR RADIUS actually accept their connection request (Access-Accept),
                 // or did they connect through the OTHER/OLD RADIUS?
-                $authCheckStmt->execute([$lower_u]);
-                $authRow = $authCheckStmt->fetch(PDO::FETCH_ASSOC);
+                $isExplicitReject = false;
+                try {
+                    $authCheckStmt->execute([$lower_u]);
+                    $authRow = $authCheckStmt->fetch(PDO::FETCH_ASSOC);
+                    if ($authRow && $authRow['reply'] === 'Access-Reject') {
+                        $isExplicitReject = true;
+                    }
+                } catch (Exception $e) {}
 
-                if (!$authRow || $authRow['reply'] !== 'Access-Accept') {
-                    // This user was NOT accepted by our FreeRADIUS server!
-                    // (They either received Access-Reject from our server, or authenticated via the Other/Old RADIUS).
-                    // NEVER insert them into our radacct!
+                if ($isExplicitReject) {
+                    // This user was explicitly rejected by our FreeRADIUS server and connected via other RADIUS!
                     $total_external_ignored++;
                     continue;
                 }
@@ -826,11 +834,14 @@ function sync_operator_mikrotik_active_sessions($pdo, $client_id) {
         }
 
         // 2. Clear ghost sessions in radacct that belong to THIS operator and are no longer active in MikroTik
-        foreach ($db_open_sessions as $row) {
-            $lower_u = strtolower(trim($row['username']));
-            if (!isset($router_active_users[$lower_u])) {
-                $closeGhostStmt->execute([$row['radacctid']]);
-                $total_ghosts_cleared++;
+        // SAFETY: Only close ghost sessions if the router actually returned active users!
+        if (count($router_active_users) > 0) {
+            foreach ($db_open_sessions as $row) {
+                $lower_u = strtolower(trim($row['username']));
+                if (!isset($router_active_users[$lower_u])) {
+                    $closeGhostStmt->execute([$row['radacctid']]);
+                    $total_ghosts_cleared++;
+                }
             }
         }
     }
