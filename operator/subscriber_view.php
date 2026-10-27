@@ -1316,37 +1316,79 @@ if ($last_debit) {
         </div>
 
         <!-- Graph Card -->
-        <div class="view-card p-4">
-            <div class="d-flex justify-content-between align-items-center mb-3">
-                <h6 class="text-secondary fw-bold mb-0"><i class="fa-solid fa-chart-bar me-2"></i> Ledger & Live Bandwidth Graph</h6>
-            </div>
-            <div class="row">
-                <div class="col-md-6 border-end">
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                        <span class="fw-semibold text-secondary small"><i class="fa-solid fa-scale-balanced me-1"></i> Annual Ledger (Funds vs Usage)</span>
+        <div class="view-card p-4 mb-4 border-0 shadow-sm" style="border-radius: 14px; background: #ffffff;">
+            <div class="d-flex justify-content-between align-items-center mb-3 border-bottom pb-3 flex-wrap gap-2">
+                <div class="d-flex align-items-center gap-2">
+                    <div class="bg-primary bg-opacity-10 text-primary d-flex align-items-center justify-content-center" style="width: 36px; height: 36px; border-radius: 10px;">
+                        <i class="fa-solid fa-chart-line fs-5"></i>
                     </div>
-                    <canvas id="ledgerChart" height="200"></canvas>
+                    <div>
+                        <h6 class="fw-bold mb-0 text-dark">Live Bandwidth Monitor &amp; Ledger</h6>
+                        <small class="text-muted" style="font-size: 0.78rem;">Real-time MikroTik traffic throughput &amp; billing history</small>
+                    </div>
                 </div>
-                <div class="col-md-6">
-                    <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
-                        <div class="d-flex align-items-center gap-2">
-                            <span class="fw-semibold text-secondary small"><i class="fa-solid fa-gauge-high me-1"></i> Live Bandwidth</span>
-                            <span id="live_status_badge" class="badge bg-secondary bg-opacity-10 text-secondary border px-2 py-0.5" style="font-size: 0.72rem;">Connecting...</span>
+                <div>
+                    <span id="live_status_badge" class="badge bg-secondary bg-opacity-10 text-secondary border px-3 py-1.5 rounded-pill fs-7 d-inline-flex align-items-center gap-1.5">
+                        <i class="fa-solid fa-circle text-muted me-1" style="font-size:0.45rem;"></i> Connecting...
+                    </span>
+                </div>
+            </div>
+            
+            <div class="row g-4">
+                <!-- Left: Annual Financial Ledger -->
+                <div class="col-lg-6 border-end">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <span class="fw-bold text-secondary small text-uppercase" style="letter-spacing: 0.5px;">
+                            <i class="fa-solid fa-scale-balanced me-1 text-primary"></i> Annual Ledger (Funds vs Usage)
+                        </span>
+                        <span class="badge bg-light text-muted border px-2 py-1" style="font-size: 0.72rem;">Last 12 Months</span>
+                    </div>
+                    <div style="position: relative; height: 215px;">
+                        <canvas id="ledgerChart"></canvas>
+                    </div>
+                </div>
+                
+                <!-- Right: Live MikroTik Bandwidth -->
+                <div class="col-lg-6">
+                    <!-- Live Speed Stat Cards -->
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <div class="p-2.5 rounded-3 border" style="background: linear-gradient(135deg, rgba(6, 182, 212, 0.08) 0%, rgba(14, 165, 233, 0.03) 100%); border-color: rgba(6, 182, 212, 0.25) !important;">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <span class="fw-bold text-muted text-uppercase" style="font-size: 0.68rem; letter-spacing: 0.5px;">
+                                        <i class="fa-solid fa-circle-down text-info me-1"></i> Live Download
+                                    </span>
+                                    <span class="badge bg-info bg-opacity-10 text-info font-monospace px-1.5 py-0.5" id="peak_down_badge" style="font-size: 0.68rem;">Peak: 0.00</span>
+                                </div>
+                                <div class="d-flex align-items-baseline gap-1">
+                                    <span id="live_down_val" class="font-monospace fw-bolder fs-3 text-info" style="line-height: 1.1;">0.00</span>
+                                    <span id="live_down_unit" class="text-info fw-bold small">Mbps</span>
+                                </div>
+                            </div>
                         </div>
-                        <div class="d-flex gap-2">
-                            <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 px-2 py-1" style="font-size: 0.8rem;">
-                                <i class="fa-solid fa-arrow-down me-1"></i> Down: <span id="live_down_mbps" class="font-monospace fw-bold">0.00 Mbps</span>
-                            </span>
-                            <span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25 px-2 py-1" style="font-size: 0.8rem;">
-                                <i class="fa-solid fa-arrow-up me-1"></i> Up: <span id="live_up_mbps" class="font-monospace fw-bold">0.00 Mbps</span>
-                            </span>
+                        <div class="col-6">
+                            <div class="p-2.5 rounded-3 border" style="background: linear-gradient(135deg, rgba(168, 85, 247, 0.08) 0%, rgba(217, 70, 239, 0.03) 100%); border-color: rgba(168, 85, 247, 0.25) !important;">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <span class="fw-bold text-muted text-uppercase" style="font-size: 0.68rem; letter-spacing: 0.5px;">
+                                        <i class="fa-solid fa-circle-up me-1" style="color: #a855f7;"></i> Live Upload
+                                    </span>
+                                    <span class="badge font-monospace px-1.5 py-0.5" id="peak_up_badge" style="font-size: 0.68rem; background: rgba(168, 85, 247, 0.12); color: #a855f7;">Peak: 0.00</span>
+                                </div>
+                                <div class="d-flex align-items-baseline gap-1">
+                                    <span id="live_up_val" class="font-monospace fw-bolder fs-3" style="color: #a855f7; line-height: 1.1;">0.00</span>
+                                    <span id="live_up_unit" class="fw-bold small" style="color: #a855f7;">Mbps</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
-                    <canvas id="bwChart" height="200"></canvas>
+                    
+                    <!-- Waveform Canvas -->
+                    <div style="position: relative; height: 160px;">
+                        <canvas id="bwChart"></canvas>
+                    </div>
                 </div>
             </div>
         </div>
-
         <!-- Accordions -->
         <div class="accordion custom-accordion" id="userDetailsAccordion">
             
@@ -2315,48 +2357,98 @@ new Chart(ctxLedger, {
 });
 
 const ctxBw = document.getElementById('bwChart').getContext('2d');
+
+// Dynamic Gradient Fills
+const downGrad = ctxBw.createLinearGradient(0, 0, 0, 160);
+downGrad.addColorStop(0, 'rgba(6, 182, 212, 0.35)');
+downGrad.addColorStop(1, 'rgba(6, 182, 212, 0.00)');
+
+const upGrad = ctxBw.createLinearGradient(0, 0, 0, 160);
+upGrad.addColorStop(0, 'rgba(168, 85, 247, 0.30)');
+upGrad.addColorStop(1, 'rgba(168, 85, 247, 0.00)');
+
 const bwChart = new Chart(ctxBw, {
     type: 'line',
     data: {
-        labels: ['--', '--', '--', '--', '--', '--', '--', '--', '--', '--'],
+        labels: ['--', '--', '--', '--', '--', '--', '--', '--', '--', '--', '--', '--'],
         datasets: [
             { 
-                label: 'Download (Mbps)', 
-                data: [0,0,0,0,0,0,0,0,0,0], 
-                borderColor: '#0284c7', 
-                backgroundColor: 'rgba(2, 132, 199, 0.08)',
-                borderWidth: 2,
-                tension: 0.25, 
+                label: 'Download', 
+                data: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 
+                borderColor: '#06b6d4', 
+                backgroundColor: downGrad,
+                borderWidth: 2.5,
+                tension: 0.4, 
                 fill: true,
-                pointRadius: 2,
-                pointHoverRadius: 4
+                pointRadius: 0,
+                pointHoverRadius: 6,
+                pointHoverBackgroundColor: '#ffffff',
+                pointHoverBorderColor: '#06b6d4',
+                pointHoverBorderWidth: 2.5
             },
             { 
-                label: 'Upload (Mbps)', 
-                data: [0,0,0,0,0,0,0,0,0,0], 
-                borderColor: '#ef4444', 
-                backgroundColor: 'rgba(239, 68, 68, 0.08)',
-                borderWidth: 2,
-                tension: 0.25, 
+                label: 'Upload', 
+                data: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 
+                borderColor: '#a855f7', 
+                backgroundColor: upGrad,
+                borderWidth: 2.5,
+                tension: 0.4, 
                 fill: true,
-                pointRadius: 2,
-                pointHoverRadius: 4
+                pointRadius: 0,
+                pointHoverRadius: 6,
+                pointHoverBackgroundColor: '#ffffff',
+                pointHoverBorderColor: '#a855f7',
+                pointHoverBorderWidth: 2.5
             }
         ]
     },
     options: { 
         responsive: true, 
+        maintainAspectRatio: false,
         plugins: { 
             legend: { 
                 position: 'top', 
-                labels: { boxWidth: 12, font: { weight: 'bold' } } 
-            } 
+                align: 'end',
+                labels: { 
+                    boxWidth: 8, 
+                    boxHeight: 8,
+                    usePointStyle: true,
+                    pointStyle: 'circle',
+                    font: { size: 11, weight: 'bold' },
+                    padding: 8
+                } 
+            },
+            tooltip: {
+                mode: 'index',
+                intersect: false,
+                backgroundColor: 'rgba(15, 23, 42, 0.92)',
+                titleFont: { size: 11 },
+                bodyFont: { size: 12, weight: 'bold' },
+                padding: 10,
+                cornerRadius: 8,
+                callbacks: {
+                    label: function(ctx) {
+                        return ' ' + ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(2) + ' Mbps';
+                    }
+                }
+            }
         }, 
         scales: { 
+            x: {
+                grid: { display: false },
+                ticks: { font: { size: 9 }, maxRotation: 0 }
+            },
             y: { 
                 beginAtZero: true,
-                suggestedMax: 1,
-                title: { display: true, text: 'Mbps' }
+                suggestedMax: 2,
+                grid: {
+                    color: 'rgba(0, 0, 0, 0.04)',
+                    borderDash: [4, 4]
+                },
+                ticks: { 
+                    font: { size: 10 },
+                    callback: function(v) { return v + ' M'; } 
+                }
             } 
         }, 
         animation: false 
@@ -2367,13 +2459,15 @@ let prevBytesIn = null;
 let prevBytesOut = null;
 let lastTime = null;
 const pastBytes = <?= (int)$past_bytes ?>;
+let peakDown = 0;
+let peakUp = 0;
 
-function formatSpeed(mbps) {
-    if (isNaN(mbps) || mbps <= 0) return '0.00 Mbps';
+function splitSpeed(mbps) {
+    if (isNaN(mbps) || mbps <= 0) return { val: '0.00', unit: 'Mbps' };
     if (mbps < 0.1) {
-        return (mbps * 1024).toFixed(1) + ' Kbps';
+        return { val: (mbps * 1024).toFixed(1), unit: 'Kbps' };
     }
-    return mbps.toFixed(2) + ' Mbps';
+    return { val: mbps.toFixed(2), unit: 'Mbps' };
 }
 
 function fetchLiveBandwidth() {
@@ -2388,15 +2482,15 @@ function fetchLiveBandwidth() {
                     if (svcU) svcU.innerText = data.uptime;
                 }
                 
-                // Update live status pill
+                // Live status pill
                 let sBadge = document.getElementById('live_status_badge');
                 if (sBadge) {
                     if (data.status === 'online') {
-                        sBadge.className = 'badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-2 py-0.5';
-                        sBadge.innerHTML = '<i class="fa-solid fa-circle text-success me-1" style="font-size:0.45rem; vertical-align:middle;"></i>Active';
+                        sBadge.className = 'badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-3 py-1.5 rounded-pill fs-7 d-inline-flex align-items-center gap-1.5';
+                        sBadge.innerHTML = '<span class="spinner-grow spinner-grow-sm text-success" style="width:7px; height:7px;" role="status"></span> Active Link';
                     } else {
-                        sBadge.className = 'badge bg-secondary bg-opacity-10 text-secondary border px-2 py-0.5';
-                        sBadge.innerHTML = '<i class="fa-solid fa-circle text-muted me-1" style="font-size:0.45rem; vertical-align:middle;"></i>Offline';
+                        sBadge.className = 'badge bg-secondary bg-opacity-10 text-secondary border px-3 py-1.5 rounded-pill fs-7 d-inline-flex align-items-center gap-1.5';
+                        sBadge.innerHTML = '<i class="fa-solid fa-circle text-muted me-1" style="font-size:0.45rem;"></i> Offline';
                     }
                 }
 
@@ -2415,7 +2509,6 @@ function fetchLiveBandwidth() {
                 
                 let usedElem = document.getElementById('live_used_volume');
                 if (usedElem) usedElem.innerText = volStr;
-                
                 let svcU = document.getElementById('svc_used_volume');
                 if (svcU) svcU.innerText = volStr;
                 
@@ -2434,7 +2527,7 @@ function fetchLiveBandwidth() {
                 let rx_mbps = 0; // Upload (received by router from user)
 
                 if (data.rx_bps !== undefined && data.tx_bps !== undefined && (parseFloat(data.rx_bps) > 0 || parseFloat(data.tx_bps) > 0)) {
-                    // Direct bps from monitor-traffic
+                    // Direct bps from MikroTik
                     rx_mbps = parseFloat(data.rx_bps) / 1048576;
                     tx_mbps = parseFloat(data.tx_bps) / 1048576;
                 } else if (prevBytesIn !== null && prevBytesOut !== null && lastTime !== null) {
@@ -2456,18 +2549,38 @@ function fetchLiveBandwidth() {
                 prevBytesOut = currentBytesOut;
                 lastTime = nowTime;
 
-                // Update live speed badges
-                let dEl = document.getElementById('live_down_mbps');
-                if (dEl) dEl.innerText = formatSpeed(tx_mbps);
-                let uEl2 = document.getElementById('live_up_mbps');
-                if (uEl2) uEl2.innerText = formatSpeed(rx_mbps);
+                // Track Peak Speed
+                if (tx_mbps > peakDown) {
+                    peakDown = tx_mbps;
+                    let sp = splitSpeed(peakDown);
+                    let pEl = document.getElementById('peak_down_badge');
+                    if (pEl) pEl.innerText = 'Peak: ' + sp.val + ' ' + sp.unit;
+                }
+                if (rx_mbps > peakUp) {
+                    peakUp = rx_mbps;
+                    let sp = splitSpeed(peakUp);
+                    let pEl = document.getElementById('peak_up_badge');
+                    if (pEl) pEl.innerText = 'Peak: ' + sp.val + ' ' + sp.unit;
+                }
 
-                // Shift old data
+                // Update live speed numbers
+                let spDown = splitSpeed(tx_mbps);
+                let spUp = splitSpeed(rx_mbps);
+                let dVal = document.getElementById('live_down_val');
+                let dUnit = document.getElementById('live_down_unit');
+                if (dVal) dVal.innerText = spDown.val;
+                if (dUnit) dUnit.innerText = spDown.unit;
+
+                let uVal = document.getElementById('live_up_val');
+                let uUnit = document.getElementById('live_up_unit');
+                if (uVal) uVal.innerText = spUp.val;
+                if (uUnit) uUnit.innerText = spUp.unit;
+
+                // Shift old data and push new sample
                 bwChart.data.labels.shift();
                 bwChart.data.datasets[0].data.shift();
                 bwChart.data.datasets[1].data.shift();
                 
-                // Add new data
                 let now = new Date();
                 let timeStr = String(now.getHours()).padStart(2, '0') + ':' + 
                               String(now.getMinutes()).padStart(2, '0') + ':' + 
