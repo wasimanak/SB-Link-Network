@@ -1350,6 +1350,7 @@ if ($last_debit) {
                 
                 <!-- Right: Live MikroTik Bandwidth -->
                 <div class="col-lg-6">
+                    <div id="bw_router_alert" class="d-none"></div>
                     <!-- Live Speed Stat Cards -->
                     <div class="row g-2 mb-3">
                         <div class="col-6">
@@ -2489,20 +2490,35 @@ function fetchLiveBandwidth() {
                     if (svcU) svcU.innerText = data.uptime;
                 }
                 
-                // Live status pill
+                // Live status pill & diagnostic alert
                 let sBadge = document.getElementById('live_status_badge');
+                let alertBox = document.getElementById('bw_router_alert');
+                
                 if (sBadge) {
                     if (data.status === 'online') {
                         if (data.source === 'mikrotik') {
                             sBadge.className = 'badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-3 py-1.5 rounded-pill fs-7 d-inline-flex align-items-center gap-1.5';
-                            sBadge.innerHTML = '<span class="spinner-grow spinner-grow-sm text-success" style="width:7px; height:7px;" role="status"></span> Active (Live RouterOS)';
+                            sBadge.innerHTML = '<span class="spinner-grow spinner-grow-sm text-success" style="width:7px; height:7px;" role="status"></span> Active (Live MikroTik)';
+                            if (alertBox) alertBox.className = 'd-none';
                         } else {
-                            sBadge.className = 'badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 px-3 py-1.5 rounded-pill fs-7 d-inline-flex align-items-center gap-1.5';
-                            sBadge.innerHTML = '<i class="fa-solid fa-cloud-arrow-down text-primary me-1" style="font-size:0.75rem;"></i> Active (RADIUS Sync)';
+                            sBadge.className = 'badge bg-warning bg-opacity-15 text-dark border border-warning border-opacity-50 px-3 py-1.5 rounded-pill fs-7 d-inline-flex align-items-center gap-1.5';
+                            sBadge.innerHTML = '<i class="fa-solid fa-triangle-exclamation text-warning me-1"></i> RADIUS Accounting (API Offline)';
+                            if (alertBox) {
+                                let errMsg = '';
+                                if (data.diag && data.diag.attempts && data.diag.attempts.length > 0) {
+                                    errMsg = data.diag.attempts.map(a => `${a.ip}:${a.port} (${a.sock_err || "Unreachable"})`).join(', ');
+                                } else {
+                                    errMsg = `No reachable router IP found. Ensure router public IP or VPN IP is in NAS table.`;
+                                }
+                                alertBox.className = 'alert alert-warning py-1 px-2.5 mb-2 rounded-2 d-flex align-items-center gap-2 small text-dark';
+                                alertBox.style.fontSize = '0.75rem';
+                                alertBox.innerHTML = `<i class="fa-solid fa-triangle-exclamation text-warning flex-shrink-0"></i> <span><strong>Router API Offline:</strong> ${errMsg} (Check MikroTik IP > Services > API 8728)</span>`;
+                            }
                         }
                     } else {
                         sBadge.className = 'badge bg-secondary bg-opacity-10 text-secondary border px-3 py-1.5 rounded-pill fs-7 d-inline-flex align-items-center gap-1.5';
                         sBadge.innerHTML = '<i class="fa-solid fa-circle text-muted me-1" style="font-size:0.45rem;"></i> Offline';
+                        if (alertBox) alertBox.className = 'd-none';
                     }
                 }
 
@@ -2539,10 +2555,10 @@ function fetchLiveBandwidth() {
                 let rx_mbps = 0; // Upload (received by router from user)
 
                 if (data.rx_bps !== undefined && data.tx_bps !== undefined && (parseFloat(data.rx_bps) > 0 || parseFloat(data.tx_bps) > 0)) {
-                    // Direct bps from MikroTik
+                    // Direct bps from MikroTik Simple Queue or Monitor-Traffic
                     rx_mbps = parseFloat(data.rx_bps) / 1048576;
                     tx_mbps = parseFloat(data.tx_bps) / 1048576;
-                } else if (prevBytesIn !== null && prevBytesOut !== null && lastTime !== null) {
+                } else if (data.source === 'mikrotik' && prevBytesIn !== null && prevBytesOut !== null && lastTime !== null) {
                     let timeDiffSecs = (nowTime - lastTime) / 1000;
                     if (timeDiffSecs > 0.5) {
                         let bytesInDiff = currentBytesIn - prevBytesIn;
@@ -2552,6 +2568,10 @@ function fetchLiveBandwidth() {
                         rx_mbps = (bytesInDiff * 8 / timeDiffSecs) / 1048576;
                         tx_mbps = (bytesOutDiff * 8 / timeDiffSecs) / 1048576;
                     }
+                } else {
+                    // If on RADIUS fallback, do NOT compute fake spikes from cumulative session bytes
+                    rx_mbps = 0;
+                    tx_mbps = 0;
                 }
 
                 if (isNaN(tx_mbps) || tx_mbps < 0) tx_mbps = 0;
