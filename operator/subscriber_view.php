@@ -1317,12 +1317,28 @@ if ($last_debit) {
 
         <!-- Graph Card -->
         <div class="view-card p-4">
-            <h6 class="mb-4 text-secondary fw-bold"><i class="fa-solid fa-chart-bar me-2"></i> Ledger & Live Bandwidth Graph</h6>
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h6 class="text-secondary fw-bold mb-0"><i class="fa-solid fa-chart-bar me-2"></i> Ledger & Live Bandwidth Graph</h6>
+            </div>
             <div class="row">
                 <div class="col-md-6 border-end">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="fw-semibold text-secondary small"><i class="fa-solid fa-scale-balanced me-1"></i> Annual Ledger (Funds vs Usage)</span>
+                    </div>
                     <canvas id="ledgerChart" height="200"></canvas>
                 </div>
                 <div class="col-md-6">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="fw-semibold text-secondary small"><i class="fa-solid fa-gauge-high me-1"></i> Live Bandwidth Monitor</span>
+                        <div class="d-flex gap-2">
+                            <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 px-2 py-1" style="font-size: 0.8rem;">
+                                <i class="fa-solid fa-arrow-down me-1"></i> Down: <span id="live_down_mbps" class="font-monospace fw-bold">0.00</span> Mbps
+                            </span>
+                            <span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25 px-2 py-1" style="font-size: 0.8rem;">
+                                <i class="fa-solid fa-arrow-up me-1"></i> Up: <span id="live_up_mbps" class="font-monospace fw-bold">0.00</span> Mbps
+                            </span>
+                        </div>
+                    </div>
                     <canvas id="bwChart" height="200"></canvas>
                 </div>
             </div>
@@ -2299,13 +2315,49 @@ const ctxBw = document.getElementById('bwChart').getContext('2d');
 const bwChart = new Chart(ctxBw, {
     type: 'line',
     data: {
-        labels: ['0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'],
+        labels: ['--', '--', '--', '--', '--', '--', '--', '--', '--', '--'],
         datasets: [
-            { label: 'Tx/Down (Mbps)', data: [0,0,0,0,0,0,0,0,0,0,0], borderColor: '#475569', tension: 0.1, fill: false },
-            { label: 'Rx/Up (Mbps)', data: [0,0,0,0,0,0,0,0,0,0,0], borderColor: '#ef4444', tension: 0.1, fill: false }
+            { 
+                label: 'Download (Mbps)', 
+                data: [0,0,0,0,0,0,0,0,0,0], 
+                borderColor: '#0284c7', 
+                backgroundColor: 'rgba(2, 132, 199, 0.08)',
+                borderWidth: 2,
+                tension: 0.25, 
+                fill: true,
+                pointRadius: 2,
+                pointHoverRadius: 4
+            },
+            { 
+                label: 'Upload (Mbps)', 
+                data: [0,0,0,0,0,0,0,0,0,0], 
+                borderColor: '#ef4444', 
+                backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                borderWidth: 2,
+                tension: 0.25, 
+                fill: true,
+                pointRadius: 2,
+                pointHoverRadius: 4
+            }
         ]
     },
-    options: { responsive: true, plugins: { legend: { position: 'top', labels: { boxWidth: 12 } } }, scales: { y: { min: 0 } }, animation: false }
+    options: { 
+        responsive: true, 
+        plugins: { 
+            legend: { 
+                position: 'top', 
+                labels: { boxWidth: 12, font: { weight: 'bold' } } 
+            } 
+        }, 
+        scales: { 
+            y: { 
+                beginAtZero: true,
+                suggestedMax: 1,
+                title: { display: true, text: 'Mbps' }
+            } 
+        }, 
+        animation: false 
+    }
 });
 
 let prevBytesIn = null;
@@ -2317,8 +2369,8 @@ function fetchLiveBandwidth() {
     fetch(`api_bandwidth.php?username=<?= urlencode($user['username']) ?>`)
         .then(res => res.json())
         .then(data => {
-            if(data.bytes_in !== undefined && data.bytes_out !== undefined) {
-                if(data.uptime !== undefined) {
+            if (data.bytes_in !== undefined && data.bytes_out !== undefined) {
+                if (data.uptime !== undefined && data.uptime !== null && data.uptime !== '') {
                     let uEl = document.getElementById('live_uptime');
                     if (uEl) uEl.innerText = data.uptime;
                     let svcU = document.getElementById('svc_uptime_display');
@@ -2352,33 +2404,40 @@ function fetchLiveBandwidth() {
                 }
 
                 let nowTime = Date.now();
-                let currentBytesIn = data.bytes_in;
-                let currentBytesOut = data.bytes_out;
+                let currentBytesIn = parseFloat(data.bytes_in) || 0;
+                let currentBytesOut = parseFloat(data.bytes_out) || 0;
                 
-                
-                  let tx_mbps = 0;
-                  let rx_mbps = 0;
+                let tx_mbps = 0; // Download (transmitted by router to user)
+                let rx_mbps = 0; // Upload (received by router from user)
 
-                  if (data.rx_bps !== undefined && data.tx_bps !== undefined) {
-                      // We got direct bps from monitor-traffic API
-                      rx_mbps = data.rx_bps / 1048576;
-                      tx_mbps = data.tx_bps / 1048576;
-                  } else if (prevBytesIn !== null && prevBytesOut !== null && lastTime !== null) {
-                      let timeDiffSecs = (nowTime - lastTime) / 1000;
-                      if (timeDiffSecs > 0) {
-                          let bytesInDiff = currentBytesIn - prevBytesIn;
-                          let bytesOutDiff = currentBytesOut - prevBytesOut;
-                          if(bytesInDiff < 0) bytesInDiff = 0;
-                          if(bytesOutDiff < 0) bytesOutDiff = 0;
-                          rx_mbps = (bytesInDiff * 8 / timeDiffSecs) / 1048576;
-                          tx_mbps = (bytesOutDiff * 8 / timeDiffSecs) / 1048576;
-                      }
-                  }
+                if (data.rx_bps !== undefined && data.tx_bps !== undefined && (parseFloat(data.rx_bps) > 0 || parseFloat(data.tx_bps) > 0)) {
+                    // Direct bps from monitor-traffic
+                    rx_mbps = parseFloat(data.rx_bps) / 1048576;
+                    tx_mbps = parseFloat(data.tx_bps) / 1048576;
+                } else if (prevBytesIn !== null && prevBytesOut !== null && lastTime !== null) {
+                    let timeDiffSecs = (nowTime - lastTime) / 1000;
+                    if (timeDiffSecs > 0) {
+                        let bytesInDiff = currentBytesIn - prevBytesIn;
+                        let bytesOutDiff = currentBytesOut - prevBytesOut;
+                        if (bytesInDiff < 0) bytesInDiff = 0;
+                        if (bytesOutDiff < 0) bytesOutDiff = 0;
+                        rx_mbps = (bytesInDiff * 8 / timeDiffSecs) / 1048576;
+                        tx_mbps = (bytesOutDiff * 8 / timeDiffSecs) / 1048576;
+                    }
+                }
 
-                
+                if (isNaN(tx_mbps) || tx_mbps < 0) tx_mbps = 0;
+                if (isNaN(rx_mbps) || rx_mbps < 0) rx_mbps = 0;
+
                 prevBytesIn = currentBytesIn;
                 prevBytesOut = currentBytesOut;
                 lastTime = nowTime;
+
+                // Update live speed badges
+                let dEl = document.getElementById('live_down_mbps');
+                if (dEl) dEl.innerText = tx_mbps.toFixed(2);
+                let uEl2 = document.getElementById('live_up_mbps');
+                if (uEl2) uEl2.innerText = rx_mbps.toFixed(2);
 
                 // Shift old data
                 bwChart.data.labels.shift();
@@ -2387,11 +2446,13 @@ function fetchLiveBandwidth() {
                 
                 // Add new data
                 let now = new Date();
-                let timeStr = now.getHours() + ':' + now.getMinutes() + ':' + now.getSeconds();
+                let timeStr = String(now.getHours()).padStart(2, '0') + ':' + 
+                              String(now.getMinutes()).padStart(2, '0') + ':' + 
+                              String(now.getSeconds()).padStart(2, '0');
                 bwChart.data.labels.push(timeStr);
                 
-                bwChart.data.datasets[0].data.push(tx_mbps.toFixed(2));
-                bwChart.data.datasets[1].data.push(rx_mbps.toFixed(2));
+                bwChart.data.datasets[0].data.push(parseFloat(tx_mbps.toFixed(2)));
+                bwChart.data.datasets[1].data.push(parseFloat(rx_mbps.toFixed(2)));
                 
                 bwChart.update();
             }
