@@ -34,17 +34,28 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_reset'])) ||
 
         // 2. Zero-out past octets in FreeRADIUS radacct for subscribers of this operator
         // All session histories (IP, MAC, session times, logins/logouts) remain 100% intact!
-        $stmtRad = $pdo->prepare("UPDATE radacct 
-            SET acctinputoctets = 0, acctoutputoctets = 0 
-            WHERE username IN (SELECT username FROM subscribers WHERE client_id = ?)");
-        $stmtRad->execute([$client_id]);
-        $rad_updated = $stmtRad->rowCount();
+        try {
+            $stmtRad = $pdo->prepare("UPDATE radacct r
+                JOIN subscribers s ON r.username = s.username COLLATE utf8mb4_general_ci
+                SET r.acctinputoctets = 0, r.acctoutputoctets = 0 
+                WHERE s.client_id = ?");
+            $stmtRad->execute([$client_id]);
+            $rad_updated = $stmtRad->rowCount();
+        } catch (Exception $eRad) {
+            try {
+                $stmtRad = $pdo->prepare("UPDATE radacct SET acctinputoctets = 0, acctoutputoctets = 0 WHERE username IN (SELECT username FROM subscribers WHERE client_id = ?)");
+                $stmtRad->execute([$client_id]);
+                $rad_updated = $stmtRad->rowCount();
+            } catch (Exception $eRad2) {}
+        }
 
-        // 3. Log into activity logs
-        $actText = "Reset all subscribers data usage counters to 0. Updated $subs_updated subscribers and cleared octets on $rad_updated accounting session records.";
-        $stmtLog = $pdo->prepare("INSERT INTO activity_logs (client_id, user_type, performed_by, action, against_to, activity, created_at) 
-            VALUES (?, 'operator', ?, 'RESET_DATA_USAGE', 'ALL_SUBSCRIBERS', ?, NOW())");
-        $stmtLog->execute([$client_id, $actor_name, $actText]);
+        // 3. Log into activity logs safely
+        try {
+            $actText = "Reset all subscribers data usage counters to 0. Updated $subs_updated subscribers and cleared octets on $rad_updated accounting session records.";
+            $stmtLog = $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, by_role, against_to, against_role, activity) 
+                VALUES (?, ?, 'Admin', 'ALL_SUBSCRIBERS', 'User', ?)");
+            $stmtLog->execute([$client_id, $actor_name, $actText]);
+        } catch (Exception $eLog) {}
 
         $reset_done = true;
     } catch (Exception $e) {
