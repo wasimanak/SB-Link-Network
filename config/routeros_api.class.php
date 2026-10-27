@@ -146,6 +146,7 @@ class RouterosAPI
     public function read($parse = true)
     {
         $response = array();
+        $is_done = false;
         while (true) {
             if (!$this->socket || feof($this->socket)) {
                 break;
@@ -155,12 +156,21 @@ class RouterosAPI
                 break;
             }
             $word = $this->readWord();
-            if ($word === false || $word === '') {
+            if ($word === false) {
                 break;
             }
+            if ($word === '') {
+                // Empty word terminates a sentence in MikroTik API.
+                // If we have already received !done or !fatal, this marks the end of the entire reply.
+                if ($is_done) {
+                    break;
+                }
+                // Otherwise, continue reading subsequent sentences in multi-sentence replies
+                continue;
+            }
             $response[] = $word;
-            if ($word == '!done' || $word == '!fatal') {
-                break;
+            if ($word === '!done' || $word === '!fatal') {
+                $is_done = true;
             }
         }
         if ($parse) {
@@ -194,7 +204,7 @@ class RouterosAPI
             } elseif (strpos($k, '=') === 0) {
                 $word = $k . ($v !== '' ? '=' . $v : '');
             } else {
-                $word = '=' . $k . ($v !== '' ? '=' . $v : '=');
+                $word = '=' . $k . ($v !== '' ? '=' . $v : '');
             }
             $this->write($word, ($i == $c - 1));
             $i++;
@@ -207,11 +217,14 @@ class RouterosAPI
         $result = array();
         $current = null;
         foreach ($response as $x) {
-            if ($x === '!re') {
+            if ($x === '!re' || $x === '!trap') {
                 if ($current !== null) {
                     $result[] = $current;
                 }
                 $current = array();
+                if ($x === '!trap') {
+                    $current['!trap'] = true;
+                }
             } elseif ($x === '!done' || $x === '!fatal') {
                 if ($current !== null) {
                     $result[] = $current;

@@ -8,7 +8,7 @@ header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 header('Pragma: no-cache');
 header('Expires: 0');
 
-$client_id = $_SESSION['lineman_id'] ?? $_SESSION['operator_id'] ?? $_SESSION['client_id'] ?? null;
+$client_id = $_SESSION['operator_id'] ?? $_SESSION['client_id'] ?? null;
 $username = trim($_GET['username'] ?? '');
 $sub_id = (int)($_GET['sub_id'] ?? 0);
 
@@ -18,8 +18,8 @@ if (!$client_id) {
 }
 
 if (empty($username) && $sub_id > 0) {
-    $uStmt = $pdo->prepare("SELECT username FROM subscribers WHERE id = ?");
-    $uStmt->execute([$sub_id]);
+    $uStmt = $pdo->prepare("SELECT username FROM subscribers WHERE id = ? AND client_id = ?");
+    $uStmt->execute([$sub_id, $client_id]);
     $username = $uStmt->fetchColumn() ?: '';
 }
 
@@ -41,18 +41,22 @@ $source = 'none';
 $diag = [
     'username' => $username,
     'rad_nasip' => null,
+    'framed_ip' => null,
     'attempts' => []
 ];
 
 try {
     // 1. Check if user currently has an active accounting session in radacct
     $rad_active = null;
-    $radStmt = $pdo->prepare("SELECT radacctid, nasipaddress, acctsessiontime, acctinputoctets, acctoutputoctets 
+    $radStmt = $pdo->prepare("SELECT radacctid, nasipaddress, acctsessiontime, acctinputoctets, acctoutputoctets, framedipaddress 
         FROM radacct 
         WHERE username = ? AND acctstoptime IS NULL 
         ORDER BY radacctid DESC LIMIT 1");
     $radStmt->execute([$username]);
     $rad_active = $radStmt->fetch(PDO::FETCH_ASSOC);
+
+    $framed_ip = !empty($rad_active['framedipaddress']) ? trim($rad_active['framedipaddress']) : null;
+    $diag['framed_ip'] = $framed_ip;
 
     // 2. Build candidate router list
     $target_routers = [];
@@ -60,12 +64,14 @@ try {
     $default_api_pass = '';
     $default_api_port = 8728;
 
+    // Fetch operator's configured NAS routers from DB
     $allNasStmt = $pdo->prepare("SELECT * FROM nas 
-        WHERE nasname NOT LIKE '%/%' 
+        WHERE (client_id = ? OR client_id = 0 OR client_id IS NULL) 
+        AND nasname NOT LIKE '%/%' 
         AND nasname != '0.0.0.0' 
         AND nasname != '127.0.0.1' 
         ORDER BY id ASC");
-    $allNasStmt->execute();
+    $allNasStmt->execute([$client_id]);
     $all_nas = $allNasStmt->fetchAll(PDO::FETCH_ASSOC);
 
     if (!empty($all_nas[0])) {
@@ -74,15 +80,17 @@ try {
         $default_api_port = !empty($all_nas[0]['api_port']) ? (int)$all_nas[0]['api_port'] : 8728;
     }
 
+    // A. If radacct has active nasipaddress, prioritize it
     if (!empty($rad_active['nasipaddress'])) {
         $diag['rad_nasip'] = $rad_active['nasipaddress'];
-        $rStmt = $pdo->prepare("SELECT * FROM nas WHERE nasname = ? LIMIT 1");
-        $rStmt->execute([$rad_active['nasipaddress']]);
+        $rStmt = $pdo->prepare("SELECT * FROM nas WHERE (client_id = ? OR client_id = 0 OR client_id IS NULL) AND nasname = ? LIMIT 1");
+        $rStmt->execute([$client_id, $rad_active['nasipaddress']]);
         $matched_nas = $rStmt->fetch(PDO::FETCH_ASSOC);
 
         if ($matched_nas) {
             $target_routers[] = $matched_nas;
         } else {
+            // radacct nasipaddress is direct reachable IP, use credentials from operator's configured NAS
             $target_routers[] = [
                 'id' => 0,
                 'nasname' => $rad_active['nasipaddress'],
@@ -94,6 +102,7 @@ try {
         }
     }
 
+    // B. Append other configured NAS routers
     foreach ($all_nas as $r) {
         $already = false;
         foreach ($target_routers as $tr) {
@@ -107,7 +116,7 @@ try {
         }
     }
 
-    // 3. Connect to routers and look for live session
+    // 3. Connect to candidate routers
     foreach ($target_routers as $nas) {
         $nas_ip = trim($nas['nasname'] ?? '');
         $api_user = !empty($nas['api_user']) ? trim($nas['api_user']) : $default_api_user;
@@ -129,6 +138,7 @@ try {
             'speed_found' => false
         ];
 
+        // 1.2s timeout socket check
         $errno = 0;
         $errstr = '';
         $sock = @fsockopen($nas_ip, $api_port, $errno, $errstr, 1.2);
@@ -152,26 +162,34 @@ try {
         $attempt_info['login_ok'] = true;
 
         $exact_mikrotik_username = null;
+        $matched_ip = null;
 
-        // A. Targeted check in PPPoE active
+        // A. Check PPPoE Active
+        // 1. Direct query by username
         $pRes = $api->comm('/ppp/active/print', ['?name' => $username]);
         if (empty($pRes) && $username_lower !== $username) {
             $pRes = $api->comm('/ppp/active/print', ['?name' => $username_lower]);
         }
         if (!empty($pRes) && isset($pRes[0]['name'])) {
             $exact_mikrotik_username = $pRes[0]['name'];
+            $matched_ip = $pRes[0]['address'] ?? $framed_ip;
             $uptime_str = $pRes[0]['uptime'] ?? null;
             $attempt_info['user_found'] = true;
             $found = true;
         }
 
+        // 2. Full scan of PPPoE active if direct query didn't match (case-insensitive, prefix, or IP match)
         if (!$exact_mikrotik_username) {
             $all_ppp = $api->comm('/ppp/active/print');
             if (is_array($all_ppp)) {
                 foreach ($all_ppp as $conn) {
-                    $cname = strtolower(trim($conn['name'] ?? ''));
-                    if ($cname === $username_lower || strpos($cname, $username_lower) !== false) {
-                        $exact_mikrotik_username = $conn['name'];
+                    $cname = trim($conn['name'] ?? '');
+                    $caddr = trim($conn['address'] ?? '');
+                    if (strcasecmp($cname, $username) === 0 || 
+                        stripos($cname, $username) !== false || 
+                        (!empty($framed_ip) && $caddr === $framed_ip)) {
+                        $exact_mikrotik_username = $cname;
+                        $matched_ip = $caddr ?: $framed_ip;
                         $uptime_str = $conn['uptime'] ?? null;
                         $attempt_info['user_found'] = true;
                         $found = true;
@@ -182,6 +200,7 @@ try {
         }
 
         $u_target = $exact_mikrotik_username ?: $username;
+        $target_ip = $matched_ip ?: $framed_ip;
 
         // B. Check Simple Queues (Most reliable source for real-time rate on PPPoE in MikroTik)
         $cand_queues = [
@@ -189,26 +208,46 @@ try {
             $u_target,
             '<' . $u_target . '>'
         ];
+        $found_queue = null;
         foreach ($cand_queues as $cq) {
             $qres = $api->comm('/queue/simple/print', ['?name' => $cq]);
-            if (!empty($qres) && is_array($qres) && isset($qres[0])) {
-                $q = $qres[0];
-                if (!empty($q['rate'])) {
-                    $rparts = explode('/', (string)$q['rate']);
-                    $rx_bps = (float)($rparts[0] ?? 0);
-                    $tx_bps = (float)($rparts[1] ?? 0);
-                    if ($rx_bps > 0 || $tx_bps > 0) {
-                        $attempt_info['speed_found'] = true;
-                    }
-                }
-                if ($bytes_in == 0 && $bytes_out == 0 && !empty($q['bytes'])) {
-                    $bparts = explode('/', (string)$q['bytes']);
-                    $bytes_in = (float)($bparts[0] ?? 0);
-                    $bytes_out = (float)($bparts[1] ?? 0);
-                }
-                $found = true;
+            if (!empty($qres) && is_array($qres) && isset($qres[0]['name'])) {
+                $found_queue = $qres[0];
                 break;
             }
+        }
+
+        // If not matched by direct name, scan all simple queues for matching target IP or name
+        if (!$found_queue && (!empty($target_ip) || !empty($u_target))) {
+            $all_queues = $api->comm('/queue/simple/print');
+            if (is_array($all_queues)) {
+                foreach ($all_queues as $q) {
+                    $qname = $q['name'] ?? '';
+                    $qtarget = $q['target'] ?? '';
+                    if ((!empty($target_ip) && strpos($qtarget, $target_ip) !== false) ||
+                        stripos($qname, $u_target) !== false) {
+                        $found_queue = $q;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if ($found_queue) {
+            if (!empty($found_queue['rate'])) {
+                $rparts = explode('/', (string)$found_queue['rate']);
+                $rx_bps = (float)($rparts[0] ?? 0); // Upload
+                $tx_bps = (float)($rparts[1] ?? 0); // Download
+                if ($rx_bps > 0 || $tx_bps > 0) {
+                    $attempt_info['speed_found'] = true;
+                }
+            }
+            if ($bytes_in == 0 && $bytes_out == 0 && !empty($found_queue['bytes'])) {
+                $bparts = explode('/', (string)$found_queue['bytes']);
+                $bytes_in = (float)($bparts[0] ?? 0);
+                $bytes_out = (float)($bparts[1] ?? 0);
+            }
+            $found = true;
         }
 
         // C. Check interface monitor-traffic if rates still 0
@@ -220,6 +259,7 @@ try {
                 '<l2tp-' . $u_target . '>',
                 $u_target
             ];
+            $matched_iface = null;
             foreach ($cand_ifaces as $cif) {
                 $traffic = $api->comm('/interface/monitor-traffic', [
                     'interface' => $cif,
@@ -230,16 +270,47 @@ try {
                     $tx_bps = (float)$traffic[0]['tx-bits-per-second'];
                     $attempt_info['speed_found'] = true;
                     $found = true;
+                    $matched_iface = $cif;
                     break;
+                }
+            }
+
+            // If not found in candidate list, scan interfaces for any interface matching subscriber
+            if (!$matched_iface) {
+                $all_ifaces = $api->comm('/interface/print');
+                if (is_array($all_ifaces)) {
+                    foreach ($all_ifaces as $if) {
+                        $iname = $if['name'] ?? '';
+                        if (stripos($iname, $u_target) !== false) {
+                            $traffic = $api->comm('/interface/monitor-traffic', [
+                                'interface' => $iname,
+                                'once'      => ''
+                            ]);
+                            if (!empty($traffic) && is_array($traffic) && isset($traffic[0]['rx-bits-per-second'])) {
+                                $rx_bps = (float)$traffic[0]['rx-bits-per-second'];
+                                $tx_bps = (float)$traffic[0]['tx-bits-per-second'];
+                                $attempt_info['speed_found'] = true;
+                                $found = true;
+                                if ($bytes_in == 0 && $bytes_out == 0) {
+                                    $bytes_in = (float)($if['rx-byte'] ?? 0);
+                                    $bytes_out = (float)($if['tx-byte'] ?? 0);
+                                }
+                                break;
+                            }
+                        }
+                    }
                 }
             }
         }
 
-        // D. Check Hotspot active if not found in PPPoE
+        // D. Check Hotspot active if still not found
         if (!$found) {
             $hs = $api->comm('/ip/hotspot/active/print', ['?user' => $username]);
             if (empty($hs) && $username_lower !== $username) {
                 $hs = $api->comm('/ip/hotspot/active/print', ['?user' => $username_lower]);
+            }
+            if (empty($hs) && !empty($target_ip)) {
+                $hs = $api->comm('/ip/hotspot/active/print', ['?address' => $target_ip]);
             }
             if (!empty($hs) && isset($hs[0]['user'])) {
                 $bytes_in = (float)($hs[0]['bytes-in'] ?? 0);
@@ -259,7 +330,7 @@ try {
         }
     }
 
-    // 4. Fallback to FreeRADIUS radacct if router API was unreachable or returned 0 bytes
+    // 4. Fallback to FreeRADIUS radacct if router API was unreachable
     if (!$found && !empty($rad_active)) {
         $bytes_in = (float)($rad_active['acctinputoctets'] ?? 0);
         $bytes_out = (float)($rad_active['acctoutputoctets'] ?? 0);
