@@ -249,8 +249,8 @@ $sub_client_id = $sub['client_id'];
             }
 
             if ($found_queue) {
-                echo "<div class='text-success fw-bold'>&bull; MATCH FOUND in /queue/simple ({$q_reason})!</div>";
-                echo "<pre>" . print_r($found_queue, true) . "</pre>";
+                echo "<div class='text-success fw-bold'>&bull; MATCH FOUND in /queue/simple (" . htmlspecialchars($q_reason) . ")!</div>";
+                echo "<pre>" . htmlspecialchars(print_r($found_queue, true)) . "</pre>";
                 $rparts = explode('/', (string)($found_queue['rate'] ?? '0/0'));
                 $upMbps = round(((float)($rparts[0] ?? 0)) / 1048576, 2);
                 $downMbps = round(((float)($rparts[1] ?? 0)) / 1048576, 2);
