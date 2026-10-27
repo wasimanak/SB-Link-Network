@@ -159,7 +159,7 @@ class RouterosAPI
                 break;
             }
             $response[] = $word;
-            if ($word == '!done' || $word == '!fatal' || $word == '!trap') {
+            if ($word == '!done' || $word == '!fatal') {
                 break;
             }
         }
@@ -189,7 +189,14 @@ class RouterosAPI
         $i = 0;
         $c = count($arr);
         foreach ($arr as $k => $v) {
-            $this->write('=' . $k . '=' . $v, ($i == $c - 1));
+            if (strpos($k, '?') === 0) {
+                $word = $k . ($v !== '' ? '=' . $v : '');
+            } elseif (strpos($k, '=') === 0) {
+                $word = $k . ($v !== '' ? '=' . $v : '');
+            } else {
+                $word = '=' . $k . ($v !== '' ? '=' . $v : '=');
+            }
+            $this->write($word, ($i == $c - 1));
             $i++;
         }
         return $this->read();

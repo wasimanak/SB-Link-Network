@@ -4,6 +4,9 @@ require_once '../config/db.php';
 require_once '../config/routeros_api.class.php';
 
 header('Content-Type: application/json');
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
+header('Expires: 0');
 
 $client_id = $_SESSION['operator_id'] ?? $_SESSION['client_id'] ?? null;
 $username = trim($_GET['username'] ?? '');
@@ -34,6 +37,7 @@ $rx_bps = 0;
 $tx_bps = 0;
 $uptime_str = null;
 $found = false;
+$source = 'none';
 
 try {
     // 1. Check if user currently has an active accounting session in radacct
@@ -56,7 +60,7 @@ try {
         }
     }
 
-    // Include all other real routers configured for this operator (exclude subnets / wildcards)
+    // Include other real routers configured for this operator
     $allNasStmt = $pdo->prepare("SELECT * FROM nas 
         WHERE (client_id = ? OR client_id = 0 OR client_id IS NULL) 
         AND nasname NOT LIKE '%/%' 
@@ -89,17 +93,17 @@ try {
             continue;
         }
 
-        // Fast socket check (0.8s) so unreachable router IPs don't stall the request
+        // Fast socket check (0.6s)
         $errno = 0;
         $errstr = '';
-        $sock = @fsockopen($nas_ip, $api_port, $errno, $errstr, 0.8);
+        $sock = @fsockopen($nas_ip, $api_port, $errno, $errstr, 0.6);
         if (!$sock) {
             continue;
         }
         fclose($sock);
 
         $api = new RouterosAPI();
-        $api->timeout = 3;
+        $api->timeout = 2;
         $api->attempts = 1;
 
         if (!$api->connect($nas_ip, $api_user, $api_pass, $api_port)) {
@@ -108,119 +112,116 @@ try {
 
         $exact_mikrotik_username = null;
 
-        // A. Check PPPoE active sessions
-        $all_ppp = $api->comm('/ppp/active/print');
-        if (is_array($all_ppp)) {
-            foreach ($all_ppp as $conn) {
-                $cname = strtolower(trim($conn['name'] ?? ''));
-                if ($cname === $username_lower || strpos($cname, $username_lower) !== false) {
-                    $exact_mikrotik_username = $conn['name'];
-                    $uptime_str = $conn['uptime'] ?? null;
+        // A. Targeted check in PPPoE active
+        $pRes = $api->comm('/ppp/active/print', ['?name' => $username]);
+        if (empty($pRes) && $username_lower !== $username) {
+            $pRes = $api->comm('/ppp/active/print', ['?name' => $username_lower]);
+        }
+        if (!empty($pRes) && isset($pRes[0]['name'])) {
+            $exact_mikrotik_username = $pRes[0]['name'];
+            $uptime_str = $pRes[0]['uptime'] ?? null;
+            $found = true;
+        }
+
+        // Fallback scan if case differed or filter didn't match
+        if (!$exact_mikrotik_username) {
+            $all_ppp = $api->comm('/ppp/active/print');
+            if (is_array($all_ppp)) {
+                foreach ($all_ppp as $conn) {
+                    $cname = strtolower(trim($conn['name'] ?? ''));
+                    if ($cname === $username_lower || strpos($cname, $username_lower) !== false) {
+                        $exact_mikrotik_username = $conn['name'];
+                        $uptime_str = $conn['uptime'] ?? null;
+                        $found = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        $u_target = $exact_mikrotik_username ?: $username;
+        $target_iface_name = null;
+
+        // B. Query monitor-traffic on candidate interfaces
+        $cand_ifaces = [
+            '<pppoe-' . $u_target . '>',
+            'pppoe-' . $u_target,
+            '<sstp-' . $u_target . '>',
+            '<l2tp-' . $u_target . '>',
+            '<ovpn-' . $u_target . '>',
+            $u_target
+        ];
+
+        foreach ($cand_ifaces as $cif) {
+            $traffic = $api->comm('/interface/monitor-traffic', [
+                'interface' => $cif,
+                'once'      => ''
+            ]);
+            if (!empty($traffic) && is_array($traffic) && isset($traffic[0]['rx-bits-per-second'])) {
+                $rx_bps = (float)$traffic[0]['rx-bits-per-second'];
+                $tx_bps = (float)$traffic[0]['tx-bits-per-second'];
+                $target_iface_name = $cif;
+                $found = true;
+                break;
+            }
+        }
+
+        // B2. If interface found, fetch byte counters
+        if ($target_iface_name) {
+            $if_stat = $api->comm('/interface/print', [
+                '?name' => $target_iface_name,
+                'stats' => ''
+            ]);
+            if (!empty($if_stat) && is_array($if_stat) && isset($if_stat[0])) {
+                $bytes_in = (float)($if_stat[0]['rx-byte'] ?? $if_stat[0]['rx-bytes'] ?? 0);
+                $bytes_out = (float)($if_stat[0]['tx-byte'] ?? $if_stat[0]['tx-bytes'] ?? 0);
+            }
+        }
+
+        // C. Simple Queue check for instantaneous rates and byte counters
+        if ($rx_bps == 0 && $tx_bps == 0) {
+            $cand_queues = [
+                '<pppoe-' . $u_target . '>',
+                $u_target
+            ];
+            foreach ($cand_queues as $cq) {
+                $qres = $api->comm('/queue/simple/print', ['?name' => $cq]);
+                if (!empty($qres) && is_array($qres) && isset($qres[0])) {
+                    $q = $qres[0];
+                    if (!empty($q['rate'])) {
+                        $rparts = explode('/', (string)$q['rate']);
+                        $rx_bps = (float)($rparts[0] ?? 0);
+                        $tx_bps = (float)($rparts[1] ?? 0);
+                    }
+                    if ($bytes_in == 0 && $bytes_out == 0 && !empty($q['bytes'])) {
+                        $bparts = explode('/', (string)$q['bytes']);
+                        $bytes_in = (float)($bparts[0] ?? 0);
+                        $bytes_out = (float)($bparts[1] ?? 0);
+                    }
                     $found = true;
                     break;
                 }
             }
         }
 
-        // B. If found in PPPoE, fetch interface stats directly
-        if ($exact_mikrotik_username) {
-            $target_iface_name = null;
-            $target_iface_id = null;
-
-            // Fetch interfaces with cumulative byte stats
-            $all_ifaces = $api->comm('/interface/print', ['stats' => '']);
-            if (empty($all_ifaces) || !is_array($all_ifaces)) {
-                $all_ifaces = $api->comm('/interface/print');
-            }
-
-            if (is_array($all_ifaces)) {
-                foreach ($all_ifaces as $if) {
-                    $iname = strtolower(trim($if['name'] ?? ''));
-                    if (strpos($iname, $username_lower) !== false) {
-                        $target_iface_name = $if['name'];
-                        $target_iface_id = $if['.id'] ?? null;
-                        $bytes_in = (float)($if['rx-byte'] ?? $if['rx-bytes'] ?? 0);
-                        $bytes_out = (float)($if['tx-byte'] ?? $if['tx-bytes'] ?? 0);
-                        break;
-                    }
-                }
-            }
-
-            // Query monitor-traffic for live instantaneous bitrate
-            if ($target_iface_name) {
-                $traffic = $api->comm('/interface/monitor-traffic', [
-                    'interface' => $target_iface_name,
-                    'once'      => ''
-                ]);
-                if (!empty($traffic) && is_array($traffic) && isset($traffic[0]['rx-bits-per-second'])) {
-                    $rx_bps = (float)$traffic[0]['rx-bits-per-second'];
-                    $tx_bps = (float)$traffic[0]['tx-bits-per-second'];
-                } elseif (!empty($target_iface_id)) {
-                    // Try with interface .id if bracketed name had issues
-                    $traffic = $api->comm('/interface/monitor-traffic', [
-                        'interface' => $target_iface_id,
-                        'once'      => ''
-                    ]);
-                    if (!empty($traffic) && is_array($traffic) && isset($traffic[0]['rx-bits-per-second'])) {
-                        $rx_bps = (float)$traffic[0]['rx-bits-per-second'];
-                        $tx_bps = (float)$traffic[0]['tx-bits-per-second'];
-                    }
-                }
-            }
-        }
-
-        // C. Simple Queue check for instantaneous rates and byte counters
-        if ($rx_bps == 0 && $tx_bps == 0) {
-            $all_queues = $api->comm('/queue/simple/print');
-            if (is_array($all_queues)) {
-                foreach ($all_queues as $q) {
-                    $qname = strtolower(trim($q['name'] ?? ''));
-                    if (strpos($qname, $username_lower) !== false) {
-                        if (!empty($q['rate'])) {
-                            $rparts = explode('/', (string)$q['rate']);
-                            $rx_bps = (float)($rparts[0] ?? 0);
-                            $tx_bps = (float)($rparts[1] ?? 0);
-                        } elseif (isset($q['rate.upload']) || isset($q['rate.download'])) {
-                            $rx_bps = (float)($q['rate.upload'] ?? 0);
-                            $tx_bps = (float)($q['rate.download'] ?? 0);
-                        }
-                        if ($bytes_in == 0 && $bytes_out == 0) {
-                            if (!empty($q['bytes'])) {
-                                $bparts = explode('/', (string)$q['bytes']);
-                                $bytes_in = (float)($bparts[0] ?? 0);
-                                $bytes_out = (float)($bparts[1] ?? 0);
-                            } elseif (isset($q['bytes.upload']) || isset($q['bytes.download'])) {
-                                $bytes_in = (float)($q['bytes.upload'] ?? 0);
-                                $bytes_out = (float)($q['bytes.download'] ?? 0);
-                            }
-                        }
-                        $found = true;
-                        break;
-                    }
-                }
-            }
-        }
-
         // D. Check Hotspot active if not found in PPPoE
         if (!$found) {
-            $all_hs = $api->comm('/ip/hotspot/active/print');
-            if (is_array($all_hs)) {
-                foreach ($all_hs as $hs) {
-                    $huser = strtolower(trim($hs['user'] ?? ''));
-                    if ($huser === $username_lower || strpos($huser, $username_lower) !== false) {
-                        $bytes_in = (float)($hs['bytes-in'] ?? 0);
-                        $bytes_out = (float)($hs['bytes-out'] ?? 0);
-                        $uptime_str = $hs['uptime'] ?? null;
-                        $found = true;
-                        break;
-                    }
-                }
+            $hs = $api->comm('/ip/hotspot/active/print', ['?user' => $username]);
+            if (empty($hs) && $username_lower !== $username) {
+                $hs = $api->comm('/ip/hotspot/active/print', ['?user' => $username_lower]);
+            }
+            if (!empty($hs) && isset($hs[0]['user'])) {
+                $bytes_in = (float)($hs[0]['bytes-in'] ?? 0);
+                $bytes_out = (float)($hs[0]['bytes-out'] ?? 0);
+                $uptime_str = $hs[0]['uptime'] ?? null;
+                $found = true;
             }
         }
 
         $api->disconnect();
 
         if ($found) {
+            $source = 'mikrotik';
             break;
         }
     }
@@ -234,6 +235,7 @@ try {
         $mins = floor(($secs % 3600) / 60);
         $uptime_str = "{$hours}h {$mins}m";
         $found = true;
+        $source = 'radius';
     } elseif ($found && $bytes_in == 0 && $bytes_out == 0 && !empty($rad_active)) {
         $bytes_in = (float)($rad_active['acctinputoctets'] ?? 0);
         $bytes_out = (float)($rad_active['acctoutputoctets'] ?? 0);
@@ -242,20 +244,24 @@ try {
     if ($found) {
         echo json_encode([
             'status'    => 'online',
+            'source'    => $source,
             'bytes_in'  => $bytes_in, 
             'bytes_out' => $bytes_out, 
             'rx_bps'    => $rx_bps, 
             'tx_bps'    => $tx_bps, 
-            'uptime'    => $uptime_str
+            'uptime'    => $uptime_str,
+            'ts'        => microtime(true)
         ]);
     } else {
         echo json_encode([
             'status'    => 'offline',
+            'source'    => 'none',
             'bytes_in'  => 0, 
             'bytes_out' => 0, 
             'rx_bps'    => 0, 
             'tx_bps'    => 0, 
-            'msg'       => 'User not active in MikroTik'
+            'msg'       => 'User not active in MikroTik',
+            'ts'        => microtime(true)
         ]);
     }
 } catch (Exception $e) {
@@ -268,14 +274,16 @@ try {
         $uptime_str = "{$hours}h {$mins}m";
         echo json_encode([
             'status'    => 'online',
+            'source'    => 'radius',
             'bytes_in'  => $bytes_in, 
             'bytes_out' => $bytes_out, 
             'rx_bps'    => 0, 
             'tx_bps'    => 0, 
-            'uptime'    => $uptime_str
+            'uptime'    => $uptime_str,
+            'ts'        => microtime(true)
         ]);
     } else {
-        echo json_encode(['bytes_in' => 0, 'bytes_out' => 0, 'status' => 'offline', 'error' => $e->getMessage()]);
+        echo json_encode(['bytes_in' => 0, 'bytes_out' => 0, 'status' => 'offline', 'source' => 'none', 'error' => $e->getMessage(), 'ts' => microtime(true)]);
     }
 }
 ?>

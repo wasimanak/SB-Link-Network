@@ -2461,6 +2461,8 @@ let lastTime = null;
 const pastBytes = <?= (int)$past_bytes ?>;
 let peakDown = 0;
 let peakUp = 0;
+let isFetchingBw = false;
+let bwPollTimer = null;
 
 function splitSpeed(mbps) {
     if (isNaN(mbps) || mbps <= 0) return { val: '0.00', unit: 'Mbps' };
@@ -2471,7 +2473,12 @@ function splitSpeed(mbps) {
 }
 
 function fetchLiveBandwidth() {
-    fetch(`api_bandwidth.php?username=<?= urlencode($user['username']) ?>&sub_id=<?= (int)$user['id'] ?>`)
+    if (isFetchingBw) return;
+    isFetchingBw = true;
+
+    fetch(`api_bandwidth.php?username=<?= urlencode($user['username']) ?>&sub_id=<?= (int)$user['id'] ?>&_=${Date.now()}`, {
+        cache: 'no-store'
+    })
         .then(res => res.json())
         .then(data => {
             if (data.bytes_in !== undefined && data.bytes_out !== undefined) {
@@ -2486,8 +2493,13 @@ function fetchLiveBandwidth() {
                 let sBadge = document.getElementById('live_status_badge');
                 if (sBadge) {
                     if (data.status === 'online') {
-                        sBadge.className = 'badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-3 py-1.5 rounded-pill fs-7 d-inline-flex align-items-center gap-1.5';
-                        sBadge.innerHTML = '<span class="spinner-grow spinner-grow-sm text-success" style="width:7px; height:7px;" role="status"></span> Active Link';
+                        if (data.source === 'mikrotik') {
+                            sBadge.className = 'badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-3 py-1.5 rounded-pill fs-7 d-inline-flex align-items-center gap-1.5';
+                            sBadge.innerHTML = '<span class="spinner-grow spinner-grow-sm text-success" style="width:7px; height:7px;" role="status"></span> Active (Live RouterOS)';
+                        } else {
+                            sBadge.className = 'badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 px-3 py-1.5 rounded-pill fs-7 d-inline-flex align-items-center gap-1.5';
+                            sBadge.innerHTML = '<i class="fa-solid fa-cloud-arrow-down text-primary me-1" style="font-size:0.75rem;"></i> Active (RADIUS Sync)';
+                        }
                     } else {
                         sBadge.className = 'badge bg-secondary bg-opacity-10 text-secondary border px-3 py-1.5 rounded-pill fs-7 d-inline-flex align-items-center gap-1.5';
                         sBadge.innerHTML = '<i class="fa-solid fa-circle text-muted me-1" style="font-size:0.45rem;"></i> Offline';
@@ -2532,7 +2544,7 @@ function fetchLiveBandwidth() {
                     tx_mbps = parseFloat(data.tx_bps) / 1048576;
                 } else if (prevBytesIn !== null && prevBytesOut !== null && lastTime !== null) {
                     let timeDiffSecs = (nowTime - lastTime) / 1000;
-                    if (timeDiffSecs > 0) {
+                    if (timeDiffSecs > 0.5) {
                         let bytesInDiff = currentBytesIn - prevBytesIn;
                         let bytesOutDiff = currentBytesOut - prevBytesOut;
                         if (bytesInDiff < 0) bytesInDiff = 0;
@@ -2593,12 +2605,15 @@ function fetchLiveBandwidth() {
                 bwChart.update();
             }
         })
-        .catch(err => console.error("Error fetching bandwidth:", err));
+        .catch(err => console.error("Error fetching bandwidth:", err))
+        .finally(() => {
+            isFetchingBw = false;
+            bwPollTimer = setTimeout(fetchLiveBandwidth, 3000);
+        });
 }
 
-// Fetch every 3 seconds
-setInterval(fetchLiveBandwidth, 3000);
-fetchLiveBandwidth(); // initial call
+// Initial poll start
+fetchLiveBandwidth();
 
 // --- Edit Profile GPS & Interactive Leaflet Map Logic ---
 let editGeoWatchId = null;
