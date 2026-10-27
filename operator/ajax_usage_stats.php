@@ -6,31 +6,53 @@ if (!isset($_SESSION['operator_logged_in'])) {
     exit('<div class="col-12 text-danger text-center py-4">Unauthorized access</div>');
 }
 
-$client_id = $_SESSION['operator_id'];
+$client_id = (int)$_SESSION['operator_id'];
 
-// Top 20 Longest Sessions
-$longest_sessions = $pdo->query("
+// Auto-migrate column if missing
+try {
+    $cols = $pdo->query("SHOW COLUMNS FROM subscribers LIKE 'last_renewed_at'")->fetchAll();
+    if (empty($cols)) {
+        $pdo->exec("ALTER TABLE subscribers ADD COLUMN last_renewed_at DATETIME DEFAULT NULL");
+    }
+} catch (Exception $e) {}
+
+// Top 20 Longest Sessions (bounded by current billing cycle / reset timestamp)
+$longestStmt = $pdo->prepare("
     SELECT s.id, s.username, p.name as package_name, MAX(r.acctsessiontime) as duration
     FROM radacct r
-    JOIN subscribers s ON r.username = s.username
+    JOIN subscribers s ON r.username = s.username COLLATE utf8mb4_general_ci
     LEFT JOIN packages p ON s.package_id = p.id
-    WHERE s.client_id = $client_id
+    WHERE s.client_id = ?
+      AND (
+          (s.last_renewed_at IS NOT NULL AND (r.acctstarttime >= s.last_renewed_at OR r.acctstoptime >= s.last_renewed_at))
+          OR (s.last_renewed_at IS NULL AND (r.acctstarttime >= COALESCE(s.created_at, '2000-01-01 00:00:00') OR r.acctstoptime >= COALESCE(s.created_at, '2000-01-01 00:00:00')))
+      )
     GROUP BY s.id, s.username, p.name
+    HAVING duration > 0
     ORDER BY duration DESC
     LIMIT 20
-")->fetchAll();
+");
+$longestStmt->execute([$client_id]);
+$longest_sessions = $longestStmt->fetchAll();
 
-// Top 20 Highest Usage
-$highest_usage = $pdo->query("
-    SELECT s.id, s.username, p.name as package_name, MAX(r.acctinputoctets + r.acctoutputoctets) as usage_bytes
+// Top 20 Highest Usage (Total Consumption in Current Cycle)
+$usageStmt = $pdo->prepare("
+    SELECT s.id, s.username, p.name as package_name, SUM(r.acctinputoctets + r.acctoutputoctets) as usage_bytes
     FROM radacct r
-    JOIN subscribers s ON r.username = s.username
+    JOIN subscribers s ON r.username = s.username COLLATE utf8mb4_general_ci
     LEFT JOIN packages p ON s.package_id = p.id
-    WHERE s.client_id = $client_id
+    WHERE s.client_id = ?
+      AND (
+          (s.last_renewed_at IS NOT NULL AND (r.acctstarttime >= s.last_renewed_at OR r.acctstoptime >= s.last_renewed_at))
+          OR (s.last_renewed_at IS NULL AND (r.acctstarttime >= COALESCE(s.created_at, '2000-01-01 00:00:00') OR r.acctstoptime >= COALESCE(s.created_at, '2000-01-01 00:00:00')))
+      )
     GROUP BY s.id, s.username, p.name
+    HAVING usage_bytes > 0
     ORDER BY usage_bytes DESC
     LIMIT 20
-")->fetchAll();
+");
+$usageStmt->execute([$client_id]);
+$highest_usage = $usageStmt->fetchAll();
 
 function formatDurationStr($seconds) {
     if (!$seconds) return "0s";
@@ -56,7 +78,10 @@ function formatBytesStr($bytes) {
 
 <!-- Longest Session -->
 <div class="col-lg-6 mb-4">
-    <h6 class="text-start fw-bold text-secondary mb-3 border-start border-3 border-primary ps-2">Longest Session (Top 20 Users)</h6>
+    <div class="d-flex align-items-center justify-content-between mb-3 border-start border-3 border-primary ps-2">
+        <h6 class="text-start fw-bold text-secondary mb-0">Longest Session (Current Cycle)</h6>
+        <span class="badge bg-light text-muted border rounded-pill">Top 20</span>
+    </div>
     <div class="table-responsive bg-white border rounded shadow-sm">
         <table class="table table-sm table-hover mb-0 align-middle">
             <thead class="table-light">
@@ -77,7 +102,7 @@ function formatBytesStr($bytes) {
                 </tr>
                 <?php endforeach; ?>
                 <?php if(empty($longest_sessions)): ?>
-                <tr><td colspan="4" class="text-center text-muted py-3">No sessions found</td></tr>
+                <tr><td colspan="4" class="text-center text-muted py-4"><i class="fa-solid fa-clock-rotate-left me-1"></i> No active session records in current cycle</td></tr>
                 <?php endif; ?>
             </tbody>
         </table>
@@ -86,7 +111,10 @@ function formatBytesStr($bytes) {
 
 <!-- Highest Usage -->
 <div class="col-lg-6 mb-4">
-    <h6 class="text-start fw-bold text-secondary mb-3 border-start border-3 border-success ps-2">Highest Session Usage (Top 20)</h6>
+    <div class="d-flex align-items-center justify-content-between mb-3 border-start border-3 border-success ps-2">
+        <h6 class="text-start fw-bold text-secondary mb-0">Highest Usage (Current Cycle)</h6>
+        <span class="badge bg-light text-muted border rounded-pill">Top 20</span>
+    </div>
     <div class="table-responsive bg-white border rounded shadow-sm">
         <table class="table table-sm table-hover mb-0 align-middle">
             <thead class="table-light">
@@ -107,7 +135,7 @@ function formatBytesStr($bytes) {
                 </tr>
                 <?php endforeach; ?>
                 <?php if(empty($highest_usage)): ?>
-                <tr><td colspan="4" class="text-center text-muted py-3">No usage data found</td></tr>
+                <tr><td colspan="4" class="text-center text-muted py-4"><i class="fa-solid fa-chart-simple me-1"></i> No usage data in current cycle (0 B)</td></tr>
                 <?php endif; ?>
             </tbody>
         </table>

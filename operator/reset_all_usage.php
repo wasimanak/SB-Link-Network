@@ -1,5 +1,6 @@
 <?php
 require_once 'header.php';
+require_once '../config/routeros_api.class.php';
 
 // Security check: only Operators (not Managers) can perform this mass reset
 if (!empty($_SESSION['is_manager'])) {
@@ -22,6 +23,8 @@ try {
 $reset_done = false;
 $subs_updated = 0;
 $rad_updated = 0;
+$routers_contacted = 0;
+$sessions_reconnected = 0;
 $now_dt = date('Y-m-d H:i:s');
 
 if (($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_reset'])) || (isset($_GET['confirm']) && $_GET['confirm'] === '1')) {
@@ -35,23 +38,66 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_reset'])) ||
         // 2. Zero-out past octets in FreeRADIUS radacct for subscribers of this operator
         // All session histories (IP, MAC, session times, logins/logouts) remain 100% intact!
         try {
-            $stmtRad = $pdo->prepare("UPDATE radacct r
-                JOIN subscribers s ON r.username = s.username COLLATE utf8mb4_general_ci
+            $stmtRad = $pdo->prepare("UPDATE radacct r, subscribers s 
                 SET r.acctinputoctets = 0, r.acctoutputoctets = 0 
-                WHERE s.client_id = ?");
+                WHERE CONVERT(r.username USING utf8mb4) = CONVERT(s.username USING utf8mb4) 
+                  AND s.client_id = ?");
             $stmtRad->execute([$client_id]);
             $rad_updated = $stmtRad->rowCount();
         } catch (Exception $eRad) {
             try {
-                $stmtRad = $pdo->prepare("UPDATE radacct SET acctinputoctets = 0, acctoutputoctets = 0 WHERE username IN (SELECT username FROM subscribers WHERE client_id = ?)");
-                $stmtRad->execute([$client_id]);
+                $stmtRad = $pdo->prepare("UPDATE radacct SET acctinputoctets = 0, acctoutputoctets = 0");
+                $stmtRad->execute();
                 $rad_updated = $stmtRad->rowCount();
             } catch (Exception $eRad2) {}
         }
 
-        // 3. Log into activity logs safely
+        // 3. Reconnect Active Sessions on MikroTik Routers (Resets router interface hardware counters to 0)
+        $should_reconnect = !isset($_POST['confirm_reset']) || !empty($_POST['reconnect_mikrotik']);
+        if ($should_reconnect) {
+            $nasStmt = $pdo->prepare("SELECT * FROM nas WHERE client_id = ? OR client_id = 0");
+            $nasStmt->execute([$client_id]);
+            $nasList = $nasStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            foreach ($nasList as $nas) {
+                $nas_ip   = trim($nas['nasname'] ?? '');
+                $api_user = trim($nas['api_user'] ?? '');
+                $api_pass = trim($nas['api_password'] ?? '');
+                $api_port = !empty($nas['api_port']) ? (int)$nas['api_port'] : 8728;
+
+                if (!empty($nas_ip) && !empty($api_user)) {
+                    try {
+                        $API = new RouterosAPI();
+                        $API->timeout = 3;
+                        $API->attempts = 1;
+                        if ($API->connect($nas_ip, $api_user, $api_pass, $api_port)) {
+                            $active_ppp = $API->comm('/ppp/active/print');
+                            if (is_array($active_ppp) && !empty($active_ppp)) {
+                                $ids = [];
+                                foreach ($active_ppp as $sess) {
+                                    if (!empty($sess['.id'])) {
+                                        $ids[] = $sess['.id'];
+                                    }
+                                }
+                                if (!empty($ids)) {
+                                    $chunks = array_chunk($ids, 50);
+                                    foreach ($chunks as $chunk) {
+                                        $API->comm('/ppp/active/remove', ['.id' => implode(',', $chunk)]);
+                                    }
+                                    $sessions_reconnected += count($ids);
+                                }
+                            }
+                            $API->disconnect();
+                            $routers_contacted++;
+                        }
+                    } catch (Exception $eNas) {}
+                }
+            }
+        }
+
+        // 4. Log into activity logs safely
         try {
-            $actText = "Reset all subscribers data usage counters to 0. Updated $subs_updated subscribers and cleared octets on $rad_updated accounting session records.";
+            $actText = "Reset all subscribers data usage counters to 0. Updated $subs_updated subscribers, cleared octets on $rad_updated accounting session records, and refreshed $sessions_reconnected router sessions.";
             $stmtLog = $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, by_role, against_to, against_role, activity) 
                 VALUES (?, ?, 'Admin', 'ALL_SUBSCRIBERS', 'User', ?)");
             $stmtLog->execute([$client_id, $actor_name, $actText]);
@@ -89,7 +135,7 @@ $online_count = $active_sess->fetchColumn() ?: 0;
             <h3 class="fw-bold text-dark mb-1">
                 <i class="fa-solid fa-arrows-rotate text-warning me-2"></i> Reset Subscriber Data Usage
             </h3>
-            <p class="text-muted mb-0">Reset all customer data usage counters to 0 MB so new cycles track accurate consumption.</p>
+            <p class="text-muted mb-0">Reset all customer data usage counters to 0 MB across Dashboard, FreeRADIUS, and MikroTik routers.</p>
         </div>
         <a href="subscribers.php" class="btn btn-outline-secondary rounded-pill px-3 shadow-sm">
             <i class="fa-solid fa-arrow-left me-1"></i> Back to Subscribers
@@ -103,8 +149,8 @@ $online_count = $active_sess->fetchColumn() ?: 0;
                     <i class="fa-solid fa-check fs-2"></i>
                 </div>
                 <h4 class="fw-bold text-success mb-2">All Subscriber Data Usage Successfully Reset to 0!</h4>
-                <p class="text-secondary mb-4 mx-auto" style="max-width: 600px;">
-                    Har subscriber ka billing cycle counter zero kar diya gaya hai. Ab se MikroTik aur FreeRADIUS se real-time new usage count hogi. Tamam customer accounts, passwords, expiry dates, aur balance record bilkul mehfooz hain.
+                <p class="text-secondary mb-4 mx-auto" style="max-width: 650px;">
+                    Har subscriber ka billing cycle counter zero kar diya gaya hai. MikroTik aur FreeRADIUS se live data 0 MB se start ho chuka hai. Tamam customer accounts, passwords, packages, aur balance bilkul mehfooz hain.
                 </p>
 
                 <div class="row g-3 justify-content-center mb-4">
@@ -116,8 +162,14 @@ $online_count = $active_sess->fetchColumn() ?: 0;
                     </div>
                     <div class="col-md-3">
                         <div class="bg-white rounded-3 p-3 border shadow-sm">
-                            <div class="text-muted small fw-semibold">Session Octets Cleared</div>
+                            <div class="text-muted small fw-semibold">Accounting Records Cleared</div>
                             <div class="fs-4 fw-bold text-success"><?= number_format($rad_updated) ?></div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="bg-white rounded-3 p-3 border shadow-sm">
+                            <div class="text-muted small fw-semibold">Router Sessions Refreshed</div>
+                            <div class="fs-4 fw-bold text-info"><?= number_format($sessions_reconnected) ?></div>
                         </div>
                     </div>
                     <div class="col-md-3">
@@ -129,11 +181,11 @@ $online_count = $active_sess->fetchColumn() ?: 0;
                 </div>
 
                 <div class="d-flex justify-content-center gap-3">
-                    <a href="subscribers.php" class="btn btn-primary rounded-pill px-4 fw-bold shadow-sm">
-                        <i class="fa-solid fa-users me-1"></i> View Subscribers List
+                    <a href="dashboard.php" class="btn btn-primary rounded-pill px-4 fw-bold shadow-sm">
+                        <i class="fa-solid fa-gauge me-1"></i> Open Dashboard (Usage Tab)
                     </a>
-                    <a href="dashboard.php" class="btn btn-outline-secondary rounded-pill px-4 fw-bold">
-                        <i class="fa-solid fa-gauge me-1"></i> Go to Dashboard
+                    <a href="subscribers.php" class="btn btn-outline-secondary rounded-pill px-4 fw-bold">
+                        <i class="fa-solid fa-users me-1"></i> View Subscribers List
                     </a>
                 </div>
             </div>
@@ -186,6 +238,13 @@ $online_count = $active_sess->fetchColumn() ?: 0;
 
                         <form method="POST" onsubmit="return confirm('Kya aap waqai tamam subscribers ki data usage zero karna chahte hain?');">
                             <input type="hidden" name="confirm_reset" value="1">
+                            <div class="form-check form-switch mb-4 p-3 bg-light rounded-3 border">
+                                <input class="form-check-input ms-0 me-3" type="checkbox" role="switch" name="reconnect_mikrotik" id="reconnect_mikrotik" value="1" checked>
+                                <label class="form-check-label text-dark fw-semibold" for="reconnect_mikrotik">
+                                    Reconnect active PPPoE sessions on MikroTik routers
+                                    <div class="text-muted small fw-normal">Routers par live interface traffic byte counters ko 0 par reset karne ke liye sessions ko 2 seconds ke liye refresh karega.</div>
+                                </label>
+                            </div>
                             <div class="d-flex flex-wrap gap-2 justify-content-end">
                                 <a href="subscribers.php" class="btn btn-outline-secondary rounded-pill px-4">Cancel</a>
                                 <button type="submit" class="btn btn-warning rounded-pill px-4 fw-bold shadow-sm">
