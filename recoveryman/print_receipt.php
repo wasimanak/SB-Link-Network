@@ -142,7 +142,7 @@ $sub = null;
 try {
     if ($client_id > 0) {
         $subStmt = $pdo->prepare("
-            SELECT s.id, s.client_id, s.username, s.full_name, s.balance, s.expiry_date, s.mobile, s.phone, s.address, 
+            SELECT s.id, s.client_id, s.username, s.full_name, s.balance, s.expiry_date, s.status, s.created_at, s.mobile, s.phone, s.address, 
                    p.name as package_name, p.price as package_price 
             FROM subscribers s 
             LEFT JOIN packages p ON s.package_id = p.id 
@@ -153,7 +153,7 @@ try {
     }
     if (!$sub) {
         $subStmt = $pdo->prepare("
-            SELECT s.id, s.client_id, s.username, s.full_name, s.balance, s.expiry_date, s.mobile, s.phone, s.address, 
+            SELECT s.id, s.client_id, s.username, s.full_name, s.balance, s.expiry_date, s.status, s.created_at, s.mobile, s.phone, s.address, 
                    p.name as package_name, p.price as package_price 
             FROM subscribers s 
             LEFT JOIN packages p ON s.package_id = p.id 
@@ -213,14 +213,26 @@ $company_name = !empty($operator['company_name']) ? $operator['company_name'] : 
 $company_phone = !empty($operator['phone']) ? $operator['phone'] : 'N/A';
 $date = !empty($custom_date) ? $custom_date : date('d M Y h:i A');
 
-// 4. Fetch or Create Permanent Transaction Record in user_ledger for Invoice#
+// Clean up any fake auto-generated "Official Billing Invoice" records from user_ledger
+try {
+    $pdo->exec("DELETE FROM user_ledger WHERE description LIKE 'Official Billing Invoice%'");
+} catch (Exception $e) {}
+
+// Check if subscriber is currently expired or awaiting renewal
+$is_user_expired = (
+    (!empty($sub['status']) && $sub['status'] === 'expired') ||
+    (!empty($sub['expiry_date']) && strtotime($sub['expiry_date']) <= time())
+);
+
+// 4. Fetch Transaction Record in user_ledger for Invoice#
 if (empty($invoice_id)) {
     try {
-        // Fetch recent ledger transactions for this subscriber
+        // Fetch recent ledger transactions for this subscriber (excluding any auto-generated placeholders)
         $invStmt = $pdo->prepare("
             SELECT id, created_at, amount, description, type, balance_after 
             FROM user_ledger 
             WHERE (subscriber_id = ? OR username = ?) 
+              AND description NOT LIKE 'Official Billing Invoice%'
             ORDER BY id DESC LIMIT 10
         ");
         $invStmt->execute([$sub_id, $sub['username']]);
@@ -239,8 +251,13 @@ if (empty($invoice_id)) {
 
             // Determine type and paid_amount when not explicitly passed in URL
             if (!isset($_GET['paid'])) {
-                if ($latest['type'] === 'credit') {
-                    // Latest entry is a payment received (e.g. Payment received during Renewal or collection)
+                if ($is_user_expired) {
+                    // CRITICAL: Subscriber is currently in expired status and has NOT been renewed/activated!
+                    // Amount received MUST be 0!
+                    $paid_amount = 0;
+                    $type = 'pending_renewal';
+                } elseif ($latest['type'] === 'credit') {
+                    // Latest entry is a payment received
                     $paid_amount = (float)$latest['amount'];
                     if (stripos($latest['description'], 'renew') !== false) {
                         $type = 'renew';
@@ -258,9 +275,8 @@ if (empty($invoice_id)) {
                         $type = $has_renew_debit ? 'renew' : 'collect';
                     }
                 } else {
-                    // Latest entry is a debit (e.g. Package Renewed / Expiry Extended)
+                    // Latest entry is a debit
                     $type = 'renew';
-                    // Check if there was a payment (credit) made during this same renewal (within 5 minutes)
                     $found_credit = false;
                     foreach ($recent_entries as $re) {
                         if ($re['type'] === 'credit') {
@@ -273,7 +289,6 @@ if (empty($invoice_id)) {
                         }
                     }
                     if (!$found_credit) {
-                        // Unpaid renewal on credit
                         $paid_amount = 0;
                     }
                 }
@@ -288,34 +303,19 @@ if (empty($invoice_id)) {
                 }
             }
         } else {
-            // No ledger entry exists yet in DB: Save a permanent initial billing/receipt invoice in user_ledger
-            $auto_type = ($sub['balance'] < 0) ? 'debit' : 'credit';
-            $auto_amount = ($paid_amount > 0) ? $paid_amount : (float)($sub['package_price'] ?? 0);
-            $auto_desc = "Official Billing Invoice - " . (!empty($sub['package_name']) ? $sub['package_name'] : 'Subscription');
-            $auto_created = !empty($sub['created_at']) ? $sub['created_at'] : date('Y-m-d H:i:s');
-
-            $insLedger = $pdo->prepare("
-                INSERT INTO user_ledger (client_id, subscriber_id, username, type, amount, balance_after, description, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ");
-            $insLedger->execute([
-                $client_id,
-                $sub_id,
-                $sub['username'],
-                $auto_type,
-                $auto_amount,
-                $sub['balance'],
-                $auto_desc,
-                $auto_created
-            ]);
-            $invoice_id = (int)$pdo->lastInsertId();
-            if (empty($custom_date)) {
-                $custom_date = date('d M Y h:i A', strtotime($auto_created));
+            // No ledger entry exists yet in DB (e.g. newly created user in expired status awaiting renewal)
+            // DO NOT insert fake credit into user_ledger!
+            $invoice_id = $sub_id;
+            $type = 'pending_renewal';
+            $paid_amount = 0; // Unpaid / awaiting renewal -> 0 RECEIVED!
+            $transaction_desc = 'New Account Created (Awaiting Renewal & Payment)';
+            if (empty($custom_date) && !empty($sub['created_at'])) {
+                $custom_date = date('d M Y h:i A', strtotime($sub['created_at']));
                 $date = $custom_date;
             }
         }
     } catch (Exception $e) {
-        $invoice_id = $sub_id; // Safe permanent fallback: use subscriber ID so it NEVER changes randomly
+        $invoice_id = $sub_id; // Safe permanent fallback: use subscriber ID
     }
 }
 
@@ -329,16 +329,23 @@ $package_price = (float)($sub['package_price'] ?? 0);
 $due_amount = $sub['balance'] < 0 ? abs((float)$sub['balance']) : 0;
 $adv_amount = $sub['balance'] > 0 ? (float)$sub['balance'] : 0;
 
+// If user is currently expired and has not paid, due amount should reflect package price if balance is 0
+if ($is_user_expired && $paid_amount <= 0 && $due_amount <= 0 && $adv_amount <= 0 && $package_price > 0) {
+    $due_amount = $package_price;
+}
+
 // If paid was explicitly supplied in GET query string, honor it directly
 if (isset($_GET['paid'])) {
     $paid_amount = (float)$_GET['paid'];
-} elseif ($ledger_id <= 0 && (!isset($paid_amount) || $paid_amount <= 0)) {
-    // Fallback: If paid_amount is still 0 (e.g. no recent renewal credit found), check if subscriber ever made a payment
+} elseif ($ledger_id <= 0 && (!isset($paid_amount) || $paid_amount <= 0) && !$is_user_expired) {
+    // Only search previous credit for active users, never for expired unrenewed users
     try {
         $lastCreditStmt = $pdo->prepare("
             SELECT id, amount, description, created_at 
             FROM user_ledger 
-            WHERE (subscriber_id = ? OR username = ?) AND type = 'credit' 
+            WHERE (subscriber_id = ? OR username = ?) 
+              AND type = 'credit' 
+              AND description NOT LIKE 'Official Billing Invoice%'
             ORDER BY id DESC LIMIT 1
         ");
         $lastCreditStmt->execute([$sub_id, $sub['username']]);
@@ -350,6 +357,14 @@ if (isset($_GET['paid'])) {
             }
         }
     } catch (Exception $e) {}
+}
+
+// Final guarantee: If user is expired and no explicit payment was passed, paid amount MUST be 0!
+if ($is_user_expired && !isset($_GET['paid']) && $ledger_id <= 0) {
+    $paid_amount = 0;
+    if ($due_amount <= 0 && $adv_amount <= 0 && $package_price > 0) {
+        $due_amount = $package_price;
+    }
 }
 
 // Customer Phone Logic
@@ -905,8 +920,8 @@ $wa_text_encoded = urlencode($wa_text);
 
     <!-- Top Success Confirmation -->
     <div class="alert-top no-print">
-        <i class="fa-solid fa-circle-check me-1 text-success"></i>
-        <?= !empty($ledger_id) ? 'Official Receipt (Transaction Copy)' : (($type === 'renew') ? 'Package Renewed &amp; Activated!' : 'Payment Collected Successfully!') ?>
+        <i class="fa-solid <?= ($paid_amount > 0) ? 'fa-circle-check text-success' : 'fa-clock text-warning' ?> me-1"></i>
+        <?= !empty($ledger_id) ? 'Official Receipt (Transaction Copy)' : (($paid_amount > 0) ? (($type === 'renew') ? 'Package Renewed &amp; Activated!' : 'Payment Collected Successfully!') : 'Account Created (Pending Renewal &amp; Activation)') ?>
     </div>
 
     <!-- Screen Action Toolbar -->
@@ -971,7 +986,7 @@ $wa_text_encoded = urlencode($wa_text);
             <!-- Receipt Title -->
             <div class="text-center" style="padding: 2px 0;">
                 <div class="receipt-title">
-                    <?= ($type === 'renew') ? 'PACKAGE RENEWAL RECEIPT' : 'PAYMENT RECEIPT' ?>
+                    <?= ($paid_amount > 0) ? (($type === 'renew') ? 'PACKAGE RENEWAL RECEIPT' : 'PAYMENT RECEIPT') : 'BILLING INVOICE / AWAITING PAYMENT' ?>
                 </div>
                 <div class="receipt-subtitle">*** OFFICIAL CUSTOMER COPY ***</div>
             </div>
@@ -1707,7 +1722,7 @@ $wa_text_encoded = urlencode($wa_text);
 
             // Receipt Title (Bold: ESC E 1)
             bytes.push(0x1B, 0x45, 0x01);
-            pushStr(<?= json_encode(($type === 'renew') ? 'PACKAGE RENEWAL RECEIPT' : 'PAYMENT RECEIPT') ?> + "\n");
+            pushStr(<?= json_encode(($paid_amount > 0) ? (($type === 'renew') ? 'PACKAGE RENEWAL RECEIPT' : 'PAYMENT RECEIPT') : 'BILLING INVOICE / AWAITING PAYMENT') ?> + "\n");
             pushStr("*** OFFICIAL CUSTOMER COPY ***\n");
             bytes.push(0x1B, 0x45, 0x00);
 
