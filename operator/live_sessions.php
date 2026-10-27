@@ -18,6 +18,34 @@ if (isset($_GET['action']) && $_GET['action'] === 'ajax_sync_mikrotik') {
     exit;
 }
 
+// 1b. AJAX Endpoint for Recent Connection Requests / Auth Logs (radpostauth)
+if (isset($_GET['action']) && $_GET['action'] === 'ajax_get_auth_logs') {
+    header('Content-Type: application/json');
+    if (empty($_SESSION['operator_logged_in']) && empty($_SESSION['operator_id'])) {
+        echo json_encode(['success' => false, 'error' => 'Unauthorized']);
+        exit;
+    }
+    $client_id = (int)$_SESSION['operator_id'];
+    require_once __DIR__ . '/../config/db.php';
+    try {
+        $logStmt = $pdo->prepare("
+            SELECT rp.id, rp.username, rp.reply, rp.authdate, s.id as sub_id, s.full_name, p.name as package_name
+            FROM radpostauth rp
+            INNER JOIN subscribers s ON LOWER(TRIM(rp.username)) = LOWER(TRIM(s.username))
+            LEFT JOIN packages p ON s.package_id = p.id
+            WHERE s.client_id = ?
+            ORDER BY rp.id DESC
+            LIMIT 60
+        ");
+        $logStmt->execute([$client_id]);
+        $logs = $logStmt->fetchAll(PDO::FETCH_ASSOC);
+        echo json_encode(['success' => true, 'logs' => $logs]);
+    } catch (Exception $e) {
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+
 require_once 'header.php';
 $client_id = (int)$_SESSION['operator_id'];
 require_once __DIR__ . '/../config/mikrotik_sync_helper.php';
@@ -51,8 +79,41 @@ function formatMikroTikUptime($seconds) {
     return trim($out);
 }
 
-// Get Live Sessions mapped strictly to this operator's subscribers
-$sql = "SELECT r.*, s.id as subscriber_id, s.package_id, p.name as package_name, s.expiry_date, s.status as sub_status, s.full_name, s.mobile 
+// Get Live Sessions mapped strictly to this operator's subscribers with radpostauth correlation
+$sql = "SELECT r.*, 
+               s.id as subscriber_id, 
+               s.package_id, 
+               p.name as package_name, 
+               s.expiry_date, 
+               s.status as sub_status, 
+               s.full_name, 
+               s.mobile,
+               -- 1. Check if our FreeRADIUS accepted this connection around session start (+/- 2 hours)
+               (
+                   SELECT COUNT(*) 
+                   FROM radpostauth rp 
+                   WHERE LOWER(TRIM(rp.username)) = LOWER(TRIM(r.username)) 
+                     AND rp.reply = 'Access-Accept' 
+                     AND rp.authdate >= IF(r.acctstarttime REGEXP '^[0-9]+$', FROM_UNIXTIME(r.acctstarttime), r.acctstarttime) - INTERVAL 2 HOUR 
+                     AND rp.authdate <= IF(r.acctstarttime REGEXP '^[0-9]+$', FROM_UNIXTIME(r.acctstarttime), r.acctstarttime) + INTERVAL 2 HOUR
+                   LIMIT 1
+               ) as auth_accepted_by_us,
+               -- 2. Latest reply from radpostauth for this user
+               (
+                   SELECT rp.reply 
+                   FROM radpostauth rp 
+                   WHERE LOWER(TRIM(rp.username)) = LOWER(TRIM(r.username)) 
+                   ORDER BY rp.authdate DESC 
+                   LIMIT 1
+               ) as latest_auth_reply,
+               -- 3. Latest auth date
+               (
+                   SELECT rp.authdate 
+                   FROM radpostauth rp 
+                   WHERE LOWER(TRIM(rp.username)) = LOWER(TRIM(r.username)) 
+                   ORDER BY rp.authdate DESC 
+                   LIMIT 1
+               ) as latest_auth_date
         FROM radacct r 
         INNER JOIN (
             SELECT username, MAX(radacctid) as max_id 
@@ -62,11 +123,46 @@ $sql = "SELECT r.*, s.id as subscriber_id, s.package_id, p.name as package_name,
         ) as latest ON r.radacctid = latest.max_id
         INNER JOIN subscribers s ON LOWER(TRIM(r.username)) = LOWER(TRIM(s.username)) COLLATE utf8mb4_general_ci
         LEFT JOIN packages p ON s.package_id = p.id
-        WHERE s.client_id = ?" . (isset($_GET['filter']) && $_GET['filter'] === 'expired_online' ? " AND (s.expiry_date <= NOW() OR s.status = 'expired')" : "") . "
+        WHERE s.client_id = ?
         ORDER BY r.acctstarttime DESC";
 $stmt = $pdo->prepare($sql);
 $stmt->execute([$client_id]);
-$sessions = $stmt->fetchAll();
+$all_sessions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+$count_total = count($all_sessions);
+$count_our_radius = 0;
+$count_other_radius = 0;
+$count_expired_online = 0;
+
+foreach ($all_sessions as $k => $s) {
+    // Determine if authenticated by our FreeRADIUS
+    $is_our = (!empty($s['auth_accepted_by_us']) && (int)$s['auth_accepted_by_us'] > 0) 
+              || ($s['latest_auth_reply'] === 'Access-Accept');
+    $is_exp = (!empty($s['sub_status']) && $s['sub_status'] === 'expired') 
+              || (!empty($s['expiry_date']) && strtotime($s['expiry_date']) <= time());
+
+    $all_sessions[$k]['is_our_radius'] = $is_our;
+    $all_sessions[$k]['is_expired_online'] = $is_exp;
+
+    if ($is_our) {
+        $count_our_radius++;
+    } else {
+        $count_other_radius++;
+    }
+    if ($is_exp) {
+        $count_expired_online++;
+    }
+}
+
+// Current Filter
+$active_filter = $_GET['filter'] ?? 'all';
+$sessions = [];
+foreach ($all_sessions as $s) {
+    if ($active_filter === 'our_radius' && !$s['is_our_radius']) continue;
+    if ($active_filter === 'other_radius' && $s['is_our_radius']) continue;
+    if ($active_filter === 'expired_online' && !$s['is_expired_online']) continue;
+    $sessions[] = $s;
+}
 $total_live = count($sessions);
 ?>
 
@@ -143,6 +239,25 @@ $total_live = count($sessions);
     </div>
 <?php endif; ?>
 
+<!-- Interactive Authentication Source & Status Filter Tabs -->
+<div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
+    <a href="live_sessions.php" class="btn btn-sm <?= ($active_filter === 'all') ? 'btn-dark' : 'btn-outline-secondary bg-white' ?> rounded-pill px-3 fw-semibold shadow-sm">
+        All Active <span class="badge bg-secondary ms-1"><?= $count_total ?></span>
+    </a>
+    <a href="live_sessions.php?filter=our_radius" class="btn btn-sm <?= ($active_filter === 'our_radius') ? 'btn-success' : 'btn-outline-success bg-white' ?> rounded-pill px-3 fw-semibold shadow-sm" title="Connections accepted by this FreeRADIUS server">
+        <i class="fa-solid fa-circle-check me-1"></i>Our RADIUS (Accepted) <span class="badge bg-light text-success border border-success ms-1"><?= $count_our_radius ?></span>
+    </a>
+    <a href="live_sessions.php?filter=other_radius" class="btn btn-sm <?= ($active_filter === 'other_radius') ? 'btn-secondary' : 'btn-outline-secondary bg-white' ?> rounded-pill px-3 fw-semibold shadow-sm" title="Connections authenticated by another RADIUS server or local secrets">
+        <i class="fa-solid fa-server me-1"></i>Other RADIUS / External <span class="badge bg-light text-dark border ms-1"><?= $count_other_radius ?></span>
+    </a>
+    <a href="live_sessions.php?filter=expired_online" class="btn btn-sm <?= ($active_filter === 'expired_online') ? 'btn-danger' : 'btn-outline-danger bg-white' ?> rounded-pill px-3 fw-semibold shadow-sm" title="Subscribers currently online but package is expired">
+        <i class="fa-solid fa-triangle-exclamation me-1"></i>Expired Online <span class="badge bg-danger ms-1"><?= $count_expired_online ?></span>
+    </a>
+    <button type="button" class="btn btn-sm btn-outline-primary bg-white rounded-pill px-3 fw-semibold shadow-sm ms-auto" data-bs-toggle="modal" data-bs-target="#authLogsModal" onclick="loadAuthLogs()" title="View live connection requests from radpostauth">
+        <i class="fa-solid fa-list-check me-1"></i>Connection Requests
+    </button>
+</div>
+
 <div class="row g-3">
     <?php if(!$sessions): ?>
         <div class="col-12 text-center py-5">
@@ -184,7 +299,19 @@ $total_live = count($sessions);
                             <?php if (!empty($sess['full_name'])): ?>
                                 <span class="text-secondary">(<?= htmlspecialchars($sess['full_name']) ?>)</span>
                             <?php endif; ?>
-                            <span class="badge bg-light text-primary border" style="font-size: 0.65rem;" title="Authenticated via this FreeRADIUS server"><i class="fa-solid fa-server me-1"></i>Radius</span>
+                            <?php if (!empty($sess['is_our_radius'])): ?>
+                                <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-2 py-1 fw-semibold" style="font-size: 0.68rem;" title="Access-Accept confirmed in radpostauth by this FreeRADIUS server">
+                                    <i class="fa-solid fa-circle-check me-1"></i>Our RADIUS (Accept)
+                                </span>
+                            <?php elseif (!empty($sess['latest_auth_reply']) && $sess['latest_auth_reply'] === 'Access-Reject'): ?>
+                                <span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25 px-2 py-1 fw-semibold" style="font-size: 0.68rem;" title="This FreeRADIUS returned Access-Reject. User connected via Other RADIUS or local secret">
+                                    <i class="fa-solid fa-circle-xmark me-1"></i>Auth Rejected (Other RADIUS Connected)
+                                </span>
+                            <?php else: ?>
+                                <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 px-2 py-1 fw-semibold" style="font-size: 0.68rem;" title="No Access-Accept found in our database for this session (Authenticated via Other/Old RADIUS or local)">
+                                    <i class="fa-solid fa-server me-1"></i>Other RADIUS / External
+                                </span>
+                            <?php endif; ?>
                             <?php if (!empty($sess['sub_status']) && ($sess['sub_status'] === 'expired' || (!empty($sess['expiry_date']) && strtotime($sess['expiry_date']) <= time()))): ?>
                                 <span class="badge bg-danger" style="font-size: 0.65rem;">Expired (Online)</span>
                             <?php endif; ?>
@@ -195,8 +322,14 @@ $total_live = count($sessions);
                     <div class="text-dark fw-bold font-monospace small mb-1"><i class="fa-solid fa-network-wired text-primary me-1"></i><?= htmlspecialchars($sess['framedipaddress'] ?? 'N/A') ?></div>
                     <div class="text-secondary font-monospace small mb-1"><i class="fa-solid fa-microchip text-muted me-1"></i><?= htmlspecialchars($sess['callingstationid'] ?? 'N/A') ?></div>
                     <div class="text-muted" style="font-size: 0.72rem;" title="Exact connection start time recorded by RADIUS">
-                        <i class="fa-regular fa-clock me-1 text-secondary"></i><?= !empty($sess['acctstarttime']) ? date('d M, h:i A', strtotime($sess['acctstarttime'])) : 'N/A' ?>
+                        <i class="fa-regular fa-clock me-1 text-secondary"></i>Connected: <?= !empty($sess['acctstarttime']) ? date('d M, h:i A', strtotime($sess['acctstarttime'])) : 'N/A' ?>
                     </div>
+                    <?php if (!empty($sess['latest_auth_date'])): ?>
+                        <div class="text-muted" style="font-size: 0.68rem;" title="Latest connection request evaluated by this FreeRADIUS">
+                            <i class="fa-solid fa-shield-halved me-1 text-primary"></i>Req: <?= date('d M, h:i A', strtotime($sess['latest_auth_date'])) ?> 
+                            (<strong><?= htmlspecialchars($sess['latest_auth_reply'] ?? '') ?></strong>)
+                        </div>
+                    <?php endif; ?>
                 </div>
                 <div class="col-12 col-xl-4 col-md-4">
                     <div class="row g-2 text-center">
@@ -280,6 +413,91 @@ setInterval(function() {
         .catch(() => {});
 }, 30000);
 
+<!-- Live Connection Requests (radpostauth) Modal -->
+<div class="modal fade" id="authLogsModal" tabindex="-1" aria-labelledby="authLogsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-light py-2">
+                <h6 class="modal-title fw-bold" id="authLogsModalLabel">
+                    <i class="fa-solid fa-shield-halved text-primary me-2"></i>Live Connection Requests (FreeRADIUS radpostauth)
+                </h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-0">
+                <div class="p-2 bg-light border-bottom d-flex justify-content-between align-items-center">
+                    <div class="small text-muted">
+                        <i class="fa-solid fa-circle-info me-1 text-primary"></i> Real-time incoming authentication attempts evaluated by this FreeRADIUS server.
+                    </div>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="loadAuthLogs()"><i class="fa-solid fa-rotate me-1"></i>Refresh</button>
+                </div>
+                <div class="table-responsive" style="max-height: 480px;">
+                    <table class="table table-hover table-striped align-middle mb-0" style="font-size: 0.85rem;">
+                        <thead class="table-light sticky-top" style="z-index: 1;">
+                            <tr>
+                                <th class="ps-3 py-2">Time</th>
+                                <th class="py-2">Username</th>
+                                <th class="py-2">Subscriber Name</th>
+                                <th class="py-2">Decision / Reply</th>
+                                <th class="pe-3 py-2 text-end">Auth Result</th>
+                            </tr>
+                        </thead>
+                        <tbody id="authLogsTableBody">
+                            <tr>
+                                <td colspan="5" class="text-center py-4 text-muted">
+                                    <i class="fa-solid fa-spinner fa-spin me-2"></i>Loading live connection requests...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer py-2 bg-light">
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function loadAuthLogs() {
+    var tbody = document.getElementById('authLogsTableBody');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-muted"><i class="fa-solid fa-spinner fa-spin me-2"></i>Loading live connection requests...</td></tr>';
+    
+    fetch('live_sessions.php?action=ajax_get_auth_logs')
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success || !data.logs || data.logs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-muted">No recent authentication logs found in database.</td></tr>';
+                return;
+            }
+            let html = '';
+            data.logs.forEach(row => {
+                let isAccept = (row.reply === 'Access-Accept');
+                let badge = isAccept 
+                    ? '<span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-2 py-1"><i class="fa-solid fa-check me-1"></i>Access-Accept</span>'
+                    : '<span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25 px-2 py-1"><i class="fa-solid fa-xmark me-1"></i>Access-Reject</span>';
+                let resultText = isAccept
+                    ? '<span class="text-success fw-semibold"><i class="fa-solid fa-circle-check me-1"></i>Accepted by Our RADIUS</span>'
+                    : '<span class="text-danger fw-semibold"><i class="fa-solid fa-circle-xmark me-1"></i>Rejected (Bad Pass/Expired)</span>';
+                
+                html += `<tr>
+                    <td class="ps-3 py-2 font-monospace text-secondary" style="font-size: 0.8rem;">${row.authdate}</td>
+                    <td class="py-2 fw-bold font-monospace">${row.username}</td>
+                    <td class="py-2 text-muted">${row.full_name || 'N/A'}</td>
+                    <td class="py-2">${badge}</td>
+                    <td class="pe-3 py-2 text-end">${resultText}</td>
+                </tr>`;
+            });
+            tbody.innerHTML = html;
+        })
+        .catch(err => {
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-danger">Error loading authentication logs.</td></tr>';
+        });
+}
+</script>
+
+<script>
 document.getElementById('searchInput').addEventListener('keyup', function() {
     let filter = this.value.toLowerCase();
     let cards = document.querySelectorAll('.session-card-container');

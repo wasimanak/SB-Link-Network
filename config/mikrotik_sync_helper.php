@@ -677,6 +677,15 @@ function sync_operator_mikrotik_active_sessions($pdo, $client_id) {
         WHERE radacctid = ?
     ");
 
+    // Statement to verify if OUR RADIUS accepted this connection request (via radpostauth)
+    $authCheckStmt = $pdo->prepare("
+        SELECT reply, authdate 
+        FROM radpostauth 
+        WHERE LOWER(TRIM(username)) = ? 
+        ORDER BY authdate DESC 
+        LIMIT 1
+    ");
+
     foreach ($routers as $r) {
         $nas_ip   = trim($r['nasname'] ?? '');
         $api_user = trim($r['api_user'] ?? '');
@@ -787,7 +796,21 @@ function sync_operator_mikrotik_active_sessions($pdo, $client_id) {
                 $total_updated++;
             } else {
                 // User is a registered subscriber of this operator and active in MikroTik, but missing in radacct:
-                // Insert with exact start time calculated from MikroTik uptime!
+                // CRITICAL AUTH VERIFICATION: Check radpostauth!
+                // Did OUR RADIUS actually accept their connection request (Access-Accept),
+                // or did they connect through the OTHER/OLD RADIUS?
+                $authCheckStmt->execute([$lower_u]);
+                $authRow = $authCheckStmt->fetch(PDO::FETCH_ASSOC);
+
+                if (!$authRow || $authRow['reply'] !== 'Access-Accept') {
+                    // This user was NOT accepted by our FreeRADIUS server!
+                    // (They either received Access-Reject from our server, or authenticated via the Other/Old RADIUS).
+                    // NEVER insert them into our radacct!
+                    $total_external_ignored++;
+                    continue;
+                }
+
+                // Verified: OUR RADIUS accepted this user! Restore missing session with uptime calculated start time.
                 $sess_id = !empty($mdata['session_id']) ? $mdata['session_id'] : ('mt-' . bin2hex(random_bytes(4)));
                 $insertSessStmt->execute([
                     $exact_username,
