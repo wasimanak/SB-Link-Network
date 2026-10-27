@@ -526,3 +526,280 @@ function create_mikrotik_pool_and_route($pdo, $client_id, $pool_name, $ip_range,
     ];
 }
 }
+
+/**
+ * 4. Parse MikroTik Uptime String to Seconds
+ * Handles: 1w2d04:12:35, 2d, 5h, 15m, 45s, 04:12:35, etc.
+ */
+if (!function_exists('parseMikroTikUptimeSeconds')) {
+function parseMikroTikUptimeSeconds($uptime) {
+    if (empty($uptime)) return 0;
+    if (is_numeric($uptime)) return (int)$uptime;
+    
+    $total_seconds = 0;
+    $uptime = trim((string)$uptime);
+    
+    if (preg_match('/(\d+)\s*w/i', $uptime, $m)) {
+        $total_seconds += (int)$m[1] * 7 * 86400;
+        $uptime = preg_replace('/(\d+)\s*w/i', '', $uptime);
+    }
+    if (preg_match('/(\d+)\s*d/i', $uptime, $m)) {
+        $total_seconds += (int)$m[1] * 86400;
+        $uptime = preg_replace('/(\d+)\s*d/i', '', $uptime);
+    }
+    if (preg_match('/(\d+)\s*h/i', $uptime, $m)) {
+        $total_seconds += (int)$m[1] * 3600;
+        $uptime = preg_replace('/(\d+)\s*h/i', '', $uptime);
+    }
+    if (preg_match('/(\d+)\s*m/i', $uptime, $m)) {
+        $total_seconds += (int)$m[1] * 60;
+        $uptime = preg_replace('/(\d+)\s*m/i', '', $uptime);
+    }
+    if (preg_match('/(\d+)\s*s/i', $uptime, $m)) {
+        $total_seconds += (int)$m[1];
+        $uptime = preg_replace('/(\d+)\s*s/i', '', $uptime);
+    }
+    
+    $uptime = trim($uptime);
+    if (!empty($uptime) && strpos($uptime, ':') !== false) {
+        $parts = explode(':', $uptime);
+        if (count($parts) === 3) {
+            $total_seconds += ((int)$parts[0] * 3600) + ((int)$parts[1] * 60) + (int)$parts[2];
+        } elseif (count($parts) === 2) {
+            $total_seconds += ((int)$parts[0] * 60) + (int)$parts[1];
+        }
+    }
+    return max(1, $total_seconds);
+}
+}
+
+/**
+ * 5. Full Two-Way Synchronization of Active Connections between MikroTik Router(s) and FreeRADIUS (radacct)
+ *
+ * Automatically pulls active PPPoE & Hotspot connections from all of this operator's MikroTik routers:
+ * 1. Missing active users in radacct are instantly created with their live IP, MAC, and actual uptime.
+ * 2. Ghost/stale sessions in radacct (users who disconnected on router) are immediately closed.
+ * 3. Guarantees that Live Sessions in Admin Portal and Active Connections in MikroTik are 100% equal!
+ *
+ * @param PDO $pdo
+ * @param int $client_id
+ * @return array
+ */
+if (!function_exists('sync_operator_mikrotik_active_sessions')) {
+function sync_operator_mikrotik_active_sessions($pdo, $client_id) {
+    if (empty($client_id)) {
+        return ['success' => false, 'error' => 'Invalid client ID'];
+    }
+
+    // 1. Find all candidate routers for this operator
+    $routers = [];
+    try {
+        $rStmt = $pdo->prepare("SELECT id, nasname, shortname, secret, api_port, api_user, api_password FROM nas WHERE client_id = ?");
+        $rStmt->execute([$client_id]);
+        $routers = $rStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        if (empty($routers)) {
+            // Check if routers are linked to this operator's subscribers
+            $rStmt2 = $pdo->prepare("
+                SELECT DISTINCT n.id, n.nasname, n.shortname, n.secret, n.api_port, n.api_user, n.api_password 
+                FROM nas n 
+                JOIN radacct r ON n.nasname = r.nasipaddress 
+                JOIN subscribers s ON r.username = s.username 
+                WHERE s.client_id = ? 
+                LIMIT 5
+            ");
+            $rStmt2->execute([$client_id]);
+            $routers = $rStmt2->fetchAll(PDO::FETCH_ASSOC);
+        }
+
+        if (empty($routers)) {
+            $routers = $pdo->query("SELECT id, nasname, shortname, secret, api_port, api_user, api_password FROM nas LIMIT 5")->fetchAll(PDO::FETCH_ASSOC);
+        }
+    } catch (Exception $e) {
+        return ['success' => false, 'error' => 'Database error loading routers: ' . $e->getMessage()];
+    }
+
+    if (empty($routers)) {
+        return ['success' => false, 'error' => 'No MikroTik router found. Please add a router in Routers menu.'];
+    }
+
+    $total_router_active = 0;
+    $total_synced_new = 0;
+    $total_updated = 0;
+    $total_ghosts_cleared = 0;
+    $routers_connected = 0;
+    $router_errors = [];
+
+    $insertSessStmt = $pdo->prepare("
+        INSERT INTO radacct (
+            username, nasipaddress, framedipaddress, callingstationid, 
+            acctstarttime, acctsessiontime, acctsessionid, acctauthentic, 
+            acctstoptime
+        ) VALUES (
+            ?, ?, ?, ?, 
+            DATE_SUB(NOW(), INTERVAL ? SECOND), ?, ?, 'RADIUS', 
+            NULL
+        )
+    ");
+
+    $updateSessStmt = $pdo->prepare("
+        UPDATE radacct SET 
+            framedipaddress = ?, 
+            callingstationid = ?, 
+            acctsessiontime = ? 
+        WHERE radacctid = ?
+    ");
+
+    $closeGhostStmt = $pdo->prepare("
+        UPDATE radacct 
+        SET acctstoptime = NOW(), acctterminatecause = 'Lost-Carrier' 
+        WHERE radacctid = ?
+    ");
+
+    foreach ($routers as $r) {
+        $nas_ip   = trim($r['nasname'] ?? '');
+        $api_user = trim($r['api_user'] ?? '');
+        $api_pass = trim($r['api_password'] ?? '');
+        $api_port = !empty($r['api_port']) ? (int)$r['api_port'] : 8728;
+
+        if (empty($nas_ip) || empty($api_user)) {
+            continue;
+        }
+
+        $API = new RouterosAPI();
+        $API->timeout = 3;
+        $API->attempts = 1;
+        $API->delay = 1;
+        error_reporting(0);
+
+        if (!$API->connect($nas_ip, $api_user, $api_pass, $api_port)) {
+            $router_errors[] = "Router {$nas_ip}: Could not connect via API (port {$api_port}).";
+            continue;
+        }
+
+        $routers_connected++;
+
+        // Fetch active PPPoE connections
+        $raw_ppp = $API->comm('/ppp/active/print');
+        // Fetch active Hotspot connections
+        $raw_hs = $API->comm('/ip/hotspot/active/print');
+
+        $API->disconnect();
+
+        $router_active_users = []; // lowercase username => data array
+
+        if (is_array($raw_ppp)) {
+            foreach ($raw_ppp as $p) {
+                $u = trim($p['name'] ?? '');
+                if (empty($u)) continue;
+                $uptime_str = trim($p['uptime'] ?? '');
+                $router_active_users[strtolower($u)] = [
+                    'username'   => $u,
+                    'ip'         => trim($p['address'] ?? ''),
+                    'caller_id'  => trim($p['caller-id'] ?? ''),
+                    'uptime_str' => $uptime_str,
+                    'uptime_sec' => parseMikroTikUptimeSeconds($uptime_str),
+                    'session_id' => trim($p['session-id'] ?? ''),
+                    'service'    => trim($p['service'] ?? 'pppoe')
+                ];
+            }
+        }
+
+        if (is_array($raw_hs)) {
+            foreach ($raw_hs as $h) {
+                $u = trim($h['user'] ?? '');
+                if (empty($u)) continue;
+                if (!isset($router_active_users[strtolower($u)])) {
+                    $uptime_str = trim($h['uptime'] ?? '');
+                    $router_active_users[strtolower($u)] = [
+                        'username'   => $u,
+                        'ip'         => trim($h['address'] ?? ''),
+                        'caller_id'  => trim($h['mac-address'] ?? ''),
+                        'uptime_str' => $uptime_str,
+                        'uptime_sec' => parseMikroTikUptimeSeconds($uptime_str),
+                        'session_id' => trim($h['session-id'] ?? ''),
+                        'service'    => 'hotspot'
+                    ];
+                }
+            }
+        }
+
+        $total_router_active += count($router_active_users);
+
+        // Fetch open sessions in radacct for this router
+        $dbStmt = $pdo->prepare("
+            SELECT radacctid, username, framedipaddress, callingstationid 
+            FROM radacct 
+            WHERE (nasipaddress = ? OR nasipaddress LIKE ?) AND acctstoptime IS NULL
+        ");
+        $dbStmt->execute([$nas_ip, "%{$nas_ip}%"]);
+        $db_open_sessions = $dbStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $db_active_map = []; // lowercase username => row
+        foreach ($db_open_sessions as $row) {
+            $db_active_map[strtolower(trim($row['username']))] = $row;
+        }
+
+        // 1. Sync every active MikroTik user into radacct
+        foreach ($router_active_users as $lower_u => $mdata) {
+            if (isset($db_active_map[$lower_u])) {
+                $existing = $db_active_map[$lower_u];
+                $updateSessStmt->execute([
+                    $mdata['ip'] ?: $existing['framedipaddress'],
+                    $mdata['caller_id'] ?: $existing['callingstationid'],
+                    $mdata['uptime_sec'],
+                    $existing['radacctid']
+                ]);
+                $total_updated++;
+            } else {
+                // User is active in MikroTik but missing in radacct: Insert it!
+                $sess_id = !empty($mdata['session_id']) ? $mdata['session_id'] : ('mt-' . bin2hex(random_bytes(4)));
+                $insertSessStmt->execute([
+                    $mdata['username'],
+                    $nas_ip,
+                    $mdata['ip'] ?: '10.0.0.1',
+                    $mdata['caller_id'] ?: 'N/A',
+                    $mdata['uptime_sec'],
+                    $mdata['uptime_sec'],
+                    $sess_id
+                ]);
+                $total_synced_new++;
+            }
+        }
+
+        // 2. Clear ghost sessions in radacct that are no longer active in MikroTik
+        foreach ($db_open_sessions as $row) {
+            $lower_u = strtolower(trim($row['username']));
+            if (!isset($router_active_users[$lower_u])) {
+                $closeGhostStmt->execute([$row['radacctid']]);
+                $total_ghosts_cleared++;
+            }
+        }
+    }
+
+    if ($routers_connected === 0 && !empty($router_errors)) {
+        return [
+            'success' => false,
+            'error'   => implode(' | ', $router_errors),
+            'routers_checked' => count($routers),
+            'routers_connected' => 0
+        ];
+    }
+
+    $msg = "Synced with MikroTik: {$total_router_active} active connections verified across {$routers_connected} router(s).";
+    if ($total_synced_new > 0 || $total_ghosts_cleared > 0) {
+        $msg .= " ({$total_synced_new} missing sessions restored, {$total_ghosts_cleared} stale sessions cleared).";
+    }
+
+    return [
+        'success'           => true,
+        'msg'               => $msg,
+        'active_count'      => $total_router_active,
+        'synced_new'        => $total_synced_new,
+        'updated'           => $total_updated,
+        'ghosts_cleared'    => $total_ghosts_cleared,
+        'routers_connected' => $routers_connected,
+        'errors'            => $router_errors
+    ];
+}
+}
