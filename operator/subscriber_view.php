@@ -923,8 +923,16 @@ $online = $onStmt->fetch();
 
 $uptime_str = "0.00";
 if ($online) {
-    $start_time = is_numeric($online['acctstarttime']) ? $online['acctstarttime'] : strtotime($online['acctstarttime']);
-    $diff = time() - $start_time;
+    $raw_start = $online['acctstarttime'] ?? '';
+    $start_time = null;
+    if (!empty($raw_start) && $raw_start !== '0000-00-00 00:00:00') {
+        $start_time = is_numeric($raw_start) ? (int)$raw_start : strtotime($raw_start);
+    }
+    if ($start_time && $start_time > 86400) {
+        $diff = max(0, time() - $start_time);
+    } else {
+        $diff = (int)($online['acctsessiontime'] ?? 0);
+    }
     $hours = floor($diff / 3600);
     $mins = floor(($diff % 3600) / 60);
     $uptime_str = "{$hours}h {$mins}m";
@@ -1513,7 +1521,20 @@ if ($last_debit) {
                                 <tr><td class="fw-bold">Used Session Time</td><td><?= $used_sess_str ?></td></tr>
                                 <tr><td class="fw-bold">Remaining Session Time</td><td>Unlimited</td></tr>
                                 <tr><td class="fw-bold">Last Activation Date</td><td><?= $last_act ? date('d M Y H:i:s', strtotime($last_act)) : 'N/A' ?></td></tr>
-                                <tr><td class="fw-bold">Last Login</td><td><?= $latest_conn ? date('d M Y H:i:s', (is_numeric($latest_conn['acctstarttime']) ? $latest_conn['acctstarttime'] : strtotime($latest_conn['acctstarttime']))) : 'N/A' ?></td></tr>
+                                <?php
+$latest_login_ts = null;
+if (!empty($latest_conn['acctstarttime']) && $latest_conn['acctstarttime'] !== '0000-00-00 00:00:00') {
+    $latest_login_ts = is_numeric($latest_conn['acctstarttime']) ? (int)$latest_conn['acctstarttime'] : strtotime($latest_conn['acctstarttime']);
+}
+if (!$latest_login_ts && !empty($latest_conn['acctstoptime']) && $latest_conn['acctstoptime'] !== '0000-00-00 00:00:00') {
+    $stop_ts = is_numeric($latest_conn['acctstoptime']) ? (int)$latest_conn['acctstoptime'] : strtotime($latest_conn['acctstoptime']);
+    if ($stop_ts > 86400) {
+        $latest_login_ts = $stop_ts - (int)($latest_conn['acctsessiontime'] ?? 0);
+    }
+}
+$last_login_display = ($latest_login_ts && $latest_login_ts > 86400) ? date('d M Y H:i:s', $latest_login_ts) : 'N/A';
+?>
+<tr><td class="fw-bold">Last Login</td><td><?= $last_login_display ?></td></tr>
                                 <tr><td class="fw-bold">IPv6 IP Address</td><td><?= !empty($latest_conn['framedipv6address']) ? htmlspecialchars($latest_conn['framedipv6address']) : 'N/A' ?></td></tr>
                                 <tr><td class="fw-bold">Connected IP</td><td><?= !empty($latest_conn['framedipaddress']) ? htmlspecialchars($latest_conn['framedipaddress']) : 'N/A' ?></td></tr>
                                 <tr><td class="fw-bold">Connected MAC</td><td><?= !empty($latest_conn['callingstationid']) ? htmlspecialchars($latest_conn['callingstationid']) : 'N/A' ?></td></tr>

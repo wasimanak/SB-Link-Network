@@ -12,12 +12,24 @@ $radStmt = $pdo->prepare("SELECT * FROM radacct WHERE username = ? AND acctstopt
 $radStmt->execute([$current_user['username']]);
 $live_session = $radStmt->fetch();
 
-// Fetch total usage
-$usageStmt = $pdo->prepare("SELECT SUM(acctinputoctets) as up, SUM(acctoutputoctets) as down FROM radacct WHERE username = ?");
-$usageStmt->execute([$current_user['username']]);
+// Fetch total usage (current billing cycle)
+$cycle_start = null;
+if (!empty($current_user['last_renewed_at']) && $current_user['last_renewed_at'] !== '0000-00-00 00:00:00') {
+    $cycle_start = $current_user['last_renewed_at'];
+} elseif (!empty($current_user['created_at'])) {
+    $cycle_start = $current_user['created_at'];
+} else {
+    $cycle_start = '2000-01-01 00:00:00';
+}
+
+$usageStmt = $pdo->prepare("SELECT SUM(acctinputoctets) as up, SUM(acctoutputoctets) as down 
+    FROM radacct 
+    WHERE username = ? 
+      AND (acctstarttime >= ? OR acctstoptime >= ?)");
+$usageStmt->execute([$current_user['username'], $cycle_start, $cycle_start]);
 $usage = $usageStmt->fetch();
 
-$total_bytes = ($usage['up'] ?? 0) + ($usage['down'] ?? 0);
+$total_bytes = (float)($usage['up'] ?? 0) + (float)($usage['down'] ?? 0);
 if ($total_bytes >= 1073741824) {
     $used_volume_str = round($total_bytes / 1073741824, 2) . " GB";
 } elseif ($total_bytes >= 1048576) {

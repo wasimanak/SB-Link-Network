@@ -492,8 +492,20 @@ $sql = "SELECT s.*, p.name as package_name,
         (SELECT framedipaddress FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL ORDER BY radacctid DESC LIMIT 1) as live_ip,
         (SELECT MAX(acctstarttime) FROM radacct r WHERE r.username = s.username) as last_on_time,
         (SELECT MAX(acctstoptime) FROM radacct r WHERE r.username = s.username) as last_off_time,
-        (SELECT SUM(acctinputoctets + acctoutputoctets) FROM radacct r WHERE r.username = s.username) as total_usage_bytes,
-        (SELECT SUM(acctsessiontime) FROM radacct r WHERE r.username = s.username) as total_time_sec,
+        (SELECT SUM(acctinputoctets + acctoutputoctets) FROM radacct r 
+         WHERE r.username = s.username 
+           AND (
+               (s.last_renewed_at IS NOT NULL AND (r.acctstarttime >= s.last_renewed_at OR r.acctstoptime >= s.last_renewed_at))
+               OR (s.last_renewed_at IS NULL AND (r.acctstarttime >= COALESCE(s.created_at, '2000-01-01 00:00:00') OR r.acctstoptime >= COALESCE(s.created_at, '2000-01-01 00:00:00')))
+           )
+        ) as total_usage_bytes,
+        (SELECT SUM(acctsessiontime) FROM radacct r 
+         WHERE r.username = s.username 
+           AND (
+               (s.last_renewed_at IS NOT NULL AND (r.acctstarttime >= s.last_renewed_at OR r.acctstoptime >= s.last_renewed_at))
+               OR (s.last_renewed_at IS NULL AND (r.acctstarttime >= COALESCE(s.created_at, '2000-01-01 00:00:00') OR r.acctstoptime >= COALESCE(s.created_at, '2000-01-01 00:00:00')))
+           )
+        ) as total_time_sec,
         (SELECT nasipaddress FROM radacct r WHERE r.username = s.username ORDER BY radacctid DESC LIMIT 1) as nas_ip
         FROM subscribers s 
         LEFT JOIN packages p ON s.package_id = p.id 
@@ -804,6 +816,11 @@ $count_offline = max(0, $count_all - $count_online);
         <button type="button" class="btn btn-action-pro btn-action-purple shadow-sm" onclick="openMassPaymentModal()">
             <i class="fa-brands fa-paypal"></i> Mass Payment
         </button>
+        <?php if (empty($_SESSION['is_manager'])): ?>
+        <a href="reset_all_usage.php" class="btn btn-action-pro btn-action-secondary shadow-sm text-dark" title="Reset all subscribers data usage counters to 0">
+            <i class="fa-solid fa-arrows-rotate text-warning"></i> Reset Usage
+        </a>
+        <?php endif; ?>
         <button type="button" class="btn btn-action-pro btn-action-secondary shadow-sm" data-bs-toggle="modal" data-bs-target="#restoreModal">
             <i class="fa-solid fa-file-import"></i> Import CSV
         </button>
@@ -876,8 +893,10 @@ $count_offline = max(0, $count_all - $count_online);
                 <?php foreach($subs as $s): 
                     $usage_gb = $s['total_usage_bytes'] > 0 ? round($s['total_usage_bytes'] / 1073741824, 2) : 0.00;
                     $uptime_fmt = formatUptime($s['total_time_sec']);
-                    $on_time = $s['last_on_time'] ? date('Y-m-d H:i:s', strtotime($s['last_on_time'])) : 'N/A';
-                    $off_time = $s['last_off_time'] ? date('Y-m-d H:i:s', strtotime($s['last_off_time'])) : 'N/A';
+                    $on_ts = !empty($s['last_on_time']) ? (is_numeric($s['last_on_time']) && (int)$s['last_on_time'] > 86400 ? (int)$s['last_on_time'] : strtotime($s['last_on_time'])) : null;
+                    $on_time = ($on_ts && $on_ts > 86400) ? date('Y-m-d H:i:s', $on_ts) : 'N/A';
+                    $off_ts = !empty($s['last_off_time']) ? (is_numeric($s['last_off_time']) && (int)$s['last_off_time'] > 86400 ? (int)$s['last_off_time'] : strtotime($s['last_off_time'])) : null;
+                    $off_time = ($off_ts && $off_ts > 86400) ? date('Y-m-d H:i:s', $off_ts) : 'N/A';
                 ?>
                 <tr>
                     <td><input type="checkbox" class="row-checkbox form-check-input" value="<?= $s['id'] ?>"></td>

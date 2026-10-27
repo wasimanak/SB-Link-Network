@@ -379,15 +379,44 @@ foreach ($fund_requests as $fr) {
                             </tr>
                         <?php else: ?>
                             <?php foreach($sessions as $s): 
-                                $dur = (int)$s['acctsessiontime'];
+                                $dur = (int)($s['acctsessiontime'] ?? 0);
                                 $h = floor($dur / 3600);
                                 $m = floor(($dur % 3600) / 60);
-                                $total = $s['acctinputoctets'] + $s['acctoutputoctets'];
+                                $total = (float)($s['acctinputoctets'] ?? 0) + (float)($s['acctoutputoctets'] ?? 0);
+
+                                $raw_start = $s['acctstarttime'] ?? '';
+                                $raw_stop = $s['acctstoptime'] ?? '';
+                                
+                                $start_ts = null;
+                                if (!empty($raw_start) && $raw_start !== '0000-00-00 00:00:00' && $raw_start !== '1970-01-01 00:00:00') {
+                                    if (is_numeric($raw_start) && (int)$raw_start > 86400) {
+                                        $start_ts = (int)$raw_start;
+                                    } else {
+                                        $parsed = strtotime($raw_start);
+                                        if ($parsed !== false && $parsed > 86400) {
+                                            $start_ts = $parsed;
+                                        }
+                                    }
+                                }
+
+                                // Fallback: calculate start time from stop time minus duration
+                                if (!$start_ts && !empty($raw_stop) && $raw_stop !== '0000-00-00 00:00:00' && $raw_stop !== '1970-01-01 00:00:00') {
+                                    $stop_ts = is_numeric($raw_stop) ? (int)$raw_stop : strtotime($raw_stop);
+                                    if ($stop_ts !== false && $stop_ts > 86400) {
+                                        $calc = $stop_ts - $dur;
+                                        $start_ts = ($calc > 86400) ? $calc : $stop_ts;
+                                    }
+                                }
                             ?>
                             <tr>
                                 <td>
-                                    <div class="fw-semibold text-dark"><?= date('d M Y', strtotime($s['acctstarttime'])) ?></div>
-                                    <div class="text-muted" style="font-size: 0.75rem;"><?= date('H:i:s', strtotime($s['acctstarttime'])) ?></div>
+                                    <?php if ($start_ts): ?>
+                                        <div class="fw-semibold text-dark"><?= date('d M Y', $start_ts) ?></div>
+                                        <div class="text-muted" style="font-size: 0.75rem;"><?= date('h:i:s A', $start_ts) ?></div>
+                                    <?php else: ?>
+                                        <div class="fw-semibold text-dark">Recent Session</div>
+                                        <div class="text-muted" style="font-size: 0.75rem;">Completed</div>
+                                    <?php endif; ?>
                                 </td>
                                 <td>
                                     <span class="badge bg-light text-dark border rounded-pill px-2 py-1" style="font-size: 0.75rem;">

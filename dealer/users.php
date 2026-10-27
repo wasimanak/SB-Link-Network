@@ -530,8 +530,20 @@ $sql = "SELECT s.*, p.name as package_name,
         (SELECT framedipaddress FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL ORDER BY radacctid DESC LIMIT 1) as live_ip,
         (SELECT MAX(acctstarttime) FROM radacct r WHERE r.username = s.username) as last_on_time,
         (SELECT MAX(acctstoptime) FROM radacct r WHERE r.username = s.username) as last_off_time,
-        (SELECT SUM(acctinputoctets + acctoutputoctets) FROM radacct r WHERE r.username = s.username) as total_usage_bytes,
-        (SELECT SUM(acctsessiontime) FROM radacct r WHERE r.username = s.username) as total_time_sec,
+        (SELECT SUM(acctinputoctets + acctoutputoctets) FROM radacct r 
+         WHERE r.username = s.username 
+           AND (
+               (s.last_renewed_at IS NOT NULL AND (r.acctstarttime >= s.last_renewed_at OR r.acctstoptime >= s.last_renewed_at))
+               OR (s.last_renewed_at IS NULL AND (r.acctstarttime >= COALESCE(s.created_at, '2000-01-01 00:00:00') OR r.acctstoptime >= COALESCE(s.created_at, '2000-01-01 00:00:00')))
+           )
+        ) as total_usage_bytes,
+        (SELECT SUM(acctsessiontime) FROM radacct r 
+         WHERE r.username = s.username 
+           AND (
+               (s.last_renewed_at IS NOT NULL AND (r.acctstarttime >= s.last_renewed_at OR r.acctstoptime >= s.last_renewed_at))
+               OR (s.last_renewed_at IS NULL AND (r.acctstarttime >= COALESCE(s.created_at, '2000-01-01 00:00:00') OR r.acctstoptime >= COALESCE(s.created_at, '2000-01-01 00:00:00')))
+           )
+        ) as total_time_sec,
         (SELECT nasipaddress FROM radacct r WHERE r.username = s.username ORDER BY radacctid DESC LIMIT 1) as nas_ip
         FROM subscribers s 
         LEFT JOIN packages p ON s.package_id = p.id 
