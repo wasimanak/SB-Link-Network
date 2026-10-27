@@ -2506,13 +2506,18 @@ function fetchLiveBandwidth() {
                             if (alertBox) {
                                 let errMsg = '';
                                 if (data.diag && data.diag.attempts && data.diag.attempts.length > 0) {
-                                    errMsg = data.diag.attempts.map(a => `${a.ip}:${a.port} (${a.sock_err || "Unreachable"})`).join(', ');
+                                    errMsg = data.diag.attempts.map(a => {
+                                        if (!a.sock_ok) return `${a.ip}:${a.port} (Port unreachable/offline)`;
+                                        if (!a.login_ok) return `${a.ip}:${a.port} (API Login failed: check user/pass)`;
+                                        if (!a.user_found) return `${a.ip} (Connected, but subscriber not active on this router)`;
+                                        return `${a.ip} (Connected)`;
+                                    }).join(', ');
                                 } else {
                                     errMsg = `No reachable router IP found. Ensure router public IP or VPN IP is in NAS table.`;
                                 }
                                 alertBox.className = 'alert alert-warning py-1 px-2.5 mb-2 rounded-2 d-flex align-items-center gap-2 small text-dark';
                                 alertBox.style.fontSize = '0.75rem';
-                                alertBox.innerHTML = `<i class="fa-solid fa-triangle-exclamation text-warning flex-shrink-0"></i> <span><strong>Router API Offline:</strong> ${errMsg} (Check MikroTik IP > Services > API 8728)</span>`;
+                                alertBox.innerHTML = `<i class="fa-solid fa-triangle-exclamation text-warning flex-shrink-0"></i> <span><strong>Router Status:</strong> ${errMsg}</span>`;
                             }
                         }
                     } else {
