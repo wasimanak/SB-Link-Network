@@ -1397,7 +1397,7 @@ if ($last_debit) {
                     <div class="metric-data">
                         <h6>Used Volume</h6>
                         <h4 id="live_used_volume"><?= $used_volume_str ?></h4>
-                        <small class="text-muted" style="font-size: 0.72rem;" title="Resets to 0 upon package renewal">Since <?= $cycle_start ? date('d M Y', strtotime($cycle_start)) : 'Activation' ?></small>
+                        <small class="text-muted" style="font-size: 0.72rem;" >Since <?= $cycle_start ? date('d M Y', strtotime($cycle_start)) : 'Activation' ?></small>
                     </div>
                 </div>
             </div>
@@ -1796,7 +1796,6 @@ $last_login_display = ($latest_login_ts && $latest_login_ts > 86400) ? date('d M
                     <button type="button" class="btn btn-sm btn-outline-primary fw-semibold rounded-pill px-3" onclick="setRenewPreset(30)">+30 Days (1 Month)</button>
                     <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3" onclick="setRenewPreset(60)">+60 Days (2 Months)</button>
                     <button type="button" class="btn btn-sm btn-outline-danger rounded-pill px-2" onclick="setRenewPreset(0)" title="Set Expiry to Right Now (Expire User)">Expire Now</button>
-                    <button type="button" class="btn btn-sm btn-light border rounded-pill px-2 text-muted" onclick="resetToCurrentExpiry()" title="Reset back to current saved expiry">Reset</button>
                 </div>
             </div>
             <?php endif; ?>
