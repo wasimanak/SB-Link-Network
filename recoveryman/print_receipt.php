@@ -39,6 +39,11 @@ if ($rm_id > 0) {
 } elseif (!empty($_SESSION['admin_logged_in'])) {
     $rm_name = 'Admin';
     $is_authenticated = true;
+} elseif (!empty($_SESSION['dealer_id'])) {
+    $client_id = (int)($_SESSION['client_id'] ?? 0);
+    $dealer_id = (int)$_SESSION['dealer_id'];
+    $rm_name = !empty($_SESSION['dealer_username']) ? $_SESSION['dealer_username'] . ' (Dealer)' : 'Dealer';
+    $is_authenticated = true;
 }
 
 if (!$is_authenticated) {
