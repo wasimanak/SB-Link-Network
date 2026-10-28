@@ -1395,17 +1395,7 @@ if ($last_debit) {
                 <div class="view-card metric-card mb-0 h-100">
                     <div class="metric-icon bg-light-warning"><i class="fa-solid fa-hourglass-half"></i></div>
                     <div class="metric-data">
-                        <div class="d-flex align-items-center justify-content-between mb-1">
-                            <h6 class="mb-0">Used Volume</h6>
-                            <?php if (empty($_SESSION['is_manager'])): ?>
-                            <form method="POST" class="d-inline" onsubmit="return confirm('Reset data usage for <?= htmlspecialchars($user['username']) ?> to 0 MB? (Active session will be refreshed)');">
-                                <input type="hidden" name="action" value="reset_user_usage">
-                                <button type="submit" class="btn btn-xs btn-outline-warning border rounded-pill py-0 px-2 fw-semibold" style="font-size: 0.68rem;" title="Reset this user's data usage to 0">
-                                    <i class="fa-solid fa-arrows-rotate me-1"></i>Reset
-                                </button>
-                            </form>
-                            <?php endif; ?>
-                        </div>
+                        <h6>Used Volume</h6>
                         <h4 id="live_used_volume"><?= $used_volume_str ?></h4>
                         <small class="text-muted" style="font-size: 0.72rem;" title="Resets to 0 upon package renewal">Since <?= $cycle_start ? date('d M Y', strtotime($cycle_start)) : 'Activation' ?></small>
                     </div>
