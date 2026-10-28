@@ -48,12 +48,24 @@ $diag = [
 try {
     // 1. Check if user currently has an active accounting session in radacct
     $rad_active = null;
-    $radStmt = $pdo->prepare("SELECT radacctid, nasipaddress, acctsessiontime, acctinputoctets, acctoutputoctets, framedipaddress 
+    $radStmt = $pdo->prepare("SELECT radacctid, nasipaddress, acctsessiontime, acctinputoctets, acctoutputoctets, framedipaddress, acctstarttime 
         FROM radacct 
         WHERE username = ? AND acctstoptime IS NULL 
         ORDER BY radacctid DESC LIMIT 1");
     $radStmt->execute([$username]);
     $rad_active = $radStmt->fetch(PDO::FETCH_ASSOC);
+
+    // Fetch subscriber cycle reset timestamp
+    $subStmt = $pdo->prepare("SELECT id, last_renewed_at, created_at FROM subscribers WHERE username = ? AND client_id = ? LIMIT 1");
+    $subStmt->execute([$username, $client_id]);
+    $sub_row = $subStmt->fetch(PDO::FETCH_ASSOC);
+
+    $cycle_start_ts = 0;
+    if (!empty($sub_row['last_renewed_at']) && $sub_row['last_renewed_at'] !== '0000-00-00 00:00:00') {
+        $cycle_start_ts = strtotime($sub_row['last_renewed_at']);
+    } elseif (!empty($sub_row['created_at'])) {
+        $cycle_start_ts = strtotime($sub_row['created_at']);
+    }
 
     $framed_ip = !empty($rad_active['framedipaddress']) ? trim($rad_active['framedipaddress']) : null;
     $diag['framed_ip'] = $framed_ip;
@@ -345,16 +357,31 @@ try {
         $bytes_out = (float)($rad_active['acctoutputoctets'] ?? 0);
     }
 
+    // If current live session started BEFORE the cycle start date, clamp cumulative session bytes to 0
+    $is_prev_cycle = false;
+    if ($cycle_start_ts > 0) {
+        $active_start_ts = 0;
+        if (!empty($rad_active['acctstarttime']) && $rad_active['acctstarttime'] !== '0000-00-00 00:00:00') {
+            $active_start_ts = is_numeric($rad_active['acctstarttime']) ? (int)$rad_active['acctstarttime'] : strtotime($rad_active['acctstarttime']);
+        }
+        if ($active_start_ts > 0 && $active_start_ts < $cycle_start_ts) {
+            $is_prev_cycle = true;
+            $bytes_in = 0;
+            $bytes_out = 0;
+        }
+    }
+
     echo json_encode([
-        'status'    => $found ? 'online' : 'offline',
-        'source'    => $source,
-        'bytes_in'  => $bytes_in, 
-        'bytes_out' => $bytes_out, 
-        'rx_bps'    => $rx_bps, 
-        'tx_bps'    => $tx_bps, 
-        'uptime'    => $uptime_str,
-        'diag'      => $diag,
-        'ts'        => microtime(true)
+        'status'        => $found ? 'online' : 'offline',
+        'source'        => $source,
+        'bytes_in'      => $bytes_in, 
+        'bytes_out'     => $bytes_out, 
+        'rx_bps'        => $rx_bps, 
+        'tx_bps'        => $tx_bps, 
+        'uptime'        => $uptime_str,
+        'is_prev_cycle' => $is_prev_cycle,
+        'diag'          => $diag,
+        'ts'            => microtime(true)
     ]);
 } catch (Exception $e) {
     if (!empty($rad_active)) {
