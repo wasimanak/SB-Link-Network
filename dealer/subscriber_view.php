@@ -13,16 +13,18 @@ $can_custom_expiry = (bool)($current_dealer['perm_custom_expiry'] ?? 0);
 $can_delete_user   = (bool)($current_dealer['perm_delete_user'] ?? 0);
 
 // Helper to get dealer price for a package
-function getDealerPkgPrice($pdo, $dealer_id, $pkg_id) {
-    $dpStmt = $pdo->prepare("SELECT dealer_price FROM dealer_packages WHERE dealer_id = ? AND package_id = ?");
-    $dpStmt->execute([$dealer_id, $pkg_id]);
-    $price = $dpStmt->fetchColumn();
-    if ($price === false || $price === null) {
-        $pStmt = $pdo->prepare("SELECT price FROM packages WHERE id = ?");
-        $pStmt->execute([$pkg_id]);
-        $price = $pStmt->fetchColumn() ?: 0;
+if (!function_exists('getDealerPkgPrice')) {
+    function getDealerPkgPrice($pdo, $dealer_id, $pkg_id) {
+        $dpStmt = $pdo->prepare("SELECT dealer_price FROM dealer_packages WHERE dealer_id = ? AND package_id = ?");
+        $dpStmt->execute([$dealer_id, $pkg_id]);
+        $price = $dpStmt->fetchColumn();
+        if ($price === false || $price === null) {
+            $pStmt = $pdo->prepare("SELECT price FROM packages WHERE id = ?");
+            $pStmt->execute([$pkg_id]);
+            $price = $pStmt->fetchColumn() ?: 0;
+        }
+        return (float)$price;
     }
-    return (float)$price;
 }
 
 // Format bytes helper
@@ -37,17 +39,17 @@ if (!function_exists('formatSubscriberBytes')) {
 }
 
 // Fetch Dealer Balance
-$dBalStmt = $pdo->prepare("SELECT balance, username, name FROM dealers WHERE id = ?");
+$dBalStmt = $pdo->prepare("SELECT balance, username, full_name FROM dealers WHERE id = ?");
 $dBalStmt->execute([$dealer_id]);
 $dealer_row = $dBalStmt->fetch(PDO::FETCH_ASSOC);
-$current_dealer_balance = (float)($dealer_row['balance'] ?? 0);
+$current_dealer_balance = (float)($dealer_row['balance'] ?? ($current_dealer['balance'] ?? 0));
 
 // Fetch Subscriber - STRICTLY SCOPED to this dealer
 $stmt = $pdo->prepare("
     SELECT s.*, 
-           p.name as pkg_name, p.price as pkg_price, p.validity_days, p.rate_limit,
+           p.name as pkg_name, p.price as pkg_price, p.validity_days, p.rate_limit, p.data_limit_gb,
            c.company_name,
-           d.username as dealer_username, d.name as dealer_full_name
+           d.username as dealer_username, d.full_name as dealer_full_name
     FROM subscribers s
     LEFT JOIN packages p ON s.package_id = p.id
     LEFT JOIN clients c ON s.client_id = c.id
@@ -58,7 +60,21 @@ $stmt->execute([$id, $dealer_id]);
 $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$user) {
-    header("Location: dashboard.php");
+    ?>
+    <div class="container-fluid py-4">
+        <div class="alert alert-warning border border-warning shadow-sm rounded-4 p-4 text-center my-4">
+            <div class="mb-3">
+                <i class="fa-solid fa-user-slash text-warning" style="font-size: 3rem;"></i>
+            </div>
+            <h4 class="fw-bold text-dark">Customer Profile Not Found</h4>
+            <p class="text-secondary mb-3">Customer ID #<?= htmlspecialchars($id) ?> was not found or does not belong to your dealer account.</p>
+            <a href="users.php" class="btn btn-primary rounded-pill px-4 fw-semibold">
+                <i class="fa-solid fa-arrow-left me-1"></i> Back to Subscribers List
+            </a>
+        </div>
+    </div>
+    <?php
+    require_once 'footer.php';
     exit;
 }
 
@@ -1626,7 +1642,7 @@ fetchLiveBandwidth();
 const canCustomExpiry = <?= $can_custom_expiry ? 'true' : 'false' ?>;
 const userCurBal = <?= (float)($user['balance'] ?? 0) ?>;
 const userCurExpStr = <?= json_encode((!empty($user['expiry_date']) && $user['expiry_date'] !== '0000-00-00 00:00:00') ? $user['expiry_date'] : '') ?>;
-const dealerWalletBal = <?= $current_dealer_balance ?>;
+const dealerWalletBal = <?= (float)$current_dealer_balance ?>;
 
 function recalculateRenewAdjustment() {
     const pkgSelect = document.getElementById('renew_package_select');
