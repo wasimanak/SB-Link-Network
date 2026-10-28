@@ -629,7 +629,7 @@ $subs = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             <div class="d-flex align-items-center gap-3">
                                 <div class="user-avatar shadow-sm"><i class="fa-solid fa-user-astronaut"></i></div>
                                 <div>
-                                    <div class="fw-bold text-dark fs-6"><?= htmlspecialchars($s['username']) ?></div>
+                                    <div class="fw-bold fs-6"><a href="subscriber_view.php?id=<?= $s['id'] ?>" class="text-primary text-decoration-none"><i class="fa-solid fa-user me-1"></i><?= htmlspecialchars($s['username']) ?></a></div>
                                     <div class="small text-muted fw-bold"><?= htmlspecialchars($s['full_name']) ?></div>
                                 </div>
                             </div>

@@ -1,6 +1,206 @@
 <?php
 require_once 'header.php';
+require_once __DIR__ . '/../config/radius_kick_helper.php';
 
+// Helper to get dealer price for a package
+function getDealerPkgPrice($pdo, $dealer_id, $pkg_id) {
+    $dpStmt = $pdo->prepare("SELECT dealer_price FROM dealer_packages WHERE dealer_id = ? AND package_id = ?");
+    $dpStmt->execute([$dealer_id, $pkg_id]);
+    $price = $dpStmt->fetchColumn();
+    if ($price === false || $price === null) {
+        $pStmt = $pdo->prepare("SELECT price FROM packages WHERE id = ?");
+        $pStmt->execute([$pkg_id]);
+        $price = $pStmt->fetchColumn() ?: 0;
+    }
+    return (float)$price;
+}
+
+// Fetch Dealer Permissions
+$can_custom_expiry = (bool)($current_dealer['perm_custom_expiry'] ?? 0);
+
+// Refresh current dealer balance from DB
+$dBalStmt = $pdo->prepare("SELECT balance, username FROM dealers WHERE id = ?");
+$dBalStmt->execute([$dealer_id]);
+$dData = $dBalStmt->fetch(PDO::FETCH_ASSOC);
+$current_dealer_balance = (float)($dData['balance'] ?? 0);
+
+// --- HANDLE POST ACTIONS ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $action = $_POST['action'] ?? '';
+
+    // 1. ADD PAYMENT (Dealer wallet balance -> Customer account balance)
+    if ($action === 'add_payment') {
+        $sub_id = (int)($_POST['sub_id'] ?? 0);
+        $amount = (float)($_POST['amount'] ?? 0);
+        $desc = trim($_POST['description'] ?? '');
+
+        if ($amount <= 0) {
+            echo "<script>alert('Please enter a valid amount.'); window.location='dashboard.php#reportsSection';</script>";
+            exit;
+        }
+
+        if ($current_dealer_balance < $amount) {
+            echo "<script>alert('Insufficient balance in your wallet! Available: Rs. " . number_format($current_dealer_balance, 2) . ", Required: Rs. " . number_format($amount, 2) . "'); window.location='dashboard.php#reportsSection';</script>";
+            exit;
+        }
+
+        // Verify subscriber belongs to this dealer
+        $uStmt = $pdo->prepare("SELECT username, balance FROM subscribers WHERE id = ? AND dealer_id = ?");
+        $uStmt->execute([$sub_id, $dealer_id]);
+        $sub = $uStmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$sub) {
+            echo "<script>alert('Customer not found or unauthorized.'); window.location='dashboard.php#reportsSection';</script>";
+            exit;
+        }
+
+        $u = $sub['username'];
+
+        try {
+            $pdo->beginTransaction();
+
+            // Deduct from Dealer
+            $pdo->prepare("UPDATE dealers SET balance = balance - ? WHERE id = ?")->execute([$amount, $dealer_id]);
+            $new_dealer_bal = $current_dealer_balance - $amount;
+
+            // Credit to Subscriber
+            $pdo->prepare("UPDATE subscribers SET balance = balance + ? WHERE id = ? AND dealer_id = ?")->execute([$amount, $sub_id, $dealer_id]);
+            $new_sub_bal = (float)$sub['balance'] + $amount;
+
+            // Dealer Note
+            $note_text = "Added Payment Rs. " . number_format($amount, 2) . " to customer " . $u . (!empty($desc) ? " ($desc)" : "") . ". Remaining wallet: Rs. " . number_format($new_dealer_bal, 2);
+            $pdo->prepare("INSERT INTO dealer_notes (dealer_id, note) VALUES (?, ?)")->execute([$dealer_id, $note_text]);
+
+            // User Ledger
+            $ledger_desc = "Payment added by Dealer " . $current_dealer['username'] . (!empty($desc) ? " - $desc" : "");
+            $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'credit', ?, ?, ?)")
+                ->execute([$client_id, $u, $amount, $new_sub_bal, $ledger_desc]);
+
+            // Activity Log
+            $actStr = "Added Payment: Rs. " . number_format($amount, 2) . " by Dealer " . $current_dealer['username'];
+            $pdo->prepare("INSERT INTO activity_logs (client_id, dealer_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, ?, 'Dealer', ?, 'User', ?)")
+                ->execute([$client_id, $dealer_id, $current_dealer['username'], $u, $actStr]);
+
+            $pdo->commit();
+            echo "<script>alert('Payment of Rs. " . number_format($amount, 2) . " successfully added to user " . addslashes($u) . "!'); window.location='dashboard.php#reportsSection';</script>";
+            exit;
+        } catch (Exception $e) {
+            $pdo->rollBack();
+            echo "<script>alert('Error processing payment: " . addslashes($e->getMessage()) . "'); window.location='dashboard.php#reportsSection';</script>";
+            exit;
+        }
+    }
+
+    // 2. RENEW USER
+    if ($action === 'renew_user') {
+        $id = (int)($_POST['id'] ?? 0);
+        $package_id = isset($_POST['package_id']) ? (int)$_POST['package_id'] : 0;
+        $expiry_date = $_POST['expiry_date'] ?? null;
+
+        $uStmt = $pdo->prepare("SELECT username, package_id as old_package_id, expiry_date as old_expiry FROM subscribers WHERE id = ? AND dealer_id = ?");
+        $uStmt->execute([$id, $dealer_id]);
+        $subData = $uStmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$subData) {
+            echo "<script>alert('Customer not found or unauthorized.'); window.location='dashboard.php#reportsSection';</script>";
+            exit;
+        }
+
+        $u = $subData['username'];
+        $target_pkg_id = ($package_id > 0) ? $package_id : (int)$subData['old_package_id'];
+
+        $p = $pdo->prepare("SELECT name, rate_limit, price, validity_days FROM packages WHERE id = ?");
+        $p->execute([$target_pkg_id]);
+        $pkg = $p->fetch(PDO::FETCH_ASSOC);
+
+        if (!$pkg) {
+            echo "<script>alert('Invalid package selected.'); window.location='dashboard.php#reportsSection';</script>";
+            exit;
+        }
+
+        try {
+            $pdo->beginTransaction();
+            $now = time();
+            $old_expiry = (!empty($subData['old_expiry']) && $subData['old_expiry'] !== '0000-00-00 00:00:00') ? strtotime($subData['old_expiry']) : 0;
+            $val_days = (int)(($pkg['validity_days'] ?? 0) > 0 ? $pkg['validity_days'] : 30);
+
+            // Compute New Expiry
+            if ($can_custom_expiry && !empty($expiry_date)) {
+                $new_expiry_time = strtotime($expiry_date);
+            } else {
+                if ($old_expiry > $now) {
+                    $new_expiry_time = strtotime("+$val_days days", $old_expiry);
+                } else {
+                    $new_expiry_time = strtotime("+$val_days days", $now);
+                }
+            }
+
+            $dp_price = getDealerPkgPrice($pdo, $dealer_id, $target_pkg_id);
+            $deduction = $dp_price;
+            if ($can_custom_expiry && !empty($expiry_date)) {
+                $seconds = $new_expiry_time - $now;
+                if ($seconds > 0) {
+                    $days = $seconds / 86400;
+                    $deduction = round($days * ($dp_price / 30), 2);
+                }
+            }
+
+            if ($deduction > $current_dealer_balance) {
+                $pdo->rollBack();
+                echo "<script>alert('Insufficient dealer wallet balance! Required: Rs. $deduction, Available: Rs. $current_dealer_balance'); window.location='dashboard.php#reportsSection';</script>";
+                exit;
+            }
+
+            if ($deduction > 0) {
+                $pdo->prepare("UPDATE dealers SET balance = balance - ? WHERE id = ?")->execute([$deduction, $dealer_id]);
+                $note = "Package Renewal: {$pkg['name']} for $u. Deducted: Rs. $deduction";
+                $pdo->prepare("INSERT INTO dealer_notes (dealer_id, note) VALUES (?, ?)")->execute([$dealer_id, $note]);
+            }
+
+            $new_expiry_str = date('Y-m-d H:i:s', $new_expiry_time);
+            $status = ($new_expiry_time > $now) ? 'active' : 'expired';
+            $now_dt = date('Y-m-d H:i:s');
+
+            $pdo->prepare("UPDATE subscribers SET package_id = ?, expiry_date = ?, status = ?, last_renewed_at = ? WHERE id = ? AND dealer_id = ?")
+                ->execute([$target_pkg_id, $new_expiry_str, $status, $now_dt, $id, $dealer_id]);
+
+            // User Ledger
+            $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'debit', ?, 0, ?)")
+                ->execute([$client_id, $u, $deduction, "Package Renewed: {$pkg['name']} by Dealer {$current_dealer['username']}"]);
+
+            // FreeRADIUS Sync
+            $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Rate-Limit'")->execute([$u]);
+            if (!empty($pkg['rate_limit']) && $pkg['rate_limit'] !== 'No Limit') {
+                $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Rate-Limit', '=', ?)")->execute([$u, $pkg['rate_limit']]);
+            }
+            $formatted_expiry = date('d M Y H:i:s', $new_expiry_time);
+            $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute IN ('Expiration', 'Auth-Type')")->execute([$u]);
+            $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Expiration', ':=', ?)")->execute([$u, $formatted_expiry]);
+
+            $pdo->prepare("INSERT INTO activity_logs (client_id, dealer_id, by_user, against_to, against_role, activity) VALUES (?, ?, ?, ?, 'User', 'Package Renewed by Dealer')")
+                ->execute([$client_id, $dealer_id, $current_dealer['username'], $u]);
+
+            $pdo->commit();
+            kick_subscriber_session($pdo, $u, $client_id);
+            echo "<script>alert('User renewed successfully!'); window.location='dashboard.php#reportsSection';</script>";
+            exit;
+        } catch (Exception $e) {
+            $pdo->rollBack();
+            echo "<script>alert('Error renewing user: " . addslashes($e->getMessage()) . "'); window.location='dashboard.php#reportsSection';</script>";
+            exit;
+        }
+    }
+}
+
+// Fetch Dealer Packages for Renew Modal
+$dpStmt = $pdo->prepare("SELECT p.id, p.name, p.rate_limit, dp.dealer_price FROM dealer_packages dp JOIN packages p ON dp.package_id = p.id WHERE dp.dealer_id = ? ORDER BY p.name ASC");
+$dpStmt->execute([$dealer_id]);
+$dealer_packages = $dpStmt->fetchAll(PDO::FETCH_ASSOC);
+if (empty($dealer_packages)) {
+    $dpStmt = $pdo->prepare("SELECT id, name, rate_limit, price as dealer_price FROM packages WHERE client_id = ? ORDER BY name ASC");
+    $dpStmt->execute([$client_id]);
+    $dealer_packages = $dpStmt->fetchAll(PDO::FETCH_ASSOC);
+}
 
 // User Reports Filter Logic
 $report_filter = $_GET['report'] ?? 'all';
@@ -67,7 +267,7 @@ $expiring_3d = $s['expiring_3d'] ?: 0;
 $expiring_1w = $s['expiring_1w'] ?: 0;
 $expiring_2w = $s['expiring_2w'] ?: 0;
 $offline_users = max(0, $total_users - $online_users);
-$balance = $current_dealer['balance'] ?? 0;
+$balance = $current_dealer_balance;
 
 // Chart Data
 $chart_online = $online_users;
@@ -123,7 +323,13 @@ $dealer_activities = $alogsStmt->fetchAll(PDO::FETCH_ASSOC);
     .table-custom-ui th { background: #f8fafc; font-size: 0.85rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #e2e8f0; padding: 15px; }
     .table-custom-ui td { padding: 15px; font-size: 0.9rem; color: #334155; vertical-align: middle; border-bottom: 1px solid #f1f5f9; }
     .avatar-circle { width: 35px; height: 35px; background: #e2e8f0; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #64748b; font-size: 14px; }
-
+    .badge-soft-success { background-color: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2); }
+    .badge-soft-secondary { background-color: rgba(148, 163, 184, 0.15); color: #64748b; border: 1px solid rgba(148, 163, 184, 0.2); }
+    .badge-soft-primary { background-color: rgba(59, 130, 246, 0.15); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.2); }
+    .badge-soft-warning { background-color: rgba(245, 158, 11, 0.15); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.2); }
+    .badge-soft-danger { background-color: rgba(239, 68, 68, 0.15); color: #dc2626; border: 1px solid rgba(239, 68, 68, 0.2); }
+    .dt-buttons .btn { background-color: #475569; border: none; color: #fff; border-radius: 20px; padding: 4px 14px; font-size: 0.85rem; margin-right: 4px; }
+    .dataTables_filter input { background-color: #ffffff; border: 1px solid #ced4da; border-radius: 20px; padding: 4px 15px; }
 </style>
 <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
 <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.2/css/buttons.bootstrap5.min.css">
@@ -133,7 +339,7 @@ $dealer_activities = $alogsStmt->fetchAll(PDO::FETCH_ASSOC);
     <div class="d-flex align-items-center gap-3">
         <div class="bg-white px-4 py-2 rounded-pill shadow-sm border border-success border-opacity-25">
             <span class="text-secondary fw-bold small me-2">Wallet Balance:</span>
-            <span class="text-success fw-bold fs-5">Rs. <?= number_format($balance) ?></span>
+            <span class="text-success fw-bold fs-5">Rs. <?= number_format($balance, 2) ?></span>
         </div>
     </div>
 </div>
@@ -232,7 +438,6 @@ $dealer_activities = $alogsStmt->fetchAll(PDO::FETCH_ASSOC);
     </div>
 </div>
 
-
 <!-- User Reports Table -->
 <div class="card-ui p-4 mt-4" id="reportsSection">
     <h6 class="fw-bold text-secondary mb-4"><i class="fa-solid fa-list-ul me-2 text-primary"></i> User Reports</h6>
@@ -256,10 +461,12 @@ $dealer_activities = $alogsStmt->fetchAll(PDO::FETCH_ASSOC);
                     <th>Username</th>
                     <th>Phone</th>
                     <th>Package</th>
+                    <th>Seller</th>
                     <th>Balance</th>
                     <th>Service</th>
                     <th>On/Off</th>
                     <th>Expiry</th>
+                    <th>Action</th>
                 </tr>
             </thead>
             <tbody>
@@ -267,11 +474,24 @@ $dealer_activities = $alogsStmt->fetchAll(PDO::FETCH_ASSOC);
                 <tr>
                     <td><?= $s['id'] ?></td>
                     <td><div class="avatar-circle"><i class="fa-solid fa-user"></i></div></td>
-                    <td>
-                        <span class="badge rounded-pill badge-soft-success px-3 py-2"><?= htmlspecialchars($s['username']) ?></span>
+                    <td data-search="<?= htmlspecialchars($s['username']) ?>" data-sort="<?= htmlspecialchars($s['username']) ?>">
+                        <div class="d-inline-flex align-items-center gap-1">
+                            <a href="subscriber_view.php?id=<?= $s['id'] ?>" class="text-decoration-none">
+                                <span class="badge rounded-pill badge-soft-success px-3 py-2 fw-bold">
+                                    <i class="fa-solid fa-user me-1"></i> <?= htmlspecialchars($s['username']) ?>
+                                </span>
+                            </a>
+                            <button type="button" 
+                                    class="copy-user-btn" 
+                                    onclick="copyToClipboard(event, '<?= addslashes(htmlspecialchars($s['username'])) ?>', this)" 
+                                    title="Copy Username">
+                                <i class="fa-regular fa-copy" style="font-size: 0.82rem;"></i>
+                            </button>
+                        </div>
                     </td>
                     <td><?= htmlspecialchars($s['mobile'] ?: ($s['phone'] ?: 'N/A')) ?></td>
                     <td><?= htmlspecialchars($s['package_name'] ?? 'N/A') ?></td>
+                    <td><span class="badge rounded-pill bg-light text-dark border px-2 py-1 small"><?= htmlspecialchars($current_dealer['username']) ?></span></td>
                     <td><span class="badge rounded-pill badge-soft-warning px-3 py-2"><?= number_format($s['balance']) ?></span></td>
                     <td><span class="badge rounded-pill badge-soft-primary px-3 py-2 fw-bold"><?= strtoupper(htmlspecialchars($s['service_type'])) ?></span></td>
                     <td>
@@ -281,25 +501,156 @@ $dealer_activities = $alogsStmt->fetchAll(PDO::FETCH_ASSOC);
                                 <small class="text-muted font-monospace" style="font-size: 0.75rem;"><?= htmlspecialchars($s['live_ip']) ?></small>
                             </div>
                         <?php else: ?>
-                            <span class="badge rounded-pill badge-soft-secondary px-3 py-1">Offline</span>
+                            <span class="badge rounded-pill badge-soft-secondary px-3 py-2">Offline</span>
                         <?php endif; ?>
                     </td>
                     <td>
                         <?php if($s['expiry_date']): ?>
-                            <?php 
-                                $is_expired = ($s['status'] === 'expired') || (strtotime($s['expiry_date']) < time()); 
-                                $badge_class = $is_expired ? 'badge-soft-danger' : 'badge-soft-success';
-                            ?>
-                            <span class="badge <?= $badge_class ?> px-3 py-2"><?= $is_expired ? 'Expired (' . date('d M Y', strtotime($s['expiry_date'])) . ')' : 'Valid (' . date('d M Y', strtotime($s['expiry_date'])) . ')' ?></span>
+                            <?php if(strtotime($s['expiry_date']) < time()): ?>
+                                <div class="d-flex flex-column align-items-center gap-1">
+                                    <span class="badge rounded-pill bg-danger text-white fw-bold px-3 py-1 text-uppercase" style="letter-spacing: 0.5px;">Expired</span>
+                                    <small class="text-muted font-monospace" style="font-size: 0.70rem;"><?= date('d M Y', strtotime($s['expiry_date'])) ?></small>
+                                </div>
+                            <?php else: ?>
+                                <span class="badge rounded-pill badge-soft-success px-3 py-2"><?= date('d M Y H:i:s', strtotime($s['expiry_date'])) ?></span>
+                            <?php endif; ?>
                         <?php else: ?>
-                            <span class="badge badge-soft-secondary px-3 py-2">N/A</span>
+                            <span class="badge rounded-pill badge-soft-secondary px-3 py-2">N/A</span>
                         <?php endif; ?>
+                    </td>
+                    <td>
+                        <div class="d-flex flex-column gap-1">
+                            <a href="#" onclick="openPaymentModal(<?= $s['id'] ?>, '<?= addslashes(htmlspecialchars($s['username'])) ?>', <?= (float)$s['balance'] ?>); return false;" class="badge rounded-pill badge-soft-primary text-decoration-none px-3 py-2"><i class="fa-brands fa-paypal"></i> Payment</a>
+                            <a href="#" onclick="openRenewModal(<?= $s['id'] ?>, '<?= addslashes(htmlspecialchars($s['username'])) ?>', '<?= addslashes(htmlspecialchars($s['full_name'] ?? '')) ?>', <?= (int)$s['package_id'] ?>, '<?= addslashes(htmlspecialchars($s['package_name'] ?? '')) ?>', '<?= $s['expiry_date'] ?? '' ?>'); return false;" class="badge rounded-pill badge-soft-success text-decoration-none px-3 py-2"><i class="fa-solid fa-rotate"></i> Renew</a>
+                        </div>
                     </td>
                 </tr>
                 <?php endforeach; ?>
             </tbody>
         </table>
     </div>
+</div>
+
+<!-- Modal for Payment -->
+<div class="modal fade" id="paymentModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 rounded-4 shadow-lg overflow-hidden">
+      <div class="modal-header bg-primary text-white p-4">
+        <h5 class="modal-title fw-bold"><i class="fa-solid fa-money-bill-wave me-2"></i> Add Payment to Customer</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST">
+        <input type="hidden" name="action" value="add_payment">
+        <input type="hidden" name="sub_id" id="pay_sub_id">
+        <div class="modal-body p-4 bg-light">
+            <div class="card border-0 shadow-sm rounded-3 p-3 mb-3 bg-white">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <span class="text-secondary small fw-bold">Customer:</span>
+                    <span class="badge bg-primary font-monospace" id="pay_username_display"></span>
+                </div>
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <span class="text-secondary small fw-bold">Current Customer Balance:</span>
+                    <span class="text-success fw-bold" id="pay_cur_balance">Rs. 0</span>
+                </div>
+                <div class="d-flex justify-content-between align-items-center pt-2 border-top">
+                    <span class="text-secondary small fw-bold">Your Wallet Balance:</span>
+                    <span class="text-primary fw-bold">Rs. <?= number_format($balance, 2) ?></span>
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label text-dark fw-bold small text-uppercase">Payment Amount (Rs.) <span class="text-danger">*</span></label>
+                <div class="input-group input-group-lg shadow-sm">
+                    <span class="input-group-text bg-white fw-bold text-muted">Rs.</span>
+                    <input type="number" step="0.01" min="1" max="<?= $balance ?>" name="amount" class="form-control fw-bold text-primary" placeholder="e.g. 1000" required>
+                </div>
+                <small class="text-muted">This amount will be added to the customer's balance and deducted from your dealer wallet.</small>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label text-dark fw-bold small text-uppercase">Remarks / Note (Optional)</label>
+                <input type="text" name="description" class="form-control" placeholder="e.g. Cash collected from subscriber">
+            </div>
+        </div>
+        <div class="modal-footer bg-white border-top px-4 py-3">
+          <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary rounded-pill px-5 fw-bold shadow-sm" onclick="return confirm('Deduct this amount from your dealer wallet and credit customer balance?');">
+              <i class="fa-solid fa-check me-1"></i> Add Payment
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Modal for Renew -->
+<div class="modal fade" id="renewModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 rounded-4 shadow-lg overflow-hidden">
+      <div class="modal-header bg-success text-white p-4">
+        <h5 class="modal-title fw-bold"><i class="fa-solid fa-rotate me-2"></i> Renew Subscriber Package</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST">
+        <input type="hidden" name="action" value="renew_user">
+        <input type="hidden" name="id" id="renew_user_id">
+        <div class="modal-body p-4 bg-light">
+            <div class="card border-0 shadow-sm rounded-3 p-3 mb-3 bg-white">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <span class="text-secondary small fw-bold">Customer:</span>
+                    <span class="badge bg-success font-monospace" id="renew_username_display"></span>
+                </div>
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <span class="text-secondary small fw-bold">Full Name:</span>
+                    <span class="fw-bold text-dark" id="renew_fullname_display"></span>
+                </div>
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <span class="text-secondary small fw-bold">Current Package:</span>
+                    <span class="fw-bold text-dark" id="renew_cur_pkg"></span>
+                </div>
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <span class="text-secondary small fw-bold">Current Expiry:</span>
+                    <span class="fw-bold text-dark" id="renew_cur_expiry"></span>
+                </div>
+                <div class="d-flex justify-content-between align-items-center pt-2 border-top">
+                    <span class="text-secondary small fw-bold">Your Wallet Balance:</span>
+                    <span class="text-primary fw-bold">Rs. <?= number_format($balance, 2) ?></span>
+                </div>
+            </div>
+
+            <div class="mb-3 text-start">
+                <label class="form-label text-dark fw-bold small text-uppercase">Select Package <span class="text-danger">*</span></label>
+                <select name="package_id" id="renew_pkg_id" class="form-select form-select-lg fw-bold text-primary border-success shadow-sm" required onchange="updateRenewLivePrice()">
+                    <?php foreach($dealer_packages as $p): ?>
+                        <option value="<?= $p['id'] ?>" data-price="<?= $p['dealer_price'] ?>">
+                            <?= htmlspecialchars($p['name']) ?> &nbsp;|&nbsp; Dealer Rs. <?= number_format($p['dealer_price']) ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
+            <?php if ($can_custom_expiry): ?>
+            <div class="mb-3 text-start">
+                <label class="form-label text-secondary small fw-bold">Custom Expiry (Optional)</label>
+                <input type="datetime-local" name="expiry_date" id="renew_expiry_input" class="form-control" onchange="updateRenewLivePrice()">
+                <small class="text-muted">Leave blank for standard 30-day package renewal.</small>
+            </div>
+            <?php endif; ?>
+
+            <div class="p-3 bg-white border rounded shadow-sm d-flex justify-content-between align-items-center">
+                <div class="text-secondary fw-bold small text-uppercase">Wallet Deduction</div>
+                <h4 class="mb-0 fw-bold text-success" id="renew_deduction_display">Rs. 0</h4>
+            </div>
+        </div>
+        <div class="modal-footer bg-white border-top px-4 py-3">
+          <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-success rounded-pill px-5 fw-bold shadow-sm" onclick="return confirm('Confirm renewal? Dealer package price will be deducted from your wallet.');">
+              <i class="fa-solid fa-check me-1"></i> Confirm Renewal
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
 </div>
 
 <div class="card border-0 shadow-sm rounded-4 mt-4">
@@ -358,7 +709,6 @@ document.addEventListener("DOMContentLoaded", function() {
 });
 </script>
 
-
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
 <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
@@ -371,6 +721,62 @@ document.addEventListener("DOMContentLoaded", function() {
 <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.print.min.js"></script>
 
 <script>
+const pkgPriceMap = {
+    <?php foreach($dealer_packages as $p) echo $p['id'] . ': ' . (float)$p['dealer_price'] . ','; ?>
+};
+
+function openPaymentModal(subId, username, curBalance) {
+    document.getElementById('pay_sub_id').value = subId;
+    document.getElementById('pay_username_display').innerText = username;
+    document.getElementById('pay_cur_balance').innerText = 'Rs. ' + Number(curBalance || 0).toLocaleString();
+    var modal = new bootstrap.Modal(document.getElementById('paymentModal'));
+    modal.show();
+}
+
+function openRenewModal(id, username, fullname, pkgId, pkgName, expiry) {
+    document.getElementById('renew_user_id').value = id;
+    document.getElementById('renew_username_display').innerText = username;
+    document.getElementById('renew_fullname_display').innerText = fullname || username;
+    document.getElementById('renew_cur_pkg').innerText = pkgName || 'Current Package';
+    
+    if (expiry && expiry !== '0000-00-00 00:00:00') {
+        let d = new Date(expiry);
+        document.getElementById('renew_cur_expiry').innerText = isNaN(d.getTime()) ? expiry : d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    } else {
+        document.getElementById('renew_cur_expiry').innerText = 'Expired';
+    }
+
+    const sel = document.getElementById('renew_pkg_id');
+    if (sel && pkgId) {
+        sel.value = pkgId;
+    }
+    updateRenewLivePrice();
+    var modal = new bootstrap.Modal(document.getElementById('renewModal'));
+    modal.show();
+}
+
+function updateRenewLivePrice() {
+    const sel = document.getElementById('renew_pkg_id');
+    if (!sel) return;
+    const pkgId = sel.value;
+    const price = parseFloat(pkgPriceMap[pkgId] || 0);
+
+    const customExpEl = document.getElementById('renew_expiry_input');
+    const customExpVal = customExpEl ? customExpEl.value : '';
+    const nowSec = Math.floor(Date.now() / 1000);
+
+    if (customExpVal) {
+        const targetTs = Math.floor(new Date(customExpVal).getTime() / 1000);
+        if (targetTs > nowSec) {
+            const days = Math.ceil((targetTs - nowSec) / 86400);
+            const deduction = days * (price / 30);
+            document.getElementById('renew_deduction_display').innerText = 'Rs. ' + deduction.toFixed(2);
+            return;
+        }
+    }
+    document.getElementById('renew_deduction_display').innerText = 'Rs. ' + price.toLocaleString();
+}
+
 $(document).ready(function() {
     $('#reportsTable').DataTable({
         dom: '<"row align-items-center"<"col-md-2"l><"col-md-6 dt-buttons"B><"col-md-4"f>>rtip',
