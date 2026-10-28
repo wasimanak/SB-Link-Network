@@ -147,7 +147,7 @@ $sub = null;
 try {
     if ($client_id > 0) {
         $subStmt = $pdo->prepare("
-            SELECT s.id, s.client_id, s.username, s.full_name, s.balance, s.expiry_date, s.status, s.created_at, s.mobile, s.phone, s.address, 
+            SELECT s.id, s.client_id, s.dealer_id, s.package_id, s.username, s.full_name, s.balance, s.expiry_date, s.status, s.created_at, s.mobile, s.phone, s.address, 
                    p.name as package_name, p.price as package_price 
             FROM subscribers s 
             LEFT JOIN packages p ON s.package_id = p.id 
@@ -158,7 +158,7 @@ try {
     }
     if (!$sub) {
         $subStmt = $pdo->prepare("
-            SELECT s.id, s.client_id, s.username, s.full_name, s.balance, s.expiry_date, s.status, s.created_at, s.mobile, s.phone, s.address, 
+            SELECT s.id, s.client_id, s.dealer_id, s.package_id, s.username, s.full_name, s.balance, s.expiry_date, s.status, s.created_at, s.mobile, s.phone, s.address, 
                    p.name as package_name, p.price as package_price 
             FROM subscribers s 
             LEFT JOIN packages p ON s.package_id = p.id 
@@ -331,6 +331,20 @@ $invoice_number = "INV-" . str_pad($invoice_id, 6, "0", STR_PAD_LEFT);
 
 // Financial amounts strictly from subscriber account balance
 $package_price = (float)($sub['package_price'] ?? 0);
+
+// If subscriber belongs to a dealer or viewing in dealer session, use dealer package price
+$sub_dealer_id = (int)($sub['dealer_id'] ?? ($_SESSION['dealer_id'] ?? 0));
+$sub_pkg_id = (int)($sub['package_id'] ?? 0);
+if ($sub_dealer_id > 0 && $sub_pkg_id > 0) {
+    try {
+        $dpStmt = $pdo->prepare("SELECT dealer_price FROM dealer_packages WHERE dealer_id = ? AND package_id = ?");
+        $dpStmt->execute([$sub_dealer_id, $sub_pkg_id]);
+        $dpPrice = $dpStmt->fetchColumn();
+        if ($dpPrice !== false && $dpPrice !== null && (float)$dpPrice > 0) {
+            $package_price = (float)$dpPrice;
+        }
+    } catch (Exception $e) {}
+}
 $due_amount = $sub['balance'] < 0 ? abs((float)$sub['balance']) : 0;
 $adv_amount = $sub['balance'] > 0 ? (float)$sub['balance'] : 0;
 

@@ -139,6 +139,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $package_id = isset($_POST['package_id']) ? (int)$_POST['package_id'] : 0;
         $expiry_date = $_POST['expiry_date'] ?? null;
         $payment_amount = isset($_POST['payment_amount']) ? (float)$_POST['payment_amount'] : 0;
+        $payment_source = $_POST['payment_source'] ?? 'dealer_wallet';
         $target_pkg_id = ($package_id > 0) ? $package_id : (int)$user['package_id'];
 
         $p = $pdo->prepare("SELECT name, rate_limit, price, validity_days FROM packages WHERE id = ?");
@@ -177,39 +178,78 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
 
-            if ($deduction > $current_dealer_balance) {
-                $pdo->rollBack();
-                echo "<script>alert('Insufficient dealer wallet balance! Required: Rs. $deduction, Available: Rs. $current_dealer_balance'); window.location='subscriber_view.php?id=$id';</script>";
-                exit;
-            }
-
-            // Deduct package price from dealer wallet
-            if ($deduction > 0) {
-                $pdo->prepare("UPDATE dealers SET balance = balance - ? WHERE id = ?")->execute([$deduction, $dealer_id]);
-                $note = "Package Renewal: {$pkg['name']} for $u. Deducted: Rs. $deduction";
-                $pdo->prepare("INSERT INTO dealer_notes (dealer_id, note) VALUES (?, ?)")->execute([$dealer_id, $note]);
-            }
-
-            // If cash was received from customer, record credit in subscriber ledger & update subscriber balance
             $current_sub_bal = (float)$user['balance'];
-            if ($payment_amount > 0) {
-                $current_sub_bal += $payment_amount;
-                $pdo->prepare("UPDATE subscribers SET balance = balance + ? WHERE id = ? AND dealer_id = ?")->execute([$payment_amount, $id, $dealer_id]);
-                $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'credit', ?, ?, ?)")
-                    ->execute([$client_id, $u, $payment_amount, $current_sub_bal, "Cash Payment Received at Renewal"]);
-            }
-
             $new_expiry_str = date('Y-m-d H:i:s', $new_expiry_time);
             $status = ($new_expiry_time > $now) ? 'active' : 'expired';
             $now_dt = date('Y-m-d H:i:s');
 
-            $pdo->prepare("UPDATE subscribers SET package_id = ?, expiry_date = ?, status = ?, last_renewed_at = ? WHERE id = ? AND dealer_id = ?")
-                ->execute([$target_pkg_id, $new_expiry_str, $status, $now_dt, $id, $dealer_id]);
+            if ($payment_source === 'customer_balance') {
+                // Deduct from Customer Balance
+                if (($current_sub_bal + $payment_amount) < $deduction) {
+                    $pdo->rollBack();
+                    echo "<script>alert('Insufficient customer balance! Required: Rs. " . number_format($deduction, 2) . ", Available in Customer Account: Rs. " . number_format($current_sub_bal, 2) . "'); window.location='subscriber_view.php?id=$id';</script>";
+                    exit;
+                }
 
-            // Debit package charge from subscriber ledger
-            $bal_after_pkg = $current_sub_bal - $deduction;
-            $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'debit', ?, ?, ?)")
-                ->execute([$client_id, $u, $deduction, $bal_after_pkg, "Package Renewed: {$pkg['name']} by Dealer {$current_dealer['username']}"]);
+                // If extra cash was collected, credit customer balance first
+                if ($payment_amount > 0) {
+                    $current_sub_bal += $payment_amount;
+                    $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'credit', ?, ?, ?)")
+                        ->execute([$client_id, $u, $payment_amount, $current_sub_bal, "Cash Payment Received at Renewal"]);
+                }
+
+                $new_sub_bal = $current_sub_bal - $deduction;
+
+                // Update subscriber record
+                $pdo->prepare("UPDATE subscribers SET package_id = ?, expiry_date = ?, status = ?, balance = ?, last_renewed_at = ? WHERE id = ? AND dealer_id = ?")
+                    ->execute([$target_pkg_id, $new_expiry_str, $status, $new_sub_bal, $now_dt, $id, $dealer_id]);
+
+                // Debit package charge from subscriber ledger
+                $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'debit', ?, ?, ?)")
+                    ->execute([$client_id, $u, $deduction, $new_sub_bal, "Package Renewed: {$pkg['name']} (Paid via Customer Balance)"]);
+
+                // Activity log
+                $actStr = "Package Renewed by Dealer {$current_dealer['username']} (Paid from Customer Balance: Rs. " . number_format($deduction, 2) . ")";
+                $pdo->prepare("INSERT INTO activity_logs (client_id, dealer_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, ?, 'Dealer', ?, 'User', ?)")
+                    ->execute([$client_id, $dealer_id, $current_dealer['username'], $u, $actStr]);
+
+                $paid_receipt_val = $deduction;
+            } else {
+                // Deduct from Dealer Wallet
+                if ($deduction > $current_dealer_balance) {
+                    $pdo->rollBack();
+                    echo "<script>alert('Insufficient dealer wallet balance! Required: Rs. " . number_format($deduction, 2) . ", Available: Rs. " . number_format($current_dealer_balance, 2) . "'); window.location='subscriber_view.php?id=$id';</script>";
+                    exit;
+                }
+
+                if ($deduction > 0) {
+                    $pdo->prepare("UPDATE dealers SET balance = balance - ? WHERE id = ?")->execute([$deduction, $dealer_id]);
+                    $note = "Package Renewal: {$pkg['name']} for $u. Deducted from wallet: Rs. $deduction";
+                    $pdo->prepare("INSERT INTO dealer_notes (dealer_id, note) VALUES (?, ?)")->execute([$dealer_id, $note]);
+                }
+
+                if ($payment_amount > 0) {
+                    $current_sub_bal += $payment_amount;
+                    $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'credit', ?, ?, ?)")
+                        ->execute([$client_id, $u, $payment_amount, $current_sub_bal, "Cash Payment Received at Renewal"]);
+                }
+
+                $new_sub_bal = $current_sub_bal - $deduction;
+
+                $pdo->prepare("UPDATE subscribers SET package_id = ?, expiry_date = ?, status = ?, balance = ?, last_renewed_at = ? WHERE id = ? AND dealer_id = ?")
+                    ->execute([$target_pkg_id, $new_expiry_str, $status, $new_sub_bal, $now_dt, $id, $dealer_id]);
+
+                // Debit package charge from subscriber ledger
+                $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'debit', ?, ?, ?)")
+                    ->execute([$client_id, $u, $deduction, $new_sub_bal, "Package Renewed: {$pkg['name']} (Paid via Dealer Wallet)"]);
+
+                // Activity log
+                $actStr = "Package Renewed by Dealer {$current_dealer['username']} (Paid from Dealer Wallet: Rs. " . number_format($deduction, 2) . ")";
+                $pdo->prepare("INSERT INTO activity_logs (client_id, dealer_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, ?, 'Dealer', ?, 'User', ?)")
+                    ->execute([$client_id, $dealer_id, $current_dealer['username'], $u, $actStr]);
+
+                $paid_receipt_val = ($payment_amount > 0) ? $payment_amount : $deduction;
+            }
 
             // FreeRADIUS Sync
             $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Rate-Limit'")->execute([$u]);
@@ -220,12 +260,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute IN ('Expiration', 'Auth-Type')")->execute([$u]);
             $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Expiration', ':=', ?)")->execute([$u, $formatted_expiry]);
 
-            $pdo->prepare("INSERT INTO activity_logs (client_id, dealer_id, by_user, against_to, against_role, activity) VALUES (?, ?, ?, ?, 'User', 'Package Renewed by Dealer')")
-                ->execute([$client_id, $dealer_id, $current_dealer['username'], $u]);
-
             $pdo->commit();
             kick_subscriber_session($pdo, $u, $client_id);
-            echo "<script>alert('User renewed successfully!'); window.location='subscriber_view.php?id=$id';</script>";
+
+            $ret_url = urlencode("subscriber_view.php?id=$id");
+            $receipt_link = "print_receipt.php?sub_id={$id}&paid={$paid_receipt_val}&type=renew&return={$ret_url}";
+
+            echo "<script>
+                alert('User renewed successfully!');
+                window.open('{$receipt_link}', '_blank');
+                window.location='subscriber_view.php?id=$id';
+            </script>";
             exit;
         } catch (Exception $e) {
             $pdo->rollBack();
@@ -1148,7 +1193,40 @@ if ($is_disabled) {
                 </div>
                 <?php endif; ?>
 
-                <!-- Payment Received Field -->
+                <!-- Payment Source Selection -->
+            <div class="col-12">
+                <label class="form-label fw-bold text-secondary small mb-1">
+                    <i class="fa-solid fa-money-check-dollar text-primary me-1"></i> Payment Source / Deduct From: <span class="text-danger">*</span>
+                </label>
+                <div class="row g-2">
+                    <div class="col-sm-6">
+                        <div class="border rounded-3 p-3 bg-white shadow-sm h-100 cursor-pointer d-flex align-items-center gap-2" onclick="document.getElementById('pay_src_cust').checked=true; recalculateRenewAdjustment();">
+                            <input class="form-check-input mt-0" type="radio" name="payment_source" id="pay_src_cust" value="customer_balance" <?= ((float)$user['balance'] >= (float)($packages[0]['dealer_price'] ?? 0)) ? 'checked' : '' ?> onchange="recalculateRenewAdjustment()">
+                            <label class="form-check-label small mb-0 cursor-pointer w-100" for="pay_src_cust">
+                                <div class="fw-bold text-dark d-flex align-items-center justify-content-between">
+                                    <span><i class="fa-solid fa-user-tag text-success me-1"></i> Customer Balance</span>
+                                    <span class="badge bg-success-subtle text-success border border-success-subtle">Customer</span>
+                                </div>
+                                <div class="text-muted small mt-1">Available in Account: <strong class="<?= (float)$user['balance'] > 0 ? 'text-success' : 'text-danger' ?>">Rs. <?= number_format((float)$user['balance'], 2) ?></strong></div>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="col-sm-6">
+                        <div class="border rounded-3 p-3 bg-white shadow-sm h-100 cursor-pointer d-flex align-items-center gap-2" onclick="document.getElementById('pay_src_dlr').checked=true; recalculateRenewAdjustment();">
+                            <input class="form-check-input mt-0" type="radio" name="payment_source" id="pay_src_dlr" value="dealer_wallet" <?= ((float)$user['balance'] < (float)($packages[0]['dealer_price'] ?? 0)) ? 'checked' : '' ?> onchange="recalculateRenewAdjustment()">
+                            <label class="form-check-label small mb-0 cursor-pointer w-100" for="pay_src_dlr">
+                                <div class="fw-bold text-dark d-flex align-items-center justify-content-between">
+                                    <span><i class="fa-solid fa-wallet text-primary me-1"></i> Dealer Wallet</span>
+                                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle">Franchise</span>
+                                </div>
+                                <div class="text-muted small mt-1">Available in Wallet: <strong class="text-primary">Rs. <?= number_format($current_dealer_balance, 2) ?></strong></div>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Payment Received Field -->
                 <div class="col-12 mt-2">
                     <div class="p-3 rounded-3 border border-success-subtle bg-success bg-opacity-10 shadow-sm">
                         <div class="row align-items-center g-2">
@@ -1684,30 +1762,62 @@ function recalculateRenewAdjustment() {
     if (isNaN(paymentVal) || paymentVal < 0) paymentVal = 0;
 
     const deduction = newPrice;
-    const dealerBalAfter = dealerWalletBal - deduction;
-    const subBalAfter = (userCurBal - deduction) + paymentVal;
+    const paySrc = document.querySelector('input[name="payment_source"]:checked')?.value || 'dealer_wallet';
+    let html = '';
 
-    let html = `
-        <div class="alert ${dealerBalAfter < 0 ? 'alert-danger' : 'alert-warning'} border rounded-3 p-3 mb-0">
-            <div class="d-flex align-items-center justify-content-between mb-2">
-                <span class="fw-bold text-dark"><i class="fa-solid fa-box text-primary me-1"></i> Package: ${opt ? opt.dataset.name : ''}</span>
-                <span class="badge ${dealerBalAfter < 0 ? 'bg-danger' : 'bg-danger-subtle text-danger'} border px-2 py-1 fw-bold fs-6">Dealer Cost: - Rs. ${deduction.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+    if (paySrc === 'customer_balance') {
+        const custBalAfter = userCurBal - deduction + paymentVal;
+        const isInsufficient = (userCurBal + paymentVal) < deduction;
+
+        html = `
+            <div class="alert ${isInsufficient ? 'alert-danger' : 'alert-success'} border rounded-3 p-3 mb-0">
+                <div class="d-flex align-items-center justify-content-between mb-2">
+                    <span class="fw-bold text-dark"><i class="fa-solid fa-box text-success me-1"></i> Package: ${opt ? opt.dataset.name : ''}</span>
+                    <span class="badge ${isInsufficient ? 'bg-danger' : 'bg-success text-white'} px-2 py-1 fw-bold fs-6">Customer Charge: - Rs. ${deduction.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                </div>
+                <div class="d-flex justify-content-between align-items-center pt-2 border-top small">
+                    <span class="text-secondary"><i class="fa-solid fa-user-check text-success me-1"></i> Customer Balance Deduction:</span>
+                    <span class="fw-bold text-dark">Rs. ${userCurBal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} &rarr; <span class="${custBalAfter < 0 ? 'text-danger' : 'text-success'} fw-bold">Rs. ${custBalAfter.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></span>
+                </div>
+                <div class="d-flex justify-content-between align-items-center pt-1 small">
+                    <span class="text-secondary"><i class="fa-solid fa-shield-halved text-primary me-1"></i> Dealer Wallet Protection:</span>
+                    <span class="fw-bold text-primary">Rs. ${dealerWalletBal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} (Safe - No deduction from dealer wallet)</span>
+                </div>
+                ${paymentVal > 0 ? `
+                <div class="d-flex justify-content-between align-items-center pt-1 small">
+                    <span class="text-secondary">Extra Cash Collected:</span>
+                    <span class="fw-bold text-success">+ Rs. ${paymentVal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                </div>` : ''}
+                ${isInsufficient ? '<div class="text-danger small mt-2 fw-bold"><i class="fa-solid fa-triangle-exclamation me-1"></i> Warning: Customer balance is insufficient! Available: Rs. ' + userCurBal.toFixed(2) + ', Required: Rs. ' + deduction.toFixed(2) + '. Either enter cash received or switch to Dealer Wallet.</div>' : ''}
             </div>
-            <div class="d-flex justify-content-between align-items-center pt-2 border-top small">
-                <span class="text-secondary">Your Dealer Wallet Impact:</span>
-                <span class="fw-bold text-dark">Rs. ${dealerWalletBal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} &rarr; <span class="${dealerBalAfter < 0 ? 'text-danger' : 'text-primary'} fw-bold">Rs. ${dealerBalAfter.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></span>
+        `;
+    } else {
+        const dealerBalAfter = dealerWalletBal - deduction;
+        const subBalAfter = (userCurBal - deduction) + paymentVal;
+        const isInsufficient = dealerBalAfter < 0;
+
+        html = `
+            <div class="alert ${isInsufficient ? 'alert-danger' : 'alert-warning'} border rounded-3 p-3 mb-0">
+                <div class="d-flex align-items-center justify-content-between mb-2">
+                    <span class="fw-bold text-dark"><i class="fa-solid fa-box text-primary me-1"></i> Package: ${opt ? opt.dataset.name : ''}</span>
+                    <span class="badge ${isInsufficient ? 'bg-danger' : 'bg-danger-subtle text-danger'} border px-2 py-1 fw-bold fs-6">Dealer Cost: - Rs. ${deduction.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                </div>
+                <div class="d-flex justify-content-between align-items-center pt-2 border-top small">
+                    <span class="text-secondary"><i class="fa-solid fa-wallet text-primary me-1"></i> Your Dealer Wallet Impact:</span>
+                    <span class="fw-bold text-dark">Rs. ${dealerWalletBal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} &rarr; <span class="${dealerBalAfter < 0 ? 'text-danger' : 'text-primary'} fw-bold">Rs. ${dealerBalAfter.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></span>
+                </div>
+                <div class="d-flex justify-content-between align-items-center pt-1 small">
+                    <span class="text-secondary">Customer Cash Payment Received:</span>
+                    <span class="fw-bold text-success">+ Rs. ${paymentVal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                </div>
+                <div class="d-flex justify-content-between align-items-center pt-1 small">
+                    <span class="text-secondary">Customer Net Balance:</span>
+                    <span class="fw-bold text-dark">Rs. ${userCurBal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} &rarr; <span class="${subBalAfter < 0 ? 'text-danger' : 'text-success'} fw-bold">Rs. ${subBalAfter.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></span>
+                </div>
+                ${isInsufficient ? '<div class="text-danger small mt-2 fw-bold"><i class="fa-solid fa-triangle-exclamation me-1"></i> Warning: Insufficient dealer wallet balance for this renewal!</div>' : ''}
             </div>
-            <div class="d-flex justify-content-between align-items-center pt-1 small">
-                <span class="text-secondary">Customer Cash Payment Received:</span>
-                <span class="fw-bold text-success">+ Rs. ${paymentVal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
-            </div>
-            <div class="d-flex justify-content-between align-items-center pt-1 small">
-                <span class="text-secondary">Customer Net Balance:</span>
-                <span class="fw-bold text-dark">Rs. ${userCurBal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} &rarr; <span class="${subBalAfter < 0 ? 'text-danger' : 'text-success'} fw-bold">Rs. ${subBalAfter.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></span>
-            </div>
-            ${dealerBalAfter < 0 ? '<div class="text-danger small mt-2 fw-bold"><i class="fa-solid fa-triangle-exclamation me-1"></i> Warning: Insufficient dealer wallet balance for this renewal!</div>' : ''}
-        </div>
-    `;
+        `;
+    }
 
     resultBox.innerHTML = html;
 }
