@@ -521,9 +521,48 @@ if ($filter === 'active') {
     $filter_sql = " AND s.status = 'suspended'";
 } elseif ($filter === 'online') {
     $filter_sql = " AND EXISTS (SELECT 1 FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL)";
+} elseif ($filter === 'expired_online') {
+    $filter_sql = " AND (s.status = 'expired' OR (s.expiry_date IS NOT NULL AND s.expiry_date < NOW())) AND EXISTS (SELECT 1 FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL)";
 } elseif ($filter === 'offline') {
     $filter_sql = " AND NOT EXISTS (SELECT 1 FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL)";
 }
+
+// Stats counts strictly for this dealer
+$cntStmt = $pdo->prepare("
+    SELECT 
+        COUNT(*) as total_users,
+        SUM(CASE WHEN EXISTS (SELECT 1 FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL) THEN 1 ELSE 0 END) as online_users,
+        SUM(CASE WHEN (s.status = 'expired' OR (s.expiry_date IS NOT NULL AND s.expiry_date < NOW())) AND EXISTS (SELECT 1 FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL) THEN 1 ELSE 0 END) as exp_online_users,
+        SUM(CASE WHEN NOT EXISTS (SELECT 1 FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL) THEN 1 ELSE 0 END) as offline_users,
+        SUM(CASE WHEN (s.status = 'expired' OR (s.expiry_date IS NOT NULL AND s.expiry_date < NOW())) THEN 1 ELSE 0 END) as expired_users,
+        SUM(CASE WHEN s.status = 'active' AND s.expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 7 DAY) THEN 1 ELSE 0 END) as exp_1w_users,
+        SUM(CASE WHEN s.status = 'active' AND s.expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 14 DAY) THEN 1 ELSE 0 END) as exp_2w_users
+    FROM subscribers s
+    WHERE s.dealer_id = ?
+");
+$cntStmt->execute([$dealer_id]);
+$cntData = $cntStmt->fetch(PDO::FETCH_ASSOC);
+
+$count_all = (int)($cntData['total_users'] ?? 0);
+$count_online = (int)($cntData['online_users'] ?? 0);
+$count_exp_online = (int)($cntData['exp_online_users'] ?? 0);
+$count_offline = (int)($cntData['offline_users'] ?? 0);
+$count_expired = (int)($cntData['expired_users'] ?? 0);
+$count_exp_1w = (int)($cntData['exp_1w_users'] ?? 0);
+$count_exp_2w = (int)($cntData['exp_2w_users'] ?? 0);
+
+$page_titles = [
+    '' => 'All Users',
+    'online' => 'Online Users',
+    'expired_online' => 'Expired Online Users',
+    'offline' => 'Offline Users (Radius)',
+    'expired' => 'Expired Users',
+    'expiring_1w' => 'Users Expiring in 1 Week',
+    'expiring_2w' => 'Users Expiring in 2 Weeks',
+    'active' => 'Active Users',
+    'suspended' => 'Suspended Users'
+];
+$current_title = $page_titles[$filter] ?? 'Users Profile';
 
 $sql = "SELECT s.*, p.name as package_name, 
         (SELECT COUNT(*) FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL) as is_online,
@@ -589,15 +628,22 @@ $subs = $stmt->fetchAll(PDO::FETCH_ASSOC);
 .btn-delete-user:hover { background-color: #ef4444; color: #fff; }
 </style>
 
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-3">
     <div>
-        <h4 class="fw-bold mb-1"><i class="fa-solid fa-users text-primary me-2"></i> My Subscribers</h4>
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb mb-1 small">
+                <li class="breadcrumb-item"><a href="dashboard" class="text-decoration-none">Dashboard</a></li>
+                <li class="breadcrumb-item"><a href="users" class="text-decoration-none">Users Profile</a></li>
+                <li class="breadcrumb-item active"><?= htmlspecialchars($current_title) ?></li>
+            </ol>
+        </nav>
+        <h4 class="fw-bold mb-1"><i class="fa-solid fa-users text-primary me-2"></i> <?= htmlspecialchars($current_title) ?></h4>
         <small class="text-muted">Manage your users, packages, renewals, and profiles</small>
     </div>
     <div class="d-flex align-items-center gap-3">
         <div class="bg-white px-3 py-2 rounded-pill shadow-sm border border-success border-opacity-25 small fw-bold">
             <span class="text-secondary">Wallet:</span>
-            <span class="text-success fs-6 ms-1">Rs. <?= number_format($current_dealer['balance'], 0) ?></span>
+            <span class="text-success fs-6 ms-1">Rs. <?= number_format($current_dealer['balance'], 2) ?></span>
         </div>
         <?php if($can_create): ?>
         <button class="btn btn-primary shadow-sm rounded-pill px-3" data-bs-toggle="modal" data-bs-target="#addUserModal">
@@ -605,6 +651,31 @@ $subs = $stmt->fetchAll(PDO::FETCH_ASSOC);
         </button>
         <?php endif; ?>
     </div>
+</div>
+
+<!-- Filter Pills for Quick Switching -->
+<div class="d-flex flex-wrap gap-2 mb-4 align-items-center">
+    <a href="users" class="btn btn-sm <?= empty($filter) ? 'btn-dark' : 'btn-outline-secondary bg-white' ?> rounded-pill px-3 fw-semibold shadow-sm">
+        <i class="fa-solid fa-users me-1"></i> All Users <span class="badge bg-secondary ms-1"><?= $count_all ?></span>
+    </a>
+    <a href="live_sessions" class="btn btn-sm <?= ($filter === 'online') ? 'btn-success' : 'btn-outline-success bg-white' ?> rounded-pill px-3 fw-semibold shadow-sm" title="View live active sessions">
+        <i class="fa-solid fa-wifi me-1"></i> Online Users <span class="badge bg-success ms-1"><?= $count_online ?></span>
+    </a>
+    <a href="live_sessions?filter=expired_online" class="btn btn-sm <?= ($filter === 'expired_online') ? 'btn-danger' : 'btn-outline-danger bg-white' ?> rounded-pill px-3 fw-semibold shadow-sm" title="View expired users currently online">
+        <i class="fa-solid fa-triangle-exclamation me-1"></i> Expired Online <span class="badge bg-danger ms-1"><?= $count_exp_online ?></span>
+    </a>
+    <a href="users?filter=offline" class="btn btn-sm <?= ($filter === 'offline') ? 'btn-secondary text-white' : 'btn-outline-secondary bg-white' ?> rounded-pill px-3 fw-semibold shadow-sm">
+        <i class="fa-solid fa-plug-circle-xmark me-1"></i> Offline Users <span class="badge bg-secondary ms-1"><?= $count_offline ?></span>
+    </a>
+    <a href="users?filter=expired" class="btn btn-sm <?= ($filter === 'expired') ? 'btn-danger' : 'btn-outline-danger bg-white' ?> rounded-pill px-3 fw-semibold shadow-sm">
+        <i class="fa-solid fa-user-xmark me-1"></i> Expired Users <span class="badge bg-danger ms-1"><?= $count_expired ?></span>
+    </a>
+    <a href="users?filter=expiring_1w" class="btn btn-sm <?= ($filter === 'expiring_1w') ? 'btn-warning text-dark' : 'btn-outline-warning text-dark bg-white' ?> rounded-pill px-3 fw-semibold shadow-sm">
+        <i class="fa-solid fa-calendar-week me-1"></i> Expiring In Week <span class="badge bg-warning text-dark ms-1"><?= $count_exp_1w ?></span>
+    </a>
+    <a href="users?filter=expiring_2w" class="btn btn-sm <?= ($filter === 'expiring_2w') ? 'btn-warning text-dark' : 'btn-outline-warning text-dark bg-white' ?> rounded-pill px-3 fw-semibold shadow-sm">
+        <i class="fa-solid fa-calendar-days me-1"></i> Expiring In 2 Weeks <span class="badge bg-warning text-dark ms-1"><?= $count_exp_2w ?></span>
+    </a>
 </div>
 
 <div class="card border-0 bg-transparent mb-4">
