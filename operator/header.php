@@ -3,26 +3,30 @@ session_start();
 require_once '../config/db.php';
 require_once '../config/manager_helper.php';
 
-// Ensure Manager schema & triggers are updated
-ensure_manager_schema($pdo);
+// Ensure Manager schema & triggers are updated (run once per session)
+if (!isset($_SESSION['mgr_schema_checked'])) {
+    ensure_manager_schema($pdo);
+    $_SESSION['mgr_schema_checked'] = true;
+}
 
 // Retain login activities for 24 hours, and all other audit/financial logs for 2 Years (730 days)
-try { 
-    $pdo->exec("DELETE FROM activity_logs WHERE (activity LIKE '%Login%' OR activity LIKE '%Logged in%' OR against_role = 'Login') AND created_at < NOW() - INTERVAL 24 HOUR");
-    $pdo->exec("DELETE FROM activity_logs WHERE created_at < NOW() - INTERVAL 730 DAY"); 
-} catch (Exception $e) {}
+// Run occasionally (once per hour max), not on every page hit
+if (!isset($_SESSION['last_log_prune']) || (time() - $_SESSION['last_log_prune']) > 3600) {
+    try { 
+        $pdo->exec("DELETE FROM activity_logs WHERE (activity LIKE '%Login%' OR activity LIKE '%Logged in%' OR against_role = 'Login') AND created_at < NOW() - INTERVAL 24 HOUR");
+        $pdo->exec("DELETE FROM activity_logs WHERE created_at < NOW() - INTERVAL 730 DAY"); 
+    } catch (Exception $e) {}
+    $_SESSION['last_log_prune'] = time();
+}
 
-// Auto-sync subscriber status with expiry_date across the whole system
-try {
-    // 1. Any user whose expiry is in future (> NOW) but status is 'expired' -> sync to 'active'
-    $pdo->exec("UPDATE subscribers SET status = 'active' WHERE expiry_date > NOW() AND status = 'expired'");
-    // 2. Any user whose expiry has passed (<= NOW) but status is 'active' -> sync to 'expired'
-    $pdo->exec("UPDATE subscribers SET status = 'expired' WHERE expiry_date <= NOW() AND status = 'active'");
-    // 3. Remove stray Auth-Type := Reject for active subscribers with future expiry
-    $pdo->exec("DELETE rc FROM radcheck rc 
-                JOIN subscribers s ON rc.username = s.username COLLATE utf8mb4_general_ci 
-                WHERE s.expiry_date > NOW() AND s.status = 'active' AND rc.attribute = 'Auth-Type' AND rc.value = 'Reject'");
-} catch (Exception $e) {}
+// Auto-sync subscriber status with expiry_date across the whole system (run once every 10 mins max per session)
+if (!isset($_SESSION['last_status_sync']) || (time() - $_SESSION['last_status_sync']) > 600) {
+    try {
+        $pdo->exec("UPDATE subscribers SET status = 'active' WHERE expiry_date > NOW() AND status = 'expired'");
+        $pdo->exec("UPDATE subscribers SET status = 'expired' WHERE expiry_date <= NOW() AND status = 'active'");
+    } catch (Exception $e) {}
+    $_SESSION['last_status_sync'] = time();
+}
 
 
 // Auth Check

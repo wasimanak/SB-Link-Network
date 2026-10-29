@@ -64,13 +64,21 @@ try {
             try {
                 $verStmt = $pdo->query("SELECT setting_value FROM global_settings WHERE setting_key = 'sys_schema_ver'");
                 $ver = $verStmt ? $verStmt->fetchColumn() : null;
-                if ($ver !== '6') {
+                if ($ver !== '7') {
                     if (file_exists(__DIR__ . '/schema_fix_helper.php')) {
                         require_once __DIR__ . '/schema_fix_helper.php';
                         if (function_exists('fix_and_repair_schema')) {
                             fix_and_repair_schema($pdo);
                         }
                     }
+                    try {
+                        $pdo->exec("ALTER TABLE `radacct` ADD INDEX IF NOT EXISTS `idx_radacct_u_stop` (`username`, `acctstoptime`)");
+                        $pdo->exec("ALTER TABLE `radacct` ADD INDEX IF NOT EXISTS `idx_radacct_stop` (`acctstoptime`)");
+                        $pdo->exec("ALTER TABLE `subscribers` ADD INDEX IF NOT EXISTS `idx_sub_client_exp` (`client_id`, `expiry_date`)");
+                        $pdo->exec("ALTER TABLE `subscribers` ADD INDEX IF NOT EXISTS `idx_sub_client_status` (`client_id`, `status`)");
+                        $pdo->exec("ALTER TABLE `subscribers` ADD COLUMN IF NOT EXISTS `last_renewed_at` DATETIME DEFAULT NULL");
+                        $pdo->exec("INSERT INTO global_settings (setting_key, setting_value) VALUES ('sys_schema_ver', '7') ON DUPLICATE KEY UPDATE setting_value = '7'");
+                    } catch (Exception $e) {}
                 }
             } catch (Exception $e) {}
         }

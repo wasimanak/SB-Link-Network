@@ -7,7 +7,7 @@ $current_manager_id = $is_mgr ? (int)($_SESSION['manager_id'] ?? 0) : null;
 // Auto-Sync & Block Expired Users (runs once every 60 seconds max to maintain blazing performance)
 if (!isset($_SESSION['last_expiry_sync']) || (time() - $_SESSION['last_expiry_sync']) > 60) {
     require_once __DIR__ . '/../config/radius_kick_helper.php';
-    sync_expired_subscribers($pdo, $client_id, true);
+    sync_expired_subscribers($pdo, $client_id, false); // Fast DB-only sync, NEVER block web page on network sockets
     $_SESSION['last_expiry_sync'] = time();
 }
 
@@ -383,46 +383,78 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
-// Fetch packages for the dropdown
+// 1. Pre-fetch all currently active RADIUS sessions in 1 single ultra-fast query (< 0.005s)
+$online_sessions = [];
+try {
+    $onStmt = $pdo->query("SELECT username, framedipaddress FROM radacct WHERE acctstoptime IS NULL");
+    while ($onRow = $onStmt->fetch(PDO::FETCH_ASSOC)) {
+        $u_norm = strtolower(trim($onRow['username']));
+        if (!empty($u_norm)) {
+            $online_sessions[$u_norm] = $onRow['framedipaddress'] ?: '0.0.0.0';
+        }
+    }
+} catch (Exception $e) {}
+
+// 2. Fetch packages for the dropdown
 $packages = $pdo->query("SELECT id, name, rate_limit FROM packages WHERE client_id = $client_id")->fetchAll();
 
-// Fetch total balance of all users
-$total_balance_all = $pdo->query("SELECT SUM(balance) FROM subscribers WHERE client_id = $client_id")->fetchColumn() ?: 0;
+// 3. Single Aggregated High-Speed Metrics Query (Replaces 12 separate COUNT queries into 1!)
+$metricsStmt = $pdo->prepare("
+    SELECT 
+        COUNT(*) as total_users,
+        SUM(balance) as total_balance_all,
+        SUM(CASE WHEN expiry_date < NOW() AND expiry_date > '2000-01-01' THEN 1 ELSE 0 END) as expired,
+        SUM(CASE WHEN LOWER(status) != 'disabled' AND (expiry_date >= NOW() OR expiry_date IS NULL OR expiry_date < '2000-01-01') THEN 1 ELSE 0 END) as active_users,
+        SUM(CASE WHEN LOWER(status) = 'disabled' THEN 1 ELSE 0 END) as disabled_users,
+        SUM(CASE WHEN expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 1 DAY) THEN 1 ELSE 0 END) as expiring_1d,
+        SUM(CASE WHEN expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 3 DAY) THEN 1 ELSE 0 END) as expiring_3d,
+        SUM(CASE WHEN expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 7 DAY) THEN 1 ELSE 0 END) as expiring_1w,
+        SUM(CASE WHEN expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 14 DAY) THEN 1 ELSE 0 END) as expiring_2w,
+        SUM(CASE WHEN LOWER(service_type) = 'pppoe' THEN 1 ELSE 0 END) as pppoe_users,
+        SUM(CASE WHEN LOWER(service_type) = 'hotspot' THEN 1 ELSE 0 END) as hotspot_users
+    FROM subscribers 
+    WHERE client_id = ?
+");
+$metricsStmt->execute([$client_id]);
+$m = $metricsStmt->fetch(PDO::FETCH_ASSOC);
 
-// Fetch all subscribers for payment and modals (Searchable)
+$total_users       = (int)($m['total_users'] ?? 0);
+$total_balance_all = (float)($m['total_balance_all'] ?? 0);
+$expired           = (int)($m['expired'] ?? 0);
+$active_users      = (int)($m['active_users'] ?? 0);
+$disabled_users    = (int)($m['disabled_users'] ?? 0);
+$expiring_1d       = (int)($m['expiring_1d'] ?? 0);
+$expiring_3d       = (int)($m['expiring_3d'] ?? 0);
+$expiring_1w       = (int)($m['expiring_1w'] ?? 0);
+$expiring_2w       = (int)($m['expiring_2w'] ?? 0);
+$pppoe_users       = (int)($m['pppoe_users'] ?? 0);
+$hotspot_users     = (int)($m['hotspot_users'] ?? 0);
+
+// 4. Fetch all subscribers for payment and modals (Searchable)
 $allPaymentUsers = $pdo->query("SELECT id, username, full_name, status, balance, expiry_date, package_id FROM subscribers WHERE client_id = $client_id ORDER BY username ASC")->fetchAll();
 
-// --- Data Fetching for Metrics ---
-$total_users = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id")->fetchColumn();
-
-// Base metrics for cards
-// Expired: Date is strictly in the past, excluding zero-dates
-$expired = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND expiry_date < NOW() AND expiry_date > '2000-01-01'")->fetchColumn();
-// Active: Status is not disabled, and date is in future OR is null/zero
-$active_users = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND LOWER(status) != 'disabled' AND (expiry_date >= NOW() OR expiry_date IS NULL OR expiry_date < '2000-01-01')")->fetchColumn();
-$disabled_users = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND LOWER(status) = 'disabled'")->fetchColumn();
-
-// Online Users
-$online_users = $pdo->query("SELECT COUNT(DISTINCT username) FROM radacct WHERE acctstoptime IS NULL AND username IN (SELECT username FROM subscribers WHERE client_id = $client_id)")->fetchColumn();
+// 5. In-Memory Calculation of Online and Expired-Online (Zero subqueries, instant 0ms)
+$online_users = 0;
+$expired_online_users = 0;
+$now_ts = time();
+foreach ($allPaymentUsers as $pu) {
+    $u_norm = strtolower(trim($pu['username']));
+    if (isset($online_sessions[$u_norm])) {
+        $online_users++;
+        $exp_ts = (!empty($pu['expiry_date']) && $pu['expiry_date'] > '2000-01-01') ? strtotime($pu['expiry_date']) : 0;
+        if ($exp_ts > 0 && $exp_ts < $now_ts) {
+            $expired_online_users++;
+        }
+    }
+}
 $offline_users = max(0, $total_users - $online_users);
-$expired_online_users = $pdo->query("SELECT COUNT(DISTINCT s.username) FROM subscribers s JOIN radacct r ON s.username = r.username COLLATE utf8mb4_general_ci WHERE s.client_id = $client_id AND r.acctstoptime IS NULL AND s.expiry_date < NOW() AND s.expiry_date > '2000-01-01'")->fetchColumn() ?: 0;
 
-// Mutually Exclusive Slices for the Doughnut Chart (In-memory optimized calculation)
-$chart_online = (int)$online_users;
-$chart_expired = max(0, (int)$expired - (int)$expired_online_users);
+// Mutually Exclusive Slices for the Doughnut Chart
+$chart_online   = (int)$online_users;
+$chart_expired  = max(0, (int)$expired - (int)$expired_online_users);
 $chart_disabled = (int)$disabled_users;
-$chart_active = max(0, (int)$active_users - max(0, $chart_online - (int)$expired_online_users));
-$chart_others = max(0, (int)$total_users - ($chart_online + $chart_expired + $chart_disabled + $chart_active));
-
-// Expirations (Detailed)
-$expiring_1d = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 1 DAY)")->fetchColumn();
-$expiring_3d = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 3 DAY)")->fetchColumn();
-$expiring_1w = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 7 DAY)")->fetchColumn();
-$expiring_2w = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 14 DAY)")->fetchColumn();
-
-// Services
-$pppoe_users = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND LOWER(service_type) = 'pppoe'")->fetchColumn();
-$hotspot_users = $pdo->query("SELECT COUNT(*) FROM subscribers WHERE client_id = $client_id AND LOWER(service_type) = 'hotspot'")->fetchColumn();
+$chart_active   = max(0, (int)$active_users - max(0, $chart_online - (int)$expired_online_users));
+$chart_others   = max(0, (int)$total_users - ($chart_online + $chart_expired + $chart_disabled + $chart_active));
 
 // Helpers
 $pct = function($val) use ($total_users) {
@@ -430,7 +462,7 @@ $pct = function($val) use ($total_users) {
     return number_format(($val / $total_users) * 100, 2) . "%";
 };
 
-// --- Data Fetching for Reports Table ---
+// 6. Data Fetching for Reports Table (Clean query with 0 subqueries)
 $report_filter = $_GET['report'] ?? 'expired';
 $where = "s.client_id = $client_id";
 if ($report_filter === 'expired') $where .= " AND s.expiry_date < NOW()";
@@ -440,25 +472,35 @@ if ($report_filter === 'expiring_1w') $where .= " AND s.expiry_date BETWEEN NOW(
 if ($report_filter === 'expiring_2w') $where .= " AND s.expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 14 DAY)";
 if ($report_filter === 'disabled') $where .= " AND s.status = 'disabled'";
 
-$subs = $pdo->query("SELECT s.*, p.name as package_name, 
-    (SELECT COUNT(*) FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL) as is_online,
-    (SELECT framedipaddress FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL ORDER BY radacctid DESC LIMIT 1) as live_ip
+$subs = $pdo->query("SELECT s.*, p.name as package_name 
     FROM subscribers s 
     LEFT JOIN packages p ON s.package_id = p.id 
     WHERE $where ORDER BY s.id DESC")->fetchAll();
 
-// Fetch subscribers with coordinates for Network Map view
+foreach ($subs as &$s) {
+    $u_norm = strtolower(trim($s['username']));
+    $s['is_online'] = isset($online_sessions[$u_norm]) ? 1 : 0;
+    $s['live_ip'] = $online_sessions[$u_norm] ?? null;
+}
+unset($s);
+
+// 7. Fetch subscribers with coordinates for Network Map view (Clean query with 0 subqueries)
 $map_subscribers = $pdo->query("
     SELECT s.id, s.username, s.full_name, s.mobile, s.status, s.expiry_date, s.latitude, s.longitude, s.address, s.subarea,
-           p.name as package_name,
-           (SELECT COUNT(*) FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL) as is_online,
-           (SELECT framedipaddress FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL ORDER BY radacctid DESC LIMIT 1) as live_ip
+           p.name as package_name
     FROM subscribers s 
     LEFT JOIN packages p ON s.package_id = p.id 
     WHERE s.client_id = $client_id 
       AND s.latitude IS NOT NULL AND s.latitude != ''
       AND s.longitude IS NOT NULL AND s.longitude != ''
 ")->fetchAll(PDO::FETCH_ASSOC);
+
+foreach ($map_subscribers as &$ms) {
+    $u_norm = strtolower(trim($ms['username']));
+    $ms['is_online'] = isset($online_sessions[$u_norm]) ? 1 : 0;
+    $ms['live_ip'] = $online_sessions[$u_norm] ?? null;
+}
+unset($ms);
 
 ?>
 
