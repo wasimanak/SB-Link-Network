@@ -353,7 +353,13 @@ $isUserMenu = in_array($current_page, ['users.php', 'users', 'live_sessions.php'
             </ul>
         </div>
 
-        <!-- 3. Online Recharge -->
+        <!-- 3. My Profile -->
+        <a href="profile" class="nav-item-link <?= in_array($current_page, ['profile.php', 'profile']) ? 'active-parent' : '' ?>">
+            <i class="fa-solid fa-id-badge nav-icon"></i>
+            <span class="nav-text">My Profile</span>
+        </a>
+
+        <!-- 4. Online Recharge -->
         <a href="#" class="nav-item-link" data-bs-toggle="modal" data-bs-target="#addFundsModal">
             <i class="fa-solid fa-money-bill-transfer nav-icon"></i>
             <span class="nav-text">Online Recharge</span>
@@ -373,7 +379,7 @@ $isUserMenu = in_array($current_page, ['users.php', 'users', 'live_sessions.php'
             <h5 class="mb-0 fw-bold">Dealer Portal</h5>
             <small class="text-muted">Manage your franchise and users</small>
         </div>
-        <div class="dealer-badge">
+        <div class="dealer-badge" onclick="window.location='profile';" style="cursor: pointer;" title="View My Profile">
             <div class="avatar bg-primary text-white rounded-circle d-flex align-items-center justify-content-center" style="width: 32px; height: 32px;">
                 <i class="fa-solid fa-user"></i>
             </div>
