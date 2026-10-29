@@ -57,7 +57,7 @@ try {
         JOIN (
             SELECT LOWER(TRIM(username)) as lu, MAX(radacctid) as max_id
             FROM radacct
-            WHERE acctterminatecause IN ('Admin-Reset-Ghost', 'Lost-Carrier', 'Ghost-Cleared', 'Admin-Reset', '')
+            WHERE (acctterminatecause IN ('Admin-Reset-Ghost', 'Lost-Carrier', 'Ghost-Cleared', 'Admin-Reset', '') OR acctterminatecause IS NULL)
               AND acctstoptime IS NOT NULL
               AND acctstoptime >= NOW() - INTERVAL 60 DAY
             GROUP BY LOWER(TRIM(username))
