@@ -353,8 +353,7 @@ if (isset($_POST['ajax_action']) && $_POST['ajax_action'] === 'run_db_maintenanc
         $newTotalPostAuth = (int)$pdo->query("SELECT COUNT(*) FROM radpostauth")->fetchColumn();
         $newTotalAcct = (int)$pdo->query("SELECT COUNT(*) FROM radacct")->fetchColumn();
         $newActiveAcct = (int)$pdo->query("SELECT COUNT(*) FROM radacct WHERE acctstoptime IS NULL")->fetchColumn();
-        $stmtG = $pdo->prepare("SELECT COUNT(*) FROM radacct WHERE acctstoptime IS NULL AND acctstarttime < NOW() - INTERVAL ? DAY");
-        $stmtG->execute([$ghost_days]);
+        $stmtG = $pdo->query("SELECT COUNT(*) FROM radacct r LEFT JOIN subscribers s ON LOWER(TRIM(r.username)) = LOWER(TRIM(s.username)) WHERE (r.acctstoptime IS NULL OR r.acctstoptime = '' OR r.acctstoptime = '0' OR r.acctstoptime = '0000-00-00 00:00:00') AND (s.id IS NULL OR s.status = 'disabled' OR r.acctstarttime < NOW() - INTERVAL 90 DAY)");
         $newGhostAcct = (int)$stmtG->fetchColumn();
     } catch (Exception $e) {}
 
@@ -818,8 +817,7 @@ try {
     $stmtA->execute([$acctRetentionDays]);
     $prunableAcct = (int)$stmtA->fetchColumn();
 
-    $stmtG = $pdo->prepare("SELECT COUNT(*) FROM radacct WHERE acctstoptime IS NULL AND acctstarttime < NOW() - INTERVAL ? DAY");
-    $stmtG->execute([$ghostDays]);
+    $stmtG = $pdo->query("SELECT COUNT(*) FROM radacct r LEFT JOIN subscribers s ON LOWER(TRIM(r.username)) = LOWER(TRIM(s.username)) WHERE (r.acctstoptime IS NULL OR r.acctstoptime = '' OR r.acctstoptime = '0' OR r.acctstoptime = '0000-00-00 00:00:00') AND (s.id IS NULL OR s.status = 'disabled' OR r.acctstarttime < NOW() - INTERVAL 90 DAY)");
     $ghostAcct = (int)$stmtG->fetchColumn();
 } catch (Exception $e) {}
 

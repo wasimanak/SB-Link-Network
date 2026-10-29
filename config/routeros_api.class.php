@@ -9,9 +9,10 @@ class RouterosAPI
     public $debug     = false;
     public $connected = false;
     public $port      = 8728;
-    public $timeout   = 3;
-    public $attempts  = 1;
+    public $timeout   = 15;
+    public $attempts  = 2;
     public $delay     = 0;
+    public $last_is_done = false;
 
     private $socket;
     private $error_no;
@@ -48,7 +49,12 @@ class RouterosAPI
         for ($a = 0; $a < $this->attempts; $a++) {
             $this->socket = @fsockopen($ip, $port, $this->error_no, $this->error_str, $this->timeout);
             if ($this->socket) {
-                socket_set_timeout($this->socket, $this->timeout);
+                if (function_exists('stream_set_timeout')) {
+                    @stream_set_timeout($this->socket, $this->timeout);
+                }
+                if (function_exists('stream_set_read_buffer')) {
+                    @stream_set_read_buffer($this->socket, 8192);
+                }
                 
                 // New RouterOS (v6.43+ & v7) login method
                 $this->write('/login', false);
@@ -145,6 +151,7 @@ class RouterosAPI
 
     public function read($parse = true)
     {
+        $this->last_is_done = false;
         $response = array();
         $is_done = false;
         while (true) {
@@ -163,6 +170,7 @@ class RouterosAPI
                 // Empty word terminates a sentence in MikroTik API.
                 // If we have already received !done or !fatal, this marks the end of the entire reply.
                 if ($is_done) {
+                    $this->last_is_done = true;
                     break;
                 }
                 // Otherwise, continue reading subsequent sentences in multi-sentence replies

@@ -53,10 +53,25 @@ function run_database_maintenance($pdo, $auth_retention_days = 7, $acct_retentio
     }
 
     // 4. Close Ghost/Zombie Sessions
-    // Sessions where router rebooted/power cut occurred without sending Stop packet
+    // CRITICAL ENTERPRISE ISP ARCHITECTURE:
+    // In broadband fiber networks, subscribers legitimately stay connected 24/7 for weeks or months.
+    // We MUST NEVER close sessions of active subscribers blindly based on 1 or 2 days!
+    // We only close orphaned sessions where:
+    // a) The subscriber account has been deleted or disabled in subscribers table, OR
+    // b) The session is truly abandoned (> 90 days).
     try {
-        $stmt = $pdo->prepare("UPDATE radacct SET acctstoptime = NOW(), acctterminatecause = 'Admin-Reset-Ghost' WHERE acctstoptime IS NULL AND acctstarttime < NOW() - INTERVAL ? DAY");
-        $stmt->execute([$ghost_session_days]);
+        $stmt = $pdo->prepare("
+            UPDATE radacct r
+            LEFT JOIN subscribers s ON LOWER(TRIM(r.username)) = LOWER(TRIM(s.username))
+            SET r.acctstoptime = NOW(), r.acctterminatecause = 'Admin-Reset-Ghost' 
+            WHERE (r.acctstoptime IS NULL OR r.acctstoptime = '' OR r.acctstoptime = '0' OR r.acctstoptime = '0000-00-00 00:00:00')
+              AND (
+                  s.id IS NULL 
+                  OR s.status = 'disabled' 
+                  OR r.acctstarttime < NOW() - INTERVAL 90 DAY
+              )
+        ");
+        $stmt->execute();
         $result['ghost_closed'] = $stmt->rowCount();
     } catch (Exception $e) {
         $result['errors'][] = "ghost sessions error: " . $e->getMessage();

@@ -41,11 +41,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         if (!$nas) throw new Exception("Router not found.");
         
         $api = new RouterosAPI();
-        $api->timeout = 3;
+        $api->timeout = 15; // 15s timeout for large active connection tables (730+ users)
+        $api->attempts = 2;
         if ($api->connect($nas['nasname'], $nas['api_user'], $nas['api_password'], $nas['api_port'])) {
             // Get active PPPoE
             $api->write('/ppp/active/print');
             $ppp = $api->read();
+            $ppp_done = !empty($api->last_is_done);
             // Get active Hotspot
             $api->write('/ip/hotspot/active/print');
             $hotspot = $api->read();
@@ -68,10 +70,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $ghosts_cleared = 0;
             $updateStmt = $pdo->prepare("UPDATE radacct SET acctstoptime = NOW(), acctterminatecause = 'Ghost-Cleared' WHERE radacctid = ?");
             
-            foreach ($db_users as $dbu) {
-                if (!in_array(strtolower($dbu['username']), $active_users)) {
-                    $updateStmt->execute([$dbu['radacctid']]);
-                    $ghosts_cleared++;
+            // Safety: Only clear ghosts if the router returned a complete response
+            if ($ppp_done && count($active_users) > 0) {
+                foreach ($db_users as $dbu) {
+                    if (!in_array(strtolower($dbu['username']), $active_users)) {
+                        $updateStmt->execute([$dbu['radacctid']]);
+                        $ghosts_cleared++;
+                    }
                 }
             }
             

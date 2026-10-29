@@ -587,15 +587,35 @@ function parseMikroTikUptimeSeconds($uptime) {
  */
 if (!function_exists('sync_operator_mikrotik_active_sessions')) {
 function sync_operator_mikrotik_active_sessions($pdo, $client_id) {
-    // Self-healing: Reopen any sessions that were falsely closed by sync script
-    try {
-        $pdo->exec("UPDATE radacct SET acctstoptime = NULL, acctterminatecause = '' WHERE acctterminatecause = 'Lost-Carrier' AND acctstoptime >= NOW() - INTERVAL 12 HOUR");
-    } catch (Exception $e) {}
     if (empty($client_id)) {
         return ['success' => false, 'error' => 'Invalid client ID'];
     }
 
-    // 1. Find all candidate routers for this operator
+    // 1. Self-healing: Reopen any sessions falsely closed by ghost cleaners, Lost-Carrier, or Admin-Reset
+    try {
+        $pdo->prepare("
+            UPDATE radacct r
+            JOIN (
+                SELECT LOWER(TRIM(username)) as lu, MAX(radacctid) as max_id
+                FROM radacct
+                WHERE acctterminatecause IN ('Admin-Reset-Ghost', 'Lost-Carrier', 'Ghost-Cleared', 'Admin-Reset')
+                  AND acctstoptime IS NOT NULL
+                  AND acctstoptime >= NOW() - INTERVAL 60 DAY
+                GROUP BY LOWER(TRIM(username))
+            ) latest ON LOWER(TRIM(r.username)) = latest.lu AND r.radacctid = latest.max_id
+            JOIN subscribers s ON LOWER(TRIM(r.username)) = LOWER(TRIM(s.username))
+            SET r.acctstoptime = NULL, r.acctterminatecause = ''
+            WHERE s.status != 'disabled'
+              AND s.client_id = ?
+              AND NOT EXISTS (
+                  SELECT 1 FROM radacct r2 
+                  WHERE LOWER(TRIM(r2.username)) = latest.lu 
+                    AND (r2.acctstoptime IS NULL OR r2.acctstoptime = '' OR r2.acctstoptime = '0' OR r2.acctstoptime = '0000-00-00 00:00:00')
+              )
+        ")->execute([$client_id]);
+    } catch (Exception $e) {}
+
+    // 2. Find all candidate routers for this operator
     $routers = [];
     try {
         $rStmt = $pdo->prepare("SELECT id, nasname, shortname, secret, api_port, api_user, api_password FROM nas WHERE client_id = ?");
@@ -603,7 +623,6 @@ function sync_operator_mikrotik_active_sessions($pdo, $client_id) {
         $routers = $rStmt->fetchAll(PDO::FETCH_ASSOC);
 
         if (empty($routers)) {
-            // Check if routers are linked to this operator's subscribers
             $rStmt2 = $pdo->prepare("
                 SELECT DISTINCT n.id, n.nasname, n.shortname, n.secret, n.api_port, n.api_user, n.api_password 
                 FROM nas n 
@@ -627,9 +646,7 @@ function sync_operator_mikrotik_active_sessions($pdo, $client_id) {
         return ['success' => false, 'error' => 'No MikroTik router found. Please add a router in Routers menu.'];
     }
 
-    // 2. Load all registered subscribers belonging strictly to this operator
-    // This is CRITICAL: We MUST NEVER sync or touch active connections that belong to another RADIUS server,
-    // another operator, or local router accounts!
+    // 3. Load all registered subscribers belonging strictly to this operator
     $subMap = []; // lowercase username => actual exact username in subscribers table
     try {
         $subStmt = $pdo->prepare("SELECT LOWER(TRIM(username)) as lu, username FROM subscribers WHERE client_id = ?");
@@ -675,19 +692,29 @@ function sync_operator_mikrotik_active_sessions($pdo, $client_id) {
         WHERE radacctid = ?
     ");
 
+    $reopenSessStmt = $pdo->prepare("
+        UPDATE radacct SET 
+            acctstoptime = NULL, 
+            acctterminatecause = '', 
+            nasipaddress = ?, 
+            framedipaddress = ?, 
+            callingstationid = ?, 
+            acctsessiontime = ? 
+        WHERE radacctid = ?
+    ");
+
+    $findLatestSessStmt = $pdo->prepare("
+        SELECT radacctid, acctstoptime 
+        FROM radacct 
+        WHERE LOWER(TRIM(username)) = ? 
+        ORDER BY radacctid DESC 
+        LIMIT 1
+    ");
+
     $closeGhostStmt = $pdo->prepare("
         UPDATE radacct 
         SET acctstoptime = NOW(), acctterminatecause = 'Lost-Carrier' 
         WHERE radacctid = ?
-    ");
-
-    // Statement to verify if OUR RADIUS accepted this connection request (via radpostauth)
-    $authCheckStmt = $pdo->prepare("
-        SELECT reply, authdate 
-        FROM radpostauth 
-        WHERE LOWER(TRIM(username)) = ? 
-        ORDER BY authdate DESC 
-        LIMIT 1
     ");
 
     foreach ($routers as $r) {
@@ -701,8 +728,8 @@ function sync_operator_mikrotik_active_sessions($pdo, $client_id) {
         }
 
         $API = new RouterosAPI();
-        $API->timeout = 3;
-        $API->attempts = 1;
+        $API->timeout = 15; // Resilient 15s timeout for large active connection tables (730+ users)
+        $API->attempts = 2;
         $API->delay = 1;
         error_reporting(0);
 
@@ -715,8 +742,11 @@ function sync_operator_mikrotik_active_sessions($pdo, $client_id) {
 
         // Fetch active PPPoE connections
         $raw_ppp = $API->comm('/ppp/active/print');
+        $ppp_done = !empty($API->last_is_done);
+
         // Fetch active Hotspot connections
         $raw_hs = $API->comm('/ip/hotspot/active/print');
+        $hs_done = !empty($API->last_is_done);
 
         $API->disconnect();
 
@@ -760,16 +790,16 @@ function sync_operator_mikrotik_active_sessions($pdo, $client_id) {
 
         $total_router_active += count($router_active_users);
 
-        // Fetch open sessions in radacct ONLY for this operator's subscribers on this router
+        // Fetch open sessions in radacct ONLY for this operator's subscribers
         $dbStmt = $pdo->prepare("
             SELECT r.radacctid, r.username, r.framedipaddress, r.callingstationid 
             FROM radacct r
             JOIN subscribers s ON LOWER(TRIM(r.username)) = LOWER(TRIM(s.username))
-            WHERE (r.nasipaddress = ? OR r.nasipaddress LIKE ?) 
-              AND r.acctstoptime IS NULL
+            WHERE (r.nasipaddress = ? OR r.nasipaddress LIKE ? OR ? = '') 
+              AND (r.acctstoptime IS NULL OR r.acctstoptime = '' OR r.acctstoptime = '0' OR r.acctstoptime = '0000-00-00 00:00:00')
               AND s.client_id = ?
         ");
-        $dbStmt->execute([$nas_ip, "%{$nas_ip}%", $client_id]);
+        $dbStmt->execute([$nas_ip, "%{$nas_ip}%", $nas_ip, $client_id]);
         $db_open_sessions = $dbStmt->fetchAll(PDO::FETCH_ASSOC);
 
         $db_active_map = []; // lowercase username => row
@@ -779,9 +809,6 @@ function sync_operator_mikrotik_active_sessions($pdo, $client_id) {
 
         // 1. Sync every active user who belongs to THIS operator into radacct
         foreach ($router_active_users as $lower_u => $mdata) {
-            // STRICT FILTER: If user is not in this operator's subscribers list,
-            // they belong to another RADIUS server, another operator, or local router accounts.
-            // Safely ignore them completely: DO NOT insert into radacct!
             if (!isset($subMap[$lower_u])) {
                 $total_external_ignored++;
                 continue;
@@ -799,43 +826,43 @@ function sync_operator_mikrotik_active_sessions($pdo, $client_id) {
                 ]);
                 $total_updated++;
             } else {
-                // User is a registered subscriber of this operator and active in MikroTik, but missing in radacct:
-                // CRITICAL AUTH VERIFICATION: Check radpostauth!
-                // Did OUR RADIUS actually accept their connection request (Access-Accept),
-                // or did they connect through the OTHER/OLD RADIUS?
-                $isExplicitReject = false;
-                try {
-                    $authCheckStmt->execute([$lower_u]);
-                    $authRow = $authCheckStmt->fetch(PDO::FETCH_ASSOC);
-                    if ($authRow && $authRow['reply'] === 'Access-Reject') {
-                        $isExplicitReject = true;
-                    }
-                } catch (Exception $e) {}
+                // User is in MikroTik active connections:
+                // Check if they have an existing session in radacct that was closed
+                $findLatestSessStmt->execute([$lower_u]);
+                $lastRow = $findLatestSessStmt->fetch(PDO::FETCH_ASSOC);
 
-                if ($isExplicitReject) {
-                    // This user was explicitly rejected by our FreeRADIUS server and connected via other RADIUS!
-                    $total_external_ignored++;
-                    continue;
+                if ($lastRow && !empty($lastRow['radacctid'])) {
+                    // Reopen their existing session!
+                    $reopenSessStmt->execute([
+                        $nas_ip,
+                        $mdata['ip'] ?: '10.0.0.1',
+                        $mdata['caller_id'] ?: 'N/A',
+                        $mdata['uptime_sec'],
+                        $lastRow['radacctid']
+                    ]);
+                    $total_synced_new++;
+                    $db_active_map[$lower_u] = ['radacctid' => $lastRow['radacctid']];
+                } else {
+                    // Brand new session: insert into radacct with MikroTik uptime
+                    $sess_id = !empty($mdata['session_id']) ? $mdata['session_id'] : ('mt-' . bin2hex(random_bytes(4)));
+                    $insertSessStmt->execute([
+                        $exact_username,
+                        $nas_ip,
+                        $mdata['ip'] ?: '10.0.0.1',
+                        $mdata['caller_id'] ?: 'N/A',
+                        $mdata['uptime_sec'],
+                        $mdata['uptime_sec'],
+                        $sess_id
+                    ]);
+                    $total_synced_new++;
+                    $db_active_map[$lower_u] = ['radacctid' => $pdo->lastInsertId()];
                 }
-
-                // Verified: OUR RADIUS accepted this user! Restore missing session with uptime calculated start time.
-                $sess_id = !empty($mdata['session_id']) ? $mdata['session_id'] : ('mt-' . bin2hex(random_bytes(4)));
-                $insertSessStmt->execute([
-                    $exact_username,
-                    $nas_ip,
-                    $mdata['ip'] ?: '10.0.0.1',
-                    $mdata['caller_id'] ?: 'N/A',
-                    $mdata['uptime_sec'],
-                    $mdata['uptime_sec'],
-                    $sess_id
-                ]);
-                $total_synced_new++;
             }
         }
 
-        // 2. Clear ghost sessions in radacct that belong to THIS operator and are no longer active in MikroTik
-        // SAFETY: Only close ghost sessions if the router actually returned active users!
-        if (count($router_active_users) > 0) {
+        // 2. Clear ghost sessions in radacct only if the router returned a COMPLETE response
+        // CRITICAL: We only clear ghost sessions if $ppp_done is TRUE (no socket timeout truncation)
+        if ($ppp_done && count($router_active_users) > 0) {
             foreach ($db_open_sessions as $row) {
                 $lower_u = strtolower(trim($row['username']));
                 if (!isset($router_active_users[$lower_u])) {

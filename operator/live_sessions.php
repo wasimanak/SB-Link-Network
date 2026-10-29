@@ -50,9 +50,28 @@ require_once 'header.php';
 $client_id = (int)$_SESSION['operator_id'];
 require_once __DIR__ . '/../config/mikrotik_sync_helper.php';
 
-// Self-heal: Reopen any sessions that were falsely closed with Lost-Carrier in the last 12 hours
+// Self-heal: Reopen any subscriber sessions that were falsely closed by ghost cleaners, Lost-Carrier, or Admin-Reset
 try {
-    $pdo->exec("UPDATE radacct SET acctstoptime = NULL, acctterminatecause = '' WHERE acctterminatecause = 'Lost-Carrier' AND acctstoptime >= NOW() - INTERVAL 12 HOUR");
+    $pdo->prepare("
+        UPDATE radacct r
+        JOIN (
+            SELECT LOWER(TRIM(username)) as lu, MAX(radacctid) as max_id
+            FROM radacct
+            WHERE acctterminatecause IN ('Admin-Reset-Ghost', 'Lost-Carrier', 'Ghost-Cleared', 'Admin-Reset', '')
+              AND acctstoptime IS NOT NULL
+              AND acctstoptime >= NOW() - INTERVAL 60 DAY
+            GROUP BY LOWER(TRIM(username))
+        ) latest ON LOWER(TRIM(r.username)) = latest.lu AND r.radacctid = latest.max_id
+        JOIN subscribers s ON LOWER(TRIM(r.username)) = LOWER(TRIM(s.username))
+        SET r.acctstoptime = NULL, r.acctterminatecause = ''
+        WHERE s.status != 'disabled'
+          AND s.client_id = ?
+          AND NOT EXISTS (
+              SELECT 1 FROM radacct r2 
+              WHERE LOWER(TRIM(r2.username)) = latest.lu 
+                AND (r2.acctstoptime IS NULL OR r2.acctstoptime = '' OR r2.acctstoptime = '0' OR r2.acctstoptime = '0000-00-00 00:00:00')
+          )
+    ")->execute([$client_id]);
 } catch (Exception $e) {}
 
 // MikroTik sync only executes when explicitly triggered (?sync=1 or button clicked)
@@ -438,6 +457,7 @@ setInterval(function() {
         })
         .catch(() => {});
 }, 30000);
+</script>
 
 <!-- Live Connection Requests (radpostauth) Modal -->
 <div class="modal fade" id="authLogsModal" tabindex="-1" aria-labelledby="authLogsModalLabel" aria-hidden="true">
