@@ -16,6 +16,38 @@ try {
 .avatar-circle { width: 35px; height: 35px; background: #e2e8f0; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #64748b; font-size: 14px; }
 .table-custom-ui th { text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.5px; }
 .table-custom-ui td { vertical-align: middle; }
+.copy-user-btn {
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    color: #64748b;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    vertical-align: middle;
+    flex-shrink: 0;
+}
+.copy-user-btn:hover {
+    background: #f1f5f9 !important;
+    color: #0f172a !important;
+    border-color: #cbd5e1 !important;
+    transform: translateY(-1px);
+}
+.copy-user-btn.copied {
+    background: #ecfdf5 !important;
+    color: #059669 !important;
+    border-color: #a7f3d0 !important;
+}
+.user-profile-link:hover .badge {
+    filter: brightness(0.95);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+}
 </style><?php
 
 
@@ -384,7 +416,7 @@ $all_nas = $nasStmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Fetch Dealer Users
 $dUsersStmt = $pdo->prepare("
-    SELECT s.id, s.full_name, s.username, s.expiry_date, s.status, s.mobile, s.phone, s.balance, s.service_type, p.name as package_name,
+    SELECT s.id, s.photo, s.full_name, s.username, s.expiry_date, s.status, s.mobile, s.phone, s.balance, s.service_type, p.name as package_name,
            (SELECT COUNT(*) FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL) as is_online,
            (SELECT framedipaddress FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL ORDER BY radacctid DESC LIMIT 1) as live_ip
     FROM subscribers s
@@ -786,10 +818,32 @@ body { background-color: #f1f5f9; }
     <tbody>
         <?php foreach($dealer_users as $u): ?>
         <tr>
-            <td><?= $u['id'] ?></td>
-            <td><div class="avatar-circle"><i class="fa-solid fa-user"></i></div></td>
             <td>
-                <span class="badge rounded-pill badge-soft-success px-3 py-2"><?= htmlspecialchars($u['username']) ?></span>
+                <a href="subscriber_view.php?id=<?= $u['id'] ?>" class="text-decoration-none fw-semibold text-secondary" title="View Profile">#<?= $u['id'] ?></a>
+            </td>
+            <td>
+                <a href="subscriber_view.php?id=<?= $u['id'] ?>" class="text-decoration-none" title="View Profile">
+                    <?php if(!empty($u['photo']) && file_exists('../' . $u['photo'])): ?>
+                        <img src="../<?= htmlspecialchars($u['photo']) ?>" class="rounded-circle" style="width: 35px; height: 35px; object-fit: cover;" alt="">
+                    <?php else: ?>
+                        <div class="avatar-circle"><i class="fa-solid fa-user"></i></div>
+                    <?php endif; ?>
+                </a>
+            </td>
+            <td data-search="<?= htmlspecialchars($u['username']) ?>" data-sort="<?= htmlspecialchars($u['username']) ?>">
+                <div class="d-inline-flex align-items-center gap-1">
+                    <a href="subscriber_view.php?id=<?= $u['id'] ?>" class="text-decoration-none user-profile-link" title="Open <?= htmlspecialchars($u['username']) ?> Profile">
+                        <span class="badge rounded-pill badge-soft-primary px-3 py-2 fw-bold" style="font-size: 0.85rem; cursor: pointer; transition: all 0.15s ease;">
+                            <i class="fa-solid fa-user me-1"></i><?= htmlspecialchars($u['username']) ?>
+                        </span>
+                    </a>
+                    <button type="button" 
+                            class="copy-user-btn" 
+                            onclick="copyToClipboard(event, '<?= addslashes(htmlspecialchars($u['username'])) ?>', this)" 
+                            title="Copy Username">
+                        <i class="fa-regular fa-copy" style="font-size: 0.82rem;"></i>
+                    </button>
+                </div>
             </td>
             <td><?= htmlspecialchars($u['mobile'] ?: ($u['phone'] ?: 'N/A')) ?></td>
             <td><?= htmlspecialchars($u['package_name'] ?? 'N/A') ?></td>
