@@ -15,6 +15,10 @@ try {
     if (empty($cols)) {
         $pdo->exec("ALTER TABLE subscribers ADD COLUMN last_renewed_at DATETIME DEFAULT NULL");
     }
+    $rCols = $pdo->query("SHOW COLUMNS FROM subscribers LIKE 'last_renewal_receipt'")->fetchAll();
+    if (empty($rCols)) {
+        $pdo->exec("ALTER TABLE subscribers ADD COLUMN last_renewal_receipt VARCHAR(255) DEFAULT NULL, ADD COLUMN last_renewal_receipt_at DATETIME DEFAULT NULL, ADD COLUMN last_renewal_receipt_by VARCHAR(100) DEFAULT NULL");
+    }
 } catch (Exception $e) {}
 
 function kick_user_mikrotik($pdo, $client_id, $username) {
@@ -53,6 +57,24 @@ $is_manager = !empty($_SESSION['is_manager']);
 $current_manager_id = $is_manager ? (int)($_SESSION['manager_id'] ?? 0) : null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Handle Direct Renewal Receipt Upload
+    if (isset($_POST['action']) && $_POST['action'] === 'upload_renewal_receipt') {
+        if (!empty($_FILES['renewal_receipt']) && isset($_FILES['renewal_receipt']['error']) && $_FILES['renewal_receipt']['error'] === UPLOAD_ERR_OK) {
+            $by_role = !empty($_SESSION['is_manager']) ? 'Manager' : 'Admin';
+            $by_name = !empty($_SESSION['is_manager']) ? ($_SESSION['manager_name'] ?? 'Manager') : ($_SESSION['operator_username'] ?? 'Admin');
+            $res = handle_renewal_receipt_upload($_FILES['renewal_receipt'], $id, $pdo, "{$by_role} ({$by_name})");
+            if ($res) {
+                echo "<script>alert('Renewal receipt uploaded successfully!'); window.location.href='subscriber_view.php?id=$id';</script>";
+                exit;
+            } else {
+                echo "<script>alert('Failed to upload receipt. Allowed formats: JPG, PNG, WEBP, PDF.'); window.location.href='subscriber_view.php?id=$id';</script>";
+                exit;
+            }
+        } else {
+            echo "<script>alert('No valid file selected or upload error.'); window.location.href='subscriber_view.php?id=$id';</script>";
+            exit;
+        }
+    }
     $action = $_POST['action'] ?? '';
     $uStmt = $pdo->prepare("SELECT username FROM subscribers WHERE id = ? AND client_id = ?");
     $uStmt->execute([$id, $client_id]);
@@ -1315,6 +1337,22 @@ if ($last_debit) {
                     <span class="text-muted small me-1">Expiry:</span> 
                     <span class="fw-semibold text-dark"><?= !empty($user['expiry_date']) ? date('d M Y, h:i A', strtotime($user['expiry_date'])) : 'N/A' ?></span>
                 </li>
+                <li class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <i class="fa-solid fa-receipt text-primary"></i> 
+                        <span class="text-muted small me-1">Renewal Receipt:</span> 
+                        <?php if (!empty($user['last_renewal_receipt'])): ?>
+                            <span class="fw-bold text-success small"><i class="fa-solid fa-circle-check me-1"></i>Attached</span>
+                        <?php else: ?>
+                            <span class="text-muted small">None Attached</span>
+                        <?php endif; ?>
+                    </div>
+                    <div>
+                        <button type="button" class="btn btn-xs btn-outline-primary rounded-pill px-2.5 py-0.5 fw-bold" style="font-size: 0.72rem;" data-bs-toggle="modal" data-bs-target="#renewalReceiptModal">
+                            <i class="fa-solid fa-eye me-1"></i> <?= !empty($user['last_renewal_receipt']) ? 'View' : 'Upload' ?>
+                        </button>
+                    </div>
+                </li>
             </ul>
             <?php if (!empty($user['last_renewal_receipt'])): ?>
                 <?php 
@@ -1351,6 +1389,10 @@ if ($last_debit) {
                 <button type="button" class="btn-pill" data-bs-toggle="modal" data-bs-target="#paymentModal"><i class="fa-brands fa-paypal"></i> Payment</button>
                 <button type="button" class="btn-pill" data-bs-toggle="modal" data-bs-target="#renewModal"><i class="fa-solid fa-rotate"></i> Renew</button>
                 <a href="print_receipt.php?sub_id=<?= $id ?>&return=<?= urlencode('subscriber_view.php?id=' . $id) ?>" target="_blank" class="btn-pill text-primary fw-bold"><i class="fa-solid fa-receipt text-primary"></i> Print Receipt</a>
+                <button type="button" class="btn-pill <?= !empty($user['last_renewal_receipt']) ? 'text-primary fw-bold' : '' ?>" data-bs-toggle="modal" data-bs-target="#renewalReceiptModal">
+                    <i class="fa-solid fa-file-invoice-dollar <?= !empty($user['last_renewal_receipt']) ? 'text-success' : 'text-primary' ?>"></i> 
+                    Renewal Receipt <?= !empty($user['last_renewal_receipt']) ? '<span class="badge bg-success ms-1" style="font-size: 0.62rem;">Attached</span>' : '' ?>
+                </button>
                 <button type="button" class="btn-pill" onclick="alert('User Password: <?= htmlspecialchars($user['password']) ?>')"><i class="fa-solid fa-lock"></i> Toggle Password</button>
                 <button type="button" class="btn-pill dark" data-bs-toggle="modal" data-bs-target="#editProfileModal"><i class="fa-solid fa-user-pen"></i> Edit Profile</button>
                 <form method="POST" enctype="multipart/form-data" id="photoForm" style="display:none;">
@@ -3170,3 +3212,96 @@ $('#editProfileModal').on('shown.bs.modal', function () {
 </div>
 
 <?php require_once 'footer.php'; ?>
+
+
+<!-- Renewal Receipt View & Upload Modal -->
+<div class="modal fade" id="renewalReceiptModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content shadow-lg border-0 rounded-4 overflow-hidden">
+      <div class="modal-header bg-light border-bottom px-4 py-3">
+        <h5 class="modal-title fw-bold text-dark">
+          <i class="fa-solid fa-receipt text-primary me-2"></i> Last Renewal Receipt / Slip
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-4 bg-light">
+        <?php if (!empty($user['last_renewal_receipt'])): ?>
+            <?php 
+                $rcpt_path = $user['last_renewal_receipt'];
+                $is_pdf = (strtolower(pathinfo($rcpt_path, PATHINFO_EXTENSION)) === 'pdf');
+                $rcpt_url = '../' . htmlspecialchars($rcpt_path);
+            ?>
+            <div class="card border-0 shadow-sm rounded-3 p-3 mb-3 bg-white">
+                <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2">
+                    <div>
+                        <div class="fw-bold text-dark fs-6 mb-1">
+                            <i class="fa-solid fa-circle-check text-success me-1"></i> Receipt Attached for <?= htmlspecialchars($user['username']) ?>
+                        </div>
+                        <div class="text-secondary small">
+                            <i class="fa-solid fa-clock me-1 text-muted"></i> Uploaded: <strong><?= !empty($user['last_renewal_receipt_at']) ? date('d M Y, h:i A', strtotime($user['last_renewal_receipt_at'])) : 'Recently' ?></strong>
+                            <?php if (!empty($user['last_renewal_receipt_by'])): ?>
+                                <span class="ms-2">• By: <strong class="text-primary"><?= htmlspecialchars($user['last_renewal_receipt_by']) ?></strong></span>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <a href="<?= $rcpt_url ?>" target="_blank" class="btn btn-primary rounded-pill px-3 py-1.5 fw-bold shadow-sm" download>
+                            <i class="fa-solid fa-download me-1"></i> Download
+                        </a>
+                        <a href="<?= $rcpt_url ?>" target="_blank" class="btn btn-outline-primary rounded-pill px-3 py-1.5 fw-bold">
+                            <i class="fa-solid fa-arrow-up-right-from-square me-1"></i> Open Full
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Receipt Preview Box -->
+            <div class="card border-0 shadow-sm rounded-3 p-3 bg-white text-center mb-3">
+                <?php if ($is_pdf): ?>
+                    <div class="p-4">
+                        <i class="fa-solid fa-file-pdf text-danger fa-4x mb-3"></i>
+                        <h6 class="fw-bold text-dark">PDF Receipt Document Attached</h6>
+                        <p class="text-muted small">Click below to preview or download the PDF receipt.</p>
+                        <a href="<?= $rcpt_url ?>" target="_blank" class="btn btn-danger rounded-pill px-4 fw-bold">
+                            <i class="fa-solid fa-eye me-1"></i> View PDF Document
+                        </a>
+                    </div>
+                <?php else: ?>
+                    <div style="max-height: 520px; overflow: auto; background: #f8fafc; border-radius: 8px; padding: 10px;" class="border">
+                        <img src="<?= $rcpt_url ?>" class="img-fluid rounded shadow-sm" style="max-height: 500px; object-fit: contain;" alt="Renewal Receipt">
+                    </div>
+                <?php endif; ?>
+            </div>
+        <?php else: ?>
+            <div class="alert alert-warning border-0 rounded-3 mb-3 d-flex align-items-center gap-3">
+                <div class="fs-2 text-warning"><i class="fa-solid fa-circle-exclamation"></i></div>
+                <div>
+                    <div class="fw-bold text-dark">No Renewal Receipt Attached Yet</div>
+                    <div class="small text-muted">Is subscriber ke last package renewal par koi receipt ya slip attach nahi hui thi. Aap neechay diye gaye form se receipt abhi upload kar sakte hain.</div>
+                </div>
+            </div>
+        <?php endif; ?>
+
+        <!-- Upload / Update Form -->
+        <div class="card border-0 shadow-sm rounded-3 p-3 bg-white">
+            <h6 class="fw-bold text-dark mb-2">
+                <i class="fa-solid fa-cloud-arrow-up text-primary me-2"></i> <?= !empty($user['last_renewal_receipt']) ? 'Replace / Upload New Receipt' : 'Upload Receipt for this User' ?>
+            </h6>
+            <form method="POST" enctype="multipart/form-data">
+                <input type="hidden" name="action" value="upload_renewal_receipt">
+                <div class="mb-3">
+                    <label class="form-label small text-secondary fw-semibold">Select Receipt / Screenshot (JPG, PNG, WEBP, PDF)</label>
+                    <input type="file" name="renewal_receipt" class="form-control" accept="image/*,.pdf" required>
+                </div>
+                <button type="submit" class="btn btn-success fw-bold px-4 rounded-pill">
+                    <i class="fa-solid fa-upload me-1"></i> Upload Receipt Now
+                </button>
+            </form>
+        </div>
+      </div>
+      <div class="modal-footer bg-white border-top">
+        <button type="button" class="btn btn-secondary rounded-pill px-4" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>

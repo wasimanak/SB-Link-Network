@@ -156,23 +156,48 @@ function handle_renewal_receipt_upload($file_array, $subscriber_id, $pdo = null,
         return null;
     }
 
-    $baseDir = dirname(__DIR__) . '/uploads/renewal_receipts';
-    if (!is_dir($baseDir)) {
-        @mkdir($baseDir, 0777, true);
-    }
-
     $sub_id = (int)$subscriber_id;
     $new_filename = 'receipt_sub_' . $sub_id . '_' . time() . '_' . substr(md5(uniqid((string)mt_rand(), true)), 0, 6) . '.' . $ext;
-    $dest = $baseDir . '/' . $new_filename;
+
+    // Determine target directory with fallbacks if permissions are restricted on VPS
+    $targetDir = dirname(__DIR__) . '/uploads/renewal_receipts';
+    $relPrefix = 'uploads/renewal_receipts/';
+
+    if (!is_dir($targetDir)) {
+        @mkdir($targetDir, 0777, true);
+    }
+    @chmod($targetDir, 0777);
+
+    // Fallback if renewal_receipts is not writable
+    if (!is_writable($targetDir)) {
+        $fallbackProfiles = dirname(__DIR__) . '/uploads/profiles';
+        if (is_dir($fallbackProfiles) && is_writable($fallbackProfiles)) {
+            $targetDir = $fallbackProfiles;
+            $relPrefix = 'uploads/profiles/';
+        } else {
+            $targetDir = dirname(__DIR__) . '/uploads';
+            $relPrefix = 'uploads/';
+        }
+    }
+
+    $dest = $targetDir . '/' . $new_filename;
 
     if (@move_uploaded_file($file_array['tmp_name'], $dest)) {
-        $rel_path = 'uploads/renewal_receipts/' . $new_filename;
+        @chmod($dest, 0666);
+        $rel_path = $relPrefix . $new_filename;
 
         if ($pdo && $sub_id > 0) {
             try {
+                // Ensure columns exist in MySQL before updating
+                $colChk = $pdo->query("SHOW COLUMNS FROM `subscribers` LIKE 'last_renewal_receipt'")->fetch();
+                if (!$colChk) {
+                    $pdo->exec("ALTER TABLE `subscribers` ADD COLUMN `last_renewal_receipt` VARCHAR(255) DEFAULT NULL, ADD COLUMN `last_renewal_receipt_at` DATETIME DEFAULT NULL, ADD COLUMN `last_renewal_receipt_by` VARCHAR(100) DEFAULT NULL");
+                }
                 $stmt = $pdo->prepare("UPDATE subscribers SET last_renewal_receipt = ?, last_renewal_receipt_at = NOW(), last_renewal_receipt_by = ? WHERE id = ?");
                 $stmt->execute([$rel_path, $uploaded_by, $sub_id]);
-            } catch (Exception $e) {}
+            } catch (Exception $e) {
+                error_log("Error saving renewal receipt in DB: " . $e->getMessage());
+            }
         }
 
         return $rel_path;
