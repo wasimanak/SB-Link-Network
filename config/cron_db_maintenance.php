@@ -31,7 +31,10 @@ $acct_days  = intval($settings['db_retention_acct_days'] ?? 30) ?: 30;
 $ghost_days = intval($settings['db_ghost_session_days'] ?? 2) ?: 2;
 
 // Run maintenance engine
-$res = run_database_maintenance($pdo, $auth_days, $acct_days, $ghost_days);
+if ($is_cli) {
+    echo "[" . date('Y-m-d H:i:s') . "] Starting Database Maintenance...\n";
+}
+$res = run_database_maintenance($pdo, $auth_days, $acct_days, $ghost_days, $is_cli);
 
 $msg = "[{$res['timestamp']}] Database Nightly Maintenance Completed in {$res['duration_seconds']}s: "
      . "{$res['auth_deleted']} auth logs purged (> {$auth_days} days), "

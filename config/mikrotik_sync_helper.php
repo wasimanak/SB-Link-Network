@@ -586,34 +586,10 @@ function parseMikroTikUptimeSeconds($uptime) {
  * @return array
  */
 if (!function_exists('sync_operator_mikrotik_active_sessions')) {
-function sync_operator_mikrotik_active_sessions($pdo, $client_id) {
+function sync_operator_mikrotik_active_sessions($pdo, $client_id, $verbose = false) {
     if (empty($client_id)) {
         return ['success' => false, 'error' => 'Invalid client ID'];
     }
-
-    // 1. Self-healing: Reopen any sessions falsely closed by ghost cleaners, Lost-Carrier, or Admin-Reset
-    try {
-        $pdo->prepare("
-            UPDATE radacct r
-            JOIN (
-                SELECT LOWER(TRIM(username)) as lu, MAX(radacctid) as max_id
-                FROM radacct
-                WHERE (acctterminatecause IN ('Admin-Reset-Ghost', 'Lost-Carrier', 'Ghost-Cleared', 'Admin-Reset', '') OR acctterminatecause IS NULL)
-                  AND acctstoptime IS NOT NULL
-                  AND acctstoptime >= NOW() - INTERVAL 60 DAY
-                GROUP BY LOWER(TRIM(username))
-            ) latest ON LOWER(TRIM(r.username)) = latest.lu AND r.radacctid = latest.max_id
-            JOIN subscribers s ON LOWER(TRIM(r.username)) = LOWER(TRIM(s.username))
-            SET r.acctstoptime = NULL, r.acctterminatecause = ''
-            WHERE s.status != 'disabled'
-              AND s.client_id = ?
-              AND NOT EXISTS (
-                  SELECT 1 FROM radacct r2 
-                  WHERE LOWER(TRIM(r2.username)) = latest.lu 
-                    AND (r2.acctstoptime IS NULL OR r2.acctstoptime = '' OR r2.acctstoptime = '0' OR r2.acctstoptime = '0000-00-00 00:00:00')
-              )
-        ")->execute([$client_id]);
-    } catch (Exception $e) {}
 
     // 2. Find all candidate routers for this operator
     $routers = [];
@@ -724,19 +700,30 @@ function sync_operator_mikrotik_active_sessions($pdo, $client_id) {
         $api_port = !empty($r['api_port']) ? (int)$r['api_port'] : 8728;
 
         if (empty($nas_ip) || empty($api_user)) {
+            if ($verbose) echo "     [Router #" . ($r['id'] ?? '?') . "] Skipped (empty IP or API user)\n";
             continue;
+        }
+
+        if ($verbose) {
+            echo "     [Router #" . ($r['id'] ?? '?') . " ({$nas_ip}:{$api_port})] Connecting... ";
+            if (function_exists('ob_flush')) @ob_flush();
+            flush();
         }
 
         $API = new RouterosAPI();
-        $API->timeout = 15; // Resilient 15s timeout for large active connection tables (730+ users)
-        $API->attempts = 2;
-        $API->delay = 1;
+        $API->connect_timeout = 3; // Fast 3s connect timeout so unreachable routers fail fast
+        $API->timeout = 15;        // Resilient 15s timeout for large active connection tables (730+ users)
+        $API->attempts = 1;        // Single attempt in cron loop to prevent long freezes
+        $API->delay = 0;
         error_reporting(0);
 
         if (!$API->connect($nas_ip, $api_user, $api_pass, $api_port)) {
+            if ($verbose) echo "FAILED (Port unreachable or credentials wrong)\n";
             $router_errors[] = "Router {$nas_ip}: Could not connect via API (port {$api_port}).";
             continue;
         }
+
+        if ($verbose) echo "CONNECTED! Reading active sessions... ";
 
         $routers_connected++;
 
@@ -789,6 +776,7 @@ function sync_operator_mikrotik_active_sessions($pdo, $client_id) {
         }
 
         $total_router_active += count($router_active_users);
+        if ($verbose) echo "Done (" . count($router_active_users) . " active on router).\n";
 
         // Fetch open sessions in radacct ONLY for this operator's subscribers
         $dbStmt = $pdo->prepare("

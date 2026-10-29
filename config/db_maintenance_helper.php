@@ -2,7 +2,7 @@
 // Path: /config/db_maintenance_helper.php
 // Centralized Database Maintenance & Auto-Prune Engine
 
-function run_database_maintenance($pdo, $auth_retention_days = 7, $acct_retention_days = 30, $ghost_session_days = 2) {
+function run_database_maintenance($pdo, $auth_retention_days = 7, $acct_retention_days = 30, $ghost_session_days = 2, $verbose = false) {
     $startTime = microtime(true);
     $result = [
         'auth_deleted' => 0,
@@ -35,9 +35,11 @@ function run_database_maintenance($pdo, $auth_retention_days = 7, $acct_retentio
     // 2. Prune radpostauth (delete authentication logs older than X days)
     // FreeRADIUS never reads old auth logs; keeping only recent logs keeps DB tiny
     try {
+        if ($verbose) { echo "  -> [1/4] Pruning authentication logs (> {$auth_retention_days} days)... "; flush(); }
         $stmt = $pdo->prepare("DELETE FROM radpostauth WHERE authdate < NOW() - INTERVAL ? DAY");
         $stmt->execute([$auth_retention_days]);
         $result['auth_deleted'] = $stmt->rowCount();
+        if ($verbose) echo "Done ({$result['auth_deleted']} records purged).\n";
     } catch (Exception $e) {
         $result['errors'][] = "radpostauth prune error: " . $e->getMessage();
     }
@@ -45,9 +47,11 @@ function run_database_maintenance($pdo, $auth_retention_days = 7, $acct_retentio
     // 3. Prune radacct closed sessions (older than X days)
     // CRITICAL: We NEVER delete active sessions (where acctstoptime IS NULL)
     try {
+        if ($verbose) { echo "  -> [2/4] Pruning closed accounting records (> {$acct_retention_days} days)... "; flush(); }
         $stmt = $pdo->prepare("DELETE FROM radacct WHERE acctstoptime IS NOT NULL AND acctstoptime < NOW() - INTERVAL ? DAY");
         $stmt->execute([$acct_retention_days]);
         $result['acct_deleted'] = $stmt->rowCount();
+        if ($verbose) echo "Done ({$result['acct_deleted']} records purged).\n";
     } catch (Exception $e) {
         $result['errors'][] = "radacct prune error: " . $e->getMessage();
     }
@@ -60,6 +64,7 @@ function run_database_maintenance($pdo, $auth_retention_days = 7, $acct_retentio
     // a) The subscriber account has been deleted or disabled in subscribers table, OR
     // b) The session is truly abandoned (> 90 days).
     try {
+        if ($verbose) { echo "  -> [3/4] Checking abandoned ghost sessions (> 90 days)... "; flush(); }
         $stmt = $pdo->prepare("
             UPDATE radacct r
             LEFT JOIN subscribers s ON LOWER(TRIM(r.username)) = LOWER(TRIM(s.username))
@@ -73,6 +78,7 @@ function run_database_maintenance($pdo, $auth_retention_days = 7, $acct_retentio
         ");
         $stmt->execute();
         $result['ghost_closed'] = $stmt->rowCount();
+        if ($verbose) echo "Done ({$result['ghost_closed']} ghost sessions closed).\n";
     } catch (Exception $e) {
         $result['errors'][] = "ghost sessions error: " . $e->getMessage();
     }
@@ -92,12 +98,15 @@ function run_database_maintenance($pdo, $auth_retention_days = 7, $acct_retentio
 
     // 5. Defragment & Optimize Tables (reclaims deleted disk space back to operating system)
     $tablesToOptimize = ['radpostauth', 'radacct', 'radcheck', 'subscribers'];
+    if ($verbose) { echo "  -> [4/4] Optimizing database tables (radpostauth, radacct, radcheck, subscribers)...\n"; flush(); }
     foreach ($tablesToOptimize as $tbl) {
         try {
+            if ($verbose) { echo "        Optimizing `{$tbl}`... "; flush(); }
             $pdo->exec("OPTIMIZE TABLE `{$tbl}`");
             $result['optimized_tables'][] = $tbl;
+            if ($verbose) echo "OK\n";
         } catch (Exception $e) {
-            // Some MySQL storage engines don't require optimize or return note
+            if ($verbose) echo "Skipped\n";
         }
     }
 

@@ -10,6 +10,7 @@ class RouterosAPI
     public $connected = false;
     public $port      = 8728;
     public $timeout   = 15;
+    public $connect_timeout = 3;
     public $attempts  = 2;
     public $delay     = 0;
     public $last_is_done = false;
@@ -46,8 +47,9 @@ class RouterosAPI
 
     public function connect($ip, $login, $password, $port = 8728)
     {
+        $conn_timeout = !empty($this->connect_timeout) ? $this->connect_timeout : 3;
         for ($a = 0; $a < $this->attempts; $a++) {
-            $this->socket = @fsockopen($ip, $port, $this->error_no, $this->error_str, $this->timeout);
+            $this->socket = @fsockopen($ip, $port, $this->error_no, $this->error_str, $conn_timeout);
             if ($this->socket) {
                 if (function_exists('stream_set_timeout')) {
                     @stream_set_timeout($this->socket, $this->timeout);
