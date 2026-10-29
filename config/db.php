@@ -72,7 +72,7 @@ try {
                         }
                     }
                     try {
-                        $pdo->exec("INSERT INTO global_settings (setting_key, setting_value) VALUES ('sys_schema_ver', '8') ON DUPLICATE KEY UPDATE setting_value = '8'");
+                        $pdo->exec("INSERT INTO global_settings (setting_key, setting_value) VALUES ('sys_schema_ver', '9') ON DUPLICATE KEY UPDATE setting_value = '9'");
                     } catch (Exception $e) {}
                 }
             } catch (Exception $e) {}
@@ -128,5 +128,56 @@ function check_renewal_cooldown($pdo, $subscriber_id, $cooldown_seconds = 600) {
     } catch (Exception $e) {}
 
     return ['allowed' => true, 'remaining_seconds' => 0, 'remaining_minutes' => 0, 'last_renewed_at' => null];
+}
+}
+
+
+/**
+ * Global Helper: Handle Optional Renewal Receipt Upload
+ * Saves uploaded receipt to uploads/renewal_receipts/ and updates subscriber's profile record.
+ * 
+ * @param array $file_array $_FILES['renewal_receipt']
+ * @param int $subscriber_id
+ * @param PDO $pdo
+ * @param string $uploaded_by (e.g. 'Admin', 'Operator', 'Manager', 'RecoveryMan', 'Dealer')
+ * @return string|null Relative file path if uploaded successfully
+ */
+if (!function_exists('handle_renewal_receipt_upload')) {
+function handle_renewal_receipt_upload($file_array, $subscriber_id, $pdo = null, $uploaded_by = 'Admin') {
+    if (empty($file_array) || !isset($file_array['error']) || $file_array['error'] !== UPLOAD_ERR_OK || empty($file_array['tmp_name'])) {
+        return null;
+    }
+
+    $allowed_exts = ['jpg', 'jpeg', 'png', 'webp', 'pdf'];
+    $filename = $file_array['name'] ?? '';
+    $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+
+    if (!in_array($ext, $allowed_exts)) {
+        return null;
+    }
+
+    $baseDir = dirname(__DIR__) . '/uploads/renewal_receipts';
+    if (!is_dir($baseDir)) {
+        @mkdir($baseDir, 0777, true);
+    }
+
+    $sub_id = (int)$subscriber_id;
+    $new_filename = 'receipt_sub_' . $sub_id . '_' . time() . '_' . substr(md5(uniqid((string)mt_rand(), true)), 0, 6) . '.' . $ext;
+    $dest = $baseDir . '/' . $new_filename;
+
+    if (@move_uploaded_file($file_array['tmp_name'], $dest)) {
+        $rel_path = 'uploads/renewal_receipts/' . $new_filename;
+
+        if ($pdo && $sub_id > 0) {
+            try {
+                $stmt = $pdo->prepare("UPDATE subscribers SET last_renewal_receipt = ?, last_renewal_receipt_at = NOW(), last_renewal_receipt_by = ? WHERE id = ?");
+                $stmt->execute([$rel_path, $uploaded_by, $sub_id]);
+            } catch (Exception $e) {}
+        }
+
+        return $rel_path;
+    }
+
+    return null;
 }
 }

@@ -256,6 +256,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $paid_receipt_val = ($payment_amount > 0) ? $payment_amount : $deduction;
             }
 
+            // Handle optional renewal receipt upload
+            if (!empty($_FILES['renewal_receipt']) && isset($_FILES['renewal_receipt']['error']) && $_FILES['renewal_receipt']['error'] === UPLOAD_ERR_OK) {
+                $d_label = 'Dealer (' . ($current_dealer['username'] ?? 'Dealer') . ')';
+                handle_renewal_receipt_upload($_FILES['renewal_receipt'], $id, $pdo, $d_label);
+            }
+
             // FreeRADIUS Sync
             $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Rate-Limit'")->execute([$u]);
             if (!empty($pkg['rate_limit']) && $pkg['rate_limit'] !== 'No Limit') {
@@ -1117,7 +1123,7 @@ if ($is_disabled) {
         </h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
-      <form method="POST" onsubmit="var btn=this.querySelector('button[type=submit]'); if(this.submitted){return false;} this.submitted=true; if(btn){btn.disabled=true; btn.innerHTML='<i class=\'fa-solid fa-spinner fa-spin me-2\'></i> Processing Renewal... Please wait...';} return true;">
+      <form method="POST" enctype="multipart/form-data" onsubmit="var btn=this.querySelector('button[type=submit]'); if(this.submitted){return false;} this.submitted=true; if(btn){btn.disabled=true; btn.innerHTML='<i class=\'fa-solid fa-spinner fa-spin me-2\'></i> Processing Renewal... Please wait...';} return true;">
         <input type="hidden" name="action" value="renew_user">
         <div class="modal-body p-4">
 
@@ -1254,6 +1260,25 @@ if ($is_disabled) {
                                 <span class="input-group-text bg-white fw-bold text-success border-success-subtle">Rs.</span>
                                 <input type="number" step="any" min="0" name="payment_amount" id="renew_payment_amount" class="form-control form-control-lg fw-bold text-success border-success-subtle shadow-none" placeholder="0.00" value="<?= (float)$cur_dp_price ?>" oninput="this.dataset.userEdited='true'; recalculateRenewAdjustment();">
                             </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Optional Renewal Receipt Upload -->
+            <div class="col-12 mt-2">
+                <div class="p-3 rounded-3 border bg-white shadow-sm">
+                    <div class="row align-items-center g-2">
+                        <div class="col-md-7">
+                            <label class="form-label fw-bold text-dark mb-0 d-flex align-items-center small">
+                                <i class="fa-solid fa-paperclip text-primary me-2 fs-6"></i> Attach Receipt / Slip <span class="badge bg-light text-muted border ms-2" style="font-size: 0.65rem;">Optional</span>
+                            </label>
+                            <div class="text-muted small mt-1" style="font-size: 0.75rem;">
+                                Customer deposit slip, transfer screenshot, or receipt (JPG, PNG, PDF).
+                            </div>
+                        </div>
+                        <div class="col-md-5">
+                            <input type="file" name="renewal_receipt" class="form-control form-control-sm" accept="image/*,.pdf">
                         </div>
                     </div>
                 </div>

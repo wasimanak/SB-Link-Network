@@ -185,6 +185,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Update DB
         $pdo->prepare("UPDATE subscribers SET package_id = ?, expiry_date = ?, status = ?, balance = ?, last_renewed_at = NOW() WHERE id = ?")
             ->execute([$package_id, $expiry_date, $new_status, $final_bal, $user_id]);
+
+        // Actor details for receipt & logs
+        $actor_role = !empty($_SESSION['is_manager']) ? 'Manager' : 'Admin';
+        $actor_name = !empty($_SESSION['manager_name']) ? $_SESSION['manager_name'] : (!empty($_SESSION['operator_name']) ? $_SESSION['operator_name'] : 'Admin');
+        $actor_mgr_id = !empty($_SESSION['is_manager']) ? (int)($_SESSION['manager_id'] ?? 0) : null;
+
+        // Handle optional renewal receipt upload
+        if (!empty($_FILES['renewal_receipt']) && isset($_FILES['renewal_receipt']['error']) && $_FILES['renewal_receipt']['error'] === UPLOAD_ERR_OK) {
+            handle_renewal_receipt_upload($_FILES['renewal_receipt'], $user_id, $pdo, "{$actor_role} ({$actor_name})");
+        }
             
         // Update Radius
         $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Rate-Limit'")->execute([$u]);
@@ -215,10 +225,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Auth-Type', ':=', 'Reject')")->execute([$u]);
         }
         
-        // Actor details
-        $actor_role = !empty($_SESSION['is_manager']) ? 'Manager' : 'Admin';
-        $actor_name = !empty($_SESSION['manager_name']) ? $_SESSION['manager_name'] : (!empty($_SESSION['operator_name']) ? $_SESSION['operator_name'] : 'Admin');
-        $actor_mgr_id = !empty($_SESSION['is_manager']) ? (int)($_SESSION['manager_id'] ?? 0) : null;
 
         // Logs
         $act_dealer_id = ($sub_dealer_id > 0) ? $sub_dealer_id : null;

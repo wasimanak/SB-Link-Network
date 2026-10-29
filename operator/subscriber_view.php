@@ -720,6 +720,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->prepare("UPDATE subscribers SET package_id = ?, expiry_date = ?, status = ?, balance = ?, last_renewed_at = ? WHERE id = ?")
                     ->execute([$package_id, $formatted_expiry_db, $new_status, $final_bal, $now_dt, $id]);
 
+                // Handle optional renewal receipt upload
+                if (!empty($_FILES['renewal_receipt']) && isset($_FILES['renewal_receipt']['error']) && $_FILES['renewal_receipt']['error'] === UPLOAD_ERR_OK) {
+                    $by_role = $is_manager ? 'Manager' : 'Admin';
+                    $by_name = $is_manager ? ($_SESSION['manager_name'] ?? 'Manager') : ($_SESSION['operator_username'] ?? 'Admin');
+                    handle_renewal_receipt_upload($_FILES['renewal_receipt'], $id, $pdo, "{$by_role} ({$by_name})");
+                }
+
                 // RADIUS sync
                 $formatted_expiry_rad = date('d M Y H:i:s', $new_exp_ts);
                 if ($new_status === 'active') {
@@ -1309,6 +1316,36 @@ if ($last_debit) {
                     <span class="fw-semibold text-dark"><?= !empty($user['expiry_date']) ? date('d M Y, h:i A', strtotime($user['expiry_date'])) : 'N/A' ?></span>
                 </li>
             </ul>
+            <?php if (!empty($user['last_renewal_receipt'])): ?>
+                <?php 
+                    $rcpt_path = $user['last_renewal_receipt'];
+                    $is_pdf = (strtolower(pathinfo($rcpt_path, PATHINFO_EXTENSION)) === 'pdf');
+                    $rcpt_url = '../' . htmlspecialchars($rcpt_path);
+                ?>
+                <div class="p-3 rounded-3 border mb-3 shadow-sm" style="background: #f8fafc; border-left: 4px solid #0d6efd !important;">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <div class="text-uppercase fw-bold text-primary" style="font-size: 0.72rem; letter-spacing: 0.5px;">
+                                <i class="fa-solid fa-receipt me-1"></i> Last Renewal Receipt
+                            </div>
+                            <div class="small fw-semibold text-dark mt-1">
+                                Uploaded: <?= !empty($user['last_renewal_receipt_at']) ? date('d M Y, h:i A', strtotime($user['last_renewal_receipt_at'])) : 'Recently' ?>
+                            </div>
+                            <?php if (!empty($user['last_renewal_receipt_by'])): ?>
+                                <div class="text-muted" style="font-size: 0.75rem;">
+                                    By: <strong class="text-secondary"><?= htmlspecialchars($user['last_renewal_receipt_by']) ?></strong>
+                                </div>
+                            <?php endif; ?>
+                        </div>
+                        <div class="text-end">
+                            <a href="<?= $rcpt_url ?>" target="_blank" class="btn btn-sm btn-primary rounded-pill px-3 py-1.5 fw-bold shadow-sm d-inline-flex align-items-center gap-1" style="font-size: 0.78rem;">
+                                <i class="fa-solid <?= $is_pdf ? 'fa-file-pdf' : 'fa-image' ?>"></i>
+                                <span>View Receipt</span>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            <?php endif; ?>
             <div class="action-grid">
                 <!-- Modals Triggers -->
                 <button type="button" class="btn-pill" data-bs-toggle="modal" data-bs-target="#paymentModal"><i class="fa-brands fa-paypal"></i> Payment</button>
@@ -1539,6 +1576,22 @@ if ($last_debit) {
                                 <tr><td class="fw-bold">Package Duration</td><td><?= $user['validity_days'] ? $user['validity_days'] . ' Days' : 'N/A' ?></td></tr>
                                 <tr><td class="fw-bold">Created / Registered Date</td><td><?= !empty($user['created_at']) ? date('d M Y H:i:s', strtotime($user['created_at'])) : 'N/A' ?></td></tr>
                                 <tr><td class="fw-bold">Last Expiration Date</td><td><?= $user['expiry_date'] ? date('d M Y H:i:s', strtotime($user['expiry_date'])) : 'N/A' ?></td></tr>
+                                <tr>
+                                    <td class="fw-bold">Last Renewal Receipt</td>
+                                    <td>
+                                        <?php if (!empty($user['last_renewal_receipt'])): ?>
+                                            <a href="../<?= htmlspecialchars($user['last_renewal_receipt']) ?>" target="_blank" class="badge bg-primary text-white text-decoration-none px-2.5 py-1.5 fw-bold d-inline-flex align-items-center gap-1">
+                                                <i class="fa-solid fa-paperclip"></i> View Uploaded Receipt
+                                            </a>
+                                            <span class="text-muted small ms-2">
+                                                (<?= !empty($user['last_renewal_receipt_at']) ? date('d M Y, h:i A', strtotime($user['last_renewal_receipt_at'])) : '' ?>
+                                                <?= !empty($user['last_renewal_receipt_by']) ? 'by ' . htmlspecialchars($user['last_renewal_receipt_by']) : '' ?>)
+                                            </span>
+                                        <?php else: ?>
+                                            <span class="text-muted small"><i class="fa-regular fa-circle-xmark me-1"></i> No receipt attached on last renewal</span>
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
                                 <tr><td class="fw-bold">Total Volume</td><td><?= $total_vol_str ?></td></tr>
                                 <tr>
                                     <td class="fw-bold">Used Volume (Current Cycle)</td>
@@ -1687,7 +1740,7 @@ $last_login_display = ($latest_login_ts && $latest_login_ts > 86400) ? date('d M
         </h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
-      <form method="POST" onsubmit="var btn=this.querySelector('button[type=submit]'); if(this.submitted){return false;} this.submitted=true; if(btn){btn.disabled=true; btn.innerHTML='<i class=\'fa-solid fa-spinner fa-spin me-2\'></i> Processing Renewal... Please wait...';} return true;">
+      <form method="POST" enctype="multipart/form-data" onsubmit="var btn=this.querySelector('button[type=submit]'); if(this.submitted){return false;} this.submitted=true; if(btn){btn.disabled=true; btn.innerHTML='<i class=\'fa-solid fa-spinner fa-spin me-2\'></i> Processing Renewal... Please wait...';} return true;">
         <input type="hidden" name="action" value="renew_user">
         <div class="modal-body p-4">
 
@@ -1785,6 +1838,25 @@ $last_login_display = ($latest_login_ts && $latest_login_ts > 86400) ? date('d M
                                     <span class="input-group-text bg-white fw-bold text-success border-success-subtle">Rs.</span>
                                     <input type="number" step="any" min="0" name="payment_amount" id="renew_payment_amount" class="form-control form-control-lg fw-bold text-success border-success-subtle shadow-none" placeholder="0.00" value="<?= (float)($user['pkg_price'] ?? 0) ?>" oninput="recalculateRenewAdjustment()">
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Optional Renewal Receipt Upload -->
+                <div class="col-12 mb-3">
+                    <div class="p-3 rounded-3 border bg-white shadow-sm">
+                        <div class="row align-items-center">
+                            <div class="col-md-7">
+                                <label class="form-label fw-bold text-dark mb-0 d-flex align-items-center small">
+                                    <i class="fa-solid fa-paperclip text-primary me-2 fs-6"></i> Attach Receipt / Slip <span class="badge bg-light text-muted border ms-2" style="font-size: 0.65rem;">Optional</span>
+                                </label>
+                                <div class="text-muted small mt-1" style="font-size: 0.75rem;">
+                                    Customer deposit slip, transfer screenshot, or voucher (JPG, PNG, PDF).
+                                </div>
+                            </div>
+                            <div class="col-md-5">
+                                <input type="file" name="renewal_receipt" class="form-control form-control-sm" accept="image/*,.pdf">
                             </div>
                         </div>
                     </div>

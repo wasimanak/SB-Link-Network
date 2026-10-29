@@ -171,6 +171,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->prepare("UPDATE subscribers SET package_id = ?, expiry_date = ?, status = ?, last_renewed_at = ? WHERE id = ? AND dealer_id = ?")
                 ->execute([$target_pkg_id, $new_expiry_str, $status, $now_dt, $id, $dealer_id]);
 
+            // Handle optional renewal receipt upload
+            if (!empty($_FILES['renewal_receipt']) && isset($_FILES['renewal_receipt']['error']) && $_FILES['renewal_receipt']['error'] === UPLOAD_ERR_OK) {
+                $d_label = 'Dealer (' . ($current_dealer['username'] ?? 'Dealer') . ')';
+                handle_renewal_receipt_upload($_FILES['renewal_receipt'], $id, $pdo, $d_label);
+            }
+
             // User Ledger
             $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'debit', ?, 0, ?)")
                 ->execute([$client_id, $u, $deduction, "Package Renewed: {$pkg['name']} by Dealer {$current_dealer['username']}"]);
@@ -546,7 +552,7 @@ $dealer_activities = $alogsStmt->fetchAll(PDO::FETCH_ASSOC);
         <h5 class="modal-title fw-bold"><i class="fa-solid fa-money-bill-wave me-2"></i> Add Payment to Customer</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
-      <form method="POST" onsubmit="var btn=this.querySelector('button[type=submit]'); if(this.submitted){return false;} this.submitted=true; if(btn){btn.disabled=true; btn.innerHTML='<i class=\'fa-solid fa-spinner fa-spin me-2\'></i> Processing Renewal... Please wait...';} return true;">
+      <form method="POST" enctype="multipart/form-data" onsubmit="var btn=this.querySelector('button[type=submit]'); if(this.submitted){return false;} this.submitted=true; if(btn){btn.disabled=true; btn.innerHTML='<i class=\'fa-solid fa-spinner fa-spin me-2\'></i> Processing Renewal... Please wait...';} return true;">
         <input type="hidden" name="action" value="add_payment">
         <input type="hidden" name="sub_id" id="pay_sub_id">
         <div class="modal-body p-4 bg-light">
@@ -598,7 +604,7 @@ $dealer_activities = $alogsStmt->fetchAll(PDO::FETCH_ASSOC);
         <h5 class="modal-title fw-bold"><i class="fa-solid fa-rotate me-2"></i> Renew Subscriber Package</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
-      <form method="POST" onsubmit="var btn=this.querySelector('button[type=submit]'); if(this.submitted){return false;} this.submitted=true; if(btn){btn.disabled=true; btn.innerHTML='<i class=\'fa-solid fa-spinner fa-spin me-2\'></i> Processing Renewal... Please wait...';} return true;">
+      <form method="POST" enctype="multipart/form-data" onsubmit="var btn=this.querySelector('button[type=submit]'); if(this.submitted){return false;} this.submitted=true; if(btn){btn.disabled=true; btn.innerHTML='<i class=\'fa-solid fa-spinner fa-spin me-2\'></i> Processing Renewal... Please wait...';} return true;">
         <input type="hidden" name="action" value="renew_user">
         <input type="hidden" name="id" id="renew_user_id">
         <div class="modal-body p-4 bg-light">
@@ -647,6 +653,14 @@ $dealer_activities = $alogsStmt->fetchAll(PDO::FETCH_ASSOC);
             <div class="p-3 bg-white border rounded shadow-sm d-flex justify-content-between align-items-center">
                 <div class="text-secondary fw-bold small text-uppercase">Wallet Deduction</div>
                 <h4 class="mb-0 fw-bold text-success" id="renew_deduction_display">Rs. 0</h4>
+            </div>
+
+            <div class="mt-3 text-start">
+                <label class="form-label text-secondary small fw-bold">
+                    <i class="fa-solid fa-paperclip text-primary me-1"></i> Attach Receipt / Slip <span class="badge bg-light text-muted border ms-1" style="font-size: 0.65rem;">Optional</span>
+                </label>
+                <input type="file" name="renewal_receipt" class="form-control form-control-sm" accept="image/*,.pdf">
+                <div class="form-text text-muted" style="font-size: 0.72rem;">Customer deposit slip, transfer screenshot, or PDF.</div>
             </div>
         </div>
         <div class="modal-footer bg-white border-top px-4 py-3">

@@ -293,6 +293,9 @@ function fix_and_repair_schema($pdo) {
         add_index_if_missing($pdo, 'subscribers', 'idx_sub_client_exp', '`client_id`, `expiry_date`');
         add_index_if_missing($pdo, 'subscribers', 'idx_sub_client_status', '`client_id`, `status`');
         add_column_if_missing($pdo, 'subscribers', 'last_renewed_at', 'DATETIME DEFAULT NULL');
+        add_column_if_missing($pdo, 'subscribers', 'last_renewal_receipt', 'VARCHAR(255) DEFAULT NULL');
+        add_column_if_missing($pdo, 'subscribers', 'last_renewal_receipt_at', 'DATETIME DEFAULT NULL');
+        add_column_if_missing($pdo, 'subscribers', 'last_renewal_receipt_by', 'VARCHAR(100) DEFAULT NULL');
         $report[] = "RADIUS performance indexes verified";
     } catch (Exception $e) {}
 

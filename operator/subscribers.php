@@ -1233,7 +1233,7 @@ $renewPackages = $pdo->query("SELECT id, name, price, validity_days FROM package
         <h5 class="modal-title fw-bold"><i class="fa-solid fa-bolt text-warning me-2"></i> Activate / Renew User</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
-      <form action="renew_user_action.php" method="POST" onsubmit="var btn=this.querySelector('button[type=submit]'); if(this.submitted){return false;} this.submitted=true; if(btn){btn.disabled=true; btn.innerHTML='<i class=\'fa-solid fa-spinner fa-spin me-2\'></i> Processing Renewal... Please wait...';} return true;">
+      <form action="renew_user_action.php" method="POST" enctype="multipart/form-data" onsubmit="var btn=this.querySelector('button[type=submit]'); if(this.submitted){return false;} this.submitted=true; if(btn){btn.disabled=true; btn.innerHTML='<i class=\'fa-solid fa-spinner fa-spin me-2\'></i> Processing Renewal... Please wait...';} return true;">
         <input type="hidden" name="redirect_to" value="subscribers.php">
         <div class="modal-body p-4 pt-2">
             <div class="row">
@@ -1300,6 +1300,13 @@ $renewPackages = $pdo->query("SELECT id, name, price, validity_days FROM package
                         <span class="input-group-text bg-white fw-bold text-success border-success-subtle">Rs.</span>
                         <input type="number" step="any" min="0" name="payment_amount" id="sub_renew_payment" class="form-control form-control-sm fw-bold text-success border-success-subtle shadow-none" placeholder="0.00" oninput="updateRenewDetails()">
                     </div>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="col-form-label text-secondary small fw-bold">
+                        <i class="fa-solid fa-paperclip text-primary me-1"></i> Attach Receipt / Slip <span class="badge bg-light text-muted border ms-1" style="font-size: 0.65rem;">Optional</span>
+                    </label>
+                    <input type="file" name="renewal_receipt" class="form-control form-control-sm" accept="image/*,.pdf">
+                    <div class="form-text text-muted" style="font-size: 0.72rem;">Customer deposit slip, transfer screenshot, or PDF.</div>
                 </div>
             </div>
 

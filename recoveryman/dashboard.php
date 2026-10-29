@@ -266,6 +266,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $pdo->prepare("UPDATE subscribers SET package_id = ?, expiry_date = ?, status = 'active', balance = ?, last_renewed_at = NOW() WHERE id = ?")
             ->execute([$target_package_id, $new_expiry_db, $final_bal, $sub_id]);
 
+        // Handle optional renewal receipt upload
+        if (!empty($_FILES['renewal_receipt']) && isset($_FILES['renewal_receipt']['error']) && $_FILES['renewal_receipt']['error'] === UPLOAD_ERR_OK) {
+            $rm_label = 'RecoveryMan (' . ($current_user['name'] ?? $_SESSION['recoveryman_name'] ?? 'RecoveryMan') . ')';
+            handle_renewal_receipt_upload($_FILES['renewal_receipt'], $sub_id, $pdo, $rm_label);
+        }
+
         // 7. Dealer balance handling if subscriber belongs to a dealer
         $sub_dealer_id = (int)($subData['dealer_id'] ?? 0);
         if ($sub_dealer_id > 0) {
@@ -1199,7 +1205,7 @@ function formatBytes($bytes) {
         </h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
-      <form method="POST">
+      <form method="POST" enctype="multipart/form-data">
         <input type="hidden" name="action" value="receive_payment">
         <input type="hidden" name="subscriber_id" id="up_subid">
         <input type="hidden" name="subscriber_username" id="up_subuser">
@@ -1242,6 +1248,13 @@ function formatBytes($bytes) {
                         </option>
                     <?php endforeach; ?>
                 </select>
+            </div>
+            <div class="mb-3 text-start">
+                <label class="form-label fw-bold text-secondary small">
+                    <i class="fa-solid fa-paperclip text-primary me-1"></i> Attach Receipt / Screenshot <span class="badge bg-light text-muted border ms-1" style="font-size: 0.65rem;">Optional</span>
+                </label>
+                <input type="file" name="renewal_receipt" class="form-control form-control-sm" accept="image/*,.pdf">
+                <div class="form-text text-muted" style="font-size: 0.72rem;">Customer slip or transfer proof screenshot.</div>
             </div>
 
             <!-- Live Pro-Rata Preview Container -->
@@ -1316,7 +1329,7 @@ function formatBytes($bytes) {
                     </div>
                 </div>
 
-                <form method="POST">
+                <form method="POST" enctype="multipart/form-data">
                     <input type="hidden" name="action" value="receive_payment">
                     <input type="hidden" name="subscriber_id" id="m_subid">
                     <input type="hidden" name="subscriber_username" id="m_subuser">
@@ -1339,9 +1352,16 @@ function formatBytes($bytes) {
                         <div id="m_pkg_calc_preview" class="mt-2"></div>
                         <div class="form-text text-muted text-center" style="font-size: 0.75rem;"><i class="fa-solid fa-circle-info"></i> Expiry will be extended automatically based on amount vs package price.</div>
                     </div>
-                    <div class="mb-4">
+                    <div class="mb-3">
                         <label class="form-label fw-bold text-secondary small">Notes / Remarks (Optional)</label>
                         <input type="text" name="note" class="form-control bg-white" placeholder="Month of October, etc.">
+                    </div>
+                    <div class="mb-4 text-start">
+                        <label class="form-label fw-bold text-secondary small">
+                            <i class="fa-solid fa-paperclip text-primary me-1"></i> Attach Receipt / Screenshot <span class="badge bg-light text-muted border ms-1" style="font-size: 0.65rem;">Optional</span>
+                        </label>
+                        <input type="file" name="renewal_receipt" class="form-control form-control-sm" accept="image/*,.pdf">
+                        <div class="form-text text-muted" style="font-size: 0.72rem;">Customer slip or transfer proof screenshot.</div>
                     </div>
                     <button type="submit" class="btn btn-success btn-lg w-100 fw-bold shadow-sm"><i class="fa-solid fa-check-circle me-2"></i> Confirm Payment Receipt</button>
                 </form>
