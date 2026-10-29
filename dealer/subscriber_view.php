@@ -391,6 +391,8 @@ if (empty($packages)) {
     $packages = $dpStmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
+$cur_dp_price = getDealerPkgPrice($pdo, $dealer_id, (int)$user['package_id']);
+
 // ================= COMPUTE CYCLE USAGE & ACCOUNTING (IDENTICAL TO OPERATOR) =================
 $last_ren_stmt = $pdo->prepare("SELECT created_at FROM activity_logs WHERE client_id = ? AND against_to = ? AND (activity LIKE '%Renew%' OR activity LIKE '%Extended Expiry%') ORDER BY id DESC LIMIT 1");
 $last_ren_stmt->execute([$client_id, $user['username']]);
@@ -725,7 +727,7 @@ if ($is_disabled) {
                 <!-- Modals Triggers Allowed for Dealer -->
                 <button type="button" class="btn-pill" data-bs-toggle="modal" data-bs-target="#paymentModal"><i class="fa-brands fa-paypal"></i> Payment</button>
                 <button type="button" class="btn-pill" data-bs-toggle="modal" data-bs-target="#renewModal"><i class="fa-solid fa-rotate"></i> Renew</button>
-                <a href="print_receipt.php?sub_id=<?= $id ?>&return=<?= urlencode('subscriber_view.php?id=' . $id) ?>" target="_blank" class="btn-pill text-primary fw-bold"><i class="fa-solid fa-receipt text-primary"></i> Print Receipt</a>
+                <a href="print_receipt.php?sub_id=<?= $id ?>&paid=<?= $cur_dp_price ?>&type=renew&return=<?= urlencode('subscriber_view.php?id=' . $id) ?>" target="_blank" class="btn-pill text-primary fw-bold"><i class="fa-solid fa-receipt text-primary"></i> Print Receipt</a>
                 <button type="button" class="btn-pill" onclick="alert('User Password: <?= htmlspecialchars($user['password']) ?>')"><i class="fa-solid fa-lock"></i> Toggle Password</button>
                 
                 <form method="POST" enctype="multipart/form-data" id="photoForm" style="display:none;">
@@ -1048,7 +1050,7 @@ if ($is_disabled) {
                                                 </td>
                                                 <td class="fw-bold">Rs <?= number_format($l['balance_after'], 0) ?></td>
                                                 <td class="text-end">
-                                                    <a href="print_receipt.php?ledger_id=<?= $l['id'] ?>&sub_id=<?= $id ?>&return=<?= urlencode('subscriber_view.php?id=' . $id) ?>" target="_blank" class="btn btn-sm btn-outline-primary rounded-pill px-3 py-1 fw-bold" style="font-size: 0.78rem;">
+                                                    <a href="print_receipt.php?ledger_id=<?= $l['id'] ?>&sub_id=<?= $id ?>&paid=<?= (float)$l['amount'] ?>&return=<?= urlencode('subscriber_view.php?id=' . $id) ?>" target="_blank" class="btn btn-sm btn-outline-primary rounded-pill px-3 py-1 fw-bold" style="font-size: 0.78rem;">
                                                         <i class="fa-solid fa-print me-1"></i> Receipt
                                                     </a>
                                                 </td>
@@ -1241,7 +1243,7 @@ if ($is_disabled) {
                             <div class="col-md-5">
                                 <div class="input-group">
                                     <span class="input-group-text bg-white fw-bold text-success border-success-subtle">Rs.</span>
-                                    <input type="number" step="any" min="0" name="payment_amount" id="renew_payment_amount" class="form-control form-control-lg fw-bold text-success border-success-subtle shadow-none" placeholder="0.00" value="<?= (float)($user['pkg_price'] ?? 0) ?>" oninput="recalculateRenewAdjustment()">
+                                    <input type="number" step="any" min="0" name="payment_amount" id="renew_payment_amount" class="form-control form-control-lg fw-bold text-success border-success-subtle shadow-none" placeholder="0.00" value="<?= (float)$cur_dp_price ?>" oninput="this.dataset.userEdited='true'; recalculateRenewAdjustment();">
                                 </div>
                             </div>
                         </div>
@@ -1758,6 +1760,9 @@ function recalculateRenewAdjustment() {
         }
     }
 
+    if (payInput && (!payInput.dataset.userEdited || payInput.dataset.userEdited === 'false')) {
+        payInput.value = newPrice;
+    }
     let paymentVal = payInput ? parseFloat(payInput.value || 0) : 0;
     if (isNaN(paymentVal) || paymentVal < 0) paymentVal = 0;
 

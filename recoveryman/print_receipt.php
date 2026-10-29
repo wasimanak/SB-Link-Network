@@ -87,7 +87,12 @@ if ($ledger_id > 0) {
                 if ($cRow) {
                     $paid_amount = (float)$cRow['amount'];
                 } else {
-                    $paid_amount = 0; // Unpaid renewal on credit
+                    // Check if renewed via Customer Balance or Dealer Wallet
+                    if (stripos($ledger_entry['description'], 'Customer Balance') !== false || stripos($ledger_entry['description'], 'Dealer Wallet') !== false) {
+                        $paid_amount = (float)$ledger_entry['amount'];
+                    } else {
+                        $paid_amount = 0; // Unpaid renewal on credit
+                    }
                 }
             } else {
                 $paid_amount = (float)$ledger_entry['amount'];
@@ -333,15 +338,37 @@ $invoice_number = "INV-" . str_pad($invoice_id, 6, "0", STR_PAD_LEFT);
 $package_price = (float)($sub['package_price'] ?? 0);
 
 // If subscriber belongs to a dealer or viewing in dealer session, use dealer package price
-$sub_dealer_id = (int)($sub['dealer_id'] ?? ($_SESSION['dealer_id'] ?? 0));
+$is_dealer_context = !empty($_SESSION['dealer_id']) 
+    || (isset($_SERVER['REQUEST_URI']) && strpos($_SERVER['REQUEST_URI'], '/dealer/') !== false)
+    || (!empty($sub['dealer_id']) && (int)$sub['dealer_id'] > 0);
+
+$sub_dealer_id = !empty($sub['dealer_id']) ? (int)$sub['dealer_id'] : (int)($_SESSION['dealer_id'] ?? 0);
+if ($sub_dealer_id <= 0 && $is_dealer_context && !empty($sub_id)) {
+    try {
+        $dStmt = $pdo->prepare("SELECT dealer_id FROM subscribers WHERE id = ?");
+        $dStmt->execute([$sub_id]);
+        $sub_dealer_id = (int)$dStmt->fetchColumn();
+    } catch (Exception $e) {}
+}
+
 $sub_pkg_id = (int)($sub['package_id'] ?? 0);
+if ($sub_pkg_id <= 0 && !empty($sub['package_name'])) {
+    try {
+        $pStmt = $pdo->prepare("SELECT id FROM packages WHERE name = ? LIMIT 1");
+        $pStmt->execute([$sub['package_name']]);
+        $sub_pkg_id = (int)$pStmt->fetchColumn();
+    } catch (Exception $e) {}
+}
+
+$dealer_pkg_rate = 0;
 if ($sub_dealer_id > 0 && $sub_pkg_id > 0) {
     try {
         $dpStmt = $pdo->prepare("SELECT dealer_price FROM dealer_packages WHERE dealer_id = ? AND package_id = ?");
         $dpStmt->execute([$sub_dealer_id, $sub_pkg_id]);
         $dpPrice = $dpStmt->fetchColumn();
         if ($dpPrice !== false && $dpPrice !== null && (float)$dpPrice > 0) {
-            $package_price = (float)$dpPrice;
+            $dealer_pkg_rate = (float)$dpPrice;
+            $package_price = $dealer_pkg_rate;
         }
     } catch (Exception $e) {}
 }
@@ -371,6 +398,21 @@ if (isset($_GET['paid'])) {
             }
         }
     } catch (Exception $e) {}
+}
+
+// CRITICAL FOR DEALER:
+// If subscriber belongs to a dealer or viewing in dealer portal:
+if ($sub_dealer_id > 0 && $package_price > 0) {
+    if (!isset($_GET['paid']) && $ledger_id <= 0) {
+        if (!$is_user_expired) {
+            $paid_amount = $package_price;
+        }
+    } elseif (!isset($_GET['paid']) && $paid_amount > 0 && !empty($sub['package_price']) && abs($paid_amount - (float)$sub['package_price']) < 0.01) {
+        $paid_amount = $package_price;
+    }
+    if ($type !== 'renew' && !$is_user_expired) {
+        $type = 'renew';
+    }
 }
 
 // Final guarantee: If user is expired / new unrenewed and no payment was passed, paid amount MUST be 0!
@@ -1066,7 +1108,7 @@ $wa_text_encoded = urlencode($wa_text);
 
             <!-- Payment Breakdown -->
             <div class="section-tag">PAYMENT SUMMARY</div>
-            <?php if($type === 'renew' && $package_price > 0): ?>
+            <?php if(($type === 'renew' || $sub_dealer_id > 0) && $package_price > 0): ?>
             <div class="receipt-row">
                 <span class="label">Plan Monthly Rate:</span>
                 <span class="val">Rs. <?= number_format($package_price, 0) ?></span>
@@ -1778,7 +1820,7 @@ $wa_text_encoded = urlencode($wa_text);
             bytes.push(0x1B, 0x45, 0x01);
             pushStr("PAYMENT SUMMARY\n");
             bytes.push(0x1B, 0x45, 0x00);
-            <?php if($type === 'renew' && $package_price > 0): ?>
+            <?php if(($type === 'renew' || $sub_dealer_id > 0) && $package_price > 0): ?>
             pushStr(padLine("Plan Monthly Rate:", <?= json_encode('Rs. ' . number_format($package_price, 0)) ?>));
             <?php endif; ?>
             pushStr(padLine("Payment Mode:", "Cash Collection"));
