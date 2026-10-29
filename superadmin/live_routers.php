@@ -380,21 +380,26 @@ $total_subs_count = (int)$pdo->query("SELECT COUNT(*) FROM subscribers WHERE sta
     <div class="accordion" id="routersAccordion">
         <?php foreach ($routers as $index => $router): 
             $nas_ip = $router['nasname'];
-            $onlineStmt = $pdo->prepare("SELECT r.*, s.full_name, s.package_id, s.status, p.name as package_name,
-                                         (SELECT COUNT(*) FROM radpostauth rp WHERE rp.username = r.username AND rp.reply = 'Access-Accept' AND rp.authdate >= r.acctstarttime - INTERVAL 1 HOUR AND rp.authdate <= r.acctstarttime + INTERVAL 1 HOUR LIMIT 1) as auth_by_us
+            $onlineStmt = $pdo->prepare("SELECT r.*, s.full_name, s.package_id, s.status, p.name as package_name
                                          FROM radacct r 
                                          JOIN subscribers s ON r.username = s.username 
                                          LEFT JOIN packages p ON s.package_id = p.id
-                                         INNER JOIN (
-                                             SELECT username, MAX(radacctid) as max_id 
-                                             FROM radacct 
-                                             WHERE nasipaddress = ? AND (acctstoptime IS NULL OR acctstoptime = '' OR acctstoptime = '0') 
-                                             GROUP BY username
-                                         ) as latest ON r.radacctid = latest.max_id
-                                         WHERE s.status != 'disabled'
-                                         ORDER BY r.acctstarttime DESC");
+                                         WHERE r.nasipaddress = ? 
+                                           AND (r.acctstoptime IS NULL OR r.acctstoptime = '' OR r.acctstoptime = '0' OR r.acctstoptime = '0000-00-00 00:00:00')
+                                           AND s.status != 'disabled'
+                                         ORDER BY r.radacctid DESC");
             $onlineStmt->execute([$nas_ip]);
-            $online_users = $onlineStmt->fetchAll();
+            $raw_users = $onlineStmt->fetchAll();
+            $online_users = [];
+            $seen = [];
+            foreach ($raw_users as $u) {
+                $uname = strtolower(trim($u['username']));
+                if (!isset($seen[$uname])) {
+                    $seen[$uname] = true;
+                    $u['auth_by_us'] = 1;
+                    $online_users[] = $u;
+                }
+            }
             $online_count = count($online_users);
         ?>
         <div class="router-accordion-item">

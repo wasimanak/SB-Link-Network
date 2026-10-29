@@ -50,29 +50,6 @@ require_once 'header.php';
 $client_id = (int)$_SESSION['operator_id'];
 require_once __DIR__ . '/../config/mikrotik_sync_helper.php';
 
-// Self-heal: Reopen any subscriber sessions that were falsely closed by ghost cleaners, Lost-Carrier, or Admin-Reset
-try {
-    $pdo->prepare("
-        UPDATE radacct r
-        JOIN (
-            SELECT LOWER(TRIM(username)) as lu, MAX(radacctid) as max_id
-            FROM radacct
-            WHERE (acctterminatecause IN ('Admin-Reset-Ghost', 'Lost-Carrier', 'Ghost-Cleared', 'Admin-Reset', '') OR acctterminatecause IS NULL)
-              AND acctstoptime IS NOT NULL
-              AND acctstoptime >= NOW() - INTERVAL 60 DAY
-            GROUP BY LOWER(TRIM(username))
-        ) latest ON LOWER(TRIM(r.username)) = latest.lu AND r.radacctid = latest.max_id
-        JOIN subscribers s ON LOWER(TRIM(r.username)) = LOWER(TRIM(s.username))
-        SET r.acctstoptime = NULL, r.acctterminatecause = ''
-        WHERE s.status != 'disabled'
-          AND s.client_id = ?
-          AND NOT EXISTS (
-              SELECT 1 FROM radacct r2 
-              WHERE LOWER(TRIM(r2.username)) = latest.lu 
-                AND (r2.acctstoptime IS NULL OR r2.acctstoptime = '' OR r2.acctstoptime = '0' OR r2.acctstoptime = '0000-00-00 00:00:00')
-          )
-    ")->execute([$client_id]);
-} catch (Exception $e) {}
 
 // MikroTik sync only executes when explicitly triggered (?sync=1 or button clicked)
 $sync_feedback = null;
@@ -83,7 +60,7 @@ if (isset($_GET['sync'])) {
 // 3. Auto-Sync & Block Expired Users (runs once every 30 seconds)
 if (!isset($_SESSION['last_expiry_sync']) || (time() - $_SESSION['last_expiry_sync']) > 30) {
     require_once __DIR__ . '/../config/radius_kick_helper.php';
-    sync_expired_subscribers($pdo, $client_id, true);
+    sync_expired_subscribers($pdo, $client_id, false); // Fast DB-only sync, NEVER block on network sockets
     $_SESSION['last_expiry_sync'] = time();
 }
 
@@ -115,32 +92,25 @@ try {
                    s.full_name, 
                    s.mobile 
             FROM radacct r 
-            INNER JOIN (
-                SELECT username, MAX(radacctid) as max_id 
-                FROM radacct 
-                WHERE (acctstoptime IS NULL OR acctstoptime = '' OR acctstoptime = '0' OR acctstoptime = '0000-00-00 00:00:00')
-                GROUP BY username
-            ) as latest ON r.radacctid = latest.max_id
-            JOIN subscribers s ON LOWER(TRIM(r.username)) = LOWER(TRIM(s.username))
+            JOIN subscribers s ON r.username = s.username
             LEFT JOIN packages p ON s.package_id = p.id
-            WHERE s.client_id = ?
-            ORDER BY r.acctstarttime DESC";
+            WHERE (r.acctstoptime IS NULL OR r.acctstoptime = '' OR r.acctstoptime = '0' OR r.acctstoptime = '0000-00-00 00:00:00')
+              AND s.client_id = ?
+            ORDER BY r.radacctid DESC";
     $stmt = $pdo->prepare($sql);
     $stmt->execute([$client_id]);
-    $all_sessions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $raw_sessions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $all_sessions = [];
+    $seen_users = [];
+    foreach ($raw_sessions as $sess) {
+        $u = strtolower(trim($sess['username']));
+        if (!isset($seen_users[$u])) {
+            $seen_users[$u] = true;
+            $all_sessions[] = $sess;
+        }
+    }
 } catch (Exception $e) {
-    try {
-        $fbSql = "SELECT r.*, s.id as subscriber_id, s.package_id, p.name as package_name, s.expiry_date, s.status as sub_status, s.full_name, s.mobile 
-                  FROM radacct r 
-                  JOIN subscribers s ON r.username = s.username 
-                  LEFT JOIN packages p ON s.package_id = p.id
-                  WHERE (r.acctstoptime IS NULL OR r.acctstoptime = '' OR r.acctstoptime = '0') 
-                    AND s.client_id = ?
-                  ORDER BY r.acctstarttime DESC";
-        $fbStmt = $pdo->prepare($fbSql);
-        $fbStmt->execute([$client_id]);
-        $all_sessions = $fbStmt->fetchAll(PDO::FETCH_ASSOC);
-    } catch (Exception $e2) {}
+    $all_sessions = [];
 }
 
 // Safe radpostauth lookup in PHP to avoid MySQL illegal mix of collations!

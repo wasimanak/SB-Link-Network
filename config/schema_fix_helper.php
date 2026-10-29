@@ -271,26 +271,30 @@ function fix_and_repair_schema($pdo) {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
     } catch (Exception $e) {}
 
-    // 12. Fix server_public_ip in global_settings to current VPS IP!
+    // 12. Fix server_public_ip in global_settings if detected
     try {
-        $vpsIp = '187.126.127.237';
-        $pdo->exec("INSERT INTO `global_settings` (`setting_key`, `setting_value`) VALUES ('server_public_ip', '{$vpsIp}') ON DUPLICATE KEY UPDATE `setting_value` = '{$vpsIp}'");
-        $pdo->exec("INSERT INTO `global_settings` (`setting_key`, `setting_value`) VALUES ('sys_schema_ver', '6') ON DUPLICATE KEY UPDATE `setting_value` = '6'");
-        $report[] = "Server public IP updated to {$vpsIp} & schema version set to 6";
+        $detected_ip = $_SERVER['SERVER_ADDR'] ?? (isset($_SERVER['HTTP_HOST']) ? explode(':', $_SERVER['HTTP_HOST'])[0] : '');
+        if (!empty($detected_ip) && !in_array($detected_ip, ['127.0.0.1', '::1', 'localhost'])) {
+            $stmt = $pdo->prepare("INSERT INTO `global_settings` (`setting_key`, `setting_value`) VALUES ('server_public_ip', ?) ON DUPLICATE KEY UPDATE `setting_value` = ?");
+            $stmt->execute([$detected_ip, $detected_ip]);
+            $report[] = "Server public IP updated to {$detected_ip}";
+        }
     } catch (Exception $e) {}
 
-    // 13. Ensure high-speed RADIUS indexes
+    // 13. Ensure high-speed RADIUS & Query indexes
     try {
         add_index_if_missing($pdo, 'radpostauth', 'authdate_idx', '`authdate`');
+        add_index_if_missing($pdo, 'radpostauth', 'idx_rp_username', '`username`');
         add_index_if_missing($pdo, 'radacct', 'acctstoptime_idx', '`acctstoptime`');
         add_index_if_missing($pdo, 'radacct', 'acctstarttime_idx', '`acctstarttime`');
         add_index_if_missing($pdo, 'radacct', 'acct_active_idx', '`acctstoptime`, `username`');
+        add_index_if_missing($pdo, 'radacct', 'idx_radacct_u_stop', '`username`, `acctstoptime`');
+        add_index_if_missing($pdo, 'radacct', 'idx_radacct_nas_stop', '`nasipaddress`, `acctstoptime`');
+        add_index_if_missing($pdo, 'subscribers', 'idx_sub_client_exp', '`client_id`, `expiry_date`');
+        add_index_if_missing($pdo, 'subscribers', 'idx_sub_client_status', '`client_id`, `status`');
+        add_column_if_missing($pdo, 'subscribers', 'last_renewed_at', 'DATETIME DEFAULT NULL');
         $report[] = "RADIUS performance indexes verified";
     } catch (Exception $e) {}
-
-    // 14. Restart FreeRADIUS
-    @shell_exec("sudo systemctl restart freeradius 2>&1 || sudo service freeradius restart 2>&1");
-    $report[] = "FreeRADIUS service synchronized";
 
     return $report;
 }
