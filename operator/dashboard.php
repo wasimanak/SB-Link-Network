@@ -1773,7 +1773,7 @@ $renewPackages = $pdo->query("SELECT id, name, price, validity_days FROM package
         <h5 class="modal-title fw-bold"><i class="fa-solid fa-bolt text-warning me-2"></i> Activate / Renew User</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
-      <form action="renew_user_action.php" method="POST">
+      <form action="renew_user_action.php" method="POST" onsubmit="var btn=this.querySelector('button[type=submit]'); if(this.submitted){return false;} this.submitted=true; if(btn){btn.disabled=true; btn.innerHTML='<i class=\'fa-solid fa-spinner fa-spin me-2\'></i> Processing Renewal... Please wait...';} return true;">
         <div class="modal-body p-4 pt-2">
             <div class="row">
                 <div class="col-md-6 mb-3">

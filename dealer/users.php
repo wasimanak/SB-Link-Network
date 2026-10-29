@@ -172,6 +172,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // RENEW USER (Standard 1 Month Renewal of Current Package)
     if ($action === 'renew_user') {
         $id = (int)$_POST['id'];
+
+        $cd = check_renewal_cooldown($pdo, $id, 600);
+        if (!$cd['allowed']) {
+            $rem_mins = $cd['remaining_minutes'];
+            echo "<script>alert('Duplicate Renewal Blocked!\\n\\nIs customer ka package abhi renew ho chuka hai.\\nDubara renew karne k liye {$rem_mins} minute intezar karein.'); window.location='users.php';</script>";
+            exit;
+        }
         $package_id = isset($_POST['package_id']) ? (int)$_POST['package_id'] : 0;
         $expiry_date = $_POST['expiry_date'] ?? null;
         
@@ -230,7 +237,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $new_expiry_str = date('Y-m-d H:i:s', $new_expiry_time);
                     $status = ($new_expiry_time > $now) ? 'active' : 'expired';
 
-                    $pdo->prepare("UPDATE subscribers SET package_id = ?, expiry_date = ?, status = ? WHERE id = ?")
+                    $pdo->prepare("UPDATE subscribers SET package_id = ?, expiry_date = ?, status = ?, last_renewed_at = NOW() WHERE id = ?")
                         ->execute([$target_pkg_id, $new_expiry_str, $status, $id]);
                     
                     // User Ledger entry (archive for 2 years)
@@ -1085,7 +1092,7 @@ $subs = $stmt->fetchAll(PDO::FETCH_ASSOC);
         <h5 class="modal-title fw-bold"><i class="fa-solid fa-rotate me-2"></i> Renew Subscriber Package</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
-      <form method="POST">
+      <form method="POST" onsubmit="var btn=this.querySelector('button[type=submit]'); if(this.submitted){return false;} this.submitted=true; if(btn){btn.disabled=true; btn.innerHTML='<i class=\'fa-solid fa-spinner fa-spin me-2\'></i> Processing Renewal... Please wait...';} return true;">
         <input type="hidden" name="action" value="renew_user">
         <input type="hidden" name="id" id="renew_user_id">
         <input type="hidden" name="package_id" id="renew_pkg_id">

@@ -24,6 +24,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             die("<script>alert('User not found!'); window.location='dashboard.php';</script>");
         }
         
+        $cd = check_renewal_cooldown($pdo, $user_id, 600);
+        if (!$cd['allowed']) {
+            $rem_mins = $cd['remaining_minutes'];
+            $rem_secs = $cd['remaining_seconds'];
+            echo "<!DOCTYPE html>
+<html>
+<head>
+    <meta charset='UTF-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+    <title>Duplicate Renewal Blocked</title>
+    <link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css' rel='stylesheet'>
+    <link rel='stylesheet' href='https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css'>
+</head>
+<body class='bg-light d-flex align-items-center justify-content-center' style='min-height: 100vh;'>
+    <div class='card border-0 shadow-sm rounded-4 p-4 text-center' style='max-width: 480px; width: 92%;'>
+        <div class='text-warning mb-3' style='font-size: 3.5rem;'><i class='fa-solid fa-clock-rotate-left'></i></div>
+        <h4 class='fw-bold text-dark mb-2'>Duplicate Renewal Blocked!</h4>
+        <div class='alert alert-warning text-dark border-0 rounded-3 text-start small mb-3'>
+            <strong>⚠️ Is user ka package abhi renew ho chuka hai!</strong><br>
+            Network slow hony ya multi-click ki waja se double package renewal se bachne k liye agle <strong>{$rem_mins} minute ({$rem_secs}s)</strong> tak dubara renew nahi kiya ja sakta.
+        </div>
+        <a href='{$redirect_url}' class='btn btn-primary fw-bold px-4 py-2 rounded-pill shadow-sm'>
+            <i class='fa-solid fa-arrow-left me-1'></i> Wapis Jayein
+        </a>
+    </div>
+    <script>
+        alert('Duplicate Renewal Blocked!\\n\\nIs user ka package abhi renew ho chuka hai.\\nDubara renew karne k liye {$rem_mins} minute intezar karein taake double deduction na ho.');
+        window.location.href = '{$redirect_url}';
+    </script>
+</body>
+</html>";
+            exit;
+        }
+
         $u = $uData['username'];
         $current_expiry = strtotime($uData['expiry_date'] ?? '1970-01-01');
         $now = time();

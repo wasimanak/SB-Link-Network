@@ -86,3 +86,44 @@ try {
         die("Database connection error. Please contact system administrator.");
     }
 }
+
+/**
+ * Global 10-Minute Cooldown Guard for Package Renewal
+ * Protects against duplicate renewals & accidental double/triple charges caused by slow network or rapid clicks.
+ * Applies across all roles: SuperAdmin, Admin, Operator, Manager, Dealer, and RecoveryMan.
+ * 
+ * @param PDO $pdo
+ * @param int $subscriber_id
+ * @param int $cooldown_seconds (Default 600 = 10 minutes)
+ * @return array ['allowed' => bool, 'remaining_seconds' => int, 'remaining_minutes' => int, 'last_renewed_at' => string|null]
+ */
+if (!function_exists('check_renewal_cooldown')) {
+function check_renewal_cooldown($pdo, $subscriber_id, $cooldown_seconds = 600) {
+    if (!$pdo || empty($subscriber_id)) {
+        return ['allowed' => true, 'remaining_seconds' => 0, 'remaining_minutes' => 0, 'last_renewed_at' => null];
+    }
+
+    try {
+        $stmt = $pdo->prepare("SELECT last_renewed_at FROM subscribers WHERE id = ?");
+        $stmt->execute([(int)$subscriber_id]);
+        $last_renewed_at = $stmt->fetchColumn();
+
+        if (!empty($last_renewed_at) && $last_renewed_at !== '0000-00-00 00:00:00') {
+            $last_ts = strtotime($last_renewed_at);
+            $diff = time() - $last_ts;
+            if ($diff >= 0 && $diff < $cooldown_seconds) {
+                $rem_sec = $cooldown_seconds - $diff;
+                $rem_min = ceil($rem_sec / 60);
+                return [
+                    'allowed' => false,
+                    'remaining_seconds' => $rem_sec,
+                    'remaining_minutes' => $rem_min,
+                    'last_renewed_at' => $last_renewed_at
+                ];
+            }
+        }
+    } catch (Exception $e) {}
+
+    return ['allowed' => true, 'remaining_seconds' => 0, 'remaining_minutes' => 0, 'last_renewed_at' => null];
+}
+}

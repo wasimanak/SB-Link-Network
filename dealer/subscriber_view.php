@@ -136,6 +136,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // 2. RENEW USER
     if ($action === 'renew_user') {
+        $cd = check_renewal_cooldown($pdo, $id, 600);
+        if (!$cd['allowed']) {
+            $rem_mins = $cd['remaining_minutes'];
+            echo "<script>alert('Duplicate Renewal Blocked!\\n\\nIs customer ka package abhi renew ho chuka hai.\\nDubara renew karne k liye {$rem_mins} minute intezar karein.'); window.location='subscriber_view.php?id=$id';</script>";
+            exit;
+        }
+
         $package_id = isset($_POST['package_id']) ? (int)$_POST['package_id'] : 0;
         $expiry_date = $_POST['expiry_date'] ?? null;
         $payment_amount = isset($_POST['payment_amount']) ? (float)$_POST['payment_amount'] : 0;
@@ -1110,7 +1117,7 @@ if ($is_disabled) {
         </h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
-      <form method="POST">
+      <form method="POST" onsubmit="var btn=this.querySelector('button[type=submit]'); if(this.submitted){return false;} this.submitted=true; if(btn){btn.disabled=true; btn.innerHTML='<i class=\'fa-solid fa-spinner fa-spin me-2\'></i> Processing Renewal... Please wait...';} return true;">
         <input type="hidden" name="action" value="renew_user">
         <div class="modal-body p-4">
 

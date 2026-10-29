@@ -94,6 +94,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // 2. RENEW USER
     if ($action === 'renew_user') {
         $id = (int)($_POST['id'] ?? 0);
+
+        $cd = check_renewal_cooldown($pdo, $id, 600);
+        if (!$cd['allowed']) {
+            $rem_mins = $cd['remaining_minutes'];
+            echo "<script>alert('Duplicate Renewal Blocked!\\n\\nIs customer ka package abhi renew ho chuka hai.\\nDubara renew karne k liye {$rem_mins} minute intezar karein.'); window.location='dashboard.php#reportsSection';</script>";
+            exit;
+        }
         $package_id = isset($_POST['package_id']) ? (int)$_POST['package_id'] : 0;
         $expiry_date = $_POST['expiry_date'] ?? null;
 
@@ -539,7 +546,7 @@ $dealer_activities = $alogsStmt->fetchAll(PDO::FETCH_ASSOC);
         <h5 class="modal-title fw-bold"><i class="fa-solid fa-money-bill-wave me-2"></i> Add Payment to Customer</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
-      <form method="POST">
+      <form method="POST" onsubmit="var btn=this.querySelector('button[type=submit]'); if(this.submitted){return false;} this.submitted=true; if(btn){btn.disabled=true; btn.innerHTML='<i class=\'fa-solid fa-spinner fa-spin me-2\'></i> Processing Renewal... Please wait...';} return true;">
         <input type="hidden" name="action" value="add_payment">
         <input type="hidden" name="sub_id" id="pay_sub_id">
         <div class="modal-body p-4 bg-light">
@@ -591,7 +598,7 @@ $dealer_activities = $alogsStmt->fetchAll(PDO::FETCH_ASSOC);
         <h5 class="modal-title fw-bold"><i class="fa-solid fa-rotate me-2"></i> Renew Subscriber Package</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
-      <form method="POST">
+      <form method="POST" onsubmit="var btn=this.querySelector('button[type=submit]'); if(this.submitted){return false;} this.submitted=true; if(btn){btn.disabled=true; btn.innerHTML='<i class=\'fa-solid fa-spinner fa-spin me-2\'></i> Processing Renewal... Please wait...';} return true;">
         <input type="hidden" name="action" value="renew_user">
         <input type="hidden" name="id" id="renew_user_id">
         <div class="modal-body p-4 bg-light">
