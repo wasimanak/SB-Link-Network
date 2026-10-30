@@ -21,6 +21,55 @@ try {
     }
 } catch (Exception $e) {}
 
+if (!function_exists('handle_renewal_receipt_upload')) {
+    function handle_renewal_receipt_upload($file_array, $subscriber_id, $pdo = null, $uploaded_by = 'Admin') {
+        if (empty($file_array) || !isset($file_array['error']) || $file_array['error'] !== UPLOAD_ERR_OK || empty($file_array['tmp_name'])) {
+            return null;
+        }
+        $allowed_exts = ['jpg', 'jpeg', 'png', 'webp', 'pdf'];
+        $filename = $file_array['name'] ?? '';
+        $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+        if (!in_array($ext, $allowed_exts)) {
+            return null;
+        }
+        $sub_id = (int)$subscriber_id;
+        $new_filename = 'receipt_sub_' . $sub_id . '_' . time() . '_' . substr(md5(uniqid((string)mt_rand(), true)), 0, 6) . '.' . $ext;
+        $targetDir = dirname(__DIR__) . '/uploads/renewal_receipts';
+        $relPrefix = 'uploads/renewal_receipts/';
+        if (!is_dir($targetDir)) {
+            @mkdir($targetDir, 0777, true);
+        }
+        @chmod($targetDir, 0777);
+        if (!is_writable($targetDir)) {
+            $fallbackProfiles = dirname(__DIR__) . '/uploads/profiles';
+            if (is_dir($fallbackProfiles) && is_writable($fallbackProfiles)) {
+                $targetDir = $fallbackProfiles;
+                $relPrefix = 'uploads/profiles/';
+            } else {
+                $targetDir = dirname(__DIR__) . '/uploads';
+                $relPrefix = 'uploads/';
+            }
+        }
+        $dest = $targetDir . '/' . $new_filename;
+        if (@move_uploaded_file($file_array['tmp_name'], $dest)) {
+            @chmod($dest, 0666);
+            $rel_path = $relPrefix . $new_filename;
+            if ($pdo && $sub_id > 0) {
+                try {
+                    $colChk = $pdo->query("SHOW COLUMNS FROM `subscribers` LIKE 'last_renewal_receipt'")->fetch();
+                    if (!$colChk) {
+                        $pdo->exec("ALTER TABLE `subscribers` ADD COLUMN `last_renewal_receipt` VARCHAR(255) DEFAULT NULL, ADD COLUMN `last_renewal_receipt_at` DATETIME DEFAULT NULL, ADD COLUMN `last_renewal_receipt_by` VARCHAR(100) DEFAULT NULL");
+                    }
+                    $stmt = $pdo->prepare("UPDATE subscribers SET last_renewal_receipt = ?, last_renewal_receipt_at = NOW(), last_renewal_receipt_by = ? WHERE id = ?");
+                    $stmt->execute([$rel_path, $uploaded_by, $sub_id]);
+                } catch (Exception $e) {}
+            }
+            return $rel_path;
+        }
+        return null;
+    }
+}
+
 function kick_user_mikrotik($pdo, $client_id, $username) {
     $stmt = $pdo->prepare("SELECT * FROM nas WHERE client_id = ? LIMIT 1");
     $stmt->execute([$client_id]);
@@ -897,6 +946,73 @@ if (!$user) {
     exit;
 }
 
+// Auto-Discovery: If subscriber has no receipt linked or file path is missing, search disk for any uploaded receipt
+$base_dir = dirname(__DIR__);
+$search_receipt_dirs = [
+    $base_dir . '/uploads/renewal_receipts',
+    $base_dir . '/uploads/profiles',
+    $base_dir . '/uploads'
+];
+
+if (empty($user['last_renewal_receipt'])) {
+    foreach ($search_receipt_dirs as $sdir) {
+        if (is_dir($sdir)) {
+            $patterns = [
+                $sdir . '/receipt_sub_' . $id . '_*.*',
+                $sdir . '/*receipt*' . $id . '*.*',
+                $sdir . '/*sub_' . $id . '*.*'
+            ];
+            $matched = [];
+            foreach ($patterns as $pattern) {
+                $f = glob($pattern);
+                if (!empty($f)) {
+                    $matched = array_merge($matched, $f);
+                }
+            }
+            if (!empty($matched)) {
+                $matched = array_unique($matched);
+                $matched = array_filter($matched, function($file) {
+                    $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+                    return in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'pdf']);
+                });
+                if (!empty($matched)) {
+                    usort($matched, function($a, $b) { return filemtime($b) - filemtime($a); });
+                    $best_file = reset($matched);
+                    $rel_path = str_replace('\\', '/', substr($best_file, strlen($base_dir) + 1));
+                    $rcpt_time = date('Y-m-d H:i:s', filemtime($best_file));
+                    $rcpt_by = 'Attached Receipt';
+
+                    $user['last_renewal_receipt'] = $rel_path;
+                    $user['last_renewal_receipt_at'] = $rcpt_time;
+                    $user['last_renewal_receipt_by'] = $rcpt_by;
+
+                    try {
+                        $pdo->prepare("UPDATE subscribers SET last_renewal_receipt = ?, last_renewal_receipt_at = ?, last_renewal_receipt_by = ? WHERE id = ?")
+                            ->execute([$rel_path, $rcpt_time, $rcpt_by, $id]);
+                    } catch (Exception $e) {}
+                    break;
+                }
+            }
+        }
+    }
+} else {
+    // If DB has path, verify file exists on disk, otherwise look in fallback directories
+    $clean_rel = ltrim(str_replace('\\', '/', $user['last_renewal_receipt']), '/');
+    if (!file_exists($base_dir . '/' . $clean_rel)) {
+        $fname = basename($clean_rel);
+        foreach ($search_receipt_dirs as $sdir) {
+            if (file_exists($sdir . '/' . $fname)) {
+                $new_rel = str_replace('\\', '/', substr($sdir . '/' . $fname, strlen($base_dir) + 1));
+                $user['last_renewal_receipt'] = $new_rel;
+                try {
+                    $pdo->prepare("UPDATE subscribers SET last_renewal_receipt = ? WHERE id = ?")->execute([$new_rel, $id]);
+                } catch (Exception $e) {}
+                break;
+            }
+        }
+    }
+}
+
 // Fetch packages for renew modal
 $pkgStmt = $pdo->prepare("SELECT * FROM packages WHERE client_id = ?");
 $pkgStmt->execute([$client_id]);
@@ -1348,9 +1464,7 @@ if ($last_debit) {
                         <?php endif; ?>
                     </div>
                     <div>
-                        <button type="button" class="btn btn-xs btn-outline-primary rounded-pill px-2.5 py-0.5 fw-bold" style="font-size: 0.72rem;" data-bs-toggle="modal" data-bs-target="#renewalReceiptModal">
-                            <i class="fa-solid fa-eye me-1"></i> <?= !empty($user['last_renewal_receipt']) ? 'View' : 'Upload' ?>
-                        </button>
+                        <button type="button" class="btn btn-xs btn-outline-primary rounded-pill px-2.5 py-0.5 fw-bold" style="font-size: 0.72rem;" data-bs-toggle="modal" data-bs-target="#renewalReceiptModal"><i class="fa-solid fa-eye me-1"></i> View Receipt</button>
                     </div>
                 </li>
             </ul>
@@ -1389,10 +1503,7 @@ if ($last_debit) {
                 <button type="button" class="btn-pill" data-bs-toggle="modal" data-bs-target="#paymentModal"><i class="fa-brands fa-paypal"></i> Payment</button>
                 <button type="button" class="btn-pill" data-bs-toggle="modal" data-bs-target="#renewModal"><i class="fa-solid fa-rotate"></i> Renew</button>
                 <a href="print_receipt.php?sub_id=<?= $id ?>&return=<?= urlencode('subscriber_view.php?id=' . $id) ?>" target="_blank" class="btn-pill text-primary fw-bold"><i class="fa-solid fa-receipt text-primary"></i> Print Receipt</a>
-                <button type="button" class="btn-pill <?= !empty($user['last_renewal_receipt']) ? 'text-primary fw-bold' : '' ?>" data-bs-toggle="modal" data-bs-target="#renewalReceiptModal">
-                    <i class="fa-solid fa-file-invoice-dollar <?= !empty($user['last_renewal_receipt']) ? 'text-success' : 'text-primary' ?>"></i> 
-                    Renewal Receipt <?= !empty($user['last_renewal_receipt']) ? '<span class="badge bg-success ms-1" style="font-size: 0.62rem;">Attached</span>' : '' ?>
-                </button>
+                <button type="button" class="btn-pill <?= !empty($user['last_renewal_receipt']) ? 'text-primary fw-bold' : '' ?>" data-bs-toggle="modal" data-bs-target="#renewalReceiptModal"><i class="fa-solid fa-file-invoice-dollar <?= !empty($user['last_renewal_receipt']) ? 'text-success' : 'text-primary' ?>"></i> View Renewal Receipt <?= !empty($user['last_renewal_receipt']) ? '<span class="badge bg-success ms-1" style="font-size: 0.62rem;">Attached</span>' : '' ?></button>
                 <button type="button" class="btn-pill" onclick="alert('User Password: <?= htmlspecialchars($user['password']) ?>')"><i class="fa-solid fa-lock"></i> Toggle Password</button>
                 <button type="button" class="btn-pill dark" data-bs-toggle="modal" data-bs-target="#editProfileModal"><i class="fa-solid fa-user-pen"></i> Edit Profile</button>
                 <form method="POST" enctype="multipart/form-data" id="photoForm" style="display:none;">
@@ -3214,7 +3325,7 @@ $('#editProfileModal').on('shown.bs.modal', function () {
 <?php require_once 'footer.php'; ?>
 
 
-<!-- Renewal Receipt View & Upload Modal -->
+<!-- Renewal Receipt View Modal -->
 <div class="modal fade" id="renewalReceiptModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered modal-lg">
     <div class="modal-content shadow-lg border-0 rounded-4 overflow-hidden">
@@ -3229,7 +3340,7 @@ $('#editProfileModal').on('shown.bs.modal', function () {
             <?php 
                 $rcpt_path = $user['last_renewal_receipt'];
                 $is_pdf = (strtolower(pathinfo($rcpt_path, PATHINFO_EXTENSION)) === 'pdf');
-                $rcpt_url = '../' . htmlspecialchars($rcpt_path);
+                $rcpt_url = '../' . ltrim(htmlspecialchars($rcpt_path), '/');
             ?>
             <div class="card border-0 shadow-sm rounded-3 p-3 mb-3 bg-white">
                 <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2">
@@ -3256,7 +3367,7 @@ $('#editProfileModal').on('shown.bs.modal', function () {
             </div>
 
             <!-- Receipt Preview Box -->
-            <div class="card border-0 shadow-sm rounded-3 p-3 bg-white text-center mb-3">
+            <div class="card border-0 shadow-sm rounded-3 p-3 bg-white text-center">
                 <?php if ($is_pdf): ?>
                     <div class="p-4">
                         <i class="fa-solid fa-file-pdf text-danger fa-4x mb-3"></i>
@@ -3267,37 +3378,29 @@ $('#editProfileModal').on('shown.bs.modal', function () {
                         </a>
                     </div>
                 <?php else: ?>
-                    <div style="max-height: 520px; overflow: auto; background: #f8fafc; border-radius: 8px; padding: 10px;" class="border">
-                        <img src="<?= $rcpt_url ?>" class="img-fluid rounded shadow-sm" style="max-height: 500px; object-fit: contain;" alt="Renewal Receipt">
+                    <div style="max-height: 540px; overflow: auto; background: #f8fafc; border-radius: 8px; padding: 12px;" class="border">
+                        <a href="<?= $rcpt_url ?>" target="_blank" title="Click to view full image">
+                            <img src="<?= $rcpt_url ?>" class="img-fluid rounded shadow-sm" style="max-height: 500px; object-fit: contain; cursor: zoom-in;" alt="Renewal Receipt">
+                        </a>
                     </div>
                 <?php endif; ?>
             </div>
         <?php else: ?>
-            <div class="alert alert-warning border-0 rounded-3 mb-3 d-flex align-items-center gap-3">
-                <div class="fs-2 text-warning"><i class="fa-solid fa-circle-exclamation"></i></div>
-                <div>
-                    <div class="fw-bold text-dark">No Renewal Receipt Attached Yet</div>
-                    <div class="small text-muted">Is subscriber ke last package renewal par koi receipt ya slip attach nahi hui thi. Aap neechay diye gaye form se receipt abhi upload kar sakte hain.</div>
+            <div class="card border-0 shadow-sm rounded-4 p-5 bg-white text-center">
+                <div class="mb-3 text-secondary opacity-50">
+                    <i class="fa-solid fa-file-invoice-dollar fa-4x"></i>
+                </div>
+                <h5 class="fw-bold text-dark mb-1">No Renewal Receipt Attached</h5>
+                <p class="text-muted small mb-0">
+                    Is subscriber ke last package renewal par koi receipt ya payment slip attach nahi ki gayi thi.
+                </p>
+                <div class="mt-3">
+                    <span class="badge bg-light text-secondary border px-3 py-2 rounded-pill small">
+                        <i class="fa-solid fa-info-circle me-1"></i> Package renew karte waqt optional receipt attach ki ja sakti hai.
+                    </span>
                 </div>
             </div>
         <?php endif; ?>
-
-        <!-- Upload / Update Form -->
-        <div class="card border-0 shadow-sm rounded-3 p-3 bg-white">
-            <h6 class="fw-bold text-dark mb-2">
-                <i class="fa-solid fa-cloud-arrow-up text-primary me-2"></i> <?= !empty($user['last_renewal_receipt']) ? 'Replace / Upload New Receipt' : 'Upload Receipt for this User' ?>
-            </h6>
-            <form method="POST" enctype="multipart/form-data">
-                <input type="hidden" name="action" value="upload_renewal_receipt">
-                <div class="mb-3">
-                    <label class="form-label small text-secondary fw-semibold">Select Receipt / Screenshot (JPG, PNG, WEBP, PDF)</label>
-                    <input type="file" name="renewal_receipt" class="form-control" accept="image/*,.pdf" required>
-                </div>
-                <button type="submit" class="btn btn-success fw-bold px-4 rounded-pill">
-                    <i class="fa-solid fa-upload me-1"></i> Upload Receipt Now
-                </button>
-            </form>
-        </div>
       </div>
       <div class="modal-footer bg-white border-top">
         <button type="button" class="btn btn-secondary rounded-pill px-4" data-bs-dismiss="modal">Close</button>

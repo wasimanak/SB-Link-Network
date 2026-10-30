@@ -64,7 +64,7 @@ try {
             try {
                 $verStmt = $pdo->query("SELECT setting_value FROM global_settings WHERE setting_key = 'sys_schema_ver'");
                 $ver = $verStmt ? $verStmt->fetchColumn() : null;
-                if ($ver !== '8') {
+                if ($ver !== '9') {
                     if (file_exists(__DIR__ . '/schema_fix_helper.php')) {
                         require_once __DIR__ . '/schema_fix_helper.php';
                         if (function_exists('fix_and_repair_schema')) {

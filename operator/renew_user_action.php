@@ -3,6 +3,55 @@ session_start();
 require_once '../config/db.php';
 require_once '../config/radius_kick_helper.php';
 
+if (!function_exists('handle_renewal_receipt_upload')) {
+    function handle_renewal_receipt_upload($file_array, $subscriber_id, $pdo = null, $uploaded_by = 'Admin') {
+        if (empty($file_array) || !isset($file_array['error']) || $file_array['error'] !== UPLOAD_ERR_OK || empty($file_array['tmp_name'])) {
+            return null;
+        }
+        $allowed_exts = ['jpg', 'jpeg', 'png', 'webp', 'pdf'];
+        $filename = $file_array['name'] ?? '';
+        $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+        if (!in_array($ext, $allowed_exts)) {
+            return null;
+        }
+        $sub_id = (int)$subscriber_id;
+        $new_filename = 'receipt_sub_' . $sub_id . '_' . time() . '_' . substr(md5(uniqid((string)mt_rand(), true)), 0, 6) . '.' . $ext;
+        $targetDir = dirname(__DIR__) . '/uploads/renewal_receipts';
+        $relPrefix = 'uploads/renewal_receipts/';
+        if (!is_dir($targetDir)) {
+            @mkdir($targetDir, 0777, true);
+        }
+        @chmod($targetDir, 0777);
+        if (!is_writable($targetDir)) {
+            $fallbackProfiles = dirname(__DIR__) . '/uploads/profiles';
+            if (is_dir($fallbackProfiles) && is_writable($fallbackProfiles)) {
+                $targetDir = $fallbackProfiles;
+                $relPrefix = 'uploads/profiles/';
+            } else {
+                $targetDir = dirname(__DIR__) . '/uploads';
+                $relPrefix = 'uploads/';
+            }
+        }
+        $dest = $targetDir . '/' . $new_filename;
+        if (@move_uploaded_file($file_array['tmp_name'], $dest)) {
+            @chmod($dest, 0666);
+            $rel_path = $relPrefix . $new_filename;
+            if ($pdo && $sub_id > 0) {
+                try {
+                    $colChk = $pdo->query("SHOW COLUMNS FROM `subscribers` LIKE 'last_renewal_receipt'")->fetch();
+                    if (!$colChk) {
+                        $pdo->exec("ALTER TABLE `subscribers` ADD COLUMN `last_renewal_receipt` VARCHAR(255) DEFAULT NULL, ADD COLUMN `last_renewal_receipt_at` DATETIME DEFAULT NULL, ADD COLUMN `last_renewal_receipt_by` VARCHAR(100) DEFAULT NULL");
+                    }
+                    $stmt = $pdo->prepare("UPDATE subscribers SET last_renewal_receipt = ?, last_renewal_receipt_at = NOW(), last_renewal_receipt_by = ? WHERE id = ?");
+                    $stmt->execute([$rel_path, $uploaded_by, $sub_id]);
+                } catch (Exception $e) {}
+            }
+            return $rel_path;
+        }
+        return null;
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $client_id = $_SESSION['operator_id'];
     $user_id = (int)$_POST['user_id'];
