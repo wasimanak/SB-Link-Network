@@ -299,5 +299,29 @@ function fix_and_repair_schema($pdo) {
         $report[] = "RADIUS performance indexes verified";
     } catch (Exception $e) {}
 
+        // 14. Ensure nas table exists for FreeRADIUS and MikroTik API
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS `nas` (
+          `id` int(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
+          `client_id` int(11) DEFAULT 1,
+          `nasname` varchar(128) NOT NULL,
+          `shortname` varchar(32) DEFAULT NULL,
+          `type` varchar(30) DEFAULT 'other',
+          `ports` int(11) DEFAULT NULL,
+          `secret` varchar(60) NOT NULL DEFAULT 'testing123',
+          `server` varchar(64) DEFAULT NULL,
+          `community` varchar(50) DEFAULT NULL,
+          `description` varchar(200) DEFAULT NULL,
+          `api_port` int(11) DEFAULT 8728,
+          `api_user` varchar(50) DEFAULT 'admin',
+          `api_password` varchar(255) DEFAULT NULL,
+          `coa_port` int(11) DEFAULT 3799,
+          `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          KEY `nasname` (`nasname`),
+          KEY `client_id` (`client_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+        $report[] = "NAS table verified";
+    } catch (Exception $e) {}
+
     return $report;
 }
