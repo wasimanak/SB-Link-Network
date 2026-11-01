@@ -2,7 +2,6 @@
 // sync_all_expired_fix.php
 // Centralized 1-Click Expired Users Speed Limiter & FreeRADIUS Lock
 require_once __DIR__ . '/config/db.php';
-require_once __DIR__ . '/config/routeros_api.class.php';
 
 header('Content-Type: text/html; charset=UTF-8');
 ?>
@@ -86,59 +85,22 @@ header('Content-Type: text/html; charset=UTF-8');
                 $pdo->exec("UPDATE radgroupreply SET op = '=' WHERE attribute = 'Mikrotik-Rate-Limit' AND op = ':='");
 
                 $pdo->commit();
-
-                // Step 7: Auto-Kick expired active sessions from MikroTik
-                $kicked_api_count = 0;
-                $nasList = $pdo->query("SELECT DISTINCT nasname, api_user, api_password, api_port FROM nas WHERE api_user IS NOT NULL AND api_user != ''")->fetchAll(PDO::FETCH_ASSOC);
-                
-                $expiredUserMap = array_flip(array_column($expired_users, 'username'));
-
-                foreach ($nasList as $nas) {
-                    $ip = trim($nas['nasname']);
-                    $u_api = trim($nas['api_user']);
-                    $p_api = trim($nas['api_password']);
-                    $port = !empty($nas['api_port']) ? (int)$nas['api_port'] : 8728;
-
-                    if (!empty($ip) && !empty($u_api)) {
-                        try {
-                            $api = new RouterosAPI();
-                            $api->timeout = 2;
-                            $api->attempts = 1;
-                            if ($api->connect($ip, $u_api, $p_api, $port)) {
-                                $active_sessions = $api->comm('/ppp/active/print');
-                                if (is_array($active_sessions)) {
-                                    foreach ($active_sessions as $sess) {
-                                        $sname = trim($sess['name'] ?? '');
-                                        if (isset($expiredUserMap[$sname])) {
-                                            $api->comm('/ppp/active/remove', ['.id' => $sess['.id']]);
-                                            $kicked_api_count++;
-                                        }
-                                    }
-                                }
-                                $api->disconnect();
-                            }
-                        } catch (Exception $e) {}
-                    }
-                }
                 ?>
                 <div class="alert alert-success border-0 rounded-4 p-3 mb-4 d-flex align-items-center gap-3">
                     <i class="fa-solid fa-circle-check fs-2 text-success"></i>
                     <div>
                         <h5 class="fw-bold mb-1 text-white">Zabardast! Deep Fix Complete!</h5>
                         <div class="small text-white-50">
-                            Total <strong><?= $processed_count ?></strong> expired users ko <code>radusergroup</code> (Package Group) se nikal kar FreeRADIUS me <code>radreply := 10k/10k</code> par pakka lock kar diya gaya hai!
-                            <?php if ($kicked_api_count > 0): ?>
-                                <br>Aur <strong><?= $kicked_api_count ?></strong> active sessions ko MikroTik se kick kar diya gaya hai.
-                            <?php endif; ?>
+                            Total <strong><?= $processed_count ?></strong> expired users ko <code>radusergroup</code> (Package Group 4M/5M) se nikal diya gaya hai aur FreeRADIUS me <code>radreply := 10k/10k</code> par pakka lock kar diya gaya hai!
                         </div>
                     </div>
                 </div>
 
-                <div class="card card-custom p-3 mb-4 bg-dark border-secondary">
-                    <h6 class="text-warning fw-bold mb-2"><i class="fa-solid fa-triangle-exclamation me-2"></i> Last Action (MikroTik New Terminal):</h6>
-                    <p class="small text-white-50 mb-2">Ab Chandni Chok (Sajid Rodi) router k <strong>New Terminal</strong> me ye command enter karein:</p>
-                    <code class="d-block p-2 bg-black text-success rounded font-monospace fs-6">/ppp active remove [find]</code>
-                    <small class="text-white-50 mt-1 d-block">Ab <code>adil219ml</code> samet tamam expired users reconnect hone par <strong>100% 10k speed</strong> uthayenge kyun k unka package group FreeRADIUS se hata diya gaya hai!</small>
+                <div class="card card-custom p-4 mb-4 bg-dark border-danger border-2">
+                    <h5 class="text-danger fw-bold mb-2"><i class="fa-solid fa-triangle-exclamation me-2"></i> AB SIRF YE 1 STEP KAREIN (ZAROORI):</h5>
+                    <p class="text-white mb-3">Database bilkul theek ho gaya hai! Lekin router jab tak purani session drop na kare, wo purani 4M speed chalata rehta hai. Is liye Chandni Chok (Sajid Rodi) router k <strong>New Terminal</strong> me foran ye command paste kar k <strong>Enter</strong> karein:</p>
+                    <code class="d-block p-3 bg-black text-warning rounded font-monospace fs-5 border border-warning">/ppp active remove [find]</code>
+                    <small class="text-white-50 mt-2 d-block">Ye chalate hi <code>adil219ml</code> samet tamam users 2 second me reconnect honge aur unki Queues me <strong>100% 10k speed</strong> set ho jayegi!</small>
                 </div>
                 <?php
             }
