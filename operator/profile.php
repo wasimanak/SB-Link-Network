@@ -277,59 +277,6 @@ $nasStmt = $pdo->prepare("SELECT * FROM nas WHERE client_id = ?");
 $nasStmt->execute([$client_id]);
 $routers = $nasStmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Fetch Admin Renewals and Cash Collections
-$historyStmt = $pdo->prepare("
-    SELECT 
-        ul.id,
-        ul.client_id,
-        ul.username,
-        ul.type,
-        ul.amount,
-        ul.balance_after,
-        ul.description,
-        ul.created_at,
-        COALESCE(s.full_name, 'N/A') as customer_name,
-        s.id as subscriber_id,
-        COALESCE(p.name, 'Standard') as subscriber_package
-    FROM user_ledger ul
-    LEFT JOIN subscribers s ON (ul.subscriber_id = s.id OR (ul.username IS NOT NULL AND ul.username != '' AND ul.username = s.username COLLATE utf8mb4_general_ci)) AND s.client_id = ul.client_id
-    LEFT JOIN packages p ON s.package_id = p.id
-    WHERE ul.client_id = ?
-    ORDER BY ul.id DESC
-    LIMIT 1000
-");
-$historyStmt->execute([$client_id]);
-$admin_history = $historyStmt->fetchAll(PDO::FETCH_ASSOC);
-
-$total_cash_collected = 0;
-$total_renewal_amount = 0;
-$count_cash_collected = 0;
-$count_renewals = 0;
-
-foreach ($admin_history as $h) {
-    if ($h['type'] === 'credit') {
-        $total_cash_collected += (float)$h['amount'];
-        $count_cash_collected++;
-    } else {
-        $total_renewal_amount += (float)$h['amount'];
-        $count_renewals++;
-    }
-}
-
-if (!function_exists('extract_history_package')) {
-    function extract_history_package($desc, $default_pkg) {
-        if (!empty($desc)) {
-            if (preg_match('/\((.*?Mbps.*?|.*?MB.*?|.*?Package.*?)\)/i', $desc, $m)) {
-                return trim($m[1]);
-            }
-            if (preg_match('/(?:Auto-Renew|Renewed|Plan|Package):\s*([^\,\;\|\(\)]+)/i', $desc, $m)) {
-                return trim($m[1]);
-            }
-        }
-        return !empty($default_pkg) ? $default_pkg : 'Standard';
-    }
-}
-
 ?>
 
 <style>
@@ -529,25 +476,27 @@ if (!function_exists('extract_history_package')) {
             </div>
             
             <div class="col-xl-8 col-md-7">
-                <div class="metric-card-sm py-3 px-4 h-100 d-flex flex-wrap align-items-center justify-content-between gap-3" style="background: linear-gradient(135deg, #ffffff 0%, #f0fdf4 50%, #eff6ff 100%); border: 1px solid #bfdbfe; box-shadow: 0 4px 15px rgba(37,99,235,0.06); border-radius: 12px;">
-                    <div class="d-flex align-items-center gap-3">
-                        <div class="metric-icon-sm" style="background: linear-gradient(135deg, #2563eb, #1d4ed8); color: #fff; width: 48px; height: 48px; border-radius: 12px; font-size: 1.25rem; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(37,99,235,0.25);">
-                            <i class="fa-solid fa-cash-register"></i>
-                        </div>
-                        <div>
-                            <div class="d-flex align-items-center gap-2">
-                                <h6 class="text-dark fw-bold mb-0" style="font-size: 1rem;">Renewals & Cash Collection Log</h6>
-                                <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill px-2 py-0.5" style="font-size: 0.72rem;">Live History</span>
+                <a href="renewals_log.php" class="text-decoration-none">
+                    <div class="metric-card-sm py-3 px-4 h-100 d-flex flex-wrap align-items-center justify-content-between gap-3" style="background: linear-gradient(135deg, #ffffff 0%, #f0fdf4 50%, #eff6ff 100%); border: 1px solid #bfdbfe; box-shadow: 0 4px 15px rgba(37,99,235,0.06); border-radius: 12px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.transform='translateY(-3px)'; this.style.boxShadow='0 6px 18px rgba(37,99,235,0.15)';" onmouseout="this.style.transform='none'; this.style.boxShadow='0 4px 15px rgba(37,99,235,0.06)';">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="metric-icon-sm" style="background: linear-gradient(135deg, #2563eb, #1d4ed8); color: #fff; width: 48px; height: 48px; border-radius: 12px; font-size: 1.25rem; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(37,99,235,0.25);">
+                                <i class="fa-solid fa-cash-register"></i>
                             </div>
-                            <small class="text-muted d-block mt-1">Check all packages renewed, cash collected, date, customer name, and amounts</small>
+                            <div>
+                                <div class="d-flex align-items-center gap-2">
+                                    <h6 class="text-dark fw-bold mb-0" style="font-size: 1rem;">Renewals & Cash Collection Log</h6>
+                                    <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill px-2 py-0.5" style="font-size: 0.72rem;">2-Year History</span>
+                                </div>
+                                <small class="text-muted d-block mt-1">View all package renewals, cash collected, with CSV & PDF Export</small>
+                            </div>
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="btn btn-primary rounded-pill px-4 py-2 fw-bold shadow-sm d-inline-flex align-items-center gap-2" style="background: #2563eb; border: none; font-size: 0.9rem;">
+                                <i class="fa-solid fa-clock-rotate-left"></i> View Renewals & Cash Log
+                            </span>
                         </div>
                     </div>
-                    <div class="d-flex align-items-center gap-2">
-                        <button type="button" class="btn btn-primary rounded-pill px-4 py-2 fw-bold shadow-sm d-inline-flex align-items-center gap-2" data-bs-toggle="modal" data-bs-target="#adminCollectionsRenewalsModal" style="background: #2563eb; border: none; font-size: 0.9rem;">
-                            <i class="fa-solid fa-clock-rotate-left"></i> View Renewals & Cash Log
-                        </button>
-                    </div>
-                </div>
+                </a>
             </div>
         </div>
 
@@ -1011,254 +960,7 @@ function copyScript() {
   </div>
 </div>
 
-<!-- Admin Renewals & Cash Collections History Modal -->
-<div class="modal fade" id="adminCollectionsRenewalsModal" tabindex="-1" aria-labelledby="adminCollectionsRenewalsModalLabel" aria-hidden="true">
-  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
-    <div class="modal-content border-0 shadow-lg" style="border-radius: 18px; overflow: hidden;">
-      
-      <!-- Modal Header -->
-      <div class="modal-header py-3 px-4" style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); color: #fff;">
-        <div class="d-flex align-items-center gap-3">
-            <div class="rounded-3 d-flex align-items-center justify-content-center" style="width: 44px; height: 44px; background: rgba(255,255,255,0.15); font-size: 1.3rem;">
-                <i class="fa-solid fa-receipt text-warning"></i>
-            </div>
-            <div>
-                <h5 class="modal-title fw-bold text-white mb-0" id="adminCollectionsRenewalsModalLabel">Package Renewals & Cash Collection History</h5>
-                <span class="text-light small opacity-75">All package renewals and cash collections logged for customers</span>
-            </div>
-        </div>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-      </div>
-      
-      <!-- Modal Body -->
-      <div class="modal-body p-4" style="background-color: #f8fafc;">
-          
-          <!-- Top Stat Cards inside Modal -->
-          <div class="row g-3 mb-4">
-              <div class="col-md-4">
-                  <div class="p-3 rounded-4 border bg-white shadow-sm d-flex align-items-center gap-3">
-                      <div class="rounded-3 bg-success bg-opacity-10 text-success d-flex align-items-center justify-content-center" style="width: 48px; height: 48px; font-size: 1.35rem;">
-                          <i class="fa-solid fa-hand-holding-dollar"></i>
-                      </div>
-                      <div>
-                          <div class="small fw-bold text-muted text-uppercase" style="font-size: 0.72rem; letter-spacing: 0.5px;">Total Cash Collected</div>
-                          <h4 class="fw-bold text-success mb-0">Rs. <?= number_format($total_cash_collected, 0) ?></h4>
-                          <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill mt-1" style="font-size: 0.72rem;">
-                              <?= number_format($count_cash_collected) ?> Payments Received
-                          </span>
-                      </div>
-                  </div>
-              </div>
-              <div class="col-md-4">
-                  <div class="p-3 rounded-4 border bg-white shadow-sm d-flex align-items-center gap-3">
-                      <div class="rounded-3 bg-primary bg-opacity-10 text-primary d-flex align-items-center justify-content-center" style="width: 48px; height: 48px; font-size: 1.35rem;">
-                          <i class="fa-solid fa-arrows-rotate"></i>
-                      </div>
-                      <div>
-                          <div class="small fw-bold text-muted text-uppercase" style="font-size: 0.72rem; letter-spacing: 0.5px;">Packages Renewed</div>
-                          <h4 class="fw-bold text-primary mb-0">Rs. <?= number_format($total_renewal_amount, 0) ?></h4>
-                          <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 rounded-pill mt-1" style="font-size: 0.72rem;">
-                              <?= number_format($count_renewals) ?> Package Debits
-                          </span>
-                      </div>
-                  </div>
-              </div>
-              <div class="col-md-4">
-                  <div class="p-3 rounded-4 border bg-white shadow-sm d-flex align-items-center gap-3">
-                      <div class="rounded-3 bg-dark bg-opacity-10 text-dark d-flex align-items-center justify-content-center" style="width: 48px; height: 48px; font-size: 1.35rem;">
-                          <i class="fa-solid fa-list-check"></i>
-                      </div>
-                      <div>
-                          <div class="small fw-bold text-muted text-uppercase" style="font-size: 0.72rem; letter-spacing: 0.5px;">Total Logged Entries</div>
-                          <h4 class="fw-bold text-dark mb-0"><?= number_format(count($admin_history)) ?></h4>
-                          <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 rounded-pill mt-1" style="font-size: 0.72rem;">
-                              Recent Transactions
-                          </span>
-                      </div>
-                  </div>
-              </div>
-          </div>
-
-          <!-- Controls: Filters & Search -->
-          <div class="card border-0 shadow-sm rounded-4 p-3 mb-3 bg-white">
-              <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
-                  <div class="d-flex flex-wrap gap-2">
-                      <button type="button" class="btn btn-sm btn-dark rounded-pill px-3 fw-bold history-filter-pill active" id="btnFilterAll" onclick="filterHistoryTable('all', this)">
-                          <i class="fa-solid fa-list me-1"></i> All Records (<span id="countAll"><?= count($admin_history) ?></span>)
-                      </button>
-                      <button type="button" class="btn btn-sm btn-outline-success rounded-pill px-3 fw-bold history-filter-pill" id="btnFilterCredit" onclick="filterHistoryTable('credit', this)">
-                          <i class="fa-solid fa-arrow-down me-1"></i> Cash Collected (<span id="countCredits"><?= $count_cash_collected ?></span>)
-                      </button>
-                      <button type="button" class="btn btn-sm btn-outline-primary rounded-pill px-3 fw-bold history-filter-pill" id="btnFilterDebit" onclick="filterHistoryTable('debit', this)">
-                          <i class="fa-solid fa-arrows-rotate me-1"></i> Packages Renewed (<span id="countDebits"><?= $count_renewals ?></span>)
-                      </button>
-                  </div>
-                  <div style="min-width: 260px; max-width: 320px;" class="flex-grow-1">
-                      <div class="input-group input-group-sm">
-                          <span class="input-group-text bg-light border-end-0 rounded-start-pill text-muted ps-3"><i class="fa-solid fa-magnifying-glass"></i></span>
-                          <input type="text" id="historySearchInput" class="form-control bg-light border-start-0 rounded-end-pill pe-3" placeholder="Search customer, username, pkg..." onkeyup="filterHistorySearch()">
-                      </div>
-                  </div>
-              </div>
-          </div>
-
-          <!-- Table Container -->
-          <div class="card border-0 shadow-sm rounded-4 overflow-hidden bg-white">
-              <div class="table-responsive" style="max-height: 480px; overflow-y: auto;">
-                  <table class="table table-hover align-middle mb-0" id="adminHistoryTable">
-                      <thead class="table-light sticky-top" style="z-index: 5; background-color: #f1f5f9;">
-                          <tr>
-                              <th class="ps-3 py-3 text-secondary text-uppercase fw-bold" style="font-size: 0.75rem; letter-spacing: 0.5px;">Date & Time</th>
-                              <th class="py-3 text-secondary text-uppercase fw-bold" style="font-size: 0.75rem; letter-spacing: 0.5px;">Customer Name</th>
-                              <th class="py-3 text-secondary text-uppercase fw-bold" style="font-size: 0.75rem; letter-spacing: 0.5px;">Username</th>
-                              <th class="py-3 text-secondary text-uppercase fw-bold" style="font-size: 0.75rem; letter-spacing: 0.5px;">Package</th>
-                              <th class="py-3 text-secondary text-uppercase fw-bold" style="font-size: 0.75rem; letter-spacing: 0.5px;">Type</th>
-                              <th class="py-3 text-secondary text-uppercase fw-bold" style="font-size: 0.75rem; letter-spacing: 0.5px;">Amount</th>
-                              <th class="py-3 text-secondary text-uppercase fw-bold" style="font-size: 0.75rem; letter-spacing: 0.5px;">Description</th>
-                              <th class="text-end pe-3 py-3 text-secondary text-uppercase fw-bold" style="font-size: 0.75rem; letter-spacing: 0.5px;">Action</th>
-                          </tr>
-                      </thead>
-                      <tbody>
-                          <?php if (empty($admin_history)): ?>
-                              <tr id="noRecordsRow">
-                                  <td colspan="8" class="text-center py-5 text-muted">
-                                      <i class="fa-solid fa-receipt fa-2x mb-2 text-secondary"></i>
-                                      <div class="fw-semibold">No package renewals or cash collections found.</div>
-                                  </td>
-                              </tr>
-                          <?php else: ?>
-                              <?php foreach ($admin_history as $row): 
-                                  $pkg_name = extract_history_package($row['description'], $row['subscriber_package']);
-                                  $is_credit = ($row['type'] === 'credit');
-                              ?>
-                              <tr data-type="<?= $row['type'] ?>" class="history-row">
-                                  <td class="ps-3">
-                                      <div class="fw-bold text-dark small"><?= date('d M Y', strtotime($row['created_at'])) ?></div>
-                                      <div class="text-muted font-monospace" style="font-size: 0.74rem;"><?= date('h:i A', strtotime($row['created_at'])) ?></div>
-                                  </td>
-                                  <td>
-                                      <?php if (!empty($row['subscriber_id'])): ?>
-                                          <a href="subscriber_view.php?id=<?= $row['subscriber_id'] ?>" class="fw-bold text-decoration-none text-dark" target="_blank">
-                                              <?= htmlspecialchars($row['customer_name']) ?> <i class="fa-solid fa-arrow-up-right-from-square text-muted" style="font-size: 0.7rem;"></i>
-                                          </a>
-                                      <?php else: ?>
-                                          <div class="fw-semibold text-dark"><?= htmlspecialchars($row['customer_name']) ?></div>
-                                      <?php endif; ?>
-                                  </td>
-                                  <td>
-                                      <span class="badge bg-light text-primary border font-monospace px-2 py-1 fw-bold">
-                                          <?= htmlspecialchars($row['username']) ?>
-                                      </span>
-                                  </td>
-                                  <td>
-                                      <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 px-2 py-1 fw-semibold">
-                                          <i class="fa-solid fa-box-open me-1"></i><?= htmlspecialchars($pkg_name) ?>
-                                      </span>
-                                  </td>
-                                  <td>
-                                      <?php if ($is_credit): ?>
-                                          <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill px-2 py-1 fw-semibold">
-                                              <i class="fa-solid fa-arrow-down me-1"></i> Cash Collected
-                                          </span>
-                                      <?php else: ?>
-                                          <span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25 rounded-pill px-2 py-1 fw-semibold">
-                                              <i class="fa-solid fa-arrows-rotate me-1"></i> Package Renewed
-                                          </span>
-                                      <?php endif; ?>
-                                  </td>
-                                  <td>
-                                      <span class="fw-bold <?= $is_credit ? 'text-success' : 'text-danger' ?>" style="font-size: 0.95rem;">
-                                          <?= $is_credit ? '+' : '-' ?> Rs. <?= number_format($row['amount'], 0) ?>
-                                      </span>
-                                  </td>
-                                  <td>
-                                      <div class="small text-secondary text-truncate" style="max-width: 220px;" title="<?= htmlspecialchars($row['description']) ?>">
-                                          <?= htmlspecialchars($row['description']) ?>
-                                      </div>
-                                  </td>
-                                  <td class="text-end pe-3">
-                                      <a href="print_receipt.php?ledger_id=<?= $row['id'] ?>&return=profile.php" target="_blank" class="btn btn-sm btn-outline-primary rounded-pill px-2 py-1 fw-semibold" style="font-size: 0.78rem;" title="Print 80mm Receipt">
-                                          <i class="fa-solid fa-receipt me-1"></i> Receipt
-                                      </a>
-                                  </td>
-                              </tr>
-                              <?php endforeach; ?>
-                              <tr id="noMatchRow" style="display: none;">
-                                  <td colspan="8" class="text-center py-5 text-muted">
-                                      <i class="fa-solid fa-magnifying-glass fa-2x mb-2 text-secondary"></i>
-                                      <div class="fw-semibold">No records match your filter / search criteria.</div>
-                                  </td>
-                              </tr>
-                          <?php endif; ?>
-                      </tbody>
-                  </table>
-              </div>
-          </div>
-
-      </div>
-      <div class="modal-footer py-2 px-4 bg-light border-top d-flex justify-content-between align-items-center">
-          <small class="text-muted"><i class="fa-solid fa-info-circle me-1"></i> Showing transactions logged in User Ledger</small>
-          <button type="button" class="btn btn-secondary rounded-pill px-4 fw-semibold" data-bs-dismiss="modal">Close</button>
-      </div>
-    </div>
-  </div>
-</div>
-
 <script>
-let currentHistoryFilter = 'all';
-
-function filterHistoryTable(type, btn) {
-    currentHistoryFilter = type;
-    document.querySelectorAll('.history-filter-pill').forEach(b => {
-        b.classList.remove('btn-dark', 'btn-success', 'btn-primary', 'active');
-        if (b.id === 'btnFilterCredit') {
-            b.classList.add('btn-outline-success');
-        } else if (b.id === 'btnFilterDebit') {
-            b.classList.add('btn-outline-primary');
-        } else {
-            b.classList.add('btn-outline-dark');
-        }
-    });
-    btn.classList.remove('btn-outline-dark', 'btn-outline-success', 'btn-outline-primary');
-    if (type === 'credit') {
-        btn.classList.add('btn-success', 'active');
-    } else if (type === 'debit') {
-        btn.classList.add('btn-primary', 'active');
-    } else {
-        btn.classList.add('btn-dark', 'active');
-    }
-    applyHistoryFilters();
-}
-
-function filterHistorySearch() {
-    applyHistoryFilters();
-}
-
-function applyHistoryFilters() {
-    const search = (document.getElementById('historySearchInput')?.value || '').toLowerCase().trim();
-    const rows = document.querySelectorAll('.history-row');
-    const noMatch = document.getElementById('noMatchRow');
-    let visibleCount = 0;
-
-    rows.forEach(row => {
-        const rowType = row.getAttribute('data-type');
-        const rowText = row.innerText.toLowerCase();
-        const matchType = (currentHistoryFilter === 'all' || rowType === currentHistoryFilter);
-        const matchSearch = (!search || rowText.includes(search));
-
-        if (matchType && matchSearch) {
-            row.style.display = '';
-            visibleCount++;
-        } else {
-            row.style.display = 'none';
-        }
-    });
-
-    if (noMatch) {
-        noMatch.style.display = (visibleCount === 0 && rows.length > 0) ? '' : 'none';
-    }
-}
-
 function previewAdminPhoto(input) {
     var previewImg = document.getElementById('photoPreviewImg');
     var placeholder = document.getElementById('photoPreviewPlaceholder');
