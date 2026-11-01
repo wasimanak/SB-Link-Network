@@ -1260,7 +1260,6 @@ function applyHistoryFilters() {
         noMatch.style.display = (visibleCount === 0 && rows.length > 0) ? '' : 'none';
     }
 }
-</script>
 
 function previewAdminPhoto(input) {
     var previewImg = document.getElementById('photoPreviewImg');
