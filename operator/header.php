@@ -740,14 +740,6 @@ $userRoleLabel = !empty($_SESSION['is_manager']) ? 'MANAGER' : 'ADMIN';
                             <span>View Profile</span>
                         </a>
                     </li>
-                    <?php if (empty($_SESSION['is_manager'])): ?>
-                    <li>
-                        <a class="dropdown-item rounded-3 py-2 d-flex align-items-center gap-2 fw-semibold text-dark" href="settings" style="font-size: 0.88rem;">
-                            <i class="fa-solid fa-sliders text-secondary" style="width: 18px;"></i>
-                            <span>Settings</span>
-                        </a>
-                    </li>
-                    <?php endif; ?>
                     <li><hr class="dropdown-divider my-1"></li>
                     <li>
                         <a class="dropdown-item rounded-3 py-2 text-danger d-flex align-items-center gap-2 fw-bold" href="logout" style="font-size: 0.88rem;">
