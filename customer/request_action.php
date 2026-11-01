@@ -1,6 +1,14 @@
 <?php
 require_once 'auth_check.php';
 
+// Auto-migrate package_requests table if receipt_image column is missing
+try {
+    $cols = $pdo->query("SHOW COLUMNS FROM package_requests")->fetchAll(PDO::FETCH_COLUMN);
+    if (!in_array('receipt_image', $cols)) {
+        $pdo->exec("ALTER TABLE package_requests ADD COLUMN receipt_image VARCHAR(255) DEFAULT NULL AFTER payment_reference");
+    }
+} catch (Exception $e) {}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['package_id'])) {
     $package_id = (int)$_POST['package_id'];
     $payment_method = $_POST['payment_method'] ?? 'balance';
@@ -88,21 +96,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['package_id'])) {
 
     } else {
         // Online Payment Logic (Bank Transfer / QR)
-        // Send a pending request to the operator
+        // Send a pending request to the operator with mandatory receipt attachment
         if (empty($payment_reference)) {
-            echo "<script>alert('Transaction ID is required for online payments.'); window.history.back();</script>";
+            echo "<script>alert('Transaction Reference / TID is required.'); window.history.back();</script>";
+            exit;
+        }
+
+        // Receipt attachment is mandatory for manual bank transfer verification
+        if (!isset($_FILES['receipt_image']) || $_FILES['receipt_image']['error'] !== UPLOAD_ERR_OK) {
+            echo "<script>alert('Payment receipt / screenshot attachment is mandatory! Please upload receipt to verify your transfer.'); window.history.back();</script>";
+            exit;
+        }
+
+        $file = $_FILES['receipt_image'];
+        $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+        $allowed = ['jpg', 'jpeg', 'png', 'webp', 'pdf'];
+
+        if (!in_array($ext, $allowed)) {
+            echo "<script>alert('Invalid file format. Allowed receipt formats: JPG, PNG, WEBP, PDF.'); window.history.back();</script>";
+            exit;
+        }
+
+        if ($file['size'] > 5 * 1024 * 1024) {
+            echo "<script>alert('Receipt file is too large! Maximum allowed size is 5MB.'); window.history.back();</script>";
+            exit;
+        }
+
+        $uploadDir = __DIR__ . '/../uploads/receipts/';
+        if (!is_dir($uploadDir)) {
+            @mkdir($uploadDir, 0777, true);
+        }
+
+        $receipt_filename = 'receipt_pkg_' . $current_user['id'] . '_' . time() . '_' . rand(1000, 9999) . '.' . $ext;
+        $destPath = $uploadDir . $receipt_filename;
+
+        if (!move_uploaded_file($file['tmp_name'], $destPath)) {
+            echo "<script>alert('Server error: Failed to save uploaded receipt. Please check folder permissions.'); window.history.back();</script>";
             exit;
         }
 
         try {
-            // Insert pending request
-            $stmt = $pdo->prepare("INSERT INTO package_requests (subscriber_id, package_id, client_id, status, payment_method, payment_reference) VALUES (?, ?, ?, 'pending', 'bank_transfer', ?)");
-            $stmt->execute([$current_user['id'], $package_id, $client_id, $payment_reference]);
+            // Insert pending request with receipt_image
+            $stmt = $pdo->prepare("INSERT INTO package_requests (subscriber_id, package_id, client_id, status, payment_method, payment_reference, receipt_image) VALUES (?, ?, ?, 'pending', 'bank_transfer', ?, ?)");
+            $stmt->execute([$current_user['id'], $package_id, $client_id, $payment_reference, $receipt_filename]);
             
-            echo "<script>alert('Request submitted successfully! Your package will be activated once the payment is verified.'); window.location='dashboard.php';</script>";
+            echo "<script>alert('Payment receipt and request submitted successfully! Your package will be activated once the operator verifies the payment.'); window.location='dashboard.php';</script>";
             exit;
         } catch (Exception $e) {
-            echo "<script>alert('Error submitting request. Please try again.'); window.location='dashboard.php';</script>";
+            echo "<script>alert('Error submitting request: " . addslashes($e->getMessage()) . "'); window.location='dashboard.php';</script>";
             exit;
         }
     }

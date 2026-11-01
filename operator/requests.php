@@ -8,7 +8,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_id'])) {
 
     if ($status === 'approved') {
         // Fetch request details
-        $stmt = $pdo->prepare("SELECT pr.*, p.rate_limit, p.validity_days, s.username FROM package_requests pr JOIN packages p ON pr.package_id = p.id JOIN subscribers s ON pr.subscriber_id = s.id WHERE pr.id = ? AND pr.client_id = ?");
+        $stmt = $pdo->prepare("SELECT pr.*, p.name as pkg_name, p.rate_limit, p.validity_days, s.username FROM package_requests pr JOIN packages p ON pr.package_id = p.id JOIN subscribers s ON pr.subscriber_id = s.id WHERE pr.id = ? AND pr.client_id = ?");
         $stmt->execute([$req_id, $client_id]);
         $req = $stmt->fetch();
 
@@ -16,16 +16,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_id'])) {
             // Update subscriber package & expiry
             $pdo->prepare("UPDATE subscribers SET package_id = ?, expiry_date = DATE_ADD(IFNULL(expiry_date, CURDATE()), INTERVAL ? DAY), status = 'active' WHERE id = ?")->execute([$req['package_id'], $req['validity_days'], $req['subscriber_id']]);
             
-            // Update radreply Rate Limit
-            $pdo->prepare("UPDATE radreply SET value = ? WHERE username = ? AND attribute = 'Mikrotik-Rate-Limit'")->execute([$req['rate_limit'], $req['username']]);
+            // Update radreply Rate Limit & remove Walled Garden / EXPIRED_USERS list
+            $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute IN ('Mikrotik-Rate-Limit', 'Mikrotik-Address-List')")->execute([$req['username']]);
+            if (!empty($req['rate_limit'])) {
+                $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Rate-Limit', '=', ?)")->execute([$req['username'], $req['rate_limit']]);
+            }
             
             // Remove Reject from radcheck if present
             $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute = 'Auth-Type'")->execute([$req['username']]);
 
+            // Restore radusergroup with package group if applicable
+            $pdo->prepare("DELETE FROM radusergroup WHERE username = ?")->execute([$req['username']]);
+            if (!empty($req['pkg_name'])) {
+                $pdo->prepare("INSERT INTO radusergroup (username, groupname, priority) VALUES (?, ?, 1)")->execute([$req['username'], $req['pkg_name']]);
+            }
+
+            // Kick session so subscriber immediately connects at new renewed speed
+            kick_subscriber_session($pdo, $req['username'], $client_id);
+
             // Update request status
             $pdo->prepare("UPDATE package_requests SET status = 'approved' WHERE id = ?")->execute([$req_id]);
 
-            $_SESSION['msg'] = "Package request approved and applied to subscriber successfully.";
+            $_SESSION['msg'] = "Package request approved! Subscriber updated and reconnected with renewed speed.";
         }
     } else {
         $pdo->prepare("UPDATE package_requests SET status = 'rejected' WHERE id = ?")->execute([$req_id]);
@@ -337,6 +349,7 @@ foreach ($requests as $r) {
                     <th>Date & Time</th>
                     <th>Subscriber</th>
                     <th>Requested Package</th>
+                    <th>Payment & Receipt</th>
                     <th>Status</th>
                     <th class="text-end">Actions</th>
                 </tr>
@@ -363,6 +376,37 @@ foreach ($requests as $r) {
                         <?php if(!empty($r['rate_limit'])): ?>
                             <div class="small text-muted font-monospace mt-1"><?= htmlspecialchars($r['rate_limit']) ?></div>
                         <?php endif; ?>
+                    </td>
+                    <td>
+                        <div class="d-flex flex-column gap-1">
+                            <div>
+                                <?php if (($r['payment_method'] ?? '') === 'balance'): ?>
+                                    <span class="badge rounded-pill bg-success-subtle text-success border border-success-subtle px-2 py-1" style="font-size: 0.78rem;">
+                                        <i class="fa-solid fa-wallet me-1"></i> Balance
+                                    </span>
+                                <?php elseif (($r['payment_method'] ?? '') === 'safepay'): ?>
+                                    <span class="badge rounded-pill bg-primary-subtle text-primary border border-primary-subtle px-2 py-1" style="font-size: 0.78rem;">
+                                        <i class="fa-solid fa-bolt me-1"></i> Safepay
+                                    </span>
+                                <?php else: ?>
+                                    <span class="badge rounded-pill bg-info-subtle text-info-emphasis border border-info-subtle px-2 py-1" style="font-size: 0.78rem;">
+                                        <i class="fa-solid fa-building-columns me-1"></i> Bank Transfer
+                                    </span>
+                                <?php endif; ?>
+                            </div>
+                            <?php if (!empty($r['payment_reference'])): ?>
+                                <div class="small text-dark font-monospace" style="font-size: 0.8rem;">
+                                    <strong>TID:</strong> <span class="bg-light px-1 rounded border"><?= htmlspecialchars($r['payment_reference']) ?></span>
+                                </div>
+                            <?php endif; ?>
+                            <?php if (!empty($r['receipt_image'])): ?>
+                                <div>
+                                    <a href="../uploads/receipts/<?= htmlspecialchars($r['receipt_image']) ?>" target="_blank" class="btn btn-sm btn-outline-primary rounded-pill py-0 px-2 fw-bold d-inline-flex align-items-center gap-1 shadow-sm mt-1" style="font-size: 0.75rem;" title="View Attached Receipt Screenshot">
+                                        <i class="fa-solid fa-receipt"></i> View Receipt
+                                    </a>
+                                </div>
+                            <?php endif; ?>
+                        </div>
                     </td>
                     <td>
                         <?php if($r['status'] === 'pending'): ?>
@@ -429,16 +473,16 @@ $(document).ready(function() {
     requestsDT = $('#requestsTable').DataTable({
         dom: '<"row align-items-center mb-3"<"col-md-2"l><"col-md-6 dt-buttons"B><"col-md-4"f>>rtip',
         buttons: [
-            { extend: 'print', exportOptions: { columns: [0, 1, 2, 3] }, text: '<i class="fa-solid fa-print"></i> Print' },
-            { extend: 'copy', exportOptions: { columns: [0, 1, 2, 3] }, text: '<i class="fa-solid fa-copy"></i> Copy' },
-            { extend: 'pdf', exportOptions: { columns: [0, 1, 2, 3] }, text: '<i class="fa-solid fa-file-pdf"></i> PDF' },
-            { extend: 'excel', exportOptions: { columns: [0, 1, 2, 3] }, text: '<i class="fa-solid fa-file-excel"></i> Excel' },
-            { extend: 'csv', exportOptions: { columns: [0, 1, 2, 3] }, text: '<i class="fa-solid fa-file-csv"></i> CSV' }
+            { extend: 'print', exportOptions: { columns: [0, 1, 2, 3, 4] }, text: '<i class="fa-solid fa-print"></i> Print' },
+            { extend: 'copy', exportOptions: { columns: [0, 1, 2, 3, 4] }, text: '<i class="fa-solid fa-copy"></i> Copy' },
+            { extend: 'pdf', exportOptions: { columns: [0, 1, 2, 3, 4] }, text: '<i class="fa-solid fa-file-pdf"></i> PDF' },
+            { extend: 'excel', exportOptions: { columns: [0, 1, 2, 3, 4] }, text: '<i class="fa-solid fa-file-excel"></i> Excel' },
+            { extend: 'csv', exportOptions: { columns: [0, 1, 2, 3, 4] }, text: '<i class="fa-solid fa-file-csv"></i> CSV' }
         ],
         pageLength: 25,
         order: [[0, 'desc']],
         columnDefs: [
-            { orderable: false, targets: [4] } // Disable sorting on Actions
+            { orderable: false, targets: [5] } // Disable sorting on Actions
         ],
         language: {
             search: "Search:",
@@ -461,13 +505,13 @@ function filterRequests(status, btn) {
     btn.classList.add('active');
 
     if (status === 'all') {
-        requestsDT.column(3).search('').draw();
+        requestsDT.column(4).search('').draw();
     } else if (status === 'pending') {
-        requestsDT.column(3).search('Pending', true, false).draw();
+        requestsDT.column(4).search('Pending', true, false).draw();
     } else if (status === 'approved') {
-        requestsDT.column(3).search('Approved', true, false).draw();
+        requestsDT.column(4).search('Approved', true, false).draw();
     } else if (status === 'rejected') {
-        requestsDT.column(3).search('Rejected', true, false).draw();
+        requestsDT.column(4).search('Rejected', true, false).draw();
     }
 }
 </script>

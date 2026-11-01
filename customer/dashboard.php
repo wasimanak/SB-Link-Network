@@ -818,7 +818,7 @@ if (empty($gateway_display_name)) {
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
 
-      <form action="<?= $has_safepay ? 'safepay_checkout.php' : 'request_action.php' ?>" method="POST" id="buyPackageForm">
+      <form action="request_action.php" method="POST" id="buyPackageForm" enctype="multipart/form-data">
         <div class="modal-body p-4">
             <input type="hidden" name="action" value="buy_package">
             <input type="hidden" name="package_id" id="modal_pkg_id">
@@ -894,8 +894,21 @@ if (empty($gateway_display_name)) {
 
                 <div class="mb-3 text-start">
                     <label class="form-label text-dark fw-bold small mb-1">Transaction Reference / TID <span class="text-danger">*</span></label>
-                    <input type="text" name="payment_reference" id="payment_reference" class="form-control" placeholder="e.g. TRX192837465">
+                    <input type="text" name="payment_reference" id="payment_reference" class="form-control" placeholder="e.g. TRX192837465" required>
                     <div class="form-text text-muted" style="font-size: 0.72rem;">Enter the Transaction ID received in your bank receipt or SMS after transfer.</div>
+                </div>
+
+                <div class="mb-3 text-start">
+                    <label class="form-label text-dark fw-bold small mb-1">Attach Payment Receipt / Screenshot <span class="text-danger">*</span></label>
+                    <div class="input-group">
+                        <input type="file" name="receipt_image" id="receipt_image" class="form-control" accept="image/*,.pdf" required onchange="previewBuyReceipt(this)">
+                    </div>
+                    <div class="form-text text-muted" style="font-size: 0.72rem;">Upload bank transfer screenshot or payment receipt (JPG, PNG, PDF up to 5MB) for operator verification.</div>
+                    <!-- Live Image Preview Box -->
+                    <div id="buyReceiptPreviewBox" class="mt-2 d-none text-center p-2 bg-white rounded-3 border">
+                        <img id="buyReceiptPreviewImg" src="" alt="Receipt Preview" style="max-height: 140px; max-width: 100%; border-radius: 8px; object-fit: contain;">
+                        <div id="buyReceiptFileInfo" class="small text-muted mt-1 fw-semibold font-monospace"></div>
+                    </div>
                 </div>
 
                 <div class="text-muted small bg-light p-2 rounded-3 border">
@@ -1121,12 +1134,19 @@ function openBuyModal(id, name, price) {
     var amtInput = document.getElementById('modal_pkg_amount');
     if (amtInput) amtInput.value = price;
     
-    var qrData = encodeURIComponent("PAY_<?= $current_user['id'] ?>_AMT_" + Number(price).toFixed(2) + "_TS_" + Date.now());
-    var qrUrl = "https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=" + qrData;
-    var qrElement = document.getElementById('qr_code_img');
-    if (qrElement) {
-        qrElement.src = qrUrl;
+    // Always default to Manual Bank Transfer
+    var payOnlineRadio = document.getElementById('pay_online');
+    if (payOnlineRadio) {
+        payOnlineRadio.checked = true;
     }
+    
+    // Reset receipt input, preview, and reference
+    var receiptInput = document.getElementById('receipt_image');
+    if (receiptInput) receiptInput.value = '';
+    var previewBox = document.getElementById('buyReceiptPreviewBox');
+    if (previewBox) previewBox.classList.add('d-none');
+    var prefInput = document.getElementById('payment_reference');
+    if (prefInput) prefInput.value = '';
     
     togglePaymentUI();
     var modal = new bootstrap.Modal(document.getElementById('buyModal'));
@@ -1134,15 +1154,17 @@ function openBuyModal(id, name, price) {
 }
 
 function togglePaymentUI() {
+    var payOnlineEl = document.getElementById('pay_online');
+    var isOnline = payOnlineEl && payOnlineEl.checked;
     var paySafepayEl = document.getElementById('pay_safepay');
     var isSafepay = paySafepayEl && paySafepayEl.checked;
-    var isOnline = document.getElementById('pay_online') && document.getElementById('pay_online').checked;
     
     var form = document.getElementById('buyPackageForm');
     var optSafepay = document.getElementById('opt_safepay_box');
     var optOnline = document.getElementById('opt_online_box');
     var optBalance = document.getElementById('opt_balance_box');
     var prefInput = document.getElementById('payment_reference');
+    var receiptInput = document.getElementById('receipt_image');
     var submitBtn = document.getElementById('submitBtn');
     
     // Hide all boxes first
@@ -1154,33 +1176,67 @@ function togglePaymentUI() {
     optOnline?.classList.remove('active');
     optBalance?.classList.remove('active');
     
-    if (isSafepay) {
+    if (isOnline) {
+        if (form) form.action = 'request_action.php';
+        document.getElementById('onlinePaymentBox')?.classList.remove('d-none');
+        if (prefInput) prefInput.setAttribute('required', 'required');
+        if (receiptInput) receiptInput.setAttribute('required', 'required');
+        if (submitBtn) {
+            submitBtn.innerHTML = '<i class="fa-solid fa-paper-plane me-1"></i> Submit Request & Attach Receipt';
+            submitBtn.className = 'btn btn-primary px-4 rounded-pill fw-bold shadow-sm';
+        }
+        optOnline?.classList.add('active');
+    } else if (isSafepay) {
         if (form) form.action = 'safepay_checkout.php';
         document.getElementById('safepayPaymentBox')?.classList.remove('d-none');
         if (prefInput) prefInput.removeAttribute('required');
+        if (receiptInput) receiptInput.removeAttribute('required');
         if (submitBtn) {
             submitBtn.innerHTML = '<i class="fa-solid fa-bolt me-1"></i> Proceed to Pay Online';
             submitBtn.className = 'btn btn-primary px-4 rounded-pill fw-bold shadow-sm';
         }
         optSafepay?.classList.add('active');
-    } else if (isOnline) {
-        if (form) form.action = 'request_action.php';
-        document.getElementById('onlinePaymentBox')?.classList.remove('d-none');
-        if (prefInput) prefInput.setAttribute('required', 'required');
-        if (submitBtn) {
-            submitBtn.innerHTML = '<i class="fa-solid fa-paper-plane me-1"></i> Submit Request';
-            submitBtn.className = 'btn btn-secondary px-4 rounded-pill fw-bold';
-        }
-        optOnline?.classList.add('active');
     } else {
         if (form) form.action = 'request_action.php';
         document.getElementById('balancePaymentBox')?.classList.remove('d-none');
         if (prefInput) prefInput.removeAttribute('required');
+        if (receiptInput) receiptInput.removeAttribute('required');
         if (submitBtn) {
             submitBtn.innerHTML = '<i class="fa-solid fa-check me-1"></i> Confirm & Activate';
             submitBtn.className = 'btn btn-success px-4 rounded-pill fw-bold';
         }
         optBalance?.classList.add('active');
+    }
+}
+
+function previewBuyReceipt(input) {
+    var previewBox = document.getElementById('buyReceiptPreviewBox');
+    var previewImg = document.getElementById('buyReceiptPreviewImg');
+    var fileInfo = document.getElementById('buyReceiptFileInfo');
+    if (!previewBox) return;
+    
+    if (input.files && input.files[0]) {
+        var file = input.files[0];
+        var sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+        
+        if (file.type.match('image.*')) {
+            var reader = new FileReader();
+            reader.onload = function(e) {
+                previewImg.src = e.target.result;
+                previewImg.classList.remove('d-none');
+                if (fileInfo) fileInfo.innerHTML = '<i class="fa-solid fa-image text-primary me-1"></i> ' + file.name + ' (' + sizeMB + ' MB)';
+                previewBox.classList.remove('d-none');
+            };
+            reader.readAsDataURL(file);
+        } else {
+            // PDF file
+            previewImg.src = '';
+            previewImg.classList.add('d-none');
+            if (fileInfo) fileInfo.innerHTML = '<div class="py-2 text-danger fw-bold"><i class="fa-solid fa-file-pdf fs-2 d-block mb-1"></i>' + file.name + ' (' + sizeMB + ' MB)</div>';
+            previewBox.classList.remove('d-none');
+        }
+    } else {
+        previewBox.classList.add('d-none');
     }
 }
 
