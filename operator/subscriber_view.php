@@ -3440,6 +3440,142 @@ $('#editProfileModal').on('shown.bs.modal', function () {
 </div>
 
 
+<?php
+// --- COMPREHENSIVE MULTI-WAN AUTO-DISCOVERY ---
+$all_wans_map = [];
+
+// 1. From router_wans table
+try {
+    $wans_db = $pdo->prepare("SELECT wan_name FROM router_wans WHERE client_id = ? AND status = 'active'");
+    $wans_db->execute([$client_id]);
+    while ($w = $wans_db->fetchColumn()) {
+        if (!empty($w)) $all_wans_map[trim($w)] = true;
+    }
+} catch (Exception $e) {}
+
+// 2. From packages table
+try {
+    $pkg_wans_db = $pdo->prepare("SELECT DISTINCT wan_provider, routing_mark FROM packages WHERE client_id = ?");
+    $pkg_wans_db->execute([$client_id]);
+    while ($r = $pkg_wans_db->fetch(PDO::FETCH_ASSOC)) {
+        if (!empty($r['wan_provider'])) $all_wans_map[trim($r['wan_provider'])] = true;
+        if (!empty($r['routing_mark'])) {
+            $rm = preg_replace('/^to[-_]/i', '', $r['routing_mark']);
+            if (!empty($rm)) $all_wans_map[trim($rm)] = true;
+        }
+    }
+} catch (Exception $e) {}
+
+// 3. From ip_pools table
+try {
+    $pools_wans_db = $pdo->prepare("SELECT DISTINCT wan_provider_name, wan_interface, routing_mark FROM ip_pools WHERE client_id = ?");
+    $pools_wans_db->execute([$client_id]);
+    while ($r = $pools_wans_db->fetch(PDO::FETCH_ASSOC)) {
+        if (!empty($r['wan_provider_name'])) $all_wans_map[trim($r['wan_provider_name'])] = true;
+        if (!empty($r['wan_interface'])) $all_wans_map[trim($r['wan_interface'])] = true;
+        if (!empty($r['routing_mark'])) {
+            $rm = preg_replace('/^to[-_]/i', '', $r['routing_mark']);
+            if (!empty($rm)) $all_wans_map[trim($rm)] = true;
+        }
+    }
+} catch (Exception $e) {}
+
+// 4. From subscribers table
+try {
+    $sub_wans_db = $pdo->prepare("SELECT DISTINCT wan_destination FROM subscribers WHERE client_id = ? AND wan_destination IS NOT NULL AND wan_destination != ''");
+    $sub_wans_db->execute([$client_id]);
+    while ($sw = $sub_wans_db->fetchColumn()) {
+        if (!empty($sw)) $all_wans_map[trim($sw)] = true;
+    }
+} catch (Exception $e) {}
+
+// 5. Query MikroTik Router in real-time to detect all active WANs & routing marks
+try {
+    $nasStmt = $pdo->prepare("SELECT nasname, api_port, api_user, api_password FROM nas WHERE client_id = ? ORDER BY id ASC LIMIT 1");
+    $nasStmt->execute([$client_id]);
+    $nas = $nasStmt->fetch(PDO::FETCH_ASSOC);
+
+    if ($nas && !empty($nas['nasname']) && class_exists('RouterosAPI')) {
+        $api = new RouterosAPI();
+        $api->timeout = 2;
+        $api->attempts = 1;
+        $port = !empty($nas['api_port']) ? (int)$nas['api_port'] : 8728;
+        if ($api->connect($nas['nasname'], $nas['api_user'] ?: 'admin', $nas['api_password'] ?: '', $port)) {
+            // Check Routes
+            $routes = $api->comm('/ip/route/print');
+            if (is_array($routes)) {
+                foreach ($routes as $rt) {
+                    $rm = trim($rt['routing-mark'] ?? '');
+                    if (!empty($rm) && strcasecmp($rm, 'main') !== 0) {
+                        $clean = preg_replace('/^to[-_]/i', '', $rm);
+                        if (!empty($clean)) $all_wans_map[$clean] = true;
+                    }
+                }
+            }
+
+            // Check Firewall Mangles
+            $mangles = $api->comm('/ip/firewall/mangle/print');
+            if (is_array($mangles)) {
+                foreach ($mangles as $mg) {
+                    $rm = trim($mg['new-routing-mark'] ?? ($mg['routing-mark'] ?? ''));
+                    if (!empty($rm) && strcasecmp($rm, 'main') !== 0) {
+                        $clean = preg_replace('/^to[-_]/i', '', $rm);
+                        if (!empty($clean)) $all_wans_map[$clean] = true;
+                    }
+                    $sal = trim($mg['src-address-list'] ?? '');
+                    if (!empty($sal) && stripos($sal, 'expired') === false && stripos($sal, 'blacklist') === false) {
+                        $all_wans_map[$sal] = true;
+                    }
+                }
+            }
+
+            // Check Address Lists
+            $alists = $api->comm('/ip/firewall/address-list/print');
+            if (is_array($alists)) {
+                foreach ($alists as $al) {
+                    if (isset($al['dynamic']) && ($al['dynamic'] === 'true' || $al['dynamic'] === 'yes')) continue;
+                    $l = trim($al['list'] ?? '');
+                    if (!empty($l) && !in_array(strtolower($l), ['blacklist', 'whitelist', 'expired_users', 'drop', 'block', 'isolated'])) {
+                        $all_wans_map[$l] = true;
+                    }
+                }
+            }
+
+            // Check Interfaces
+            $ifaces = $api->comm('/interface/print');
+            if (is_array($ifaces)) {
+                foreach ($ifaces as $ifc) {
+                    $iname = trim($ifc['name'] ?? '');
+                    $itype = trim($ifc['type'] ?? '');
+                    if ($itype === 'pppoe-out' || preg_match('/^(wan|isp)[-_]?\d*/i', $iname) || preg_match('/^(ptcl|zong|telenor|nayatel|storm|transpk|jazz|ufone)/i', $iname)) {
+                        $all_wans_map[$iname] = true;
+                    }
+                }
+            }
+
+            $api->disconnect();
+
+            // Auto-persist newly detected WANs into router_wans table
+            foreach (array_keys($all_wans_map) as $dw) {
+                if (!empty($dw)) {
+                    $pdo->prepare("INSERT IGNORE INTO router_wans (client_id, wan_name, routing_mark) VALUES (?, ?, ?)")
+                        ->execute([$client_id, $dw, 'to-' . $dw]);
+                }
+            }
+        }
+    }
+} catch (Exception $e) {}
+
+// Fallback minimums
+if (empty($all_wans_map)) {
+    $all_wans_map['PTCL'] = true;
+    $all_wans_map['Zong'] = true;
+}
+
+$all_wans = array_keys($all_wans_map);
+sort($all_wans);
+?>
+
 <!-- Service Settings Modal (WAN Shift) -->
 <div class="modal fade" id="serviceSettingsModal" tabindex="-1" aria-labelledby="serviceSettingsModalLabel" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
@@ -3505,16 +3641,22 @@ $('#editProfileModal').on('shown.bs.modal', function () {
                     <span><i class="fa-solid fa-shuffle text-primary me-1"></i> Select Target WAN Destination</span>
                     <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25" style="font-size: 0.70rem;">Live Shift</span>
                 </label>
-                <select name="target_wan" class="form-select fw-semibold" style="font-size: 0.92rem; border-radius: 8px;" required>
+                <select name="target_wan" id="targetWanSelect" class="form-select fw-semibold" style="font-size: 0.92rem; border-radius: 8px;" required onchange="toggleCustomWanInput(this)">
                     <option value="default" <?= empty($user['wan_destination']) ? 'selected' : '' ?>>
                         -- Default (Use Package WAN: <?= htmlspecialchars($user['pkg_wan'] ?? 'PTCL') ?>) --
                     </option>
                     <?php foreach ($all_wans as $w): ?>
                         <option value="<?= htmlspecialchars($w) ?>" <?= ($user['wan_destination'] === $w) ? 'selected' : '' ?>>
-                            WAN: <?= htmlspecialchars($w) ?> <?= ($user['wan_destination'] === $w) ? '★ (Current)' : '' ?>
+                            WAN: <?= htmlspecialchars($w) ?> <?= ($user['wan_destination'] === $w) ? '(Current)' : '' ?>
                         </option>
                     <?php endforeach; ?>
+                    <option value="__custom__">➕ + Enter Custom WAN Port Name...</option>
                 </select>
+                <div id="customWanInputBox" class="mt-2" style="display: none;">
+                    <label class="form-label fw-bold text-primary small mb-1">Enter Custom WAN Name:</label>
+                    <input type="text" name="custom_wan_name" id="customWanInput" class="form-control fw-bold font-monospace" placeholder="e.g. WAN2, Zong, TRANSPK, etc.">
+                    <small class="text-muted" style="font-size: 0.72rem;">Type exact interface or routing-mark name on your MikroTik router.</small>
+                </div>
                 <div class="form-text text-muted small mt-2">
                     <i class="fa-solid fa-circle-info text-primary me-1"></i> Is user ki internet traffic selected WAN port ke through route hogi.
                 </div>
@@ -3544,6 +3686,21 @@ $('#editProfileModal').on('shown.bs.modal', function () {
     </div>
   </div>
 </div>
+
+<script>
+function toggleCustomWanInput(sel) {
+    var box = document.getElementById('customWanInputBox');
+    var inp = document.getElementById('customWanInput');
+    if (sel.value === '__custom__') {
+        box.style.display = 'block';
+        inp.required = true;
+        inp.focus();
+    } else {
+        box.style.display = 'none';
+        inp.required = false;
+    }
+}
+</script>
 
 <?php require_once 'footer.php'; ?>
 
