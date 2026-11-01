@@ -3,8 +3,18 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-require_once 'header.php';
 require_once '../config/db.php';
+
+// Auth Check
+if (!isset($_SESSION['operator_logged_in']) || !isset($_SESSION['operator_id'])) {
+    if (isset($_GET['ajax'])) {
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['success' => false, 'message' => 'Unauthorized']);
+        exit;
+    }
+    header("Location: ../login.php");
+    exit;
+}
 
 $client_id = (int)($_SESSION['operator_id'] ?? 1);
 $current_user = $_SESSION['operator_username'] ?? (!empty($_SESSION['is_manager']) ? 'Manager' : 'Admin');
@@ -89,7 +99,7 @@ try {
 if (isset($_GET['ajax']) && $_GET['ajax'] === 'get_item' && !empty($_GET['id'])) {
     header('Content-Type: application/json; charset=utf-8');
     $itemId = (int)$_GET['id'];
-    $stmt = $pdo->prepare("SELECT * FROM items WHERE id = ? AND client_id = ?");
+    $stmt = $pdo->prepare("SELECT * FROM items WHERE id = ? AND (client_id = ? OR client_id = 1 OR client_id = 0)");
     $stmt->execute([$itemId, $client_id]);
     $item = $stmt->fetch(PDO::FETCH_ASSOC);
     if ($item) {
@@ -814,7 +824,7 @@ $commonUnits = ['Nos.', 'Km', 'Mtr', 'Roll', 'Box', 'Pkt', 'Set', 'Feet'];
                                             <i class="fa-solid fa-minus me-1"></i> OUT
                                         </button>
                                         <!-- Edit -->
-                                        <button type="button" class="btn-action-icon" title="Edit Item Details" onclick="openEditItemModal(<?= $it['id'] ?>)">
+                                        <button type="button" class="btn-action-icon" title="Edit Item Details" onclick="openEditItemModalDirect(<?= htmlspecialchars(json_encode($it), ENT_QUOTES) ?>)">
                                             <i class="fa-solid fa-pen-to-square text-primary" style="font-size: 0.85rem;"></i>
                                         </button>
                                         <!-- Delete -->
