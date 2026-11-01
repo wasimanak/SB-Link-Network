@@ -647,7 +647,13 @@ $userRoleLabel = !empty($_SESSION['is_manager']) ? 'MANAGER' : 'ADMIN';
                 </ul>
             </div>
 
-            <!-- 10. Logs & Reports -->
+            <!-- 10. Stock -->
+            <a href="stock" class="nav-item-link <?= in_array($p, ['stock.php', 'stock']) ? 'active-parent' : '' ?>">
+                <i class="fa-solid fa-boxes-stacked nav-icon"></i>
+                <span class="nav-text">Stock</span>
+            </a>
+
+            <!-- 11. Logs & Reports -->
             <a href="#logsMenu" data-bs-toggle="collapse" class="nav-item-link has-submenu <?= $isLogsMenu ? 'active-parent' : 'collapsed' ?>" aria-expanded="<?= $isLogsMenu ? 'true' : 'false' ?>">
                 <i class="fa-regular fa-file-lines nav-icon"></i>
                 <span class="nav-text">Logs &amp; Reports</span>

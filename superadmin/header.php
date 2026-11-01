@@ -469,11 +469,7 @@ $isRouterMenu = strpos($page, 'router') !== false || in_array($page, ['live_rout
                 <span class="nav-text">Master Packages</span>
             </a>
 
-            <!-- 5. Items -->
-            <a href="items" class="nav-item-link <?= in_array($page, ['items.php', 'items']) ? 'active-parent' : '' ?>">
-                <i class="fa-solid fa-boxes-stacked nav-icon"></i>
-                <span class="nav-text">Items</span>
-            </a>
+
 
             <!-- 6. Subscriptions -->
             <a href="billing" class="nav-item-link <?= in_array($page, ['billing.php', 'billing']) ? 'active-parent' : '' ?>">
