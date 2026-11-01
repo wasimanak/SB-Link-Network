@@ -85,7 +85,7 @@ $isTeamMenu = in_array($p, ['recovery_man.php', 'recovery_man', 'recoveryman_pro
 $isDealerMenu = in_array($p, ['dealers.php', 'dealers', 'dealer_view.php', 'dealer_view']);
 $isAccMenu = in_array($p, ['invoices.php', 'invoices', 'expenses.php', 'expenses', 'net_worth.php', 'net_worth', 'fund_requests.php', 'fund_requests']);
 $isTicketMenu = in_array($p, ['support_tickets.php', 'support_tickets', 'view_ticket.php', 'view_ticket', 'requests.php', 'requests']);
-$isRechargeMenu = in_array($p, ['packages.php', 'packages', 'payment_gateways.php', 'payment_gateways']);
+$isRechargeMenu = in_array($p, ['packages.php', 'packages', 'payment_gateways.php', 'payment_gateways', 'package_users.php', 'package_users']);
 $isLogsMenu = in_array($p, ['activity_logs.php', 'activity_logs', 'package_logs.php', 'package_logs', 'session_logs.php', 'session_logs', 'ip_pools.php', 'ip_pools']);
 
 // Fetch Pending Requests Count for Badges
@@ -554,13 +554,7 @@ $userRoleLabel = !empty($_SESSION['is_manager']) ? 'MANAGER' : 'ADMIN';
                 </ul>
             </div>
 
-            <?php if (empty($_SESSION['is_manager'])): ?>
-            <!-- Package Wise Users (Admin Only) -->
-            <a href="package_users" class="nav-item-link <?= in_array($p, ['package_users.php', 'package_users']) ? 'active-parent' : '' ?>">
-                <i class="fa-solid fa-boxes-stacked nav-icon text-primary"></i>
-                <span class="nav-text">Package Users</span>
-            </a>
-            <?php endif; ?>
+
 
             <!-- 4. Dealers Profile -->
             <a href="dealers" class="nav-item-link <?= in_array($p, ['dealers.php', 'dealers', 'dealer_view.php', 'dealer_view']) ? 'active-parent' : '' ?>">
