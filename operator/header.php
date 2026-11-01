@@ -554,6 +554,14 @@ $userRoleLabel = !empty($_SESSION['is_manager']) ? 'MANAGER' : 'ADMIN';
                 </ul>
             </div>
 
+            <?php if (empty($_SESSION['is_manager'])): ?>
+            <!-- Package Wise Users (Admin Only) -->
+            <a href="package_users" class="nav-item-link <?= in_array($p, ['package_users.php', 'package_users']) ? 'active-parent' : '' ?>">
+                <i class="fa-solid fa-boxes-stacked nav-icon text-primary"></i>
+                <span class="nav-text">Package Users</span>
+            </a>
+            <?php endif; ?>
+
             <!-- 4. Dealers Profile -->
             <a href="dealers" class="nav-item-link <?= in_array($p, ['dealers.php', 'dealers', 'dealer_view.php', 'dealer_view']) ? 'active-parent' : '' ?>">
                 <i class="fa-solid fa-user-tie nav-icon"></i>
@@ -639,6 +647,7 @@ $userRoleLabel = !empty($_SESSION['is_manager']) ? 'MANAGER' : 'ADMIN';
                 <ul class="submenu-tree">
                     <li class="submenu-tree-item"><a href="packages" class="<?= in_array($p, ['packages.php', 'packages']) ? 'active' : '' ?>">Master Packages</a></li>
                     <?php if (empty($_SESSION['is_manager'])): ?>
+                    <li class="submenu-tree-item"><a href="package_users" class="<?= in_array($p, ['package_users.php', 'package_users']) ? 'active' : '' ?>">Package Users (Live Switch)</a></li>
                     <li class="submenu-tree-item"><a href="payment_gateways" class="<?= in_array($p, ['payment_gateways.php', 'payment_gateways']) ? 'active' : '' ?>">Payment Gateways</a></li>
                     <?php endif; ?>
                 </ul>
