@@ -177,6 +177,9 @@ function sync_expired_subscribers($pdo, $client_id = null, $kick_sessions = true
         
         $delWalledRadreply   = $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute IN ('Mikrotik-Address-List', 'Mikrotik-Rate-Limit', 'Mikrotik-Group')");
         $insertRadreply      = $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, ?, '=', ?)");
+        $insertRadreplyForce = $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, ?, ':=', ?)");
+        $delUserGroupStmt    = $pdo->prepare("DELETE FROM radusergroup WHERE username = ?");
+        $insUserGroupStmt    = $pdo->prepare("INSERT INTO radusergroup (username, groupname, priority) VALUES (?, ?, 1)");
         $updateStatusStmt    = $pdo->prepare("UPDATE subscribers SET status = 'expired' WHERE id = ? AND status = 'active'");
 
         // Map online users currently in radacct
@@ -260,7 +263,8 @@ function sync_expired_subscribers($pdo, $client_id = null, $kick_sessions = true
                 // Newly expired: inject Walled Garden attributes into radreply
                 $delWalledRadreply->execute([$user]);
                 $insertRadreply->execute([$user, 'Mikrotik-Address-List', 'EXPIRED_USERS']);
-                $insertRadreply->execute([$user, 'Mikrotik-Rate-Limit', '10k/10k']);
+                $insertRadreplyForce->execute([$user, 'Mikrotik-Rate-Limit', '10k/10k']);
+                $delUserGroupStmt->execute([$user]);
                 $insertRadreply->execute([$user, 'Mikrotik-Group', 'expired']);
                 $walled_count++;
 
@@ -335,7 +339,8 @@ function sync_expired_subscribers($pdo, $client_id = null, $kick_sessions = true
 
                 if ($pkg) {
                     if (!empty($pkg['rate_limit']) && $pkg['rate_limit'] !== 'No Limit' && $pkg['rate_limit'] !== 'Unlimited') {
-                        $insertRadreply->execute([$user, 'Mikrotik-Rate-Limit', $pkg['rate_limit']]);
+                        $insUserGroupStmt->execute([$user, $pkg['name']]);
+                        $insertRadreplyForce->execute([$user, 'Mikrotik-Rate-Limit', $pkg['rate_limit']]);
                     }
                     $target_profile = !empty($pkg['pool_name']) ? $pkg['pool_name'] : '';
                     if (empty($target_profile) || $target_profile === 'PPPoE Pool') {
