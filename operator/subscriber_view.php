@@ -15,6 +15,10 @@ try {
     if (empty($cols)) {
         $pdo->exec("ALTER TABLE subscribers ADD COLUMN last_renewed_at DATETIME DEFAULT NULL");
     }
+    $wCols = $pdo->query("SHOW COLUMNS FROM subscribers LIKE 'wan_destination'")->fetchAll();
+    if (empty($wCols)) {
+        $pdo->exec("ALTER TABLE subscribers ADD COLUMN wan_destination VARCHAR(100) DEFAULT NULL AFTER package_id");
+    }
     $rCols = $pdo->query("SHOW COLUMNS FROM subscribers LIKE 'last_renewal_receipt'")->fetchAll();
     if (empty($rCols)) {
         $pdo->exec("ALTER TABLE subscribers ADD COLUMN last_renewal_receipt VARCHAR(255) DEFAULT NULL, ADD COLUMN last_renewal_receipt_at DATETIME DEFAULT NULL, ADD COLUMN last_renewal_receipt_by VARCHAR(100) DEFAULT NULL");
@@ -136,6 +140,107 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->prepare("DELETE FROM radcheck WHERE username = ?")->execute([$u]);
             $pdo->prepare("DELETE FROM radreply WHERE username = ?")->execute([$u]);
             echo "<script>alert('Profile deleted successfully!'); window.location='subscribers.php';</script>";
+            exit;
+        }
+        elseif ($action === 'shift_user_wan') {
+            $target_wan = trim($_POST['target_wan'] ?? '');
+            $kick_user = !empty($_POST['kick_user']);
+
+            // Fetch current user status and expiry
+            $stStmt = $pdo->prepare("SELECT status, expiry_date, wan_destination FROM subscribers WHERE id = ?");
+            $stStmt->execute([$id]);
+            $sub_row = $stStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (empty($target_wan) || $target_wan === 'default') {
+                // Reset to package default WAN
+                $pdo->prepare("UPDATE subscribers SET wan_destination = NULL WHERE id = ? AND client_id = ?")
+                    ->execute([$id, $client_id]);
+                
+                // Remove custom Mikrotik-Address-List from radreply (preserve EXPIRED_USERS if user is expired)
+                $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Address-List' AND value != 'EXPIRED_USERS'")
+                    ->execute([$u]);
+                
+                $wan_display = 'Package Default';
+            } else {
+                // Set specific custom WAN
+                $pdo->prepare("UPDATE subscribers SET wan_destination = ? WHERE id = ? AND client_id = ?")
+                    ->execute([$target_wan, $id, $client_id]);
+
+                // Update radreply if user is not currently expired/disabled
+                $is_expired_or_disabled = ($sub_row['status'] === 'disabled' || (!empty($sub_row['expiry_date']) && strtotime($sub_row['expiry_date']) < time()));
+                if (!$is_expired_or_disabled) {
+                    $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Address-List'")
+                        ->execute([$u]);
+                    $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Address-List', '=', ?)")
+                        ->execute([$u, $target_wan]);
+                }
+
+                $wan_display = $target_wan;
+            }
+
+            // Live MikroTik Address List sync and session kick
+            $router_feedback = "";
+            try {
+                $nasStmt = $pdo->prepare("SELECT nasname, api_port, api_user, api_password FROM nas WHERE client_id = ? ORDER BY id ASC LIMIT 1");
+                $nasStmt->execute([$client_id]);
+                $nas = $nasStmt->fetch();
+                if ($nas && !empty($nas['nasname']) && class_exists('RouterosAPI')) {
+                    $api = new RouterosAPI();
+                    $api->timeout = 2;
+                    $api->attempts = 1;
+                    $port = !empty($nas['api_port']) ? (int)$nas['api_port'] : 8728;
+                    if ($api->connect($nas['nasname'], $nas['api_user'] ?: 'admin', $nas['api_password'] ?: '', $port)) {
+                        $api->write('/ppp/active/print', false);
+                        $api->write('?name=' . $u, true);
+                        $active_ppp = $api->read();
+                        if (!empty($active_ppp) && !empty($active_ppp[0]['address'])) {
+                            $user_ip = trim($active_ppp[0]['address']);
+                            
+                            // Remove any old WAN address lists for this active IP
+                            $api->write('/ip/firewall/address-list/print', false);
+                            $api->write('?address=' . $user_ip, true);
+                            $old_als = $api->read();
+                            if (is_array($old_als)) {
+                                foreach ($old_als as $oal) {
+                                    if (!empty($oal['.id']) && !empty($oal['list']) && $oal['list'] !== 'EXPIRED_USERS') {
+                                        $api->write('/ip/firewall/address-list/remove', false);
+                                        $api->write('=.id=' . $oal['.id'], true);
+                                        $api->read();
+                                    }
+                                }
+                            }
+
+                            // If shifting to a custom WAN, add user active IP to target WAN address list
+                            if (!empty($target_wan) && $target_wan !== 'default') {
+                                $api->write('/ip/firewall/address-list/add', false);
+                                $api->write('=list=' . $target_wan, false);
+                                $api->write('=address=' . $user_ip, false);
+                                $api->write('=comment=WAN Shift: ' . $u, true);
+                                $api->read();
+                            }
+                        }
+                        $api->disconnect();
+                    }
+                }
+            } catch (Exception $e) {}
+
+            if ($kick_user) {
+                kick_user_mikrotik($pdo, $client_id, $u);
+                $router_feedback = " & Router session reconnected";
+            }
+
+            // Activity Log
+            $is_mgr = !empty($_SESSION['is_manager']);
+            $mgr_id = $is_mgr ? (int)($_SESSION['manager_id'] ?? 0) : null;
+            $actor_name = $is_mgr ? ($_SESSION['manager_name'] ?? ($_SESSION['manager_username'] ?? 'Manager')) : (!empty($_SESSION['operator_username']) ? $_SESSION['operator_username'] : 'Admin');
+            $actor_role = $is_mgr ? 'Manager' : 'Admin';
+            $act_text = "Shifted WAN Destination to '{$wan_display}' by {$actor_role} ({$actor_name})";
+            try {
+                $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, ?, ?, ?, 'User', ?)")
+                    ->execute([$client_id, $mgr_id, $actor_name, $actor_role, $u, $act_text]);
+            } catch (Exception $e) {}
+
+            echo "<script>alert('WAN Destination shifted successfully to " . addslashes($wan_display) . "!{$router_feedback}'); window.location='subscriber_view.php?id={$id}';</script>";
             exit;
         }
         elseif ($action === 'disconnect_user') {
@@ -932,7 +1037,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // --- END ACTIONS ---
 
 // Fetch user data
-$sql = "SELECT s.*, p.name as pkg_name, p.price as pkg_price, p.data_limit_gb, p.validity_days, c.company_name 
+$sql = "SELECT s.*, p.name as pkg_name, p.price as pkg_price, p.data_limit_gb, p.validity_days, p.wan_provider as pkg_wan, c.company_name 
         FROM subscribers s 
         JOIN clients c ON s.client_id = c.id 
         LEFT JOIN packages p ON s.package_id = p.id 
@@ -1513,7 +1618,7 @@ if ($last_debit) {
                 <button type="button" class="btn-pill" onclick="document.getElementById('photoInput').click();"><i class="fa-regular fa-image"></i> Change Photo</button>
                 <button type="button" class="btn-pill" data-bs-toggle="modal" data-bs-target="#noteModal"><i class="fa-regular fa-note-sticky"></i> Add Note</button>
                 <button type="button" class="btn-pill" data-bs-toggle="modal" data-bs-target="#passwordModal"><i class="fa-solid fa-key"></i> Change Password</button>
-                <button type="button" class="btn-pill"><i class="fa-solid fa-bars-progress"></i> Service Settings</button>
+                <button type="button" class="btn-pill" data-bs-toggle="modal" data-bs-target="#serviceSettingsModal"><i class="fa-solid fa-bars-progress"></i> Service Settings</button>
                 <button type="button" class="btn-pill"><i class="fa-solid fa-file-circle-plus"></i> Add User Document</button>
                 
                 <!-- Action Forms -->
@@ -1726,6 +1831,18 @@ if ($last_debit) {
                                 </tr>
                                 <tr><td class="fw-bold">Connection Type</td><td>Radius <?= strtoupper($user['service_type']) ?></td></tr>
                                 <tr><td class="fw-bold">Package</td><td><?= htmlspecialchars($user['pkg_name'] ?? 'N/A') ?></td></tr>
+                                <tr>
+                                    <td class="fw-bold">WAN Destination</td>
+                                    <td>
+                                        <?php if (!empty($user['wan_destination'])): ?>
+                                            <span class="badge bg-primary px-2.5 py-1.5 fw-bold"><i class="fa-solid fa-satellite-dish me-1"></i> <?= htmlspecialchars($user['wan_destination']) ?> (Custom)</span>
+                                            <button type="button" class="btn btn-sm btn-link p-0 text-decoration-none ms-2 small fw-bold" data-bs-toggle="modal" data-bs-target="#serviceSettingsModal">Shift WAN</button>
+                                        <?php else: ?>
+                                            <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 px-2.5 py-1.5 fw-bold"><i class="fa-solid fa-network-wired me-1"></i> Default: <?= htmlspecialchars($user['pkg_wan'] ?? 'PTCL') ?></span>
+                                            <button type="button" class="btn btn-sm btn-link p-0 text-decoration-none ms-2 small fw-bold" data-bs-toggle="modal" data-bs-target="#serviceSettingsModal">Shift WAN</button>
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
                                 <tr><td class="fw-bold">Package Duration</td><td><?= $user['validity_days'] ? $user['validity_days'] . ' Days' : 'N/A' ?></td></tr>
                                 <tr><td class="fw-bold">Created / Registered Date</td><td><?= !empty($user['created_at']) ? date('d M Y H:i:s', strtotime($user['created_at'])) : 'N/A' ?></td></tr>
                                 <tr><td class="fw-bold">Last Expiration Date</td><td><?= $user['expiry_date'] ? date('d M Y H:i:s', strtotime($user['expiry_date'])) : 'N/A' ?></td></tr>
@@ -3320,6 +3437,112 @@ $('#editProfileModal').on('shown.bs.modal', function () {
             </div>
         </div>
     </div>
+</div>
+
+
+<!-- Service Settings Modal (WAN Shift) -->
+<div class="modal fade" id="serviceSettingsModal" tabindex="-1" aria-labelledby="serviceSettingsModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow-lg" style="border-radius: 16px; overflow: hidden;">
+      
+      <!-- Modal Header -->
+      <div class="modal-header py-3 px-4" style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); color: #fff;">
+        <div class="d-flex align-items-center gap-2">
+            <div class="rounded-3 d-flex align-items-center justify-content-center" style="width: 38px; height: 38px; background: rgba(255,255,255,0.15); font-size: 1.15rem;">
+                <i class="fa-solid fa-satellite-dish text-warning"></i>
+            </div>
+            <div>
+                <h5 class="modal-title fw-bold text-white mb-0" id="serviceSettingsModalLabel">Service Settings</h5>
+                <small class="text-light opacity-75">WAN Destination & Routing Gateway Shift</small>
+            </div>
+        </div>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      
+      <!-- Modal Form -->
+      <form method="POST">
+        <input type="hidden" name="action" value="shift_user_wan">
+        <div class="modal-body p-4 bg-light">
+            
+            <!-- User Info Card -->
+            <div class="card border-0 shadow-sm rounded-3 p-3 mb-3 bg-white">
+                <div class="d-flex align-items-center justify-content-between mb-2">
+                    <div class="d-flex align-items-center gap-2">
+                        <div class="rounded-circle bg-primary bg-opacity-10 text-primary d-flex align-items-center justify-content-center" style="width: 36px; height: 36px; font-size: 1rem;">
+                            <i class="fa-solid fa-user"></i>
+                        </div>
+                        <div>
+                            <div class="fw-bold text-dark" style="font-size: 0.95rem;"><?= htmlspecialchars($user['full_name'] ?: $user['username']) ?></div>
+                            <div class="small text-muted font-monospace"><?= htmlspecialchars($user['username']) ?></div>
+                        </div>
+                    </div>
+                    <span class="badge bg-light text-primary border px-2 py-1 font-monospace fw-bold">
+                        <?= htmlspecialchars($user['pkg_name'] ?? 'N/A') ?>
+                    </span>
+                </div>
+                
+                <hr class="my-2 border-light">
+                
+                <div class="d-flex justify-content-between align-items-center small">
+                    <span class="text-muted">Current WAN:</span>
+                    <div>
+                        <?php if (!empty($user['wan_destination'])): ?>
+                            <span class="badge bg-primary rounded-pill px-2.5 py-1">
+                                <i class="fa-solid fa-satellite-dish me-1"></i> Custom: <?= htmlspecialchars($user['wan_destination']) ?>
+                            </span>
+                        <?php else: ?>
+                            <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 rounded-pill px-2.5 py-1">
+                                <i class="fa-solid fa-network-wired me-1"></i> Default: <?= htmlspecialchars($user['pkg_wan'] ?? 'PTCL') ?>
+                            </span>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+
+            <!-- WAN Destination Select -->
+            <div class="card border-0 shadow-sm rounded-3 p-3 mb-3 bg-white">
+                <label class="form-label fw-bold text-dark small mb-2 d-flex align-items-center justify-content-between">
+                    <span><i class="fa-solid fa-shuffle text-primary me-1"></i> Select Target WAN Destination</span>
+                    <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25" style="font-size: 0.70rem;">Live Shift</span>
+                </label>
+                <select name="target_wan" class="form-select fw-semibold" style="font-size: 0.92rem; border-radius: 8px;" required>
+                    <option value="default" <?= empty($user['wan_destination']) ? 'selected' : '' ?>>
+                        -- Default (Use Package WAN: <?= htmlspecialchars($user['pkg_wan'] ?? 'PTCL') ?>) --
+                    </option>
+                    <?php foreach ($all_wans as $w): ?>
+                        <option value="<?= htmlspecialchars($w) ?>" <?= ($user['wan_destination'] === $w) ? 'selected' : '' ?>>
+                            WAN: <?= htmlspecialchars($w) ?> <?= ($user['wan_destination'] === $w) ? '★ (Current)' : '' ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+                <div class="form-text text-muted small mt-2">
+                    <i class="fa-solid fa-circle-info text-primary me-1"></i> Is user ki internet traffic selected WAN port ke through route hogi.
+                </div>
+            </div>
+
+            <!-- Reconnect Session Checkbox -->
+            <div class="card border-0 shadow-sm rounded-3 p-3 bg-white">
+                <div class="form-check form-switch m-0">
+                    <input class="form-check-input" type="checkbox" name="kick_user" id="kickUserWAN" value="1" checked style="cursor: pointer;">
+                    <label class="form-check-label fw-semibold text-dark small" for="kickUserWAN" style="cursor: pointer;">
+                        Reconnect Session Immediately
+                    </label>
+                </div>
+                <small class="text-muted d-block mt-1" style="font-size: 0.75rem;">
+                    Router par session reconnect karein ta k new WAN destination foran active ho jaye.
+                </small>
+            </div>
+
+        </div>
+        <div class="modal-footer py-2 px-4 bg-white border-top d-flex justify-content-between">
+            <button type="button" class="btn btn-light rounded-pill px-4 fw-semibold" data-bs-dismiss="modal">Cancel</button>
+            <button type="submit" class="btn btn-primary rounded-pill px-4 fw-bold shadow-sm" style="background: #2563eb; border: none;">
+                <i class="fa-solid fa-check me-1"></i> Shift WAN Now
+            </button>
+        </div>
+      </form>
+    </div>
+  </div>
 </div>
 
 <?php require_once 'footer.php'; ?>
