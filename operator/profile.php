@@ -1011,8 +1011,6 @@ function copyScript() {
   </div>
 </div>
 
-<script>
-
 <!-- Admin Renewals & Cash Collections History Modal -->
 <div class="modal fade" id="adminCollectionsRenewalsModal" tabindex="-1" aria-labelledby="adminCollectionsRenewalsModalLabel" aria-hidden="true">
   <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
