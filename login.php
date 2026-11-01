@@ -284,235 +284,575 @@ if ($is_blocked) {
 <html lang="en" data-bs-theme="dark">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sign In - <?= BRAND_NAME ?></title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
+    <title>Sign In &mdash; <?= BRAND_NAME ?></title>
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <!-- Google Fonts: Inter -->
+    <!-- Google Fonts: Plus Jakarta Sans / Inter -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <!-- Bootstrap & FontAwesome -->
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Bootstrap & FontAwesome 6 Pro/Free -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     
     <style>
         :root {
-            --primary: #0ea5e9;
-            --accent: #6366f1;
-            --bg-dark: #0b1120;
-            --card-bg: rgba(15, 23, 42, 0.75);
+            --brand-primary: #0ea5e9;
+            --brand-indigo: #6366f1;
+            --brand-purple: #8b5cf6;
+            --bg-canvas: #060913;
+            --card-glass: rgba(13, 20, 36, 0.78);
+            --border-glass: rgba(255, 255, 255, 0.1);
+            --border-hover: rgba(56, 189, 248, 0.4);
+            --text-heading: #ffffff;
+            --text-muted: #94a3b8;
+        }
+
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
         }
         
         body {
-            font-family: 'Inter', system-ui, -apple-system, sans-serif;
-            background-color: var(--bg-dark);
+            font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+            background-color: var(--bg-canvas);
+            background-image: 
+                radial-gradient(circle at 50% 0%, rgba(14, 165, 233, 0.18) 0%, transparent 60%),
+                radial-gradient(circle at 85% 90%, rgba(99, 102, 241, 0.14) 0%, transparent 50%),
+                radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+            background-size: 100% 100%, 100% 100%, 32px 32px;
             min-height: 100vh;
+            min-height: 100dvh;
             display: flex;
             align-items: center;
             justify-content: center;
             margin: 0;
-            position: relative;
+            padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+            color: #f1f5f9;
             overflow-x: hidden;
-            color: #f8fafc;
+            position: relative;
         }
 
-        /* Abstract Animated Glow Elements */
-        .bg-shape {
-            position: absolute;
+        /* Ambient Fluid Glow Shapes */
+        .ambient-glow {
+            position: fixed;
             border-radius: 50%;
-            filter: blur(130px);
-            opacity: 0.28;
-            z-index: 0;
-            animation: pulse 14s infinite alternate;
+            filter: blur(140px);
             pointer-events: none;
+            z-index: 0;
+            opacity: 0.35;
         }
-        .shape-1 { top: -15%; left: -10%; width: 50vw; height: 50vw; background: var(--primary); }
-        .shape-2 { bottom: -15%; right: -10%; width: 55vw; height: 55vw; background: var(--accent); }
-        
-        @keyframes pulse {
-            0% { transform: scale(1) translate(0, 0); }
-            100% { transform: scale(1.12) translate(4%, 4%); }
+        .glow-1 {
+            top: -120px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: min(650px, 90vw);
+            height: 380px;
+            background: radial-gradient(circle, #0284c7 0%, #38bdf8 40%, transparent 70%);
+            animation: pulseA 10s ease-in-out infinite alternate;
+        }
+        .glow-2 {
+            bottom: -150px;
+            right: -80px;
+            width: min(500px, 80vw);
+            height: 500px;
+            background: radial-gradient(circle, #6366f1 0%, #8b5cf6 40%, transparent 70%);
+            animation: pulseB 12s ease-in-out infinite alternate;
         }
 
-        /* Modern Glassmorphism Login Card */
-        .login-wrapper {
+        @keyframes pulseA {
+            0% { transform: translateX(-50%) scale(0.95); opacity: 0.3; }
+            100% { transform: translateX(-50%) scale(1.08); opacity: 0.45; }
+        }
+        @keyframes pulseB {
+            0% { transform: scale(0.9); opacity: 0.25; }
+            100% { transform: scale(1.1); opacity: 0.4; }
+        }
+
+        /* Main Container Card */
+        .login-container {
             position: relative;
             z-index: 10;
             width: 100%;
             max-width: 440px;
-            padding: 24px;
-            margin: 20px 0;
+            padding: 16px;
+            margin: auto;
         }
 
-        .login-card {
-            background: var(--card-bg);
-            backdrop-filter: blur(28px);
-            -webkit-backdrop-filter: blur(28px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+        .auth-card {
+            background: var(--card-glass);
+            backdrop-filter: blur(32px);
+            -webkit-backdrop-filter: blur(32px);
+            border: 1px solid var(--border-glass);
+            border-top: 1px solid rgba(255, 255, 255, 0.2);
             border-radius: 28px;
-            padding: 2.8rem 2.2rem;
-            box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.05);
-            transition: all 0.35s ease;
+            padding: 2.8rem 2.4rem;
+            box-shadow: 
+                0 0 0 1px rgba(255, 255, 255, 0.04),
+                0 25px 60px -15px rgba(0, 0, 0, 0.75),
+                0 0 90px -20px rgba(14, 165, 233, 0.18);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
         }
 
-        /* Brand Logo */
-        .brand-logo {
-            width: 76px;
-            height: 76px;
-            background: linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%);
+        /* Brand Emblem */
+        .brand-header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .brand-emblem {
+            width: 72px;
+            height: 72px;
+            background: linear-gradient(135deg, #0284c7 0%, #6366f1 50%, #4338ca 100%);
             border-radius: 22px;
-            display: flex;
+            display: inline-flex;
             align-items: center;
             justify-content: center;
-            font-size: 32px;
+            font-size: 30px;
             font-weight: 800;
-            color: white;
-            margin: 0 auto 1.25rem;
-            box-shadow: 0 12px 30px -6px rgba(14, 165, 233, 0.5);
+            color: #ffffff;
+            margin-bottom: 1.25rem;
+            box-shadow: 
+                0 12px 30px -6px rgba(14, 165, 233, 0.55),
+                inset 0 1px 1px rgba(255, 255, 255, 0.4),
+                inset 0 -2px 4px rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.25);
             letter-spacing: 0.5px;
-            border: 1px solid rgba(255, 255, 255, 0.2);
+            position: relative;
         }
 
-        /* Form Inputs */
-        .form-floating > .form-control {
-            background-color: rgba(15, 23, 42, 0.7);
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            color: #ffffff;
-            border-radius: 16px;
-            height: 62px;
-            font-size: 0.98rem;
-            transition: all 0.2s ease;
-        }
-        
-        .form-floating > .form-control:focus {
-            background-color: rgba(15, 23, 42, 0.9);
-            border-color: #38bdf8;
-            box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.18);
-            color: #ffffff;
-        }
-
-        .form-floating > label {
-            color: #94a3b8;
-            padding-left: 1.25rem;
-            font-size: 0.9rem;
-        }
-
-        .password-wrapper { position: relative; }
-        .password-toggle {
+        .brand-emblem::after {
+            content: '';
             position: absolute;
-            right: 18px;
-            top: 50%;
-            transform: translateY(-50%);
-            color: #94a3b8;
-            cursor: pointer;
-            z-index: 10;
-            padding: 8px;
-            transition: color 0.2s;
-        }
-        .password-toggle:hover { color: #38bdf8; }
-
-        /* Sign In Button */
-        .btn-login {
-            background: linear-gradient(135deg, #0284c7 0%, #4f46e5 100%);
-            border: none;
-            border-radius: 16px;
-            color: white;
-            padding: 15px;
-            font-weight: 700;
-            font-size: 1.05rem;
-            letter-spacing: 0.5px;
-            transition: all 0.3s ease;
-            box-shadow: 0 10px 25px -5px rgba(2, 132, 199, 0.45);
-        }
-        .btn-login:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 15px 32px -5px rgba(79, 70, 229, 0.6);
-            color: white;
-            background: linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%);
-        }
-        .btn-login:active {
-            transform: translateY(0);
+            inset: -4px;
+            border-radius: 26px;
+            background: linear-gradient(135deg, rgba(56, 189, 248, 0.4), transparent);
+            z-index: -1;
+            filter: blur(6px);
         }
 
-        /* Alert */
-        .alert-custom {
-            background-color: rgba(239, 68, 68, 0.12);
-            border: 1px solid rgba(239, 68, 68, 0.25);
-            color: #fca5a5;
-            border-radius: 16px;
-            font-size: 0.9rem;
-            padding: 0.9rem 1.1rem;
-        }
-
-        .security-badge {
-            font-size: 0.78rem;
-            color: #64748b;
+        .badge-unified {
             display: inline-flex;
             align-items: center;
             gap: 6px;
+            padding: 4px 12px;
+            border-radius: 9999px;
+            font-size: 0.73rem;
+            font-weight: 600;
+            background: rgba(14, 165, 233, 0.1);
+            color: #38bdf8;
+            border: 1px solid rgba(56, 189, 248, 0.25);
+            margin-bottom: 0.75rem;
+            letter-spacing: 0.4px;
+            text-transform: uppercase;
+        }
+
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            background-color: #38bdf8;
+            border-radius: 50%;
+            box-shadow: 0 0 8px #38bdf8;
+            animation: pulseDot 2s infinite;
+        }
+
+        @keyframes pulseDot {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(0.85); }
+        }
+
+        .brand-title {
+            color: var(--text-heading);
+            font-size: 1.65rem;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            margin-bottom: 0.35rem;
+        }
+
+        .brand-subtitle {
+            color: var(--text-muted);
+            font-size: 0.88rem;
+            font-weight: 400;
+            margin-bottom: 0;
+        }
+
+        /* Modern Custom Form Groups */
+        .input-group-custom {
+            margin-bottom: 1.25rem;
+            position: relative;
+        }
+
+        .input-label-custom {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 0.84rem;
+            font-weight: 600;
+            color: #cbd5e1;
+            margin-bottom: 0.5rem;
+            letter-spacing: 0.2px;
+        }
+
+        .input-wrapper-custom {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+
+        .input-icon-left {
+            position: absolute;
+            left: 18px;
+            color: #64748b;
+            font-size: 1rem;
+            pointer-events: none;
+            transition: color 0.25s ease;
+            z-index: 5;
+        }
+
+        .form-control-custom {
+            width: 100%;
+            height: 54px;
+            background: rgba(15, 23, 42, 0.65);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 16px;
+            padding: 0 16px 0 48px;
+            font-size: 0.96rem;
+            font-family: inherit;
+            color: #ffffff;
+            font-weight: 500;
+            outline: none;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        .form-control-custom::placeholder {
+            color: #64748b;
+            font-weight: 400;
+            font-size: 0.92rem;
+        }
+
+        .form-control-custom:hover {
+            border-color: rgba(255, 255, 255, 0.22);
+            background: rgba(15, 23, 42, 0.8);
+        }
+
+        .form-control-custom:focus {
+            background: rgba(15, 23, 42, 0.95);
+            border-color: #38bdf8;
+            box-shadow: 
+                0 0 0 4px rgba(56, 189, 248, 0.18),
+                inset 0 2px 4px rgba(0, 0, 0, 0.25);
+            color: #ffffff;
+        }
+
+        .input-wrapper-custom:focus-within .input-icon-left {
+            color: #38bdf8;
+        }
+
+        /* Autofill Overrides to preserve deep dark aesthetics */
+        input:-webkit-autofill,
+        input:-webkit-autofill:hover, 
+        input:-webkit-autofill:focus {
+            -webkit-text-fill-color: #ffffff !important;
+            -webkit-box-shadow: 0 0 0px 1000px #0b1329 inset !important;
+            transition: background-color 5000s ease-in-out 0s;
+            caret-color: #ffffff;
+        }
+
+        /* Password Toggle Button */
+        .password-toggle-btn {
+            position: absolute;
+            right: 14px;
+            background: none;
+            border: none;
+            color: #64748b;
+            padding: 8px 10px;
+            cursor: pointer;
+            font-size: 1rem;
+            border-radius: 8px;
+            transition: color 0.2s ease, transform 0.15s ease;
+            z-index: 5;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .password-toggle-btn:hover {
+            color: #38bdf8;
+        }
+
+        .password-toggle-btn:active {
+            transform: scale(0.92);
+        }
+
+        /* Primary Sign-In Action Button */
+        .btn-signin-premier {
+            width: 100%;
+            height: 54px;
+            background: linear-gradient(135deg, #0284c7 0%, #4f46e5 50%, #4338ca 100%);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 16px;
+            color: #ffffff;
+            font-size: 1.02rem;
+            font-weight: 700;
+            letter-spacing: 0.3px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 
+                0 10px 25px -4px rgba(2, 132, 199, 0.45),
+                0 4px 12px rgba(79, 70, 229, 0.3);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            margin-top: 0.5rem;
+        }
+
+        .btn-signin-premier::before {
+            content: '';
+            position: absolute;
+            top: 0; left: -100%;
+            width: 100%; height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.18), transparent);
+            transition: 0.6s ease;
+        }
+
+        .btn-signin-premier:hover {
+            transform: translateY(-2px);
+            box-shadow: 
+                0 14px 32px -4px rgba(2, 132, 199, 0.6),
+                0 6px 16px rgba(79, 70, 229, 0.45);
+            color: #ffffff;
+            background: linear-gradient(135deg, #0ea5e9 0%, #6366f1 50%, #4f46e5 100%);
+        }
+
+        .btn-signin-premier:hover::before {
+            left: 100%;
+        }
+
+        .btn-signin-premier:active {
+            transform: translateY(0);
+            box-shadow: 0 4px 12px rgba(2, 132, 199, 0.4);
+        }
+
+        .btn-signin-premier:disabled {
+            opacity: 0.75;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        /* Error Notification Banner */
+        .alert-premier-error {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.25);
+            border-left: 4px solid #ef4444;
+            color: #fca5a5;
+            border-radius: 14px;
+            padding: 12px 16px;
+            font-size: 0.88rem;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 1.5rem;
+            animation: shakeAlert 0.4s ease;
+        }
+
+        @keyframes shakeAlert {
+            0%, 100% { transform: translateX(0); }
+            20%, 60% { transform: translateX(-4px); }
+            40%, 80% { transform: translateX(4px); }
+        }
+
+        /* Customer Portal Alternative Link */
+        .customer-portal-pill {
+            display: block;
+            text-align: center;
+            margin-top: 1.25rem;
+            padding: 10px 14px;
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            color: #94a3b8;
+            font-size: 0.84rem;
+            text-decoration: none;
+            transition: all 0.2s ease;
+            font-weight: 500;
+        }
+
+        .customer-portal-pill:hover {
+            background: rgba(14, 165, 233, 0.08);
+            border-color: rgba(56, 189, 248, 0.25);
+            color: #38bdf8;
+            transform: translateY(-1px);
+        }
+
+        /* Footer & Trust Shield */
+        .auth-footer {
+            margin-top: 2rem;
+            padding-top: 1.25rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.07);
+            text-align: center;
+        }
+
+        .security-row {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.74rem;
+            color: #64748b;
+            margin-bottom: 0.35rem;
+        }
+
+        .copyright-text {
+            color: #64748b;
+            font-size: 0.74rem;
+            margin: 0;
+        }
+
+        /* ================= Mobile Screen Optimizations ================= */
+        @media (max-width: 576px) {
+            .login-container {
+                padding: 12px;
+                max-width: 100%;
+            }
+
+            .auth-card {
+                padding: 2.2rem 1.4rem;
+                border-radius: 24px;
+            }
+
+            .brand-emblem {
+                width: 64px;
+                height: 64px;
+                font-size: 26px;
+                border-radius: 18px;
+                margin-bottom: 1rem;
+            }
+
+            .brand-title {
+                font-size: 1.45rem;
+            }
+
+            .brand-subtitle {
+                font-size: 0.82rem;
+            }
+
+            .form-control-custom {
+                height: 52px;
+                font-size: 16px; /* Prevents auto-zoom in iOS Safari */
+            }
+
+            .btn-signin-premier {
+                height: 52px;
+                font-size: 0.98rem;
+            }
         }
     </style>
 </head>
 <body>
 
-    <!-- Ambient Glowing Shapes -->
-    <div class="bg-shape shape-1"></div>
-    <div class="bg-shape shape-2"></div>
+    <!-- Ambient Glow Lighting -->
+    <div class="ambient-glow glow-1"></div>
+    <div class="ambient-glow glow-2"></div>
 
-    <div class="login-wrapper">
-        <div class="login-card">
+    <!-- Login Container -->
+    <div class="login-container">
+        <div class="auth-card">
             
-            <!-- Brand Area -->
-            <div class="text-center mb-4">
-                <div class="brand-logo"><?= BRAND_LOGO_ABBR ?></div>
-                <h3 class="fw-bold mb-1" style="letter-spacing: -0.5px;"><?= BRAND_NAME ?></h3>
-                <p class="text-secondary small fw-medium mb-0">Sign in to your account</p>
+            <!-- Brand & Heading Area -->
+            <div class="brand-header">
+                <div class="brand-emblem">
+                    <?= BRAND_LOGO_ABBR ?>
+                </div>
+                <div>
+                    <span class="badge-unified">
+                        <span class="status-dot"></span>
+                        Secure Access Portal
+                    </span>
+                </div>
+                <h1 class="brand-title"><?= BRAND_NAME ?></h1>
+                <p class="brand-subtitle">Enter your credentials to access your control portal</p>
             </div>
             
             <!-- Error Banner -->
             <?php if (!empty($error)): ?>
-                <div class="alert alert-custom d-flex align-items-center mb-4 shadow-sm" role="alert">
-                    <i class="fa-solid fa-circle-exclamation me-3 fs-5 flex-shrink-0 text-danger"></i>
+                <div class="alert-premier-error" role="alert">
+                    <i class="fa-solid fa-triangle-exclamation fs-5 flex-shrink-0 text-danger"></i>
                     <div><?= htmlspecialchars($error) ?></div>
                 </div>
             <?php endif; ?>
 
             <!-- Universal Smart Login Form -->
-            <form method="POST" autocomplete="on">
+            <form method="POST" id="loginForm" autocomplete="on">
                 
-                <div class="form-floating mb-3 shadow-sm">
-                    <input type="text" name="identifier" id="identifier" class="form-control" value="<?= htmlspecialchars($_POST['identifier'] ?? '') ?>" required autocomplete="username" placeholder="Username or Email" autofocus>
-                    <label for="identifier"><i class="fa-regular fa-user me-2 text-info"></i>Username or Email</label>
+                <!-- Identifier Input (Username / Email) -->
+                <div class="input-group-custom">
+                    <label for="identifier" class="input-label-custom">
+                        <span>Username or Email</span>
+                    </label>
+                    <div class="input-wrapper-custom">
+                        <i class="fa-regular fa-user input-icon-left"></i>
+                        <input 
+                            type="text" 
+                            name="identifier" 
+                            id="identifier" 
+                            class="form-control-custom" 
+                            value="<?= htmlspecialchars($_POST['identifier'] ?? '') ?>" 
+                            required 
+                            autocomplete="username" 
+                            placeholder="Enter username, email or company..." 
+                            autofocus
+                        >
+                    </div>
                 </div>
                 
-                <div class="form-floating mb-4 password-wrapper shadow-sm">
-                    <input type="password" class="form-control pe-5" id="password" name="password" placeholder="Password" required autocomplete="current-password">
-                    <label for="password"><i class="fa-solid fa-lock me-2 text-info"></i>Password</label>
-                    <span class="password-toggle" onclick="togglePassword()" title="Show/Hide Password">
-                        <i class="fa-solid fa-eye" id="toggleIcon"></i>
-                    </span>
+                <!-- Password Input -->
+                <div class="input-group-custom">
+                    <label for="password" class="input-label-custom">
+                        <span>Password</span>
+                    </label>
+                    <div class="input-wrapper-custom">
+                        <i class="fa-solid fa-lock input-icon-left"></i>
+                        <input 
+                            type="password" 
+                            name="password" 
+                            id="password" 
+                            class="form-control-custom" 
+                            style="padding-right: 48px;" 
+                            placeholder="Enter your account password..." 
+                            required 
+                            autocomplete="current-password"
+                        >
+                        <button type="button" class="password-toggle-btn" id="togglePasswordBtn" onclick="togglePasswordVisibility()" aria-label="Toggle password visibility">
+                            <i class="fa-regular fa-eye" id="toggleIcon"></i>
+                        </button>
+                    </div>
                 </div>
                 
-                <button type="submit" class="btn btn-login w-100 mb-3 shadow">
-                    <span>Sign In</span> <i class="fa-solid fa-arrow-right-to-bracket ms-2"></i>
+                <!-- Submit Action Button -->
+                <button type="submit" class="btn-signin-premier" id="btnSubmit">
+                    <span id="btnText">Sign In</span>
+                    <i class="fa-solid fa-arrow-right-to-bracket ms-1" id="btnIcon"></i>
                 </button>
                 
-                <div class="text-center pt-2">
-                    <a href="/customer/login" class="text-decoration-none small text-info text-opacity-75 hover-opacity-100 fw-semibold">
-                        <i class="fa-solid fa-arrow-up-right-from-square me-1" style="font-size: 0.72rem;"></i> Customer Portal Sign In
-                    </a>
-                </div>
+                <!-- Customer Portal Shortcut -->
+                <a href="/customer/login" class="customer-portal-pill">
+                    <i class="fa-solid fa-users me-1 text-info"></i>
+                    <span>Are you a Subscriber? <b>Customer Portal &rarr;</b></span>
+                </a>
 
             </form>
             
-            <!-- Security & Copyright Footer -->
-            <div class="text-center mt-4 pt-3 border-top border-secondary border-opacity-10">
-                <div class="security-badge mb-2">
+            <!-- Security Footer -->
+            <div class="auth-footer">
+                <div class="security-row">
                     <i class="fa-solid fa-shield-halved text-success"></i>
-                    <span>Encrypted &amp; Secure Authentication</span>
+                    <span>256-Bit SSL End-to-End Encryption</span>
                 </div>
-                <p class="text-secondary small mb-0" style="font-size: 0.76rem; color: #64748b !important;">
+                <p class="copyright-text">
                     &copy; <?= date('Y') ?> <?= BRAND_NAME ?>. All rights reserved.
                 </p>
             </div>
@@ -520,20 +860,39 @@ if ($is_blocked) {
         </div>
     </div>
 
-    <!-- Scripts -->
+    <!-- Client-Side Scripting -->
     <script>
-        function togglePassword() {
-            const passwordInput = document.getElementById('password');
-            const toggleIcon = document.getElementById('toggleIcon');
-            if (passwordInput.type === 'password') {
-                passwordInput.type = 'text';
-                toggleIcon.classList.remove('fa-eye');
-                toggleIcon.classList.add('fa-eye-slash');
+        function togglePasswordVisibility() {
+            const pwd = document.getElementById('password');
+            const icon = document.getElementById('toggleIcon');
+            if (!pwd || !icon) return;
+
+            if (pwd.type === 'password') {
+                pwd.type = 'text';
+                icon.classList.remove('fa-eye');
+                icon.classList.add('fa-eye-slash');
             } else {
-                passwordInput.type = 'password';
-                toggleIcon.classList.remove('fa-eye-slash');
-                toggleIcon.classList.add('fa-eye');
+                pwd.type = 'password';
+                icon.classList.remove('fa-eye-slash');
+                icon.classList.add('fa-eye');
             }
+        }
+
+        // Add interactive loading state on submit
+        const loginForm = document.getElementById('loginForm');
+        if (loginForm) {
+            loginForm.addEventListener('submit', function() {
+                const btn = document.getElementById('btnSubmit');
+                const btnText = document.getElementById('btnText');
+                const btnIcon = document.getElementById('btnIcon');
+                if (btn && btnText) {
+                    btn.disabled = true;
+                    btnText.innerText = 'Authenticating...';
+                    if (btnIcon) {
+                        btnIcon.className = 'fa-solid fa-circle-notch fa-spin ms-2';
+                    }
+                }
+            });
         }
     </script>
     <script src="/security-shield.js?v=2.1"></script>
