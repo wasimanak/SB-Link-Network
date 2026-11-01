@@ -418,6 +418,14 @@ $userRoleLabel = !empty($_SESSION['is_manager']) ? 'MANAGER' : 'ADMIN';
             background: #fee2e2;
         }
 
+        .top-user-profile-btn::after {
+            display: none !important;
+        }
+        .top-user-profile-btn:hover {
+            background-color: #f8fafc !important;
+            border-color: #cbd5e1 !important;
+        }
+
         /* Page Layout Margins */
         .main-content {
             padding: 30px;
@@ -654,32 +662,6 @@ $userRoleLabel = !empty($_SESSION['is_manager']) ? 'MANAGER' : 'ADMIN';
             </div>
 
         </div>
-
-        <!-- Bottom User Profile Strip (ADMINCHECK1 from Screenshot) -->
-        <div class="sidebar-footer-user">
-            <?php
-                $sidebarProfileLink = !empty($_SESSION['is_manager']) 
-                    ? "manager_view.php?id=" . (int)$_SESSION['manager_id'] 
-                    : "profile";
-            ?>
-            <a href="<?= $sidebarProfileLink ?>" style="text-decoration: none; display: flex; align-items: center; gap: 10px; flex-grow: 1; min-width: 0; color: inherit;" title="View Profile">
-                <div class="user-avatar">
-                    <?php if (!empty($tenant['photo']) && file_exists(__DIR__ . '/../uploads/profiles/' . $tenant['photo'])): ?>
-                        <img src="../uploads/profiles/<?= htmlspecialchars($tenant['photo']) ?>?v=<?= time() ?>" alt="Avatar">
-                    <?php else: ?>
-                        <?= $avatarInitial ?>
-                    <?php endif; ?>
-                </div>
-                <div class="user-info">
-                    <div class="user-name" title="<?= htmlspecialchars($displayName) ?>">
-                        <?= htmlspecialchars(strtoupper($displayName)) ?>
-                    </div>
-                    <div class="user-role"><?= $userRoleLabel ?></div>
-                </div>
-            </a>
-            <a href="logout" class="logout-btn" title="Logout">
-                <i class="fa-solid fa-arrow-right-from-bracket"></i>
-            </a>
         </div>
 
     </div>
@@ -702,21 +684,78 @@ $userRoleLabel = !empty($_SESSION['is_manager']) ? 'MANAGER' : 'ADMIN';
                 <?php endif; ?>
             </a>
         </div>
-        <div class="position-relative d-none d-md-block" style="width: 350px;">
-            <div class="input-group" style="box-shadow: 0 2px 10px rgba(0,0,0,0.05); border-radius: 20px;">
-                <span class="input-group-text bg-white border-end-0 text-muted px-3" style="border-radius: 20px 0 0 20px; border-color: #e5e7eb;">
-                    <i class="fa-solid fa-magnifying-glass"></i>
-                </span>
-                <input type="text" id="omniSearch" class="form-control border-start-0 ps-0 shadow-none" placeholder="Search users, packages, tools..." style="border-radius: 0 20px 20px 0; background: #fff; border-color: #e5e7eb; font-size: 0.95rem;">
-                <!-- Loading Spinner -->
-                <span id="omniLoader" class="position-absolute end-0 top-50 translate-middle-y me-3 d-none" style="z-index: 5;">
-                    <i class="fa-solid fa-circle-notch fa-spin text-primary"></i>
-                </span>
+        <div class="d-flex align-items-center gap-3">
+            <!-- Search Bar -->
+            <div class="position-relative d-none d-md-block" style="width: 320px;">
+                <div class="input-group" style="box-shadow: 0 2px 10px rgba(0,0,0,0.05); border-radius: 20px;">
+                    <span class="input-group-text bg-white border-end-0 text-muted px-3" style="border-radius: 20px 0 0 20px; border-color: #e5e7eb;">
+                        <i class="fa-solid fa-magnifying-glass"></i>
+                    </span>
+                    <input type="text" id="omniSearch" class="form-control border-start-0 ps-0 shadow-none" placeholder="Search users, packages, tools..." style="border-radius: 0 20px 20px 0; background: #fff; border-color: #e5e7eb; font-size: 0.95rem;">
+                    <!-- Loading Spinner -->
+                    <span id="omniLoader" class="position-absolute end-0 top-50 translate-middle-y me-3 d-none" style="z-index: 5;">
+                        <i class="fa-solid fa-circle-notch fa-spin text-primary"></i>
+                    </span>
+                </div>
+                
+                <!-- Dropdown Results -->
+                <div id="omniResults" class="position-absolute w-100 bg-white rounded shadow-lg mt-2 d-none" style="z-index: 1050; max-height: 400px; overflow-y: auto; border: 1px solid #f1f5f9; overflow-x: hidden;">
+                    <div class="list-group list-group-flush" id="omniResultsList"></div>
+                </div>
             </div>
-            
-            <!-- Dropdown Results -->
-            <div id="omniResults" class="position-absolute w-100 bg-white rounded shadow-lg mt-2 d-none" style="z-index: 1050; max-height: 400px; overflow-y: auto; border: 1px solid #f1f5f9; overflow-x: hidden;">
-                <div class="list-group list-group-flush" id="omniResultsList"></div>
+
+            <!-- User Profile Dropdown Pill -->
+            <?php
+                $topProfileLink = !empty($_SESSION['is_manager']) 
+                    ? "manager_view.php?id=" . (int)$_SESSION['manager_id'] 
+                    : "profile";
+            ?>
+            <div class="dropdown">
+                <button class="btn btn-white bg-white border rounded-pill d-flex align-items-center gap-2 py-1 px-2 shadow-sm dropdown-toggle text-start top-user-profile-btn" type="button" id="userProfileDropdown" data-bs-toggle="dropdown" aria-expanded="false" style="border-color: #e2e8f0 !important; cursor: pointer;">
+                    <div class="top-nav-avatar" style="width: 36px; height: 36px; border-radius: 50%; background: #2563eb; color: #ffffff; font-weight: 800; font-size: 1rem; display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: 0 2px 6px rgba(37,99,235,0.25); overflow: hidden;">
+                        <?php if (!empty($tenant['photo']) && file_exists(__DIR__ . '/../uploads/profiles/' . $tenant['photo'])): ?>
+                            <img src="../uploads/profiles/<?= htmlspecialchars($tenant['photo']) ?>?v=<?= time() ?>" alt="Avatar" style="width: 100%; height: 100%; object-fit: cover;">
+                        <?php else: ?>
+                            <?= $avatarInitial ?>
+                        <?php endif; ?>
+                    </div>
+                    <div class="d-none d-lg-block me-1" style="line-height: 1.2;">
+                        <div class="fw-bold text-dark text-truncate" style="font-size: 0.85rem; max-width: 130px;" title="<?= htmlspecialchars($displayName) ?>">
+                            <?= htmlspecialchars(strtoupper($displayName)) ?>
+                        </div>
+                        <div class="text-muted text-uppercase" style="font-size: 0.65rem; font-weight: 700; letter-spacing: 0.4px;">
+                            <?= $userRoleLabel ?>
+                        </div>
+                    </div>
+                    <i class="fa-solid fa-chevron-down text-muted ms-1 pe-1" style="font-size: 0.72rem;"></i>
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end shadow-lg border-0 rounded-4 mt-2 p-2" aria-labelledby="userProfileDropdown" style="min-width: 220px; box-shadow: 0 10px 30px rgba(0,0,0,0.08) !important; z-index: 1060;">
+                    <li class="px-3 py-2 border-bottom mb-1 bg-light rounded-top-3">
+                        <div class="fw-bold text-dark text-truncate" style="font-size: 0.88rem;"><?= htmlspecialchars($displayName) ?></div>
+                        <div class="small text-muted text-truncate" style="font-size: 0.72rem;"><?= htmlspecialchars($tenant['company_name'] ?? '') ?></div>
+                    </li>
+                    <li>
+                        <a class="dropdown-item rounded-3 py-2 d-flex align-items-center gap-2 fw-semibold text-dark" href="<?= $topProfileLink ?>" style="font-size: 0.88rem;">
+                            <i class="fa-solid fa-user text-primary" style="width: 18px;"></i>
+                            <span>View Profile</span>
+                        </a>
+                    </li>
+                    <?php if (empty($_SESSION['is_manager'])): ?>
+                    <li>
+                        <a class="dropdown-item rounded-3 py-2 d-flex align-items-center gap-2 fw-semibold text-dark" href="settings" style="font-size: 0.88rem;">
+                            <i class="fa-solid fa-sliders text-secondary" style="width: 18px;"></i>
+                            <span>Settings</span>
+                        </a>
+                    </li>
+                    <?php endif; ?>
+                    <li><hr class="dropdown-divider my-1"></li>
+                    <li>
+                        <a class="dropdown-item rounded-3 py-2 text-danger d-flex align-items-center gap-2 fw-bold" href="logout" style="font-size: 0.88rem;">
+                            <i class="fa-solid fa-arrow-right-from-bracket" style="width: 18px;"></i>
+                            <span>Logout</span>
+                        </a>
+                    </li>
+                </ul>
             </div>
         </div>
     </div>
