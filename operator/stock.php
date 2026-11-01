@@ -9,6 +9,16 @@ require_once '../config/db.php';
 $client_id = (int)($_SESSION['operator_id'] ?? 1);
 $current_user = $_SESSION['operator_username'] ?? (!empty($_SESSION['is_manager']) ? 'Manager' : 'Admin');
 
+try {
+    // Adopt any legacy superadmin items to current operator so they immediately appear
+    $chkLegacy = $pdo->prepare("SELECT COUNT(*) FROM items WHERE client_id = ?");
+    $chkLegacy->execute([$client_id]);
+    if ($chkLegacy->fetchColumn() == 0) {
+        $pdo->prepare("UPDATE items SET client_id = ? WHERE client_id = 0 OR client_id = 1")->execute([$client_id]);
+        $pdo->prepare("UPDATE stock_transactions SET client_id = ? WHERE client_id = 0 OR client_id = 1")->execute([$client_id]);
+    }
+} catch (Exception $e) {}
+
 // -------------------------------------------------------------
 // Self-Healing Database Schema Migration
 // -------------------------------------------------------------
@@ -95,7 +105,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'get_item' && !empty($_GET['id']))
 // -------------------------------------------------------------
 $flash = null;
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
     $action = $_POST['action'] ?? '';
 
     // 1. ADD ITEM
@@ -254,7 +264,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $lmName = $lmStmt->fetchColumn();
             if ($lmName) $party_name = "Lineman: " . $lmName;
         } elseif ($issued_to_type === 'dealer' && !empty($_POST['dealer_id'])) {
-            $dlStmt = $pdo->prepare("SELECT name FROM dealers WHERE id = ? AND client_id = ?");
+            $dlStmt = $pdo->prepare("SELECT full_name FROM dealers WHERE id = ? AND client_id = ?");
             $dlStmt->execute([(int)$_POST['dealer_id'], $client_id]);
             $dlName = $dlStmt->fetchColumn();
             if ($dlName) $party_name = "Dealer: " . $dlName;
@@ -325,7 +335,7 @@ $linemenStmt = $pdo->prepare("SELECT id, full_name, phone FROM linemen WHERE cli
 $linemenStmt->execute([$client_id]);
 $all_linemen = $linemenStmt->fetchAll(PDO::FETCH_ASSOC);
 
-$dealersStmt = $pdo->prepare("SELECT id, name, username FROM dealers WHERE client_id = ? ORDER BY name ASC");
+$dealersStmt = $pdo->prepare("SELECT id, full_name, username FROM dealers WHERE client_id = ? ORDER BY full_name ASC");
 $dealersStmt->execute([$client_id]);
 $all_dealers = $dealersStmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -1310,7 +1320,7 @@ $commonUnits = ['Nos.', 'Km', 'Mtr', 'Roll', 'Box', 'Pkt', 'Set', 'Feet'];
                         <select name="dealer_id" class="form-select rounded-3">
                             <option value="">-- Select Dealer --</option>
                             <?php foreach ($all_dealers as $dl): ?>
-                                <option value="<?= $dl['id'] ?>"><?= htmlspecialchars($dl['name']) ?> (@<?= htmlspecialchars($dl['username']) ?>)</option>
+                                <option value="<?= $dl['id'] ?>"><?= htmlspecialchars($dl['full_name']) ?> (@<?= htmlspecialchars($dl['username']) ?>)</option>
                             <?php endforeach; ?>
                         </select>
                     </div>
