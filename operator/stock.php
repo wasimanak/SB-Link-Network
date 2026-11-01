@@ -338,6 +338,8 @@ if (isset($_SESSION['stock_flash'])) {
     unset($_SESSION['stock_flash']);
 }
 
+require_once 'header.php';
+
 // -------------------------------------------------------------
 // Data Fetching: Linemen & Dealers for Stock OUT Select
 // -------------------------------------------------------------
