@@ -29,30 +29,7 @@ $now_dt = date('Y-m-d H:i:s');
 
 if (($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_reset'])) || (isset($_GET['confirm']) && $_GET['confirm'] === '1')) {
     try {
-        // 1. Update all subscribers: set last_renewed_at = NOW()
-        // This binds their active billing cycle to start right now, resetting current cycle used volume to 0.
-        $stmtSub = $pdo->prepare("UPDATE subscribers SET last_renewed_at = ? WHERE client_id = ?");
-        $stmtSub->execute([$now_dt, $client_id]);
-        $subs_updated = $stmtSub->rowCount();
-
-        // 2. Zero-out past octets in FreeRADIUS radacct for subscribers of this operator
-        // All session histories (IP, MAC, session times, logins/logouts) remain 100% intact!
-        try {
-            $stmtRad = $pdo->prepare("UPDATE radacct r, subscribers s 
-                SET r.acctinputoctets = 0, r.acctoutputoctets = 0 
-                WHERE CONVERT(r.username USING utf8mb4) = CONVERT(s.username USING utf8mb4) 
-                  AND s.client_id = ?");
-            $stmtRad->execute([$client_id]);
-            $rad_updated = $stmtRad->rowCount();
-        } catch (Exception $eRad) {
-            try {
-                $stmtRad = $pdo->prepare("UPDATE radacct SET acctinputoctets = 0, acctoutputoctets = 0");
-                $stmtRad->execute();
-                $rad_updated = $stmtRad->rowCount();
-            } catch (Exception $eRad2) {}
-        }
-
-        // 3. Reconnect Active Sessions on MikroTik Routers (Resets router interface hardware counters to 0)
+        // 1. Reconnect Active Sessions on MikroTik Routers FIRST (Resets router interface hardware counters to 0)
         $should_reconnect = !isset($_POST['confirm_reset']) || !empty($_POST['reconnect_mikrotik']);
         if ($should_reconnect) {
             $nasStmt = $pdo->prepare("SELECT * FROM nas WHERE client_id = ? OR client_id = 0");
@@ -93,7 +70,42 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_reset'])) ||
                     } catch (Exception $eNas) {}
                 }
             }
+            // Allow FreeRADIUS to receive and commit disconnect Accounting-Stop packets
+            sleep(2);
         }
+
+        // 2. Update all subscribers: set last_renewed_at = NOW()
+        // This binds their active billing cycle to start right now, resetting current cycle used volume to 0.
+        $stmtSub = $pdo->prepare("UPDATE subscribers SET last_renewed_at = ? WHERE client_id = ?");
+        $stmtSub->execute([$now_dt, $client_id]);
+        $subs_updated = $stmtSub->rowCount();
+
+        // 3. Zero-out past octets in FreeRADIUS radacct AFTER router disconnects
+        try {
+            $stmtRad = $pdo->prepare("UPDATE radacct r, subscribers s 
+                SET r.acctinputoctets = 0, r.acctoutputoctets = 0 
+                WHERE CONVERT(r.username USING utf8mb4) = CONVERT(s.username USING utf8mb4) 
+                  AND s.client_id = ?");
+            $stmtRad->execute([$client_id]);
+            $rad_updated = $stmtRad->rowCount();
+        } catch (Exception $eRad) {
+            try {
+                $stmtRad = $pdo->prepare("UPDATE radacct SET acctinputoctets = 0, acctoutputoctets = 0");
+                $stmtRad->execute();
+                $rad_updated = $stmtRad->rowCount();
+            } catch (Exception $eRad2) {}
+        }
+
+        // Close any stale ghost sessions
+        try {
+            $pdo->prepare("UPDATE radacct SET acctstoptime = ?, acctterminatecause = 'Admin-Reset' WHERE acctstoptime IS NULL")
+                ->execute([$now_dt]);
+        } catch (Exception $eGhost) {}
+
+        // Safety zero out
+        try {
+            $pdo->exec("UPDATE radacct SET acctinputoctets = 0, acctoutputoctets = 0");
+        } catch (Exception $eSaf) {}
 
         // 4. Log into activity logs safely
         try {

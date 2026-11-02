@@ -6,6 +6,10 @@
  * Resets all customer usage counters to zero across the database (subscribers & radacct),
  * cleanses invalid 1970/0000 dates, and reconnects active router sessions so all future usage
  * is 100% authentic, real, and started from 0.
+ * 
+ * Usage options:
+ *   1. Full reset: ?key=sb_cron_secret_786
+ *   2. Instant DB zero only (no router disconnect): ?key=sb_cron_secret_786&action=zero_radacct
  */
 
 // Enable detailed error display so web responses never silently blank out
@@ -17,6 +21,7 @@ require_once __DIR__ . '/config/security.php';
 
 $is_cli = (php_sapi_name() === 'cli');
 $cron_key = $_GET['key'] ?? '';
+$action = $_GET['action'] ?? '';
 $client_ip = $_SERVER['REMOTE_ADDR'] ?? '';
 $is_local_call = in_array($client_ip, ['127.0.0.1', '::1', 'localhost']);
 
@@ -45,6 +50,33 @@ echo "   SB Link Network - Mass Usage Reset & Date Normalizer  $nl";
 echo "=========================================================$nl";
 $start_time = microtime(true);
 $now_dt = date('Y-m-d H:i:s');
+
+// QUICK ACTION: Instant radacct zero & cycle synchronization (No router kick)
+if ($action === 'zero_radacct') {
+    echo "Mode: Instant Radacct Zero (Router sessions not interrupted)$nl";
+    try {
+        $st1 = $pdo->prepare("UPDATE radacct SET acctinputoctets = 0, acctoutputoctets = 0");
+        $st1->execute();
+        $rad_cnt = $st1->rowCount();
+        echo "   [OK] Cleared data octets on radacct records: $rad_cnt$nl";
+
+        $colChk = $pdo->query("SHOW COLUMNS FROM `subscribers` LIKE 'last_renewed_at'")->fetch();
+        if (!$colChk) {
+            $pdo->exec("ALTER TABLE `subscribers` ADD COLUMN `last_renewed_at` DATETIME DEFAULT NULL");
+        }
+        $st2 = $pdo->prepare("UPDATE subscribers SET last_renewed_at = ?");
+        $st2->execute([$now_dt]);
+        $sub_cnt = $st2->rowCount();
+        echo "   [OK] Synchronized last_renewed_at for subscribers: $sub_cnt$nl";
+    } catch (Throwable $e) {
+        echo "   [ERROR] Zeroing failed: " . htmlspecialchars($e->getMessage()) . "$nl";
+    }
+    $elapsed = round(microtime(true) - $start_time, 2);
+    echo "=========================================================$nl";
+    echo "SUCCESS: Radacct zeroed out in {$elapsed} seconds!$nl";
+    echo "=========================================================$nl";
+    exit;
+}
 
 // STEP 1: Normalize invalid 1970 & 0000 dates in database
 echo "1. Normalizing invalid 1970 & 0000 dates in database...$nl";
@@ -98,45 +130,8 @@ try {
     echo "   [NOTE] Radcheck cleanup notice: " . htmlspecialchars($e->getMessage()) . "$nl";
 }
 
-// STEP 2: Reset All Subscribers Billing Cycle Reset Marker (last_renewed_at = NOW())
-echo "2. Resetting active billing cycle to zero for all subscribers...$nl";
-$subs_updated = 0;
-try {
-    try {
-        $colChk = $pdo->query("SHOW COLUMNS FROM `subscribers` LIKE 'last_renewed_at'")->fetch();
-        if (!$colChk) {
-            $pdo->exec("ALTER TABLE `subscribers` ADD COLUMN `last_renewed_at` DATETIME DEFAULT NULL");
-        }
-    } catch (Throwable $eCol) {}
-
-    $stmtSub = $pdo->prepare("UPDATE subscribers SET last_renewed_at = ?");
-    $stmtSub->execute([$now_dt]);
-    $subs_updated = $stmtSub->rowCount();
-    echo "   [OK] Updated subscribers with fresh cycle start: $subs_updated$nl";
-} catch (Throwable $e) {
-    echo "   [ERROR] Subscriber cycle reset failed: " . htmlspecialchars($e->getMessage()) . "$nl";
-}
-
-// STEP 3: Reset all octets in radacct to 0
-echo "3. Zeroing out past data octets in FreeRADIUS radacct table...$nl";
-$rad_updated = 0;
-$ghosts_closed = 0;
-try {
-    $stmtRad = $pdo->prepare("UPDATE radacct SET acctinputoctets = 0, acctoutputoctets = 0");
-    $stmtRad->execute();
-    $rad_updated = $stmtRad->rowCount();
-    echo "   [OK] Cleared data octets on accounting records: $rad_updated$nl";
-
-    $close_ghosts = $pdo->prepare("UPDATE radacct SET acctstoptime = ?, acctterminatecause = 'Admin-Reset' WHERE acctstoptime IS NULL");
-    $close_ghosts->execute([$now_dt]);
-    $ghosts_closed = $close_ghosts->rowCount();
-    echo "   [OK] Closed stale/ghost sessions: $ghosts_closed$nl";
-} catch (Throwable $e) {
-    echo "   [ERROR] Radacct reset notice: " . htmlspecialchars($e->getMessage()) . "$nl";
-}
-
-// STEP 4: Reconnect Active MikroTik Sessions so hardware interface counters reset to 0
-echo "4. Refreshing active sessions on configured MikroTik routers...$nl";
+// STEP 2: Reconnect Active MikroTik Sessions FIRST so hardware interface counters reset to 0
+echo "2. Refreshing active sessions on configured MikroTik routers...$nl";
 $routers_contacted = 0;
 $sessions_reconnected = 0;
 
@@ -191,6 +186,52 @@ try {
 } catch (Throwable $eAllNas) {
     echo "   [NOTE] Router query skipped: " . htmlspecialchars($eAllNas->getMessage()) . "$nl";
 }
+
+// STEP 3: Wait briefly for MikroTik Accounting-Stop packets to be processed by FreeRADIUS
+echo "3. Waiting for router disconnect accounting stop packets to commit...$nl";
+sleep(2);
+
+// STEP 4: Zero out ALL octets in radacct and close past sessions
+echo "4. Zeroing out past data octets in FreeRADIUS radacct table...$nl";
+$rad_updated = 0;
+$ghosts_closed = 0;
+try {
+    $stmtRad = $pdo->prepare("UPDATE radacct SET acctinputoctets = 0, acctoutputoctets = 0");
+    $stmtRad->execute();
+    $rad_updated = $stmtRad->rowCount();
+    echo "   [OK] Cleared data octets on accounting records: $rad_updated$nl";
+
+    $close_ghosts = $pdo->prepare("UPDATE radacct SET acctstoptime = ?, acctterminatecause = 'Admin-Reset' WHERE acctstoptime IS NULL");
+    $close_ghosts->execute([$now_dt]);
+    $ghosts_closed = $close_ghosts->rowCount();
+    echo "   [OK] Closed stale/ghost sessions: $ghosts_closed$nl";
+} catch (Throwable $e) {
+    echo "   [ERROR] Radacct reset notice: " . htmlspecialchars($e->getMessage()) . "$nl";
+}
+
+// STEP 5: Reset All Subscribers Billing Cycle Reset Marker (last_renewed_at = NOW())
+echo "5. Resetting active billing cycle to zero for all subscribers...$nl";
+$subs_updated = 0;
+try {
+    try {
+        $colChk = $pdo->query("SHOW COLUMNS FROM `subscribers` LIKE 'last_renewed_at'")->fetch();
+        if (!$colChk) {
+            $pdo->exec("ALTER TABLE `subscribers` ADD COLUMN `last_renewed_at` DATETIME DEFAULT NULL");
+        }
+    } catch (Throwable $eCol) {}
+
+    $stmtSub = $pdo->prepare("UPDATE subscribers SET last_renewed_at = ?");
+    $stmtSub->execute([$now_dt]);
+    $subs_updated = $stmtSub->rowCount();
+    echo "   [OK] Updated subscribers with fresh cycle start: $subs_updated$nl";
+} catch (Throwable $e) {
+    echo "   [ERROR] Subscriber cycle reset failed: " . htmlspecialchars($e->getMessage()) . "$nl";
+}
+
+// Final safety clear of radacct octets
+try {
+    $pdo->exec("UPDATE radacct SET acctinputoctets = 0, acctoutputoctets = 0");
+} catch (Throwable $e) {}
 
 $elapsed = round(microtime(true) - $start_time, 2);
 
