@@ -387,22 +387,12 @@ foreach ($fund_requests as $fr) {
                                 $raw_start = $s['acctstarttime'] ?? '';
                                 $raw_stop = $s['acctstoptime'] ?? '';
                                 
-                                $start_ts = null;
-                                if (!empty($raw_start) && $raw_start !== '0000-00-00 00:00:00' && $raw_start !== '1970-01-01 00:00:00') {
-                                    if (is_numeric($raw_start) && (int)$raw_start > 86400) {
-                                        $start_ts = (int)$raw_start;
-                                    } else {
-                                        $parsed = strtotime($raw_start);
-                                        if ($parsed !== false && $parsed > 86400) {
-                                            $start_ts = $parsed;
-                                        }
-                                    }
-                                }
+                                $start_ts = parse_safe_timestamp($raw_start);
 
                                 // Fallback: calculate start time from stop time minus duration
-                                if (!$start_ts && !empty($raw_stop) && $raw_stop !== '0000-00-00 00:00:00' && $raw_stop !== '1970-01-01 00:00:00') {
-                                    $stop_ts = is_numeric($raw_stop) ? (int)$raw_stop : strtotime($raw_stop);
-                                    if ($stop_ts !== false && $stop_ts > 86400) {
+                                if (!$start_ts && !empty($raw_stop)) {
+                                    $stop_ts = parse_safe_timestamp($raw_stop);
+                                    if ($stop_ts && $stop_ts > $dur) {
                                         $calc = $stop_ts - $dur;
                                         $start_ts = ($calc > 86400) ? $calc : $stop_ts;
                                     }
@@ -411,8 +401,8 @@ foreach ($fund_requests as $fr) {
                             <tr>
                                 <td>
                                     <?php if ($start_ts): ?>
-                                        <div class="fw-semibold text-dark"><?= date('d M Y', $start_ts) ?></div>
-                                        <div class="text-muted" style="font-size: 0.75rem;"><?= date('h:i:s A', $start_ts) ?></div>
+                                        <div class="fw-semibold text-dark"><?= safe_date('d M Y', $start_ts) ?></div>
+                                        <div class="text-muted" style="font-size: 0.75rem;"><?= safe_date('h:i:s A', $start_ts) ?></div>
                                     <?php else: ?>
                                         <div class="fw-semibold text-dark">Recent Session</div>
                                         <div class="text-muted" style="font-size: 0.75rem;">Completed</div>
