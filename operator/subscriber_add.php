@@ -43,38 +43,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Cleartext-Password', ':=', ?)")
                     ->execute([$username, $password]);
                 
-                // Expired Expiration date and Reject in radcheck until renewed
-                $formatted_past_expiry = date('d M Y H:i:s', time() - 60);
+                // Walled Garden with 10k/10k rate limit for newly created user (Default: Expired awaiting renewal)
                 $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute IN ('Expiration', 'Auth-Type')")->execute([$username]);
-                $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Expiration', ':=', ?)")->execute([$username, $formatted_past_expiry]);
-                $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Auth-Type', ':=', 'Reject')")->execute([$username]);
-
-                $pdo->prepare("DELETE FROM radusergroup WHERE username = ?")->execute([$username]);
-                $pdo->prepare("INSERT INTO radusergroup (username, groupname, priority) VALUES (?, ?, 1)")
-                    ->execute([$username, $pkg['name']]);
-                
-                // Always inject fail-safe rate limit in radreply with op '='
-                if (!empty($pkg['rate_limit']) && $pkg['rate_limit'] !== 'Unlimited') {
-                    $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Rate-Limit'")->execute([$username]);
-                    $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Rate-Limit', '=', ?)")
-                        ->execute([$username, $pkg['rate_limit']]);
-                }
-
-                // NEVER inject Mikrotik-Address-List (prevents 700 dynamic entries and WAN hijacking)
-                $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute IN ('Mikrotik-Address-List', 'Framed-Pool')")->execute([$username]);
-
-                // Determine profile name (e.g. 4Mbps)
-                $target_profile = !empty($pkg['pool_name']) ? $pkg['pool_name'] : '';
-                if (empty($target_profile) || $target_profile === 'PPPoE Pool') {
-                    if (preg_match('/(\d+)\s*(?:M|MB|Mbps)/i', $pkg['name'], $m_prof)) {
-                        $target_profile = $m_prof[1] . 'Mbps';
-                    }
-                }
-                
-                if (!empty($target_profile)) {
-                    $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Group'")->execute([$username]);
-                    $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Group', '=', ?)")->execute([$username, $target_profile]);
-                }
+                $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute IN ('Mikrotik-Address-List', 'Mikrotik-Rate-Limit', 'Mikrotik-Group', 'Framed-Pool')")->execute([$username]);
+                $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Address-List', '=', 'EXPIRED_USERS')")->execute([$username]);
+                $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Rate-Limit', '=', '10k/10k')")->execute([$username]);
+                $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Group', '=', 'expired')")->execute([$username]);
+                try { $pdo->prepare("DELETE FROM radusergroup WHERE username = ?")->execute([$username]); } catch (Exception $e) {}
 
                 // Activity Log
                 $is_mgr = !empty($_SESSION['is_manager']);

@@ -323,5 +323,46 @@ function fix_and_repair_schema($pdo) {
         $report[] = "NAS table verified";
     } catch (Exception $e) {}
 
+    // 15. Ensure FreeRADIUS auxiliary group and logging tables
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS `radusergroup` (
+          `id` int(11) unsigned NOT NULL AUTO_INCREMENT PRIMARY KEY,
+          `username` varchar(64) NOT NULL DEFAULT '',
+          `groupname` varchar(64) NOT NULL DEFAULT '',
+          `priority` int(11) NOT NULL DEFAULT 1,
+          KEY `username` (`username`(32))
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+        $pdo->exec("CREATE TABLE IF NOT EXISTS `radgroupreply` (
+          `id` int(11) unsigned NOT NULL AUTO_INCREMENT PRIMARY KEY,
+          `groupname` varchar(64) NOT NULL DEFAULT '',
+          `attribute` varchar(64) NOT NULL DEFAULT '',
+          `op` char(2) NOT NULL DEFAULT '=',
+          `value` varchar(253) NOT NULL DEFAULT '',
+          KEY `groupname` (`groupname`(32))
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+        $pdo->exec("CREATE TABLE IF NOT EXISTS `radgroupcheck` (
+          `id` int(11) unsigned NOT NULL AUTO_INCREMENT PRIMARY KEY,
+          `groupname` varchar(64) NOT NULL DEFAULT '',
+          `attribute` varchar(64) NOT NULL DEFAULT '',
+          `op` char(2) NOT NULL DEFAULT '==',
+          `value` varchar(253) NOT NULL DEFAULT '',
+          KEY `groupname` (`groupname`(32))
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+        $pdo->exec("CREATE TABLE IF NOT EXISTS `radpostauth` (
+          `id` int(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
+          `username` varchar(64) NOT NULL DEFAULT '',
+          `pass` varchar(64) NOT NULL DEFAULT '',
+          `reply` varchar(32) NOT NULL DEFAULT '',
+          `authdate` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          `class` varchar(64) DEFAULT NULL,
+          KEY `username` (`username`),
+          KEY `authdate` (`authdate`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+        $report[] = "FreeRADIUS auxiliary tables verified (radusergroup, radgroupreply, radgroupcheck, radpostauth)";
+    } catch (Exception $e) {}
+
     return $report;
 }

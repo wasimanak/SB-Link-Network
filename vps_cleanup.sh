@@ -162,18 +162,24 @@ else
 fi
 echo ""
 
-# 9. Configure Nightly Cron Job in Root Crontab
-echo -e "${YELLOW}[8/8] Verifying Nightly Crontab Automation (03:00 AM)...${NC}"
-CRON_LINE="0 3 * * * php ${WEB_ROOT}/config/cron_db_maintenance.php > /dev/null 2>&1"
+# 9. Configure Automated Crontab Jobs in Root Crontab
+echo -e "${YELLOW}[8/8] Verifying Automated Crontab Automation...${NC}"
+CRON_MAINT="0 3 * * * php ${WEB_ROOT}/config/cron_db_maintenance.php > /dev/null 2>&1"
+CRON_EXPIRY="* * * * * php ${WEB_ROOT}/config/cron_expiry.php > /dev/null 2>&1"
 CURRENT_CRON=$(crontab -l 2>/dev/null || true)
 
-if echo "$CURRENT_CRON" | grep -Fq "cron_db_maintenance.php"; then
-    echo -e "${GREEN}  ✓ Nightly cron job already active in crontab.${NC}"
-else
-    (echo "$CURRENT_CRON"; echo "$CRON_LINE") | crontab -
-    echo -e "${GREEN}  ✓ Added nightly 03:00 AM auto-maintenance to crontab:${NC}"
-    echo -e "    ${CYAN}${CRON_LINE}${NC}"
+UPDATED_CRON="$CURRENT_CRON"
+if ! echo "$UPDATED_CRON" | grep -Fq "cron_db_maintenance.php"; then
+    UPDATED_CRON=$(printf "%s\n%s\n" "$UPDATED_CRON" "$CRON_MAINT")
+    echo -e "${GREEN}  ✓ Added nightly 03:00 AM auto-maintenance to crontab.${NC}"
 fi
+
+if ! echo "$UPDATED_CRON" | grep -Fq "cron_expiry.php"; then
+    UPDATED_CRON=$(printf "%s\n%s\n" "$UPDATED_CRON" "$CRON_EXPIRY")
+    echo -e "${GREEN}  ✓ Added 1-minute Auto-Expiry & 10kb Throttle Sync to crontab.${NC}"
+fi
+
+echo "$UPDATED_CRON" | sed '/^$/d' | crontab -
 echo ""
 
 # 10. Final Space Comparison

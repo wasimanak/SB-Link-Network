@@ -77,6 +77,18 @@ function kick_subscriber_session($pdo, $username, $client_id = null) {
                 $API->attempts = 1;
 
                 if ($API->connect($nas_ip, $api_user, $api_pass, $api_port)) {
+                    // Ensure 'expired' PPP profile exists on MikroTik with 10k/10k rate-limit
+                    try {
+                        $profPrint = $API->comm('/ppp/profile/print', ['?name' => 'expired']);
+                        if (empty($profPrint)) {
+                            $API->comm('/ppp/profile/add', [
+                                'name' => 'expired',
+                                'rate-limit' => '10k/10k',
+                                'comment' => 'NetBee / SB Link Auto-Generated Expired Profile'
+                            ]);
+                        }
+                    } catch (Exception $pe) {}
+
                     // Check /ppp/active
                     $active_ppp = $API->comm('/ppp/active/print');
                     if (is_array($active_ppp)) {
@@ -170,17 +182,30 @@ function sync_expired_subscribers($pdo, $client_id = null, $kick_sessions = true
     $restored_count = 0;
 
     try {
+        // 0. Ensure FreeRADIUS auxiliary table exists
+        $pdo->exec("CREATE TABLE IF NOT EXISTS `radusergroup` (
+          `id` int(11) unsigned NOT NULL AUTO_INCREMENT PRIMARY KEY,
+          `username` varchar(64) NOT NULL DEFAULT '',
+          `groupname` varchar(64) NOT NULL DEFAULT '',
+          `priority` int(11) NOT NULL DEFAULT 1,
+          KEY `username` (`username`(32))
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
         // Reusable prepared statements
-        $delRadcheckAuthStmt = $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute = 'Auth-Type'");
+        $delRadcheckAuthStmt = $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute IN ('Auth-Type', 'Expiration')");
         $insertRejectStmt    = $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Auth-Type', ':=', 'Reject')");
         $checkRejectStmt     = $pdo->prepare("SELECT COUNT(*) FROM radcheck WHERE username = ? AND attribute = 'Auth-Type' AND value = 'Reject'");
         
-        $delWalledRadreply   = $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute IN ('Mikrotik-Address-List', 'Mikrotik-Rate-Limit', 'Mikrotik-Group')");
+        $delWalledRadreply   = $pdo->prepare("DELETE FROM radreply WHERE username = ? AND attribute IN ('Mikrotik-Address-List', 'Mikrotik-Rate-Limit', 'Mikrotik-Group', 'Framed-Pool')");
         $insertRadreply      = $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, ?, '=', ?)");
-        $insertRadreplyForce = $pdo->prepare("INSERT INTO radreply (username, attribute, op, value) VALUES (?, ?, ':=', ?)");
-        $delUserGroupStmt    = $pdo->prepare("DELETE FROM radusergroup WHERE username = ?");
-        $insUserGroupStmt    = $pdo->prepare("INSERT INTO radusergroup (username, groupname, priority) VALUES (?, ?, 1)");
         $updateStatusStmt    = $pdo->prepare("UPDATE subscribers SET status = 'expired' WHERE id = ? AND status = 'active'");
+
+        $delUserGroupStmt    = null;
+        $insUserGroupStmt    = null;
+        try {
+            $delUserGroupStmt = $pdo->prepare("DELETE FROM radusergroup WHERE username = ?");
+            $insUserGroupStmt = $pdo->prepare("INSERT INTO radusergroup (username, groupname, priority) VALUES (?, ?, 1)");
+        } catch (Exception $e) {}
 
         // Map online users currently in radacct
         $onlineStmt = $pdo->query("SELECT DISTINCT username FROM radacct WHERE acctstoptime IS NULL");
@@ -219,9 +244,9 @@ function sync_expired_subscribers($pdo, $client_id = null, $kick_sessions = true
         }
 
         // -------------------------------------------------------------
-        // Group B: EXPIRED SUBSCRIBERS (Walled Garden / Redirection)
+        // Group B: EXPIRED SUBSCRIBERS (Walled Garden / 10kb Strict Throttle)
         // (expiry_date <= NOW()) AND status != 'disabled'
-        // Allowed to connect (shows Online) but throttled & added to EXPIRED_USERS list
+        // Allowed to connect (shows Online) but throttled to 10k/10k & added to EXPIRED_USERS list
         // -------------------------------------------------------------
         $sqlExpired = "
             SELECT s.id, s.username, s.client_id, s.status, s.expiry_date
@@ -237,11 +262,7 @@ function sync_expired_subscribers($pdo, $client_id = null, $kick_sessions = true
         }
         $expiredUsers = $pdo->query($sqlExpired)->fetchAll(PDO::FETCH_ASSOC);
 
-        // Statement to check if user is already configured with EXPIRED_USERS in radreply
-        $checkWalledStmt = $pdo->prepare("
-            SELECT COUNT(*) FROM radreply 
-            WHERE username = ? AND attribute = 'Mikrotik-Address-List' AND value = 'EXPIRED_USERS'
-        ");
+        $currRepliesStmt = $pdo->prepare("SELECT attribute, value FROM radreply WHERE username = ?");
 
         foreach ($expiredUsers as $u) {
             $user = trim($u['username']);
@@ -252,37 +273,33 @@ function sync_expired_subscribers($pdo, $client_id = null, $kick_sessions = true
                 $updateStatusStmt->execute([$u['id']]);
             }
 
-            // Remove any Auth-Type := Reject from radcheck so PPPoE connection succeeds
+            // Remove any Auth-Type := Reject or Expiration from radcheck so PPPoE connection succeeds
             $delRadcheckAuthStmt->execute([$user]);
 
-            // Check if user is ALREADY walled in radreply
-            $checkWalledStmt->execute([$user]);
-            $is_already_walled = ($checkWalledStmt->fetchColumn() > 0);
+            // Check current attributes in radreply
+            $currRepliesStmt->execute([$user]);
+            $currMap = $currRepliesStmt->fetchAll(PDO::FETCH_KEY_PAIR);
 
-            if (!$is_already_walled) {
-                // Newly expired: inject Walled Garden attributes into radreply
+            $has_correct_rate = (isset($currMap['Mikrotik-Rate-Limit']) && $currMap['Mikrotik-Rate-Limit'] === '10k/10k');
+            $has_correct_addr = (isset($currMap['Mikrotik-Address-List']) && $currMap['Mikrotik-Address-List'] === 'EXPIRED_USERS');
+            $has_rogue_group  = (isset($currMap['Mikrotik-Group']) && $currMap['Mikrotik-Group'] !== 'expired');
+
+            if (!$has_correct_rate || !$has_correct_addr || $has_rogue_group) {
+                // Wipe old attributes and inject clean 10k/10k rate limit + EXPIRED_USERS list
                 $delWalledRadreply->execute([$user]);
                 $insertRadreply->execute([$user, 'Mikrotik-Address-List', 'EXPIRED_USERS']);
-                $insertRadreplyForce->execute([$user, 'Mikrotik-Rate-Limit', '10k/10k']);
-                $delUserGroupStmt->execute([$user]);
+                $insertRadreply->execute([$user, 'Mikrotik-Rate-Limit', '10k/10k']);
                 $insertRadreply->execute([$user, 'Mikrotik-Group', 'expired']);
+
+                if ($delUserGroupStmt) {
+                    try { $delUserGroupStmt->execute([$user]); } catch (Exception $e) {}
+                }
                 $walled_count++;
 
-                // Kick once so router re-dials and joins EXPIRED_USERS
+                // Kick once so router re-dials and connects with 10k/10k
                 if ($kick_sessions && isset($online_map[$user])) {
                     kick_subscriber_session($pdo, $user, $u['client_id']);
                     $kicked_count++;
-                }
-            } else {
-                // If already walled but rate limit is still old (e.g. 128k), update to 10k/10k
-                $checkRate = $pdo->prepare("SELECT value FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Rate-Limit'");
-                $checkRate->execute([$user]);
-                $currRate = $checkRate->fetchColumn();
-                if ($currRate !== '10k/10k') {
-                    $pdo->prepare("UPDATE radreply SET value = '10k/10k' WHERE username = ? AND attribute = 'Mikrotik-Rate-Limit'")->execute([$user]);
-                    if ($kick_sessions && isset($online_map[$user])) {
-                        kick_subscriber_session($pdo, $user, $u['client_id']);
-                    }
                 }
             }
             // If already walled and up to date, DO NOT kick! Connection remains 24/7 online for line testing.
@@ -300,9 +317,10 @@ function sync_expired_subscribers($pdo, $client_id = null, $kick_sessions = true
               AND s.status != 'disabled'
               AND (
                   s.status != 'active'
-                  OR EXISTS (SELECT 1 FROM radcheck rc WHERE rc.username = s.username AND rc.attribute = 'Auth-Type')
+                  OR EXISTS (SELECT 1 FROM radcheck rc WHERE rc.username = s.username AND rc.attribute IN ('Auth-Type', 'Expiration'))
                   OR EXISTS (SELECT 1 FROM radreply rr WHERE rr.username = s.username AND rr.attribute = 'Mikrotik-Address-List' AND rr.value = 'EXPIRED_USERS')
                   OR EXISTS (SELECT 1 FROM radreply rr WHERE rr.username = s.username AND rr.attribute = 'Mikrotik-Group' AND rr.value = 'expired')
+                  OR EXISTS (SELECT 1 FROM radreply rr WHERE rr.username = s.username AND rr.attribute = 'Mikrotik-Rate-Limit' AND rr.value = '10k/10k')
               )
         ";
         if ($client_id) {
@@ -339,8 +357,10 @@ function sync_expired_subscribers($pdo, $client_id = null, $kick_sessions = true
 
                 if ($pkg) {
                     if (!empty($pkg['rate_limit']) && $pkg['rate_limit'] !== 'No Limit' && $pkg['rate_limit'] !== 'Unlimited') {
-                        $insUserGroupStmt->execute([$user, $pkg['name']]);
-                        $insertRadreplyForce->execute([$user, 'Mikrotik-Rate-Limit', $pkg['rate_limit']]);
+                        if ($insUserGroupStmt) {
+                            try { $insUserGroupStmt->execute([$user, $pkg['name']]); } catch (Exception $e) {}
+                        }
+                        $insertRadreply->execute([$user, 'Mikrotik-Rate-Limit', $pkg['rate_limit']]);
                     }
                     $target_profile = !empty($pkg['pool_name']) ? $pkg['pool_name'] : '';
                     if (empty($target_profile) || $target_profile === 'PPPoE Pool') {
