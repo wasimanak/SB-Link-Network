@@ -469,6 +469,22 @@ $onStmt = $pdo->prepare("SELECT * FROM radacct WHERE username = ? AND acctstopti
 $onStmt->execute([$user['username']]);
 $online = $onStmt->fetch();
 
+// If subscriber is marked expired or expiry passed, verify session is not a stale ghost session
+if ($online) {
+    $has_exp_check = (!empty($user['expiry_date']) && $user['expiry_date'] !== '0000-00-00 00:00:00');
+    $exp_ts_check = $has_exp_check ? strtotime($user['expiry_date']) : 0;
+    $is_expired_check = (strtolower($user['status'] ?? '') === 'expired' || ($has_exp_check && $exp_ts_check <= time()));
+    if ($is_expired_check) {
+        $sess_start_ts = !empty($online['acctstarttime']) ? (is_numeric($online['acctstarttime']) ? (int)$online['acctstarttime'] : strtotime($online['acctstarttime'])) : 0;
+        if (($has_exp_check && $exp_ts_check > 0 && $sess_start_ts > 0 && $sess_start_ts < $exp_ts_check) || ($sess_start_ts > 0 && (time() - $sess_start_ts) > 86400)) {
+            try {
+                $pdo->prepare("UPDATE radacct SET acctstoptime = NOW(), acctterminatecause = 'Lost-Carrier' WHERE radacctid = ?")->execute([$online['radacctid']]);
+            } catch (Exception $e) {}
+            $online = false;
+        }
+    }
+}
+
 $uptime_str = "0.00";
 if ($online) {
     $raw_start = $online['acctstarttime'] ?? '';
@@ -1613,6 +1629,64 @@ function fetchLiveBandwidth() {
     })
         .then(res => res.json())
         .then(data => {
+            if (data.status !== 'online') {
+                // Strictly OFFLINE branch
+                let sBadge = document.getElementById('live_status_badge');
+                let alertBox = document.getElementById('bw_router_alert');
+                if (sBadge) {
+                    sBadge.className = 'badge bg-secondary bg-opacity-10 text-secondary border px-3 py-1.5 rounded-pill fs-7 d-inline-flex align-items-center gap-1.5';
+                    sBadge.innerHTML = '<i class="fa-solid fa-circle text-muted me-1" style="font-size:0.45rem;"></i> Offline';
+                }
+                if (alertBox) alertBox.className = 'd-none';
+
+                let uEl = document.getElementById('live_uptime');
+                if (uEl) uEl.innerText = 'Disconnected';
+                let svcU = document.getElementById('svc_uptime_display');
+                if (svcU) svcU.innerText = 'Disconnected';
+
+                // Strictly reset Live Download & Upload to 0.00 Mbps
+                let dVal = document.getElementById('live_down_val');
+                let dUnit = document.getElementById('live_down_unit');
+                if (dVal) dVal.innerText = '0.00';
+                if (dUnit) dUnit.innerText = 'Mbps';
+
+                let uVal = document.getElementById('live_up_val');
+                let uUnit = document.getElementById('live_up_unit');
+                if (uVal) uVal.innerText = '0.00';
+                if (uUnit) uUnit.innerText = 'Mbps';
+
+                // Keep peak badge at 0.00 if never peaked
+                if (peakDown === 0) {
+                    let pDown = document.getElementById('peak_down_badge');
+                    if (pDown) pDown.innerText = 'Peak: 0.00';
+                }
+                if (peakUp === 0) {
+                    let pUp = document.getElementById('peak_up_badge');
+                    if (pUp) pUp.innerText = 'Peak: 0.00';
+                }
+
+                // Push flat 0 to waveform canvas
+                if (bwChart && bwChart.data && bwChart.data.labels) {
+                    bwChart.data.labels.shift();
+                    bwChart.data.datasets[0].data.shift();
+                    bwChart.data.datasets[1].data.shift();
+
+                    let now = new Date();
+                    let timeStr = String(now.getHours()).padStart(2, '0') + ':' + 
+                                  String(now.getMinutes()).padStart(2, '0') + ':' + 
+                                  String(now.getSeconds()).padStart(2, '0');
+                    bwChart.data.labels.push(timeStr);
+                    bwChart.data.datasets[0].data.push(0);
+                    bwChart.data.datasets[1].data.push(0);
+                    bwChart.update();
+                }
+
+                prevBytesIn = null;
+                prevBytesOut = null;
+                lastTime = null;
+                return;
+            }
+
             if (data.bytes_in !== undefined && data.bytes_out !== undefined) {
                 if (data.uptime !== undefined && data.uptime !== null && data.uptime !== '') {
                     let uEl = document.getElementById('live_uptime');
@@ -1621,24 +1695,34 @@ function fetchLiveBandwidth() {
                     if (svcU) svcU.innerText = data.uptime;
                 }
                 
+                // Live status pill & diagnostic alert
                 let sBadge = document.getElementById('live_status_badge');
                 let alertBox = document.getElementById('bw_router_alert');
                 
                 if (sBadge) {
-                    if (data.status === 'online') {
-                        if (data.source === 'mikrotik') {
-                            sBadge.className = 'badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-3 py-1.5 rounded-pill fs-7 d-inline-flex align-items-center gap-1.5';
-                            sBadge.innerHTML = '<span class="spinner-grow spinner-grow-sm text-success" style="width:7px; height:7px;" role="status"></span> Active (Live MikroTik)';
-                            if (alertBox) alertBox.className = 'd-none';
-                        } else {
-                            sBadge.className = 'badge bg-warning bg-opacity-15 text-dark border border-warning border-opacity-50 px-3 py-1.5 rounded-pill fs-7 d-inline-flex align-items-center gap-1.5';
-                            sBadge.innerHTML = '<i class="fa-solid fa-triangle-exclamation text-warning me-1"></i> RADIUS Accounting';
-                            if (alertBox) alertBox.className = 'd-none';
-                        }
-                    } else {
-                        sBadge.className = 'badge bg-secondary bg-opacity-10 text-secondary border px-3 py-1.5 rounded-pill fs-7 d-inline-flex align-items-center gap-1.5';
-                        sBadge.innerHTML = '<i class="fa-solid fa-circle text-muted me-1" style="font-size:0.45rem;"></i> Offline';
+                    if (data.source === 'mikrotik') {
+                        sBadge.className = 'badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-3 py-1.5 rounded-pill fs-7 d-inline-flex align-items-center gap-1.5';
+                        sBadge.innerHTML = '<span class="spinner-grow spinner-grow-sm text-success" style="width:7px; height:7px;" role="status"></span> Active (Live MikroTik)';
                         if (alertBox) alertBox.className = 'd-none';
+                    } else {
+                        sBadge.className = 'badge bg-warning bg-opacity-15 text-dark border border-warning border-opacity-50 px-3 py-1.5 rounded-pill fs-7 d-inline-flex align-items-center gap-1.5';
+                        sBadge.innerHTML = '<i class="fa-solid fa-triangle-exclamation text-warning me-1"></i> RADIUS Accounting (API Offline)';
+                        if (alertBox) {
+                            let errMsg = '';
+                            if (data.diag && data.diag.attempts && data.diag.attempts.length > 0) {
+                                errMsg = data.diag.attempts.map(a => {
+                                    if (!a.sock_ok) return `${a.ip}:${a.port} (Port unreachable/offline)`;
+                                    if (!a.login_ok) return `${a.ip}:${a.port} (API Login failed: check user/pass)`;
+                                    if (!a.user_found) return `${a.ip} (Connected, but subscriber not active on this router)`;
+                                    return `${a.ip} (Connected)`;
+                                }).join(', ');
+                            } else {
+                                errMsg = `No reachable router IP found. Ensure router public IP or VPN IP is in NAS table.`;
+                            }
+                            alertBox.className = 'alert alert-warning py-1 px-2.5 mb-2 rounded-2 d-flex align-items-center gap-2 small text-dark';
+                            alertBox.style.fontSize = '0.75rem';
+                            alertBox.innerHTML = `<i class="fa-solid fa-triangle-exclamation text-warning flex-shrink-0"></i> <span><strong>Router Status:</strong> ${errMsg}</span>`;
+                        }
                     }
                 }
 
@@ -1671,10 +1755,11 @@ function fetchLiveBandwidth() {
                 let currentBytesIn = parseFloat(data.bytes_in) || 0;
                 let currentBytesOut = parseFloat(data.bytes_out) || 0;
                 
-                let tx_mbps = 0; // Download
-                let rx_mbps = 0; // Upload
+                let tx_mbps = 0; // Download (transmitted by router to user)
+                let rx_mbps = 0; // Upload (received by router from user)
 
                 if (data.rx_bps !== undefined && data.tx_bps !== undefined && (parseFloat(data.rx_bps) > 0 || parseFloat(data.tx_bps) > 0)) {
+                    // Direct bps from MikroTik Simple Queue or Monitor-Traffic
                     rx_mbps = parseFloat(data.rx_bps) / 1048576;
                     tx_mbps = parseFloat(data.tx_bps) / 1048576;
                 } else if (data.source === 'mikrotik' && prevBytesIn !== null && prevBytesOut !== null && lastTime !== null) {
@@ -1713,6 +1798,7 @@ function fetchLiveBandwidth() {
                     if (pEl) pEl.innerText = 'Peak: ' + sp.val + ' ' + sp.unit;
                 }
 
+                // Update live speed numbers
                 let spDown = splitSpeed(tx_mbps);
                 let spUp = splitSpeed(rx_mbps);
                 let dVal = document.getElementById('live_down_val');
