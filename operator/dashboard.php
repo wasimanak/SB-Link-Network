@@ -621,8 +621,8 @@ unset($ms);
     .all-users-donut-card {
         background: #ffffff;
         border: 1px solid #eef2f6;
-        border-radius: 18px;
-        padding: 22px 20px;
+        border-radius: 14px;
+        padding: 14px 14px;
         box-shadow: 0 2px 10px rgba(0,0,0,0.02);
         height: 100%;
         display: flex;
@@ -632,8 +632,8 @@ unset($ms);
     .donut-container-pro {
         position: relative;
         width: 100%;
-        max-width: 230px;
-        margin: 10px auto;
+        max-width: 165px;
+        margin: 6px auto;
     }
     .donut-center-pro {
         position: absolute;
@@ -646,33 +646,36 @@ unset($ms);
     .donut-center-pro h3 {
         margin: 0;
         font-weight: 800;
-        font-size: 2.1rem;
+        font-size: 1.5rem;
         color: #0f172a;
         line-height: 1;
     }
     .donut-center-pro p {
-        margin: 3px 0 0;
-        font-size: 0.8rem;
+        margin: 2px 0 0;
+        font-size: 0.72rem;
         color: #64748b;
         font-weight: 600;
     }
 
-    /* 12 Metric Cards Grid */
+    /* Compact 12-14 Metric Cards Grid */
     .metrics-12-grid {
         display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 15px;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 10px;
     }
-    @media(max-width: 991px) {
+    @media(max-width: 1200px) {
+        .metrics-12-grid { grid-template-columns: repeat(3, 1fr); }
+    }
+    @media(max-width: 850px) {
         .metrics-12-grid { grid-template-columns: repeat(2, 1fr); }
     }
-    @media(max-width: 575px) {
+    @media(max-width: 480px) {
         .metrics-12-grid { grid-template-columns: 1fr; }
     }
 
     .metric-card-pro {
-        border-radius: 16px;
-        padding: 16px 18px;
+        border-radius: 12px;
+        padding: 9px 12px;
         display: flex;
         align-items: center;
         justify-content: space-between;
@@ -680,46 +683,50 @@ unset($ms);
         overflow: hidden;
         cursor: pointer;
         transition: transform 0.18s ease, box-shadow 0.18s ease;
-        min-height: 86px;
+        min-height: 58px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.02);
     }
     .metric-card-pro:hover {
         transform: translateY(-2px);
-        box-shadow: 0 6px 16px rgba(0,0,0,0.06);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.06);
     }
     .metric-card-pro .metric-icon-wrap {
-        width: 44px;
-        height: 44px;
-        border-radius: 12px;
+        width: 32px;
+        height: 32px;
+        border-radius: 9px;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 1.15rem;
+        font-size: 0.88rem;
         color: #ffffff;
         flex-shrink: 0;
-        margin-right: 14px;
+        margin-right: 9px;
     }
     .metric-card-pro .metric-title {
-        font-size: 0.82rem;
+        font-size: 0.73rem;
         font-weight: 600;
         color: #475569;
-        margin-bottom: 2px;
+        margin-bottom: 1px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
     .metric-card-pro .metric-val {
-        font-size: 1.45rem;
+        font-size: 1.15rem;
         font-weight: 800;
         color: #0f172a;
-        line-height: 1.2;
+        line-height: 1.15;
     }
     .metric-card-pro .metric-pct {
-        font-size: 0.72rem;
+        font-size: 0.67rem;
         font-weight: 700;
     }
     .metric-card-pro .metric-watermark {
         position: absolute;
-        right: 14px;
-        font-size: 2.3rem;
+        right: 8px;
+        font-size: 1.45rem;
         pointer-events: none;
-        opacity: 0.35;
+        opacity: 0.18;
     }
 
     /* Reports Tabs & DataTables */
@@ -906,7 +913,7 @@ unset($ms);
     </div>
 
     <!-- User Tab Content -->
-    <div id="stat-content-user" class="row g-4">
+    <div id="stat-content-user" class="row g-3">
         <!-- Left: Donut Chart Card -->
         <div class="col-12 col-lg-3">
             <div class="all-users-donut-card">
