@@ -735,16 +735,97 @@ unset($ms);
     .report-tab:hover { background: #e2e8f0; color: #1e293b; }
     .report-tab.active { background: #1e293b; color: #fff; border-color: #1e293b; }
 
-    .table-custom-ui { border-radius: 8px; overflow: hidden; }
-    .table-custom-ui thead th { background-color: #f8f9fa; color: #64748b; border-bottom: 2px solid #e5e7eb; font-weight: 600; font-size: 0.88rem; white-space: nowrap; }
-    .table-custom-ui tbody td { vertical-align: middle; border-bottom: 1px solid #e5e7eb; color: #334155; font-size: 0.88rem; }
+    .table-custom-ui { border-radius: 10px; overflow: hidden; }
+    .table-custom-ui thead th { background-color: #f1f5f9; color: #475569; border-bottom: 2px solid #e2e8f0; font-weight: 700; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.5px; padding: 12px 14px; white-space: nowrap; }
+    .table-custom-ui tbody td { vertical-align: middle; border-bottom: 1px solid #f1f5f9; color: #334155; font-size: 0.88rem; padding: 12px 14px; }
     .dt-buttons .btn { background-color: #475569; border: none; color: #fff; border-radius: 20px; padding: 4px 14px; font-size: 0.85rem; margin-right: 4px; }
     .dataTables_filter input { background-color: #ffffff; border: 1px solid #ced4da; border-radius: 20px; padding: 4px 15px; }
-    .avatar-circle { width: 40px; height: 40px; background-color: #e2e8f0; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #94a3b8; font-size: 1.2rem; }
+    .avatar-circle { width: 38px; height: 38px; background-color: #e2e8f0; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #94a3b8; font-size: 1.1rem; }
+    .avatar-circle-ui { width: 38px; height: 38px; border-radius: 50%; background: linear-gradient(135deg, #e0e7ff 0%, #dbeafe 100%); color: #2563eb; display: flex; align-items: center; justify-content: center; font-size: 0.95rem; border: 1px solid #bfdbfe; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
     .badge-soft-success { background-color: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2); }
     .badge-soft-secondary { background-color: rgba(148, 163, 184, 0.15); color: #64748b; border: 1px solid rgba(148, 163, 184, 0.2); }
     .badge-soft-primary { background-color: rgba(59, 130, 246, 0.15); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.2); }
     .badge-soft-warning { background-color: rgba(245, 158, 11, 0.15); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.2); }
+
+    /* Large High-Contrast Username Pill for User Reports Table */
+    .report-username-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        background: #eff6ff;
+        color: #1d4ed8 !important;
+        border: 1.5px solid #bfdbfe;
+        border-radius: 9999px;
+        padding: 6px 14px;
+        font-size: 1.05rem; /* Large enough to read comfortably on mobile without zooming */
+        font-weight: 750;
+        line-height: 1.25;
+        letter-spacing: 0.2px;
+        text-decoration: none;
+        transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        box-shadow: 0 1px 2px rgba(29, 78, 216, 0.08);
+        white-space: nowrap;
+    }
+    .report-username-pill:hover {
+        background: #1d4ed8;
+        color: #ffffff !important;
+        border-color: #1d4ed8;
+        box-shadow: 0 4px 12px rgba(29, 78, 216, 0.28);
+        transform: translateY(-1px);
+    }
+    .report-username-pill i {
+        font-size: 0.95rem;
+        color: #3b82f6;
+        transition: color 0.2s ease;
+    }
+    .report-username-pill:hover i {
+        color: #ffffff !important;
+    }
+
+    @media (max-width: 768px) {
+        .report-username-pill {
+            font-size: 1.08rem;
+            padding: 7px 15px;
+        }
+        .table-custom-ui tbody td {
+            padding: 10px 10px;
+        }
+    }
+
+    .table-action-pill {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        text-decoration: none;
+        font-size: 0.78rem;
+        font-weight: 700;
+        padding: 4px 11px;
+        border-radius: 9999px;
+        transition: all 0.15s ease;
+        white-space: nowrap;
+    }
+    .table-action-pay {
+        background-color: #eff6ff;
+        color: #2563eb;
+        border: 1px solid #bfdbfe;
+    }
+    .table-action-pay:hover {
+        background-color: #2563eb;
+        color: #ffffff;
+        border-color: #2563eb;
+        transform: translateY(-1px);
+    }
+    .table-action-renew {
+        background-color: #ecfdf5;
+        color: #059669;
+        border: 1px solid #a7f3d0;
+    }
+    .table-action-renew:hover {
+        background-color: #059669;
+        color: #ffffff;
+        border-color: #059669;
+        transform: translateY(-1px);
+    }
     .select2-container .select2-selection--single { height: 31px; border: 1px solid #dee2e6; }
     .select2-container--default .select2-selection--single .select2-selection__rendered { line-height: 29px; color: #475569; font-size: 0.875rem; }
     .select2-dropdown { border: 1px solid #dee2e6; }
@@ -1332,13 +1413,18 @@ unset($ms);
             <tbody>
                 <?php foreach($subs as $s): ?>
                 <tr>
-                    <td><?= $s['id'] ?></td>
-                    <td><div class="avatar-circle"><i class="fa-solid fa-user"></i></div></td>
+                    <td><span class="fw-bold text-muted font-monospace" style="font-size: 0.85rem;">#<?= $s['id'] ?></span></td>
+                    <td>
+                        <div class="avatar-circle-ui">
+                            <i class="fa-solid fa-user"></i>
+                        </div>
+                    </td>
                     <td data-search="<?= htmlspecialchars($s['username']) ?>" data-sort="<?= htmlspecialchars($s['username']) ?>">
-                        <div class="d-inline-flex align-items-center gap-1">
-                            <a href="subscriber_view.php?id=<?= $s['id'] ?>" class="text-decoration-none">
-                                <span class="badge rounded-pill badge-soft-success px-3 py-2 fw-bold">
-                                    <i class="fa-solid fa-user me-1"></i> <?= htmlspecialchars($s['username']) ?>
+                        <div class="d-inline-flex align-items-center gap-2">
+                            <a href="subscriber_view.php?id=<?= $s['id'] ?>" class="text-decoration-none" title="View subscriber profile">
+                                <span class="report-username-pill">
+                                    <i class="fa-solid fa-circle-user"></i>
+                                    <span><?= htmlspecialchars($s['username']) ?></span>
                                 </span>
                             </a>
                             <button type="button" 
@@ -1349,39 +1435,69 @@ unset($ms);
                             </button>
                         </div>
                     </td>
-                    <td><?= htmlspecialchars($s['mobile'] ?: ($s['phone'] ?: 'N/A')) ?></td>
-                    <td><?= htmlspecialchars($s['package_name'] ?? 'N/A') ?></td>
-                    <td>shabir1</td> <!-- Placeholder seller -->
-                    <td><span class="badge rounded-pill badge-soft-warning px-3 py-2"><?= number_format($s['balance']) ?></span></td>
-                    <td><span class="badge rounded-pill badge-soft-primary px-3 py-2 fw-bold"><?= strtoupper(htmlspecialchars($s['service_type'])) ?></span></td>
+                    <td>
+                        <?php if(!empty($s['mobile']) || !empty($s['phone'])): 
+                            $ph = $s['mobile'] ?: $s['phone'];
+                        ?>
+                            <a href="tel:<?= htmlspecialchars($ph) ?>" class="text-decoration-none fw-semibold text-dark d-inline-flex align-items-center gap-1" style="font-size: 0.88rem;">
+                                <i class="fa-solid fa-phone text-primary" style="font-size: 0.72rem;"></i>
+                                <span><?= htmlspecialchars($ph) ?></span>
+                            </a>
+                        <?php else: ?>
+                            <span class="text-muted small">N/A</span>
+                        <?php endif; ?>
+                    </td>
+                    <td><span class="fw-bold text-dark" style="font-size: 0.9rem;"><?= htmlspecialchars($s['package_name'] ?? 'N/A') ?></span></td>
+                    <td>
+                        <span class="badge bg-light text-secondary border px-2 py-1 fw-semibold" style="font-size: 0.78rem;">
+                            <i class="fa-regular fa-user me-1 text-muted"></i><?= htmlspecialchars($s['creator_name'] ?? 'shabir1') ?>
+                        </span>
+                    </td>
+                    <td><span class="badge rounded-pill fw-bold px-3 py-1" style="background-color: #fffbeb; color: #b45309; border: 1px solid #fde68a; font-size: 0.84rem;">Rs. <?= number_format($s['balance']) ?></span></td>
+                    <td><span class="badge rounded-pill fw-bold px-3 py-1" style="background-color: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; font-size: 0.78rem; letter-spacing: 0.5px;"><?= strtoupper(htmlspecialchars($s['service_type'])) ?></span></td>
                     <td>
                         <?php if($s['is_online'] > 0): ?>
                             <div class="d-flex flex-column align-items-center gap-1">
-                                <span class="badge rounded-pill badge-soft-success px-3 py-1">Online</span>
-                                <small class="text-muted font-monospace" style="font-size: 0.75rem;"><?= htmlspecialchars($s['live_ip']) ?></small>
+                                <span class="badge rounded-pill fw-bold px-3 py-1" style="background-color: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; font-size: 0.78rem;">
+                                    <span class="d-inline-block rounded-circle bg-success me-1" style="width: 7px; height: 7px;"></span> Online
+                                </span>
+                                <small class="text-muted font-monospace" style="font-size: 0.74rem;"><?= htmlspecialchars($s['live_ip']) ?></small>
                             </div>
                         <?php else: ?>
-                            <span class="badge rounded-pill badge-soft-secondary px-3 py-2">Offline</span>
+                            <span class="badge rounded-pill fw-semibold px-3 py-1" style="background-color: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0; font-size: 0.78rem;">
+                                <span class="d-inline-block rounded-circle bg-secondary me-1" style="width: 6px; height: 6px;"></span> Offline
+                            </span>
                         <?php endif; ?>
                     </td>
                     <td>
                         <?php if($s['expiry_date']): ?>
                             <?php if(strtotime($s['expiry_date']) < time()): ?>
                                 <div class="d-flex flex-column align-items-center gap-1">
-                                    <span class="badge rounded-pill bg-danger text-white fw-bold px-3 py-1 text-uppercase" style="letter-spacing: 0.5px;">Expired</span>
-                                    <small class="text-muted font-monospace" style="font-size: 0.70rem;"><?= date('d M Y', strtotime($s['expiry_date'])) ?></small>
+                                    <span class="badge rounded-pill fw-bold px-3 py-1 text-uppercase" style="background-color: #fef2f2; color: #dc2626; border: 1px solid #fecaca; font-size: 0.75rem; letter-spacing: 0.5px;">
+                                        <i class="fa-solid fa-clock-rotate-left me-1"></i> Expired
+                                    </span>
+                                    <small class="text-danger fw-semibold font-monospace" style="font-size: 0.72rem;"><?= date('d M Y', strtotime($s['expiry_date'])) ?></small>
                                 </div>
                             <?php else: ?>
-                                <span class="badge rounded-pill badge-soft-success px-3 py-2"><?= date('d M Y H:i:s', strtotime($s['expiry_date'])) ?></span>
+                                <div class="d-flex flex-column align-items-center gap-1">
+                                    <span class="badge rounded-pill fw-bold px-3 py-1" style="background-color: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; font-size: 0.75rem;">
+                                        <i class="fa-regular fa-calendar-check me-1"></i> <?= date('d M Y', strtotime($s['expiry_date'])) ?>
+                                    </span>
+                                    <small class="text-muted font-monospace" style="font-size: 0.70rem;"><?= date('H:i:s', strtotime($s['expiry_date'])) ?></small>
+                                </div>
                             <?php endif; ?>
                         <?php else: ?>
-                            <span class="badge rounded-pill badge-soft-secondary px-3 py-2">N/A</span>
+                            <span class="badge rounded-pill fw-semibold px-3 py-1" style="background-color: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0; font-size: 0.75rem;">N/A</span>
                         <?php endif; ?>
                     </td>
                     <td>
-                        <div class="d-flex flex-column gap-1">
-                            <a href="#" onclick="openPaymentModal(<?= $s['id'] ?>, '<?= addslashes(htmlspecialchars($s['username'])) ?>'); return false;" class="badge rounded-pill badge-soft-primary text-decoration-none px-3 py-2"><i class="fa-brands fa-paypal"></i> Payment</a>
-                            <a href="#" onclick="openRenewModal(<?= $s['id'] ?>); return false;" class="badge rounded-pill badge-soft-success text-decoration-none px-3 py-2"><i class="fa-solid fa-rotate"></i> Renew</a>
+                        <div class="d-flex flex-column gap-1" style="min-width: 90px;">
+                            <a href="#" onclick="openPaymentModal(<?= $s['id'] ?>, '<?= addslashes(htmlspecialchars($s['username'])) ?>'); return false;" class="table-action-pill table-action-pay">
+                                <i class="fa-solid fa-credit-card me-1"></i> Payment
+                            </a>
+                            <a href="#" onclick="openRenewModal(<?= $s['id'] ?>); return false;" class="table-action-pill table-action-renew">
+                                <i class="fa-solid fa-rotate me-1"></i> Renew
+                            </a>
                         </div>
                     </td>
                 </tr>
