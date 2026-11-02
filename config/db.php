@@ -209,27 +209,71 @@ function handle_renewal_receipt_upload($file_array, $subscriber_id, $pdo = null,
 
 
 /**
- * Universal Safe Date Functions: Permanently eliminate '01 Jan 1970' / epoch 0 displays across entire system
+ * Universal Safe Date Functions: Permanently eliminate '01 Jan 1970' & corrupted year displays (e.g. 644018)
  */
-if (!function_exists('is_valid_date')) {
-    function is_valid_date($date_value) {
+if (!function_exists('parse_safe_timestamp')) {
+    function parse_safe_timestamp($date_value) {
         if (empty($date_value) || $date_value === '0000-00-00' || $date_value === '0000-00-00 00:00:00' || $date_value === '0' || $date_value === false) {
             return false;
         }
-        $ts = is_numeric($date_value) ? (int)$date_value : strtotime((string)$date_value);
-        if (!$ts || $ts <= 86400 || (int)date('Y', $ts) <= 1970) {
+
+        $val_str = trim((string)$date_value);
+        if ($val_str === '' || str_starts_with($val_str, '0000') || str_starts_with($val_str, '1970')) {
             return false;
         }
-        return true;
+
+        $ts = false;
+
+        // Check if numeric (timestamp or compact date)
+        if (is_numeric($val_str)) {
+            $len = strlen($val_str);
+            if ($len === 14) {
+                // YYYYMMDDHHMMSS format (e.g. 20261102134000)
+                $formatted = preg_replace('/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/', '$1-$2-$3 $4:$5:$6', $val_str);
+                $ts = strtotime($formatted);
+            } elseif ($len === 8 && (str_starts_with($val_str, '19') || str_starts_with($val_str, '20'))) {
+                // YYYYMMDD format (e.g. 20261102)
+                $formatted = preg_replace('/^(\d{4})(\d{2})(\d{2})$/', '$1-$2-$3', $val_str);
+                $ts = strtotime($formatted);
+            } elseif ($len === 13) {
+                // Milliseconds Unix timestamp
+                $ts = (int)((float)$val_str / 1000);
+            } elseif ((float)$val_str > 86400 && (float)$val_str < 3000000000) {
+                // Standard 10-digit Unix timestamp in seconds
+                $ts = (int)$val_str;
+            } else {
+                $ts = strtotime($val_str);
+            }
+        } else {
+            $ts = strtotime($val_str);
+        }
+
+        if (!$ts || $ts <= 86400) {
+            return false;
+        }
+
+        $year = (int)date('Y', $ts);
+        // Strictly prevent year <= 1970 and futuristic overflow years like 644018
+        if ($year < 1971 || $year > 2099) {
+            return false;
+        }
+
+        return $ts;
+    }
+}
+
+if (!function_exists('is_valid_date')) {
+    function is_valid_date($date_value) {
+        return parse_safe_timestamp($date_value) !== false;
     }
 }
 
 if (!function_exists('safe_date')) {
     function safe_date($format, $date_value, $fallback = 'N/A') {
-        if (!is_valid_date($date_value)) {
+        $ts = parse_safe_timestamp($date_value);
+        if ($ts === false) {
             return $fallback;
         }
-        $ts = is_numeric($date_value) ? (int)$date_value : strtotime((string)$date_value);
         return date($format, $ts);
     }
 }
