@@ -28,6 +28,7 @@ if (!isset($operator_info) && isset($client_id)) {
                 <h6 class="text-dark fw-bold mb-3">Quick Links</h6>
                 <ul class="list-unstyled small">
                     <li class="mb-2"><a href="dashboard" class="text-muted text-decoration-none hover-primary"><i class="fa-solid fa-gauge me-1 text-primary"></i> Dashboard</a></li>
+                    <li class="mb-2"><a href="usage" class="text-muted text-decoration-none hover-primary"><i class="fa-solid fa-chart-line me-1 text-primary"></i> Usage &amp; Speed Analytics</a></li>
                     <li class="mb-2"><a href="packages" class="text-muted text-decoration-none hover-primary"><i class="fa-solid fa-box-open me-1 text-primary"></i> Available Packages</a></li>
                     <li class="mb-2"><a href="history" class="text-muted text-decoration-none hover-primary"><i class="fa-solid fa-receipt me-1 text-primary"></i> Billing History</a></li>
                     <li class="mb-2"><a href="tickets" class="text-muted text-decoration-none hover-primary"><i class="fa-solid fa-headset me-1 text-primary"></i> Support Tickets</a></li>

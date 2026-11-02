@@ -468,10 +468,13 @@ if (empty($gateway_display_name)) {
                 <div class="fw-bold text-white mb-3" style="font-size: 1.9rem; line-height: 1;">
                     Rs <?= number_format($current_user['balance'], 0) ?>
                 </div>
-                <div class="d-flex gap-2">
-                    <button type="button" data-bs-toggle="modal" data-bs-target="#addFundsModal" class="btn btn-light btn-sm rounded-pill px-3 fw-bold shadow-sm flex-grow-1 text-primary">
+                <div class="d-flex gap-2 flex-wrap">
+                    <button type="button" data-bs-toggle="modal" data-bs-target="#addFundsModal" class="btn btn-light btn-sm rounded-pill px-3 fw-bold shadow-sm text-primary">
                         <i class="fa-solid fa-plus me-1"></i> Add Funds
                     </button>
+                    <a href="usage" class="btn btn-warning btn-sm rounded-pill px-3 fw-bold shadow-sm text-dark d-inline-flex align-items-center gap-1.5">
+                        <i class="fa-solid fa-chart-line"></i> Usage
+                    </a>
                     <a href="#available-packages" class="btn btn-outline-light btn-sm rounded-pill px-3 fw-semibold">
                         <i class="fa-solid fa-box-open me-1"></i> Plans
                     </a>
@@ -519,7 +522,12 @@ if (empty($gateway_display_name)) {
                 <i class="fa-solid fa-chart-pie"></i>
             </div>
             <div class="flex-grow-1 overflow-hidden">
-                <div class="stat-pill-lbl">Data Consumed</div>
+                <div class="d-flex justify-content-between align-items-center">
+                    <div class="stat-pill-lbl">Data Consumed</div>
+                    <a href="usage" class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill px-2 py-0.5 text-decoration-none fw-bold" style="font-size: 0.68rem;" title="View hourly, daily, weekly usage & peak speed">
+                        <i class="fa-solid fa-chart-line me-1"></i> Usage
+                    </a>
+                </div>
                 <div class="stat-pill-val">
                     <?= $used_volume_str ?>
                 </div>
@@ -531,6 +539,12 @@ if (empty($gateway_display_name)) {
                         <span><i class="fa-solid fa-arrow-up text-primary me-1"></i><?= round((($usage['up'] ?? 0)/1048576),1) ?> MB</span>
                         <span><i class="fa-solid fa-arrow-down text-success me-1"></i><?= round((($usage['down'] ?? 0)/1048576),1) ?> MB</span>
                     </div>
+                </div>
+                <div class="mt-2 text-end">
+                    <a href="usage" class="btn btn-xs btn-outline-success rounded-pill px-2.5 py-0.5 fw-bold text-decoration-none d-inline-flex align-items-center gap-1" style="font-size: 0.72rem;">
+                        <span>View Analytics &amp; Speeds</span>
+                        <i class="fa-solid fa-arrow-right" style="font-size: 0.65rem;"></i>
+                    </a>
                 </div>
             </div>
         </div>

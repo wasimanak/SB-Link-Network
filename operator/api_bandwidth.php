@@ -77,6 +77,25 @@ try {
     $framed_ip = !empty($rad_active['framedipaddress']) ? trim($rad_active['framedipaddress']) : null;
     $diag['framed_ip'] = $framed_ip;
 
+    // IMMEDIATE SHORT-CIRCUIT:
+    // If subscriber is expired OR has no active session and status != 'active',
+    // DO NOT connect to MikroTik API! This saves router CPU & eliminates API login/logout spam in Winbox log.
+    if ($is_expired_sub || (empty($rad_active) && strtolower($sub_row['status'] ?? '') !== 'active')) {
+        echo json_encode([
+            'status'        => 'offline',
+            'source'        => 'none',
+            'bytes_in'      => 0,
+            'bytes_out'     => 0,
+            'rx_bps'        => 0,
+            'tx_bps'        => 0,
+            'uptime'        => null,
+            'is_prev_cycle' => false,
+            'diag'          => ['status' => 'offline_or_expired', 'skipped_api' => true],
+            'ts'            => microtime(true)
+        ]);
+        exit;
+    }
+
     // 2. Build candidate router list
     $target_routers = [];
     $default_api_user = 'admin';
@@ -120,18 +139,9 @@ try {
         }
     }
 
-    // B. Append other configured NAS routers
-    foreach ($all_nas as $r) {
-        $already = false;
-        foreach ($target_routers as $tr) {
-            if (trim($tr['nasname'] ?? '') === trim($r['nasname'] ?? '')) {
-                $already = true;
-                break;
-            }
-        }
-        if (!$already) {
-            $target_routers[] = $r;
-        }
+    // B. Only append other NAS routers if no specific NAS router was matched from radacct
+    if (empty($target_routers)) {
+        $target_routers = $all_nas;
     }
 
     // 3. Connect to candidate routers

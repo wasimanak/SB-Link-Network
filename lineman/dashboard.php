@@ -359,7 +359,7 @@ function fetchLiveBandwidth() {
         .catch(err => console.error("Error fetching bandwidth:", err));
 }
 
-setInterval(fetchLiveBandwidth, 3000);
+setInterval(fetchLiveBandwidth, 5000);
 fetchLiveBandwidth();
 </script>
 <?php endif; ?>

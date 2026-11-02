@@ -176,7 +176,12 @@
             <ul class="navbar-nav ms-auto align-items-lg-center">
                 <li class="nav-item me-lg-1">
                     <a class="nav-link <?= basename($_SERVER['PHP_SELF']) == 'dashboard.php' ? 'active' : '' ?>" href="dashboard">
-                        <i class="fa-solid fa-chart-pie me-1 text-primary"></i> Dashboard
+                        <i class="fa-solid fa-gauge me-1 text-primary"></i> Dashboard
+                    </a>
+                </li>
+                <li class="nav-item me-lg-1">
+                    <a class="nav-link <?= basename($_SERVER['PHP_SELF']) == 'usage.php' ? 'active' : '' ?>" href="usage">
+                        <i class="fa-solid fa-chart-line me-1 text-primary"></i> Usage
                     </a>
                 </li>
                 <li class="nav-item me-lg-1">

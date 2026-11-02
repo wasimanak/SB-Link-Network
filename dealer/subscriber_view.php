@@ -1620,7 +1620,7 @@ function splitSpeed(mbps) {
     return { val: mbps.toFixed(2), unit: 'Mbps' };
 }
 
-let bwPollInterval = 3000;
+let bwPollInterval = 5000;
 
 function fetchLiveBandwidth() {
     if (isFetchingBw) return;
@@ -1640,7 +1640,7 @@ function fetchLiveBandwidth() {
         .then(data => {
             if (data.status !== 'online') {
                 // If offline, slow down poll interval to 15 seconds to avoid flooding MikroTik API logs
-                bwPollInterval = 15000;
+                bwPollInterval = 30000;
 
                 let sBadge = document.getElementById('live_status_badge');
                 let alertBox = document.getElementById('bw_router_alert');
@@ -1698,8 +1698,8 @@ function fetchLiveBandwidth() {
                 return;
             }
 
-            // User is online -> normal 3-second live speed polling
-            bwPollInterval = 3000;
+            // User is online -> normal 5-second live speed polling
+            bwPollInterval = 5000;
 
             if (data.bytes_in !== undefined && data.bytes_out !== undefined) {
                 if (data.uptime !== undefined && data.uptime !== null && data.uptime !== '') {
