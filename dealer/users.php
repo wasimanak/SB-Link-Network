@@ -819,13 +819,13 @@ if ($filter === 'online') {
                             <?php endif; ?>
                         </td>
                         <td>
-                            <?php if($s['expiry_date']): ?>
+                            <?php if(is_valid_date($s['expiry_date'] ?? '')): ?>
                                 <?php 
                                     $is_exp = ($s['status'] === 'expired') || (strtotime($s['expiry_date']) < time());
                                     $badge = $is_exp ? 'badge-soft-danger' : 'badge-soft-success';
                                 ?>
                                 <span class="badge <?= $badge ?> px-3 py-2 rounded-pill">
-                                    <?= $is_exp ? 'Expired (' . date('d M Y', strtotime($s['expiry_date'])) . ')' : 'Valid (' . date('d M Y', strtotime($s['expiry_date'])) . ')' ?>
+                                    <?= $is_exp ? 'Expired (' . safe_date('d M Y', $s['expiry_date']) . ')' : 'Valid (' . safe_date('d M Y', $s['expiry_date']) . ')' ?>
                                 </span>
                             <?php else: ?>
                                 <span class="badge badge-soft-secondary px-3 py-2 rounded-pill">Never</span>

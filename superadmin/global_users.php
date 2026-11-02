@@ -100,7 +100,7 @@ $users = $stmt->fetchAll();
                             <?php endif; ?>
                         </td>
                         <td class="pe-4 text-end text-secondary">
-                            <?= $u['expiry_date'] ? date('d M Y', strtotime($u['expiry_date'])) : 'N/A' ?>
+                            <?= safe_date('d M Y', $u['expiry_date'] ?? null, 'N/A') ?>
                         </td>
                     </tr>
                     <?php endforeach; ?>

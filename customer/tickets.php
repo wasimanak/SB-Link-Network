@@ -438,8 +438,8 @@ foreach ($tickets as $t) {
                         <?php endif; ?>
                     </td>
                     <td>
-                        <div class="text-dark small fw-semibold"><?= date('d M Y', strtotime($t['created_at'])) ?></div>
-                        <div class="text-muted" style="font-size: 0.74rem;"><?= date('h:i A', strtotime($t['created_at'])) ?></div>
+                        <div class="text-dark small fw-semibold"><?= safe_date('d M Y', $t['created_at']) ?></div>
+                        <div class="text-muted" style="font-size: 0.74rem;"><?= safe_date('h:i A', $t['created_at']) ?></div>
                     </td>
                     <td class="text-end pe-4">
                         <a href="view_ticket.php?id=<?= $t['id'] ?>" class="btn btn-sm btn-outline-primary rounded-pill px-3 fw-semibold">

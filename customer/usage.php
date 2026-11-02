@@ -100,7 +100,7 @@ $peak_down_time_str = "No speed record yet";
 $peak_down_vol_str = "";
 if ($peak_down_session && !empty($peak_down_session['down_bps'])) {
     $peak_down_mbps = round($peak_down_session['down_bps'] / 1000000, 2);
-    $peak_down_time_str = date('d M Y, h:i A', strtotime($peak_down_session['acctstarttime']));
+    $peak_down_time_str = safe_date('d M Y, h:i A', $peak_down_session['acctstarttime'], 'No speed record yet');
     $peak_down_vol_str = formatUsageBytes((float)$peak_down_session['acctoutputoctets']);
 }
 
@@ -109,7 +109,7 @@ $peak_up_time_str = "No speed record yet";
 $peak_up_vol_str = "";
 if ($peak_up_session && !empty($peak_up_session['up_bps'])) {
     $peak_up_mbps = round($peak_up_session['up_bps'] / 1000000, 2);
-    $peak_up_time_str = date('d M Y, h:i A', strtotime($peak_up_session['acctstarttime']));
+    $peak_up_time_str = safe_date('d M Y, h:i A', $peak_up_session['acctstarttime'], 'No speed record yet');
     $peak_up_vol_str = formatUsageBytes((float)$peak_up_session['acctinputoctets']);
 }
 
@@ -406,7 +406,7 @@ $recent_sessions = $sessStmt->fetchAll(PDO::FETCH_ASSOC);
             </p>
             <div class="d-flex align-items-center gap-2 flex-wrap text-white small">
                 <span class="badge bg-white text-dark fw-bold px-3 py-1.5 rounded-pill shadow-sm">
-                    <i class="fa-solid fa-calendar-check text-primary me-1"></i> Current Cycle: Since <?= date('d M Y', strtotime($cycle_start)) ?>
+                    <i class="fa-solid fa-calendar-check text-primary me-1"></i> Current Cycle: Since <?= safe_date('d M Y', $cycle_start, date('d M Y')) ?>
                 </span>
                 <span class="text-white-50" style="font-size: 0.82rem;">
                     <i class="fa-solid fa-arrows-rotate me-1"></i> Resets automatically upon package renewal.
@@ -680,13 +680,13 @@ $recent_sessions = $sessStmt->fetchAll(PDO::FETCH_ASSOC);
                                 ?>
                                 <tr>
                                     <td class="small fw-semibold text-dark">
-                                        <?= !empty($sess['acctstarttime']) ? date('d M, h:i A', strtotime($sess['acctstarttime'])) : 'N/A' ?>
+                                        <?= safe_date('d M, h:i A', $sess['acctstarttime'] ?? null, 'N/A') ?>
                                     </td>
                                     <td class="small">
                                         <?php if ($is_live): ?>
                                             <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2 py-0.5 fw-bold">Active Now</span>
                                         <?php else: ?>
-                                            <?= date('d M, h:i A', strtotime($sess['acctstoptime'])) ?>
+                                            <?= safe_date('d M, h:i A', $sess['acctstoptime'] ?? null, 'Active') ?>
                                         <?php endif; ?>
                                     </td>
                                     <td class="small text-muted font-monospace"><?= "{$d_h}h {$d_m}m" ?></td>

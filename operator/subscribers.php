@@ -1064,20 +1064,20 @@ $count_offline = max(0, $count_all - $count_online);
                         <small class="text-muted font-monospace" style="font-size: 0.75rem;"><?= $uptime_fmt ?></small>
                     </td>
                     <td>
-                        <?php if($s['expiry_date']): ?>
+                        <?php if(is_valid_date($s['expiry_date'] ?? '')): ?>
                             <?php if(strtotime($s['expiry_date']) < time()): ?>
                                 <div class="d-flex flex-column gap-1">
                                     <span class="badge rounded-pill badge-soft-danger px-3 py-1 fw-bold text-uppercase" style="letter-spacing: 0.5px;">
                                         <i class="fa-solid fa-triangle-exclamation me-1"></i> Expired
                                     </span>
-                                    <small class="text-muted font-monospace" style="font-size: 0.70rem;"><?= date('d M Y h:i A', strtotime($s['expiry_date'])) ?></small>
+                                    <small class="text-muted font-monospace" style="font-size: 0.70rem;"><?= safe_date('d M Y h:i A', $s['expiry_date']) ?></small>
                                 </div>
                             <?php else: ?>
                                 <div class="d-flex flex-column gap-1">
                                     <span class="badge rounded-pill badge-soft-success px-3 py-1">
-                                        <i class="fa-regular fa-clock me-1"></i> <?= date('d M Y', strtotime($s['expiry_date'])) ?>
+                                        <i class="fa-regular fa-clock me-1"></i> <?= safe_date('d M Y', $s['expiry_date']) ?>
                                     </span>
-                                    <small class="text-muted font-monospace" style="font-size: 0.70rem;"><?= date('h:i A', strtotime($s['expiry_date'])) ?></small>
+                                    <small class="text-muted font-monospace" style="font-size: 0.70rem;"><?= safe_date('h:i A', $s['expiry_date']) ?></small>
                                 </div>
                             <?php endif; ?>
                         <?php else: ?>

@@ -327,8 +327,8 @@ foreach ($fund_requests as $fr) {
                             ?>
                             <tr>
                                 <td>
-                                    <div class="fw-semibold text-dark"><?= date('d M Y', strtotime($r['created_at'])) ?></div>
-                                    <div class="text-muted" style="font-size: 0.75rem;"><?= date('h:i A', strtotime($r['created_at'])) ?></div>
+                                    <div class="fw-semibold text-dark"><?= safe_date('d M Y', $r['created_at']) ?></div>
+                                    <div class="text-muted" style="font-size: 0.75rem;"><?= safe_date('h:i A', $r['created_at']) ?></div>
                                 </td>
                                 <td>
                                     <span class="fw-bold text-primary"><?= htmlspecialchars($r['name']) ?></span>
@@ -485,8 +485,8 @@ foreach ($fund_requests as $fr) {
                             ?>
                             <tr>
                                 <td>
-                                    <div class="fw-semibold text-dark"><?= date('d M Y', strtotime($fr['created_at'])) ?></div>
-                                    <div class="text-muted" style="font-size: 0.75rem;"><?= date('h:i A', strtotime($fr['created_at'])) ?></div>
+                                    <div class="fw-semibold text-dark"><?= safe_date('d M Y', $fr['created_at']) ?></div>
+                                    <div class="text-muted" style="font-size: 0.75rem;"><?= safe_date('h:i A', $fr['created_at']) ?></div>
                                 </td>
                                 <td>
                                     <span class="fw-bold text-success fs-6">Rs <?= number_format($fr['amount'], 0) ?></span>

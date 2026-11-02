@@ -357,7 +357,7 @@ foreach ($operators as $op) {
 
                             <td>
                                 <?php if($op['expiry_date']): ?>
-                                    <div class="text-dark small fw-semibold"><?= date('d M Y', strtotime($op['expiry_date'])) ?></div>
+                                    <div class="text-dark small fw-semibold"><?= safe_date('d M Y', $op['expiry_date'] ?? null, 'N/A') ?></div>
                                     <div class="text-muted" style="font-size: 0.72rem;">Renewal Cycle</div>
                                 <?php else: ?>
                                     <span class="badge bg-light text-muted border rounded-pill px-2 py-1">Lifetime / No Expiry</span>

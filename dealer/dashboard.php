@@ -518,14 +518,14 @@ $dealer_activities = $alogsStmt->fetchAll(PDO::FETCH_ASSOC);
                         <?php endif; ?>
                     </td>
                     <td>
-                        <?php if($s['expiry_date']): ?>
+                        <?php if(is_valid_date($s['expiry_date'] ?? '')): ?>
                             <?php if(strtotime($s['expiry_date']) < time()): ?>
                                 <div class="d-flex flex-column align-items-center gap-1">
                                     <span class="badge rounded-pill bg-danger text-white fw-bold px-3 py-1 text-uppercase" style="letter-spacing: 0.5px;">Expired</span>
-                                    <small class="text-muted font-monospace" style="font-size: 0.70rem;"><?= date('d M Y', strtotime($s['expiry_date'])) ?></small>
+                                    <small class="text-muted font-monospace" style="font-size: 0.70rem;"><?= safe_date('d M Y', $s['expiry_date']) ?></small>
                                 </div>
                             <?php else: ?>
-                                <span class="badge rounded-pill badge-soft-success px-3 py-2"><?= date('d M Y H:i:s', strtotime($s['expiry_date'])) ?></span>
+                                <span class="badge rounded-pill badge-soft-success px-3 py-2"><?= safe_date('d M Y H:i:s', $s['expiry_date']) ?></span>
                             <?php endif; ?>
                         <?php else: ?>
                             <span class="badge rounded-pill badge-soft-secondary px-3 py-2">N/A</span>

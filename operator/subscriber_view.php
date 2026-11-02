@@ -1573,7 +1573,7 @@ if ($last_debit) {
                 <li>
                     <i class="fa-solid fa-calendar-xmark text-danger"></i> 
                     <span class="text-muted small me-1">Expiry:</span> 
-                    <span class="fw-semibold text-dark"><?= !empty($user['expiry_date']) ? date('d M Y, h:i A', strtotime($user['expiry_date'])) : 'N/A' ?></span>
+                    <span class="fw-semibold text-dark"><?= safe_date('d M Y, h:i A', $user['expiry_date'] ?? null, 'N/A') ?></span>
                 </li>
                 <li class="d-flex justify-content-between align-items-center">
                     <div>
@@ -1716,7 +1716,7 @@ if ($last_debit) {
                     <div class="metric-data">
                         <h6>Used Volume</h6>
                         <h4 id="live_used_volume"><?= $used_volume_str ?></h4>
-                        <small class="text-muted" style="font-size: 0.72rem;" >Since <?= $cycle_start ? date('d M Y', strtotime($cycle_start)) : 'Activation' ?></small>
+                        <small class="text-muted" style="font-size: 0.72rem;" >Since <?= safe_date('d M Y', $cycle_start, 'Activation') ?></small>
                     </div>
                 </div>
             </div>
@@ -1861,8 +1861,8 @@ if ($last_debit) {
                                     </td>
                                 </tr>
                                 <tr><td class="fw-bold">Package Duration</td><td><?= $user['validity_days'] ? $user['validity_days'] . ' Days' : 'N/A' ?></td></tr>
-                                <tr><td class="fw-bold">Created / Registered Date</td><td><?= !empty($user['created_at']) ? date('d M Y H:i:s', strtotime($user['created_at'])) : 'N/A' ?></td></tr>
-                                <tr><td class="fw-bold">Last Expiration Date</td><td><?= $user['expiry_date'] ? date('d M Y H:i:s', strtotime($user['expiry_date'])) : 'N/A' ?></td></tr>
+                                <tr><td class="fw-bold">Created / Registered Date</td><td><?= safe_date('d M Y H:i:s', $user['created_at'] ?? null, 'N/A') ?></td></tr>
+                                <tr><td class="fw-bold">Last Expiration Date</td><td><?= safe_date('d M Y H:i:s', $user['expiry_date'] ?? null, 'N/A') ?></td></tr>
                                 <tr>
                                     <td class="fw-bold">Last Renewal Receipt</td>
                                     <td>
@@ -1893,7 +1893,7 @@ if ($last_debit) {
                                 <tr><td class="fw-bold">Total Session Time</td><td>Unlimited</td></tr>
                                 <tr><td class="fw-bold">Used Session Time</td><td><?= $used_sess_str ?></td></tr>
                                 <tr><td class="fw-bold">Remaining Session Time</td><td>Unlimited</td></tr>
-                                <tr><td class="fw-bold">Last Activation Date</td><td><?= $last_act ? date('d M Y H:i:s', strtotime($last_act)) : 'N/A' ?></td></tr>
+                                <tr><td class="fw-bold">Last Activation Date</td><td><?= safe_date('d M Y H:i:s', $last_act, 'N/A') ?></td></tr>
                                 <?php
 $latest_login_ts = null;
 if (!empty($latest_conn['acctstarttime']) && $latest_conn['acctstarttime'] !== '0000-00-00 00:00:00') {
@@ -2055,7 +2055,7 @@ $last_login_display = ($latest_login_ts && $latest_login_ts > 86400) ? date('d M
                     <div class="col-6 col-md-3">
                         <div class="text-muted small fw-semibold">Current Expiry</div>
                         <div class="fw-bold text-dark mt-1 font-monospace small">
-                            <?= (!empty($user['expiry_date']) && $user['expiry_date'] !== '0000-00-00 00:00:00') ? date('d M Y, h:i A', strtotime($user['expiry_date'])) : '<span class="text-muted">None / Expired</span>' ?>
+                            <?= is_valid_date($user['expiry_date'] ?? '') ? safe_date('d M Y, h:i A', $user['expiry_date']) : '<span class="text-muted">None / Expired</span>' ?>
                         </div>
                     </div>
                     <div class="col-6 col-md-3">
@@ -2582,7 +2582,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         <?php else: ?>
                         <div class="col-md-6 mb-3">
                             <label class="col-form-label text-muted">Package Expiry Date</label>
-                            <input type="text" class="form-control bg-light text-muted fw-bold" value="<?= !empty($user['expiry_date']) ? date('d M Y, h:i A', strtotime($user['expiry_date'])) : 'N/A' ?>" readonly disabled>
+                            <input type="text" class="form-control bg-light text-muted fw-bold" value="<?= safe_date('d M Y, h:i A', $user['expiry_date'] ?? null, 'N/A') ?>" readonly disabled>
                             <small class="text-muted" style="font-size: 11px;"><i class="fa-solid fa-lock text-secondary me-1"></i> Custom Expiry locked for Manager. Use "Renew" button.</small>
                         </div>
                         <?php endif; ?>

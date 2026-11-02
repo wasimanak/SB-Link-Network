@@ -456,7 +456,7 @@ if (!empty($sub['package_name'])) {
     $wa_text .= "Plan: {$sub['package_name']}\n";
 }
 if (!empty($sub['expiry_date'])) {
-    $wa_text .= "New Expiry: " . date('d M Y', strtotime($sub['expiry_date'])) . "\n";
+    $wa_text .= "New Expiry: " . safe_date('d M Y', $sub['expiry_date'] ?? null, 'N/A') . "\n";
 }
 $wa_text .= "Amount Paid: Rs. " . number_format($paid_amount, 0) . "\n";
 if ($due_amount > 0) {
@@ -1099,7 +1099,7 @@ $wa_text_encoded = urlencode($wa_text);
             <div class="receipt-row receipt-row-highlight">
                 <span class="label">New Expiry:</span>
                 <span class="val font-mono">
-                    <?= date('d M Y', strtotime($sub['expiry_date'])) ?>
+                    <?= safe_date('d M Y', $sub['expiry_date'] ?? null, 'N/A') ?>
                 </span>
             </div>
             <?php endif; ?>
@@ -1810,7 +1810,7 @@ $wa_text_encoded = urlencode($wa_text);
             <?php endif; ?>
             <?php if(!empty($sub['expiry_date'])): ?>
             bytes.push(0x1B, 0x45, 0x01);
-            pushStr(padLine("New Expiry:", <?= json_encode(date('d M Y', strtotime($sub['expiry_date']))) ?>));
+            pushStr(padLine("New Expiry:", <?= json_encode(safe_date('d M Y', $sub['expiry_date'] ?? null, 'N/A')) ?>));
             bytes.push(0x1B, 0x45, 0x00);
             <?php endif; ?>
 

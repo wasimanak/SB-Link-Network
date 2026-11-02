@@ -357,8 +357,8 @@ function formatLogBytes($bytes) {
                             </td>
 
                             <td>
-                                <div class="text-dark small fw-semibold"><?= date('d M Y', strtotime($log['acctstarttime'])) ?></div>
-                                <div class="text-muted" style="font-size: 0.74rem;"><?= date('H:i:s', strtotime($log['acctstarttime'])) ?></div>
+                                <div class="text-dark small fw-semibold"><?= safe_date('d M Y', $log['acctstarttime'] ?? null, 'N/A') ?></div>
+                                <div class="text-muted" style="font-size: 0.74rem;"><?= safe_date('H:i:s', $log['acctstarttime'] ?? null, '') ?></div>
                             </td>
 
                             <td>
@@ -367,8 +367,8 @@ function formatLogBytes($bytes) {
                                         <span class="spinner-grow spinner-grow-sm me-1" style="width:0.35rem; height:0.35rem;"></span>Online
                                     </span>
                                 <?php else: ?>
-                                    <div class="text-dark small"><?= date('d M Y', strtotime($log['acctstoptime'])) ?></div>
-                                    <div class="text-muted" style="font-size: 0.74rem;"><?= date('H:i:s', strtotime($log['acctstoptime'])) ?></div>
+                                    <div class="text-dark small"><?= safe_date('d M Y', $log['acctstoptime'] ?? null, 'N/A') ?></div>
+                                    <div class="text-muted" style="font-size: 0.74rem;"><?= safe_date('H:i:s', $log['acctstoptime'] ?? null, '') ?></div>
                                 <?php endif; ?>
                             </td>
 

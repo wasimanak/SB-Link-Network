@@ -379,7 +379,7 @@ $pending_subscribers = $subStmt->fetchAll(PDO::FETCH_ASSOC);
                             <?php if (!empty($sub['expiry_date'])): ?>
                             <div class="mb-1">
                                 <i class="fa-solid fa-calendar text-info me-2"></i>
-                                <strong>Expiry:</strong> <?= date('d M Y', strtotime($sub['expiry_date'])) ?>
+                                <strong>Expiry:</strong> <?= safe_date('d M Y', $sub['expiry_date'] ?? null, 'N/A') ?>
                             </div>
                             <?php endif; ?>
                         </div>

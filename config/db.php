@@ -206,3 +206,30 @@ function handle_renewal_receipt_upload($file_array, $subscriber_id, $pdo = null,
     return null;
 }
 }
+
+
+/**
+ * Universal Safe Date Functions: Permanently eliminate '01 Jan 1970' / epoch 0 displays across entire system
+ */
+if (!function_exists('is_valid_date')) {
+    function is_valid_date($date_value) {
+        if (empty($date_value) || $date_value === '0000-00-00' || $date_value === '0000-00-00 00:00:00' || $date_value === '0' || $date_value === false) {
+            return false;
+        }
+        $ts = is_numeric($date_value) ? (int)$date_value : strtotime((string)$date_value);
+        if (!$ts || $ts <= 86400 || (int)date('Y', $ts) <= 1970) {
+            return false;
+        }
+        return true;
+    }
+}
+
+if (!function_exists('safe_date')) {
+    function safe_date($format, $date_value, $fallback = 'N/A') {
+        if (!is_valid_date($date_value)) {
+            return $fallback;
+        }
+        $ts = is_numeric($date_value) ? (int)$date_value : strtotime((string)$date_value);
+        return date($format, $ts);
+    }
+}

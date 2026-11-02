@@ -45,7 +45,7 @@ $expiry_badge = "<span class='badge bg-secondary-subtle text-secondary border bo
 $expiry_text = "No Expiry Set";
 $is_expired = false;
 $days_left = 0;
-if ($current_user['expiry_date']) {
+if (is_valid_date($current_user['expiry_date'] ?? '')) {
     $exp_time = strtotime($current_user['expiry_date']);
     $now = time();
     $diff = $exp_time - $now;
@@ -54,11 +54,20 @@ if ($current_user['expiry_date']) {
         $days_left = floor($diff / 86400);
         $hours = floor(($diff % 86400) / 3600);
         $expiry_badge = "<span class='badge bg-success-subtle text-success border border-success-subtle rounded-pill px-3 py-1 fw-bold'><i class='fa-regular fa-clock me-1'></i>{$days_left}d {$hours}h Left</span>";
-        $expiry_text = date('d M Y, h:i A', $exp_time);
+        $expiry_text = safe_date('d M Y, h:i A', $exp_time);
     } else {
         $is_expired = true;
         $expiry_badge = "<span class='badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-3 py-1 fw-bold'><i class='fa-solid fa-triangle-exclamation me-1'></i>Expired</span>";
-        $expiry_text = "Expired on " . date('d M Y', $exp_time);
+        $expiry_text = "Expired on " . safe_date('d M Y', $exp_time);
+    }
+} else {
+    if (($current_user['status'] ?? '') === 'expired') {
+        $is_expired = true;
+        $expiry_badge = "<span class='badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-3 py-1 fw-bold'><i class='fa-solid fa-triangle-exclamation me-1'></i>Expired</span>";
+        $expiry_text = "Package Expired";
+    } else {
+        $expiry_badge = "<span class='badge bg-secondary-subtle text-secondary border border-secondary-subtle rounded-pill px-3 py-1 fw-bold'>No Expiry Set</span>";
+        $expiry_text = "No Expiry Set";
     }
 }
 if (($current_user['status'] ?? '') === 'expired') {

@@ -684,7 +684,7 @@ $accent_colors = [
                                 <div class="d-flex align-items-center justify-content-between p-2 rounded-3 bg-light border mb-2" style="font-size: 0.76rem;">
                                     <span class="text-muted"><i class="fa-regular fa-clock me-1 text-secondary"></i>Expiry:</span>
                                     <span class="fw-bold font-monospace <?= $isExp ? 'text-danger' : 'text-dark' ?>">
-                                        <?= !empty($s['expiry_date']) ? date('d M Y, h:i A', strtotime($s['expiry_date'])) : 'No Expiry Set' ?>
+                                        <?= safe_date('d M Y, h:i A', $s['expiry_date'] ?? null, 'No Expiry Set') ?>
                                     </span>
                                 </div>
                             </div>

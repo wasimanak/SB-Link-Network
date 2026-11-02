@@ -776,7 +776,7 @@ function formatBytes($bytes) {
                                                 <div class="overflow-hidden">
                                                     <span class="text-muted text-uppercase fw-bold d-block" style="font-size: 0.65rem;">Expiry Date</span>
                                                     <strong class="<?= (strtotime($u['expiry_date']) < time()) ? 'text-danger fw-bold' : 'text-dark fw-bold' ?>" style="font-size: 0.85rem;">
-                                                        <?= $u['expiry_date'] ? date('d M Y', strtotime($u['expiry_date'])) : 'N/A' ?>
+                                                        <?= safe_date('d M Y', $u['expiry_date'] ?? null, 'N/A') ?>
                                                     </strong>
                                                 </div>
                                             </div>
@@ -1040,7 +1040,7 @@ function formatBytes($bytes) {
                                                 <div class="overflow-hidden">
                                                     <span class="text-muted text-uppercase fw-bold d-block" style="font-size: 0.65rem;">Expiry Date</span>
                                                     <strong class="<?= (strtotime($u['expiry_date']) < time()) ? 'text-danger fw-bold' : 'text-dark fw-bold' ?>" style="font-size: 0.85rem;">
-                                                        <?= $u['expiry_date'] ? date('d M Y', strtotime($u['expiry_date'])) : 'N/A' ?>
+                                                        <?= safe_date('d M Y', $u['expiry_date'] ?? null, 'N/A') ?>
                                                     </strong>
                                                 </div>
                                             </div>

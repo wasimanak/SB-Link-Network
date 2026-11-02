@@ -540,12 +540,12 @@ function getPageUrl($newPage) {
                                 <td class="py-3">
                                     <div class="d-flex align-items-center gap-2 text-success small fw-medium">
                                         <i class="fa-solid fa-arrow-right-to-bracket text-success" style="font-size: 0.75rem;"></i>
-                                        <span><?= date('d M Y, h:i A', is_numeric($log['acctstarttime']) ? $log['acctstarttime'] : strtotime($log['acctstarttime'])) ?></span>
+                                        <span><?= safe_date('d M Y, h:i A', $log['acctstarttime'] ?? null, 'N/A') ?></span>
                                     </div>
                                     <?php if(!$is_live): ?>
                                         <div class="d-flex align-items-center gap-2 text-secondary small mt-1" style="font-size: 0.78rem;">
                                             <i class="fa-solid fa-arrow-right-from-bracket text-danger" style="font-size: 0.75rem;"></i>
-                                            <span><?= date('d M Y, h:i A', is_numeric($log['acctstoptime']) ? $log['acctstoptime'] : strtotime($log['acctstoptime'])) ?></span>
+                                            <span><?= safe_date('d M Y, h:i A', $log['acctstoptime'] ?? null, 'N/A') ?></span>
                                         </div>
                                     <?php else: ?>
                                         <div class="d-flex align-items-center gap-2 text-primary small mt-1" style="font-size: 0.78rem;">

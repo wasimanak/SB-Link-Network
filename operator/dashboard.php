@@ -1470,20 +1470,20 @@ unset($ms);
                         <?php endif; ?>
                     </td>
                     <td>
-                        <?php if($s['expiry_date']): ?>
+                        <?php if(is_valid_date($s['expiry_date'] ?? '')): ?>
                             <?php if(strtotime($s['expiry_date']) < time()): ?>
                                 <div class="d-flex flex-column align-items-center gap-1">
                                     <span class="badge rounded-pill fw-bold px-3 py-1 text-uppercase" style="background-color: #fef2f2; color: #dc2626; border: 1px solid #fecaca; font-size: 0.75rem; letter-spacing: 0.5px;">
                                         <i class="fa-solid fa-clock-rotate-left me-1"></i> Expired
                                     </span>
-                                    <small class="text-danger fw-semibold font-monospace" style="font-size: 0.72rem;"><?= date('d M Y', strtotime($s['expiry_date'])) ?></small>
+                                    <small class="text-danger fw-semibold font-monospace" style="font-size: 0.72rem;"><?= safe_date('d M Y', $s['expiry_date']) ?></small>
                                 </div>
                             <?php else: ?>
                                 <div class="d-flex flex-column align-items-center gap-1">
                                     <span class="badge rounded-pill fw-bold px-3 py-1" style="background-color: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; font-size: 0.75rem;">
-                                        <i class="fa-regular fa-calendar-check me-1"></i> <?= date('d M Y', strtotime($s['expiry_date'])) ?>
+                                        <i class="fa-regular fa-calendar-check me-1"></i> <?= safe_date('d M Y', $s['expiry_date']) ?>
                                     </span>
-                                    <small class="text-muted font-monospace" style="font-size: 0.70rem;"><?= date('H:i:s', strtotime($s['expiry_date'])) ?></small>
+                                    <small class="text-muted font-monospace" style="font-size: 0.70rem;"><?= safe_date('H:i:s', $s['expiry_date']) ?></small>
                                 </div>
                             <?php endif; ?>
                         <?php else: ?>
