@@ -2956,8 +2956,17 @@ function splitSpeed(mbps) {
     return { val: mbps.toFixed(2), unit: 'Mbps' };
 }
 
+let bwPollInterval = 3000;
+
 function fetchLiveBandwidth() {
     if (isFetchingBw) return;
+
+    // Pause polling when browser tab is hidden / minimized to save router resources & prevent log spam
+    if (document.hidden) {
+        bwPollTimer = setTimeout(fetchLiveBandwidth, 5000);
+        return;
+    }
+
     isFetchingBw = true;
 
     fetch(`api_bandwidth.php?username=<?= urlencode($user['username']) ?>&sub_id=<?= (int)$user['id'] ?>&_=${Date.now()}`, {
@@ -2966,7 +2975,9 @@ function fetchLiveBandwidth() {
         .then(res => res.json())
         .then(data => {
             if (data.status !== 'online') {
-                // Strictly OFFLINE branch
+                // If offline, slow down poll interval to 15 seconds to avoid flooding MikroTik API logs
+                bwPollInterval = 15000;
+
                 let sBadge = document.getElementById('live_status_badge');
                 let alertBox = document.getElementById('bw_router_alert');
                 if (sBadge) {
@@ -3022,6 +3033,9 @@ function fetchLiveBandwidth() {
                 lastTime = null;
                 return;
             }
+
+            // User is online -> normal 3-second live speed polling
+            bwPollInterval = 3000;
 
             if (data.bytes_in !== undefined && data.bytes_out !== undefined) {
                 if (data.uptime !== undefined && data.uptime !== null && data.uptime !== '') {
@@ -3167,9 +3181,17 @@ function fetchLiveBandwidth() {
         .catch(err => console.error("Error fetching bandwidth:", err))
         .finally(() => {
             isFetchingBw = false;
-            bwPollTimer = setTimeout(fetchLiveBandwidth, 3000);
+            bwPollTimer = setTimeout(fetchLiveBandwidth, bwPollInterval);
         });
 }
+
+// Immediately resume poll when tab gains focus
+document.addEventListener('visibilitychange', function() {
+    if (!document.hidden && !isFetchingBw) {
+        clearTimeout(bwPollTimer);
+        fetchLiveBandwidth();
+    }
+});
 
 // Initial poll start
 fetchLiveBandwidth();
