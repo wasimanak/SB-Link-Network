@@ -551,17 +551,11 @@ $userRoleLabel = !empty($_SESSION['is_manager']) ? 'MANAGER' : 'ADMIN';
                     <li class="submenu-tree-item"><a href="subscribers?filter=expired" class="<?= $filter==='expired' ? 'active' : '' ?>">Expired Users</a></li>
                     <li class="submenu-tree-item"><a href="subscribers?filter=expiring_1w" class="<?= $filter==='expiring_1w' ? 'active' : '' ?>">Expiring In Week</a></li>
                     <li class="submenu-tree-item"><a href="subscribers?filter=expiring_2w" class="<?= $filter==='expiring_2w' ? 'active' : '' ?>">Expiring In 2 Weeks</a></li>
-                    <li class="submenu-tree-item"><a href="auth_logs" class="<?= in_array($p, ['auth_logs.php', 'auth_logs']) ? 'active' : '' ?>"><i class="fa-solid fa-fingerprint me-1 text-warning"></i> Auth Logs</a></li>
                 </ul>
             </div>
 
 
 
-            <!-- 3b. Auth Logs (Direct Menu Button) -->
-            <a href="auth_logs" class="nav-item-link <?= in_array($p, ['auth_logs.php', 'auth_logs']) ? 'active-parent' : '' ?>">
-                <i class="fa-solid fa-fingerprint nav-icon text-warning"></i>
-                <span class="nav-text">Auth Logs</span>
-            </a>
 
             <!-- 4. Dealers Profile -->
             <a href="dealers" class="nav-item-link <?= in_array($p, ['dealers.php', 'dealers', 'dealer_view.php', 'dealer_view']) ? 'active-parent' : '' ?>">
@@ -674,7 +668,7 @@ $userRoleLabel = !empty($_SESSION['is_manager']) ? 'MANAGER' : 'ADMIN';
                     <li class="submenu-tree-item"><a href="activity_logs" class="<?= in_array($p, ['activity_logs.php', 'activity_logs']) ? 'active' : '' ?>">Activity Logs</a></li>
                     <li class="submenu-tree-item"><a href="package_logs" class="<?= in_array($p, ['package_logs.php', 'package_logs']) ? 'active' : '' ?>">Package Logs</a></li>
                     <li class="submenu-tree-item"><a href="session_logs" class="<?= in_array($p, ['session_logs.php', 'session_logs']) ? 'active' : '' ?>">Session Logs</a></li>
-                    <li class="submenu-tree-item"><a href="auth_logs" class="<?= in_array($p, ['auth_logs.php', 'auth_logs']) ? 'active' : '' ?>"><i class="fa-solid fa-fingerprint me-1 text-warning"></i> Auth Logs (RADIUS)</a></li>
+                    <li class="submenu-tree-item"><a href="auth_logs" class="<?= in_array($p, ['auth_logs.php', 'auth_logs']) ? 'active' : '' ?>">Auth Logs</a></li>
                 </ul>
             </div>
 
