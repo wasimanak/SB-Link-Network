@@ -184,11 +184,11 @@
                         <i class="fa-solid fa-chart-line me-1 text-primary"></i> Usage
                     </a>
                 </li>
-                <li class="nav-item me-lg-1">
+                <!-- <li class="nav-item me-lg-1">
                     <a class="nav-link <?= basename($_SERVER['PHP_SELF']) == 'packages.php' ? 'active' : '' ?>" href="packages">
                         <i class="fa-solid fa-box-open me-1 text-primary"></i> Packages
                     </a>
-                </li>
+                </li> -->
                 <li class="nav-item me-lg-1">
                     <a class="nav-link <?= basename($_SERVER['PHP_SELF']) == 'history.php' ? 'active' : '' ?>" href="history">
                         <i class="fa-solid fa-clock-rotate-left me-1 text-primary"></i> History

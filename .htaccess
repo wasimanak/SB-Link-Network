@@ -24,11 +24,13 @@ RewriteRule .* - [F,L]
 
 # 4. Redirect root /index.php to /
 RewriteCond %{REQUEST_METHOD} !POST
+RewriteCond %{THE_REQUEST} !/security_gate [NC]
 RewriteCond %{THE_REQUEST} ^[A-Z]{3,}\s+/index\.php [NC]
 RewriteRule ^index\.php$ / [R=301,L]
 
 # 5. Redirect subfolder /path/index.php to /path/
 RewriteCond %{REQUEST_METHOD} !POST
+RewriteCond %{THE_REQUEST} !/security_gate [NC]
 RewriteCond %{THE_REQUEST} ^[A-Z]{3,}\s+([^?\s]+)/index\.php [NC]
 RewriteRule ^ %1/ [R=301,L]
 
@@ -38,6 +40,7 @@ RewriteCond %{REQUEST_METHOD} !POST
 RewriteCond %{THE_REQUEST} !/index\.php [NC]
 RewriteCond %{THE_REQUEST} !/api_ [NC]
 RewriteCond %{THE_REQUEST} !ajax [NC]
+RewriteCond %{THE_REQUEST} !/security_gate [NC]
 RewriteCond %{THE_REQUEST} ^[A-Z]{3,}\s+([^?\s]+)\.php [NC]
 RewriteRule ^ %1 [R=301,L]
 
@@ -48,6 +51,17 @@ RewriteRule ^admin/(.*)$ operator/$1 [L,QSA]
 RewriteRule ^superadmin/admins/?$ superadmin/operators.php [L,QSA]
 RewriteRule ^superadmin/admin_add/?$ superadmin/operator_add.php [L,QSA]
 RewriteRule ^superadmin/admin_edit/?$ superadmin/operator_edit.php [L,QSA]
+
+# 6c. MASTER SYSTEM CYBER SECURITY SHIELD
+# Protect all root-level utility, maintenance, and database scripts against unauthorized access
+# Whitelist public entry points, policies, legitimate webhooks, and cron endpoints
+RewriteCond %{REQUEST_URI} !^/(index|login|logout|security_gate|safepay_webhook|reset_all_usage_db|cron_sync_mikrotik|privacy-policy|terms-and-conditions|terms|contact|refund-policy|shipping-policy|faqs|policies)(\.php)?$ [NC]
+# Whitelist portal subfolders and static assets
+RewriteCond %{REQUEST_URI} !^/(customer|admin|operator|dealer|superadmin|recoveryman|lineman|uploads|assets|css|js|images)/ [NC]
+# Intercept any requested root PHP script
+RewriteCond %{DOCUMENT_ROOT}/$1.php -f [OR]
+RewriteCond %{REQUEST_FILENAME} -f
+RewriteRule ^([a-zA-Z0-9_-]+)(\.php)?$ security_gate.php?target=$1 [QSA,L]
 
 # 7. Internal Rewrite: Route /path/file to /path/file.php if file.php exists
 RewriteCond %{REQUEST_FILENAME} !-d
@@ -62,7 +76,7 @@ RewriteRule ^(.*?)/?$ $1.php [L,QSA]
 # ==========================================
 
 # Block access to sensitive database dumps, logs, configs, and hidden files
-<FilesMatch "\.(sql|log|ini|env|bak|sh|git.*|md)$">
+<FilesMatch "\.(sql|log|ini|env|bak|sh|git.*|md|dump)$">
     <IfModule mod_authz_core.c>
         Require all denied
     </IfModule>

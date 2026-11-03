@@ -1,7 +1,11 @@
 <?php
 // Script to safely create all required tables and structures
-$pdo = new PDO('mysql:host=localhost;dbname=radius;charset=utf8mb4', 'radius', 'Wasi1234');
-$pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+require_once __DIR__ . '/config/security.php';
+if (function_exists('guard_maintenance_script')) {
+    guard_maintenance_script('Rebuild Database');
+}
+
+require_once __DIR__ . '/config/db.php';
 
 $sql_file = __DIR__ . '/database_schema.sql';
 
