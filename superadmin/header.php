@@ -486,6 +486,12 @@ $isRouterMenu = strpos($page, 'router') !== false || in_array($page, ['live_rout
                 <?php endif; ?>
             </a>
 
+            <!-- 8b. Database Backups -->
+            <a href="backups" class="nav-item-link <?= in_array($page, ['backups.php', 'backups']) ? 'active-parent' : '' ?>">
+                <i class="fa-solid fa-database nav-icon text-success"></i>
+                <span class="nav-text">Backups</span>
+            </a>
+
             <!-- 8. System Logs -->
             <a href="logs" class="nav-item-link <?= in_array($page, ['logs.php', 'logs']) ? 'active-parent' : '' ?>">
                 <i class="fa-solid fa-file-shield nav-icon"></i>

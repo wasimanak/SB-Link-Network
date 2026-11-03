@@ -51,6 +51,7 @@ RewriteRule ^admin/(.*)$ operator/$1 [L,QSA]
 RewriteRule ^superadmin/admins/?$ superadmin/operators.php [L,QSA]
 RewriteRule ^superadmin/admin_add/?$ superadmin/operator_add.php [L,QSA]
 RewriteRule ^superadmin/admin_edit/?$ superadmin/operator_edit.php [L,QSA]
+RewriteRule ^superadmin/backups/?$ superadmin/backups.php [L,QSA]
 
 # 6c. MASTER SYSTEM CYBER SECURITY SHIELD
 # Protect all root-level utility, maintenance, and database scripts against unauthorized access

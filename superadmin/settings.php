@@ -1069,6 +1069,10 @@ try {
                     </p>
 
                     <div class="d-flex flex-column gap-2 mb-3">
+                        <a href="backups" class="btn btn-outline-primary rounded-pill px-4 py-2 fw-bold shadow-sm d-flex align-items-center justify-content-center gap-2 mb-1">
+                            <i class="fa-solid fa-database fs-5 text-primary"></i>
+                            <span>Manage Daily Backups (Last 30 Snapshots)</span>
+                        </a>
                         <a href="download_backup.php" class="btn btn-success rounded-pill px-4 py-2 fw-bold shadow-sm d-flex align-items-center justify-content-center gap-2">
                             <i class="fa-solid fa-cloud-arrow-down fs-5"></i>
                             <span>Download Full Backup (.SQL)</span>
