@@ -446,15 +446,6 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == 1) {
                         </tr>
                         <?php endforeach; ?>
 
-                        <?php if (empty($logs)): ?>
-                        <tr>
-                            <td colspan="6" class="text-center py-5 text-muted">
-                                <i class="fa-solid fa-fingerprint fs-1 d-block mb-3 opacity-25"></i>
-                                <h5>No Authentication Requests Found</h5>
-                                <p class="small mb-0">MikroTik routers have not sent any PPPoE authentication packets to FreeRADIUS recently.</p>
-                            </td>
-                        </tr>
-                        <?php endif; ?>
                     </tbody>
                 </table>
             </div>
@@ -535,7 +526,9 @@ $(document).ready(function() {
         language: {
             search: "_INPUT_",
             searchPlaceholder: "Search username, status, details...",
-            lengthMenu: "_MENU_ entries"
+            lengthMenu: "_MENU_ entries",
+            emptyTable: "<div class='text-center py-5 text-muted'><i class='fa-solid fa-fingerprint fs-1 d-block mb-3 opacity-25'></i><h5>No Authentication Requests Found</h5><p class='small mb-0'>MikroTik routers have not sent any PPPoE authentication packets to FreeRADIUS recently.</p></div>",
+            zeroRecords: "<div class='text-center py-4 text-muted'><i class='fa-solid fa-magnifying-glass fs-2 d-block mb-2 opacity-50'></i>No matching logs found for your search query.</div>"
         }
     });
 
