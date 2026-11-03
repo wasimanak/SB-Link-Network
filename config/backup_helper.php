@@ -9,10 +9,13 @@
 
 if (!function_exists('get_backup_storage_dir')) {
     function get_backup_storage_dir() {
-        $dir = __DIR__ . '/../superadmin/backups';
+        $base = dirname(__DIR__);
+        $dir = $base . '/superadmin/backups';
         if (!is_dir($dir)) {
-            @mkdir($dir, 0755, true);
+            @mkdir($dir, 0777, true);
         }
+        @chmod($dir, 0777);
+
         // Protect backup directory against direct unauthorized web access
         $htaccess = $dir . '/.htaccess';
         if (!file_exists($htaccess)) {
@@ -22,7 +25,8 @@ if (!function_exists('get_backup_storage_dir')) {
         if (!file_exists($index)) {
             @file_put_contents($index, "<?php header('Location: ../backups.php'); exit;\n");
         }
-        return realpath($dir) ?: $dir;
+        $real = realpath($dir);
+        return $real ? str_replace('\\', '/', $real) : str_replace('\\', '/', $dir);
     }
 }
 
@@ -77,13 +81,25 @@ if (!function_exists('create_system_database_backup')) {
         @ini_set('memory_limit', '1024M');
 
         $dir = $target_dir ?: get_backup_storage_dir();
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0777, true);
+        }
+        @chmod($dir, 0777);
+
+        // Check if directory is writable
+        if (!is_writable($dir)) {
+            return [
+                'success' => false,
+                'error' => "Storage folder is not writable by web server.<br>Please run in VPS terminal:<br><code style='user-select:all; display:block; padding:8px; background:#1e293b; color:#38bdf8; border-radius:6px; margin-top:6px; font-weight:bold;'>chown -R www-data:www-data " . htmlspecialchars($dir) . " && chmod -R 777 " . htmlspecialchars($dir) . "</code>"
+            ];
+        }
+
         $db_name = $db ?? 'radius';
         $now_str = date('Y-m-d_H-i-s');
         $filename = "db_backup_{$db_name}_{$now_str}.sql";
         $filepath = $dir . '/' . $filename;
 
         $dump_success = false;
-        $error_msg = '';
 
         // 1. Try mysqldump on Linux/Unix systems if exec is available
         $is_windows = (DIRECTORY_SEPARATOR === '\\');
@@ -91,10 +107,11 @@ if (!function_exists('create_system_database_backup')) {
             $db_host = $host ?? '127.0.0.1';
             $db_user = $user ?? 'radius';
             $db_pass = $pass ?? 'Wasi1234';
+            $pass_arg = (!empty($db_pass)) ? " -p" . escapeshellarg($db_pass) : "";
 
             $cmd = "mysqldump -h " . escapeshellarg($db_host) . 
                    " -u " . escapeshellarg($db_user) . 
-                   " -p" . escapeshellarg($db_pass) . 
+                   $pass_arg . 
                    " " . escapeshellarg($db_name) . 
                    " --single-transaction --routines --triggers --quick > " . escapeshellarg($filepath) . " 2>&1";
             
@@ -104,6 +121,12 @@ if (!function_exists('create_system_database_backup')) {
 
             if ($ret_code === 0 && file_exists($filepath) && filesize($filepath) > 1000) {
                 $dump_success = true;
+                @chmod($filepath, 0666);
+            } else {
+                // If mysqldump failed, delete any error log file created at $filepath
+                if (file_exists($filepath)) {
+                    @unlink($filepath);
+                }
             }
         }
 
@@ -121,7 +144,10 @@ if (!function_exists('create_system_database_backup')) {
 
             $fp = @fopen($filepath, 'w');
             if (!$fp) {
-                return ['success' => false, 'error' => "Cannot write backup file to storage directory ({$filepath}). Check folder permissions."];
+                return [
+                    'success' => false,
+                    'error' => "Cannot write backup file to storage directory ({$filepath}).<br>Please run in VPS terminal:<br><code style='user-select:all; display:block; padding:8px; background:#1e293b; color:#38bdf8; border-radius:6px; margin-top:6px; font-weight:bold;'>chown -R www-data:www-data " . htmlspecialchars($dir) . " && chmod -R 777 " . htmlspecialchars($dir) . "</code>"
+                ];
             }
 
             try {
@@ -191,6 +217,7 @@ if (!function_exists('create_system_database_backup')) {
         }
 
         if ($dump_success && file_exists($filepath)) {
+            @chmod($filepath, 0666);
             $fsize = filesize($filepath);
             // Prune to strictly keep only the 30 newest backups
             $pruned = prune_system_backups($dir, 30);

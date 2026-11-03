@@ -33,7 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     if ($res['success']) {
         $success_msg = "New database backup successfully generated: <strong>{$res['filename']}</strong> ({$res['size_str']})!";
     } else {
-        $error_msg = "Failed to create backup: " . htmlspecialchars($res['error'] ?? 'Unknown error');
+        $error_msg = "Failed to create backup: " . ($res['error'] ?? 'Unknown error');
     }
 }
 
@@ -143,6 +143,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 }
 
 // 5. Fetch Backups List (Strictly last 30 backups)
+$storage_dir = get_backup_storage_dir();
+$is_storage_writable = is_writable($storage_dir);
 $backups = get_system_backups_list();
 $total_backups = count($backups);
 
@@ -186,6 +188,26 @@ require_once 'header.php';
                     <div><?= $error_msg ?></div>
                 </div>
                 <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        <?php endif; ?>
+
+        <?php if (!$is_storage_writable): ?>
+            <div class="alert alert-warning border-0 shadow-sm rounded-4 mb-4 p-3" role="alert">
+                <div class="d-flex align-items-start gap-3">
+                    <div class="text-warning fs-3 mt-1"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                    <div class="flex-grow-1">
+                        <h6 class="fw-bold mb-1 text-dark">Directory Write Permission Required</h6>
+                        <p class="mb-2 text-muted small">
+                            Backups folder (<code><?= htmlspecialchars($storage_dir) ?></code>) web server (<code>www-data</code>) k liye writeable nahi hai. Apny VPS Terminal me ye command run karein:
+                        </p>
+                        <div class="d-flex align-items-center gap-2">
+                            <code class="p-2 px-3 rounded bg-dark text-warning small font-monospace flex-grow-1" id="permCmd">chown -R www-data:www-data <?= htmlspecialchars($storage_dir) ?> &amp;&amp; chmod -R 777 <?= htmlspecialchars($storage_dir) ?></code>
+                            <button type="button" class="btn btn-sm btn-outline-dark rounded-pill fw-semibold" onclick="navigator.clipboard.writeText(document.getElementById('permCmd').innerText.trim()); this.innerHTML='<i class=\'fa-solid fa-check text-success\'></i> Copied!';">
+                                <i class="fa-solid fa-copy me-1"></i> Copy
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </div>
         <?php endif; ?>
 
