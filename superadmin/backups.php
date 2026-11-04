@@ -164,8 +164,8 @@ require_once __DIR__ . '/header.php';
         <!-- Breadcrumb -->
         <nav aria-label="breadcrumb" class="mb-3">
             <ol class="breadcrumb">
-                <li class="breadcrumb-item"><a href="dashboard" class="text-decoration-none">Dashboard</a></li>
-                <li class="breadcrumb-item"><a href="settings" class="text-decoration-none">Global Settings</a></li>
+                <li class="breadcrumb-item"><a href="/superadmin/dashboard" class="text-decoration-none">Dashboard</a></li>
+                <li class="breadcrumb-item"><a href="/superadmin/settings" class="text-decoration-none">Global Settings</a></li>
                 <li class="breadcrumb-item active" aria-current="page">Database Backups</li>
             </ol>
         </nav>
@@ -231,7 +231,7 @@ require_once __DIR__ . '/header.php';
                 </form>
 
                 <!-- Link to Settings Restore -->
-                <a href="settings" class="btn btn-outline-secondary rounded-pill px-3 shadow-sm fw-semibold" title="Upload custom backup in Settings">
+                <a href="/superadmin/settings" class="btn btn-outline-secondary rounded-pill px-3 shadow-sm fw-semibold" title="Upload custom backup in Settings">
                     <i class="fa-solid fa-sliders me-1"></i> Settings
                 </a>
             </div>

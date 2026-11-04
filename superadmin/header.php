@@ -430,7 +430,7 @@ $isRouterMenu = strpos($page, 'router') !== false || in_array($page, ['live_rout
         <div class="sidebar-menu-scroll">
             
             <!-- 1. Dashboard -->
-            <a href="dashboard" class="nav-item-link <?= in_array($page, ['dashboard.php', 'dashboard']) ? 'active-parent' : '' ?>">
+            <a href="/superadmin/dashboard" class="nav-item-link <?= in_array($page, ['dashboard.php', 'dashboard']) ? 'active-parent' : '' ?>">
                 <i class="fa-solid fa-desktop nav-icon"></i>
                 <span class="nav-text">Dashboard</span>
             </a>
@@ -443,9 +443,9 @@ $isRouterMenu = strpos($page, 'router') !== false || in_array($page, ['live_rout
             </a>
             <div class="collapse <?= $isOpMenu ? 'show' : '' ?>" id="operatorsMenu">
                 <ul class="submenu-tree">
-                    <li class="submenu-tree-item"><a href="admins" class="<?= in_array($page, ['operators.php', 'operators', 'operator_edit.php', 'admins.php', 'admins', 'admin_edit.php', 'admin_edit']) ? 'active' : '' ?>">All Admins</a></li>
-                    <li class="submenu-tree-item"><a href="admin_add" class="<?= in_array($page, ['operator_add.php', 'operator_add', 'admin_add.php', 'admin_add']) ? 'active' : '' ?>">Add Admin</a></li>
-                    <li class="submenu-tree-item"><a href="global_users" class="<?= in_array($page, ['global_users.php', 'global_users']) ? 'active' : '' ?>">Global Users</a></li>
+                    <li class="submenu-tree-item"><a href="/superadmin/admins" class="<?= in_array($page, ['operators.php', 'operators', 'operator_edit.php', 'admins.php', 'admins', 'admin_edit.php', 'admin_edit']) ? 'active' : '' ?>">All Admins</a></li>
+                    <li class="submenu-tree-item"><a href="/superadmin/admin_add" class="<?= in_array($page, ['operator_add.php', 'operator_add', 'admin_add.php', 'admin_add']) ? 'active' : '' ?>">Add Admin</a></li>
+                    <li class="submenu-tree-item"><a href="/superadmin/global_users" class="<?= in_array($page, ['global_users.php', 'global_users']) ? 'active' : '' ?>">Global Users</a></li>
                 </ul>
             </div>
 
@@ -457,14 +457,14 @@ $isRouterMenu = strpos($page, 'router') !== false || in_array($page, ['live_rout
             </a>
             <div class="collapse <?= $isRouterMenu ? 'show' : '' ?>" id="routersMenu">
                 <ul class="submenu-tree">
-                    <li class="submenu-tree-item"><a href="routers" class="<?= in_array($page, ['routers.php', 'routers']) ? 'active' : '' ?>">NAS / Routers List</a></li>
-                    <li class="submenu-tree-item"><a href="router_add" class="<?= in_array($page, ['router_add.php', 'router_add']) ? 'active' : '' ?>">Add NAS Router</a></li>
-                    <li class="submenu-tree-item"><a href="live_routers" class="<?= in_array($page, ['live_routers.php', 'live_routers']) ? 'active' : '' ?>">Live Routers &amp; Users</a></li>
+                    <li class="submenu-tree-item"><a href="/superadmin/routers" class="<?= in_array($page, ['routers.php', 'routers']) ? 'active' : '' ?>">NAS / Routers List</a></li>
+                    <li class="submenu-tree-item"><a href="/superadmin/router_add" class="<?= in_array($page, ['router_add.php', 'router_add']) ? 'active' : '' ?>">Add NAS Router</a></li>
+                    <li class="submenu-tree-item"><a href="/superadmin/live_routers" class="<?= in_array($page, ['live_routers.php', 'live_routers']) ? 'active' : '' ?>">Live Routers &amp; Users</a></li>
                 </ul>
             </div>
 
             <!-- 4. Master Packages -->
-            <a href="packages_master" class="nav-item-link <?= in_array($page, ['packages_master.php', 'packages_master']) ? 'active-parent' : '' ?>">
+            <a href="/superadmin/packages_master" class="nav-item-link <?= in_array($page, ['packages_master.php', 'packages_master']) ? 'active-parent' : '' ?>">
                 <i class="fa-solid fa-box-open nav-icon"></i>
                 <span class="nav-text">Master Packages</span>
             </a>
@@ -472,13 +472,13 @@ $isRouterMenu = strpos($page, 'router') !== false || in_array($page, ['live_rout
 
 
             <!-- 6. Subscriptions -->
-            <a href="billing" class="nav-item-link <?= in_array($page, ['billing.php', 'billing']) ? 'active-parent' : '' ?>">
+            <a href="/superadmin/billing" class="nav-item-link <?= in_array($page, ['billing.php', 'billing']) ? 'active-parent' : '' ?>">
                 <i class="fa-solid fa-file-invoice-dollar nav-icon"></i>
                 <span class="nav-text">Subscriptions</span>
             </a>
 
             <!-- 7. Support Tickets -->
-            <a href="support_admin" class="nav-item-link <?= strpos($page, 'support') !== false ? 'active-parent' : '' ?>">
+            <a href="/superadmin/support_admin" class="nav-item-link <?= strpos($page, 'support') !== false ? 'active-parent' : '' ?>">
                 <i class="fa-solid fa-headset nav-icon"></i>
                 <span class="nav-text">Support Tickets</span>
                 <?php if ($open_tickets_super > 0): ?>
@@ -487,20 +487,20 @@ $isRouterMenu = strpos($page, 'router') !== false || in_array($page, ['live_rout
             </a>
 
             <!-- 8b. Database Backups -->
-            <a href="backups" class="nav-item-link <?= in_array($page, ['backups.php', 'backups']) ? 'active-parent' : '' ?>">
+            <a href="/superadmin/backups" class="nav-item-link <?= in_array($page, ['backups.php', 'backups']) ? 'active-parent' : '' ?>">
                 <i class="fa-solid fa-database nav-icon text-success"></i>
                 <span class="nav-text">Backups</span>
             </a>
 
             <!-- 8. System Logs -->
-            <a href="logs" class="nav-item-link <?= in_array($page, ['logs.php', 'logs']) ? 'active-parent' : '' ?>">
+            <a href="/superadmin/logs" class="nav-item-link <?= in_array($page, ['logs.php', 'logs']) ? 'active-parent' : '' ?>">
                 <i class="fa-solid fa-file-shield nav-icon"></i>
                 <span class="nav-text">System Logs</span>
             </a>
 
             <!-- 9. Security Gate -->
             <?php if ($isSecurityAuth): ?>
-                <a href="security" class="nav-item-link <?= in_array($page, ['security.php', 'security']) ? 'active-parent' : '' ?>">
+                <a href="/superadmin/security" class="nav-item-link <?= in_array($page, ['security.php', 'security']) ? 'active-parent' : '' ?>">
                     <i class="fa-solid fa-shield-halved nav-icon"></i>
                     <span class="nav-text">Security</span>
                 </a>
@@ -513,7 +513,7 @@ $isRouterMenu = strpos($page, 'router') !== false || in_array($page, ['live_rout
             <?php endif; ?>
 
             <!-- 10. Global Settings -->
-            <a href="settings" class="nav-item-link <?= in_array($page, ['settings.php', 'settings']) ? 'active-parent' : '' ?>">
+            <a href="/superadmin/settings" class="nav-item-link <?= in_array($page, ['settings.php', 'settings']) ? 'active-parent' : '' ?>">
                 <i class="fa-solid fa-sliders nav-icon"></i>
                 <span class="nav-text">Global Settings</span>
             </a>
@@ -531,7 +531,7 @@ $isRouterMenu = strpos($page, 'router') !== false || in_array($page, ['live_rout
                 </div>
                 <div class="user-role">SUPER ADMIN</div>
             </div>
-            <a href="logout" class="logout-btn" title="Logout">
+            <a href="/superadmin/logout" class="logout-btn" title="Logout">
                 <i class="fa-solid fa-arrow-right-from-bracket"></i>
             </a>
         </div>
