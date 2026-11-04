@@ -155,7 +155,7 @@ foreach ($backups as $b) {
 $total_storage_str = format_backup_bytes($total_bytes);
 $latest_backup_date = !empty($backups[0]['created_at']) ? date('d M Y, h:i A', strtotime($backups[0]['created_at'])) : 'No backups yet';
 
-require_once 'header.php';
+require_once __DIR__ . '/header.php';
 ?>
 
 <div class="content-wrapper">
@@ -385,7 +385,7 @@ require_once 'header.php';
                                     <td class="text-end pe-4">
                                         <div class="d-inline-flex gap-2">
                                             <!-- Download Button -->
-                                            <a href="backups?download=<?= urlencode($b['filename']) ?>" class="btn btn-sm btn-success rounded-pill px-3 fw-bold shadow-sm" title="Download .sql to computer">
+                                            <a href="?download=<?= urlencode($b['filename']) ?>" class="btn btn-sm btn-success rounded-pill px-3 fw-bold shadow-sm" title="Download .sql to computer">
                                                 <i class="fa-solid fa-download me-1"></i> Download
                                             </a>
 
@@ -568,4 +568,4 @@ function copyCronCmd() {
 }
 </script>
 
-<?php require_once 'footer.php'; ?>
+<?php require_once __DIR__ . '/footer.php'; ?>

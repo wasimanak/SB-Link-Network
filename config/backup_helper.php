@@ -19,11 +19,11 @@ if (!function_exists('get_backup_storage_dir')) {
         // Protect backup directory against direct unauthorized web access
         $htaccess = $dir . '/.htaccess';
         if (!file_exists($htaccess)) {
-            @file_put_contents($htaccess, "# Deny all direct web access to raw backup files\n<IfModule mod_authz_core.c>\n    Require all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\n    Order deny,allow\n    Deny from all\n</IfModule>\n");
+            @file_put_contents($htaccess, "# Deny direct web access to database backups\n<FilesMatch \"\\.(sql|dump|bak|gz|tar|zip)$\">\n    Require all denied\n</FilesMatch>\nOptions -Indexes\n");
         }
         $index = $dir . '/index.php';
         if (!file_exists($index)) {
-            @file_put_contents($index, "<?php header('Location: ../backups.php'); exit;\n");
+            @file_put_contents($index, "<?php require_once dirname(__DIR__) . '/backups.php';\n");
         }
         $real = realpath($dir);
         return $real ? str_replace('\\', '/', $real) : str_replace('\\', '/', $dir);
