@@ -86,11 +86,18 @@ if (!function_exists('create_system_database_backup')) {
         }
         @chmod($dir, 0777);
 
+        if (!is_dir($dir)) {
+            return [
+                'success' => false,
+                'error' => "Storage folder does not exist and could not be created automatically.<br>Please run this command on your VPS terminal as root:<br><code style='user-select:all; display:block; padding:8px; background:#1e293b; color:#38bdf8; border-radius:6px; margin-top:6px; font-weight:bold;'>mkdir -p " . htmlspecialchars($dir) . " && chown -R www-data:www-data " . htmlspecialchars($dir) . " && chmod -R 777 " . htmlspecialchars($dir) . "</code>"
+            ];
+        }
+
         // Check if directory is writable
         if (!is_writable($dir)) {
             return [
                 'success' => false,
-                'error' => "Storage folder is not writable by web server.<br>Please run in VPS terminal:<br><code style='user-select:all; display:block; padding:8px; background:#1e293b; color:#38bdf8; border-radius:6px; margin-top:6px; font-weight:bold;'>chown -R www-data:www-data " . htmlspecialchars($dir) . " && chmod -R 777 " . htmlspecialchars($dir) . "</code>"
+                'error' => "Storage folder is not writable by web server.<br>Please run in VPS terminal:<br><code style='user-select:all; display:block; padding:8px; background:#1e293b; color:#38bdf8; border-radius:6px; margin-top:6px; font-weight:bold;'>mkdir -p " . htmlspecialchars($dir) . " && chown -R www-data:www-data " . htmlspecialchars($dir) . " && chmod -R 777 " . htmlspecialchars($dir) . "</code>"
             ];
         }
 
@@ -146,7 +153,7 @@ if (!function_exists('create_system_database_backup')) {
             if (!$fp) {
                 return [
                     'success' => false,
-                    'error' => "Cannot write backup file to storage directory ({$filepath}).<br>Please run in VPS terminal:<br><code style='user-select:all; display:block; padding:8px; background:#1e293b; color:#38bdf8; border-radius:6px; margin-top:6px; font-weight:bold;'>chown -R www-data:www-data " . htmlspecialchars($dir) . " && chmod -R 777 " . htmlspecialchars($dir) . "</code>"
+                    'error' => "Cannot write backup file to storage directory ({$filepath}).<br>Please run in VPS terminal:<br><code style='user-select:all; display:block; padding:8px; background:#1e293b; color:#38bdf8; border-radius:6px; margin-top:6px; font-weight:bold;'>mkdir -p " . htmlspecialchars($dir) . " && chown -R www-data:www-data " . htmlspecialchars($dir) . " && chmod -R 777 " . htmlspecialchars($dir) . "</code>"
                 ];
             }
 
