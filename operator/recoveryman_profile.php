@@ -765,7 +765,7 @@ function applyRmDatePreset(preset) {
                                 $bal = $act['current_balance'];
                             ?>
                             <tr>
-                                <td class="text-secondary small fw-bold" style="white-space: nowrap;">
+                                <td data-order="<?= strtotime($act['created_at']) ?>" class="text-secondary small fw-bold" style="white-space: nowrap;">
                                     <?= date('d M Y, h:i A', strtotime($act['created_at'])) ?>
                                 </td>
                                 <td>
@@ -864,7 +864,7 @@ function applyRmDatePreset(preset) {
                         <tbody>
                             <?php foreach($user_collections as $uc): ?>
                             <tr>
-                                <td class="text-secondary small fw-bold"><?= date('d M Y, h:i A', strtotime($uc['created_at'])) ?></td>
+                                <td data-order="<?= strtotime($uc['created_at']) ?>" class="text-secondary small fw-bold" style="white-space: nowrap;"><?= date('d M Y, h:i A', strtotime($uc['created_at'])) ?></td>
                                 <td>
                                     <?php if (!empty($uc['sub_id'])): ?>
                                         <a href="subscriber_view.php?id=<?= $uc['sub_id'] ?>" class="fw-bold text-primary text-decoration-none">
@@ -929,7 +929,7 @@ function applyRmDatePreset(preset) {
                                 }
                             ?>
                             <tr>
-                                <td class="text-secondary small fw-bold"><?= date('d M Y, h:i A', strtotime($sub['created_at'])) ?></td>
+                                <td data-order="<?= strtotime($sub['created_at']) ?>" class="text-secondary small fw-bold" style="white-space: nowrap;"><?= date('d M Y, h:i A', strtotime($sub['created_at'])) ?></td>
                                 <td><span class="badge bg-dark"><?= htmlspecialchars($sub['by_user']) ?> (Operator)</span></td>
                                 <td class="text-danger fw-bold fs-6">Rs. <?= $amount_text ?></td>
                                 <td class="small text-muted"><?= htmlspecialchars($sub['activity']) ?></td>
@@ -1024,7 +1024,7 @@ function applyRmDatePreset(preset) {
                         <tbody>
                             <?php if ($has_date_filter && $opening_balance != 0): ?>
                             <tr class="table-light fst-italic">
-                                <td class="text-secondary small fw-bold"><?= date('d M Y, h:i A', strtotime($from_sql)) ?></td>
+                                <td data-order="0" class="text-secondary small fw-bold" style="white-space: nowrap;"><?= date('d M Y, h:i A', strtotime($from_sql)) ?></td>
                                 <td><span class="badge bg-secondary-subtle text-secondary border">Opening B/F</span></td>
                                 <td class="fw-semibold text-muted">Opening Balance brought forward from previous transactions</td>
                                 <td class="text-end text-muted">-</td>
@@ -1036,7 +1036,7 @@ function applyRmDatePreset(preset) {
 
                             <?php foreach($statement_entries_desc as $st): ?>
                             <tr>
-                                <td class="text-secondary small fw-bold" style="white-space: nowrap;">
+                                <td data-order="<?= strtotime($st['created_at']) ?>" class="text-secondary small fw-bold" style="white-space: nowrap;">
                                     <?= date('d M Y, h:i A', strtotime($st['created_at'])) ?>
                                 </td>
                                 <td>
@@ -1184,7 +1184,7 @@ function applyRmDatePreset(preset) {
                 <td style="padding: 6px 8px; text-align: right; font-weight: 700; border: 1px solid #e2e8f0;">Rs. <?= number_format($opening_balance, 0) ?></td>
             </tr>
             <?php endif; ?>
-            <?php foreach($statement_entries as $pEntry): ?>
+            <?php foreach($statement_entries_desc as $pEntry): ?>
             <tr>
                 <td style="padding: 5px 8px; border: 1px solid #e2e8f0; white-space: nowrap;"><?= date('d M Y, h:i A', strtotime($pEntry['created_at'])) ?></td>
                 <td style="padding: 5px 8px; border: 1px solid #e2e8f0;"><?= $pEntry['type'] === 'credit' ? 'Collection' : 'Submission' ?></td>
