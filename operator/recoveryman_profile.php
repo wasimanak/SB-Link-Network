@@ -267,8 +267,226 @@ $submissionStmt = $pdo->prepare($rm_sub_sql);
 $submissionStmt->execute($rm_sub_params);
 $submissions = $submissionStmt->fetchAll(PDO::FETCH_ASSOC);
 
+// Fetch Operator Branding Info for Printable Statement
+$client_info = [];
+try {
+    $cStmt = $pdo->prepare("SELECT name, company_name, phone, email, address, city FROM clients WHERE id = ? LIMIT 1");
+    $cStmt->execute([$client_id]);
+    $client_info = $cStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+} catch (Exception $eC) {}
+$company_display_name = !empty($client_info['company_name']) ? $client_info['company_name'] : (!empty($client_info['name']) ? $client_info['name'] : (defined('BRAND_NAME') ? BRAND_NAME : 'Internet Network'));
+
+// ==========================================
+// 4. PREPARE BANK-STYLE STATEMENT DATA
+// ==========================================
+$opening_balance = 0.0;
+if ($has_date_filter && !empty($from_sql)) {
+    // A. Prior collections before from_sql
+    try {
+        $prior_col_stmt = $pdo->prepare("
+            SELECT COALESCE(SUM(l.amount), 0)
+            FROM user_ledger l
+            WHERE l.client_id = ? AND (
+                l.description LIKE ? 
+                OR l.description LIKE ? 
+                OR l.description LIKE ? 
+                OR l.description LIKE ?
+                OR l.description LIKE ?
+                OR l.description LIKE ?
+                OR l.description LIKE ?
+            )
+            AND l.created_at < ?
+        ");
+        $prior_col_stmt->execute([
+            $client_id,
+            "Cash collected by {$rm['full_name']}%",
+            "Payment collected by {$rm['full_name']}%",
+            "Initial Payment Collected by RM: {$rm['username']}%",
+            "%RM: {$rm['username']}%",
+            "%RM: {$rm['full_name']}%",
+            "%by {$rm['full_name']} RM%",
+            "%by {$rm['username']} RM%",
+            $from_sql
+        ]);
+        $prior_col_amt = (float)$prior_col_stmt->fetchColumn();
+    } catch (Exception $ePC) {
+        $prior_col_amt = 0.0;
+    }
+
+    // B. Prior submissions before from_sql
+    try {
+        $prior_sub_stmt = $pdo->prepare("
+            SELECT activity FROM activity_logs 
+            WHERE client_id = ? AND against_role = 'RecoveryMan' 
+              AND (against_to = ? OR against_to = ?) 
+              AND activity LIKE 'Collected Cash Rs.%'
+              AND created_at < ?
+        ");
+        $prior_sub_stmt->execute([$client_id, $rm['full_name'], $rm['username'], $from_sql]);
+        $prior_sub_rows = $prior_sub_stmt->fetchAll(PDO::FETCH_ASSOC);
+        $prior_sub_amt = 0.0;
+        foreach ($prior_sub_rows as $psr) {
+            if (preg_match('/Rs\.\s*([\d,.]+)/i', $psr['activity'], $pm)) {
+                $prior_sub_amt += (float)str_replace(',', '', $pm[1]);
+            }
+        }
+    } catch (Exception $ePS) {
+        $prior_sub_amt = 0.0;
+    }
+
+    $opening_balance = round($prior_col_amt - $prior_sub_amt, 2);
+}
+
+// Fetch Collections for Statement
+$stmt_col_sql = "
+    SELECT l.*, s.id as sub_id, s.full_name as sub_fullname, s.mobile as sub_mobile
+    FROM user_ledger l
+    LEFT JOIN subscribers s ON l.username = s.username COLLATE utf8mb4_general_ci AND s.client_id = l.client_id
+    WHERE l.client_id = ? AND (
+        l.description LIKE ? 
+        OR l.description LIKE ? 
+        OR l.description LIKE ? 
+        OR l.description LIKE ?
+        OR l.description LIKE ?
+        OR l.description LIKE ?
+        OR l.description LIKE ?
+    )
+";
+$stmt_col_params = [
+    $client_id, 
+    "Cash collected by {$rm['full_name']}%",
+    "Payment collected by {$rm['full_name']}%",
+    "Initial Payment Collected by RM: {$rm['username']}%",
+    "%RM: {$rm['username']}%",
+    "%RM: {$rm['full_name']}%",
+    "%by {$rm['full_name']} RM%",
+    "%by {$rm['username']} RM%"
+];
+if (!empty($from_sql)) {
+    $stmt_col_sql .= " AND l.created_at >= ? ";
+    $stmt_col_params[] = $from_sql;
+}
+if (!empty($to_sql)) {
+    $stmt_col_sql .= " AND l.created_at <= ? ";
+    $stmt_col_params[] = $to_sql;
+}
+$stmt_col_sql .= " ORDER BY l.created_at ASC ";
+if (!$has_date_filter) {
+    $stmt_col_sql .= " LIMIT 1500 ";
+}
+$stmtColStmt = $pdo->prepare($stmt_col_sql);
+$stmtColStmt->execute($stmt_col_params);
+$raw_stmt_collections = $stmtColStmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Fetch Submissions for Statement
+$stmt_sub_sql = "
+    SELECT * FROM activity_logs 
+    WHERE client_id = ? AND against_role = 'RecoveryMan' AND (against_to = ? OR against_to = ?) AND activity LIKE 'Collected Cash Rs.%'
+";
+$stmt_sub_params = [
+    $client_id, 
+    $rm['full_name'],
+    $rm['username']
+];
+if (!empty($from_sql)) {
+    $stmt_sub_sql .= " AND created_at >= ? ";
+    $stmt_sub_params[] = $from_sql;
+}
+if (!empty($to_sql)) {
+    $stmt_sub_sql .= " AND created_at <= ? ";
+    $stmt_sub_params[] = $to_sql;
+}
+$stmt_sub_sql .= " ORDER BY created_at ASC ";
+if (!$has_date_filter) {
+    $stmt_sub_sql .= " LIMIT 500 ";
+}
+$stmtSubStmt = $pdo->prepare($stmt_sub_sql);
+$stmtSubStmt->execute($stmt_sub_params);
+$raw_stmt_submissions = $stmtSubStmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Combine into unified chronologically sorted timeline
+$statement_entries = [];
+
+foreach ($raw_stmt_collections as $col) {
+    $statement_entries[] = [
+        'id' => 'col_' . $col['id'],
+        'created_at' => $col['created_at'],
+        'timestamp' => strtotime($col['created_at']),
+        'type' => 'credit',
+        'type_label' => 'Collection',
+        'party_username' => $col['username'] ?? 'User',
+        'party_name' => !empty($col['sub_fullname']) ? $col['sub_fullname'] : ($col['username'] ?? ''),
+        'party_role' => 'Subscriber',
+        'sub_id' => $col['sub_id'] ?? null,
+        'sub_mobile' => $col['sub_mobile'] ?? '',
+        'remarks' => $col['description'] ?? '',
+        'credit' => (float)$col['amount'],
+        'debit' => 0.0,
+    ];
+}
+
+foreach ($raw_stmt_submissions as $sub) {
+    $sub_amt = 0.0;
+    if (preg_match('/Rs\.\s*([\d,.]+)/i', $sub['activity'], $m)) {
+        $sub_amt = (float)str_replace(',', '', $m[1]);
+    }
+    if ($sub_amt > 0) {
+        $statement_entries[] = [
+            'id' => 'sub_' . $sub['id'],
+            'created_at' => $sub['created_at'],
+            'timestamp' => strtotime($sub['created_at']),
+            'type' => 'debit',
+            'type_label' => 'Submission',
+            'party_username' => $sub['by_user'] ?? 'Admin',
+            'party_name' => $sub['by_user'] ?? 'Admin',
+            'party_role' => !empty($sub['by_role']) ? $sub['by_role'] : 'Admin',
+            'sub_id' => null,
+            'sub_mobile' => '',
+            'remarks' => $sub['activity'] ?? '',
+            'credit' => 0.0,
+            'debit' => $sub_amt,
+        ];
+    }
+}
+
+// Sort Ascending (Oldest First) to compute running balance
+usort($statement_entries, function($a, $b) {
+    if ($a['timestamp'] === $b['timestamp']) {
+        return ($a['type'] === 'credit') ? -1 : 1;
+    }
+    return $a['timestamp'] - $b['timestamp'];
+});
+
+// Compute Running Balance row by row
+$curr_run_bal = $opening_balance;
+$total_period_credit = 0.0;
+$total_period_debit = 0.0;
+$statement_credit_count = 0;
+$statement_debit_count = 0;
+
+foreach ($statement_entries as &$st) {
+    if ($st['type'] === 'credit') {
+        $total_period_credit += $st['credit'];
+        $statement_credit_count++;
+    } else {
+        $total_period_debit += $st['debit'];
+        $statement_debit_count++;
+    }
+    $curr_run_bal = round($curr_run_bal + $st['credit'] - $st['debit'], 2);
+    $st['running_balance'] = $curr_run_bal;
+}
+unset($st);
+
+$closing_balance = $curr_run_bal;
+
+// Reverse array so newest transactions appear on top in the table
+$statement_entries_desc = array_reverse($statement_entries);
+
+
+
 ?>
 <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
+<link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.2/css/buttons.bootstrap5.min.css">
 <style>
     .card-custom { border: none; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
     .nav-tabs .nav-link { font-weight: 600; color: #64748b; border: none; border-bottom: 3px solid transparent; padding: 12px 20px; }
@@ -277,6 +495,21 @@ $submissions = $submissionStmt->fetchAll(PDO::FETCH_ASSOC);
     .table-custom-ui th { background-color: #f8fafc !important; color: #64748b; font-weight: 700; text-transform: uppercase; font-size: 0.78rem; letter-spacing: 0.5px; border-bottom: 2px solid #e2e8f0; }
     .table-custom-ui td { vertical-align: middle; border-bottom: 1px solid #f1f5f9; color: #475569; font-size: 0.9rem; }
     .table-custom-ui tbody tr:hover { background-color: #f8fafc; }
+    @media print {
+        body * { visibility: hidden !important; }
+        #printableRecoveryStatement, #printableRecoveryStatement * { visibility: visible !important; }
+        #printableRecoveryStatement {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            margin: 0 !important;
+            padding: 15px !important;
+            display: block !important;
+            background: #ffffff !important;
+            color: #000000 !important;
+        }
+    }
 </style>
 
 <div class="d-flex justify-content-between align-items-center mb-4">
@@ -349,6 +582,7 @@ $submissions = $submissionStmt->fetchAll(PDO::FETCH_ASSOC);
     <div class="card-body p-3 p-md-4">
         <form method="GET" class="row g-2 align-items-end" id="rmDateFilterForm">
             <input type="hidden" name="id" value="<?= $rm_id ?>">
+            <input type="hidden" name="tab" id="rm_filter_active_tab" value="<?= htmlspecialchars($_GET['tab'] ?? '') ?>">
             
             <div class="col-12 col-md-auto mb-1 mb-md-0 d-flex align-items-center">
                 <span class="fw-bold text-dark fs-6 me-2">
@@ -465,6 +699,14 @@ function applyRmDatePreset(preset) {
                 <button class="nav-link" id="operator-tab" data-bs-toggle="tab" data-bs-target="#operator" type="button" role="tab">
                     <i class="fa-solid fa-building-columns me-1 text-danger"></i> Submissions to Admin
                     <span class="badge bg-secondary ms-1"><?= count($submissions) ?></span>
+                </button>
+            </li>
+        
+            <!-- New Tab: Statement (Bank-style Ledger) -->
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="statement-tab" data-bs-toggle="tab" data-bs-target="#statement" type="button" role="tab">
+                    <i class="fa-solid fa-file-invoice-dollar me-1 text-primary"></i> Statement
+                    <span class="badge bg-primary ms-1"><?= count($statement_entries) ?></span>
                 </button>
             </li>
         </ul>
@@ -697,6 +939,297 @@ function applyRmDatePreset(preset) {
                     </table>
                 </div>
             </div>
+
+            <!-- Tab 4: Account Statement (Bank-style Ledger) -->
+            <div class="tab-pane fade" id="statement" role="tabpanel">
+
+                <!-- Statement Top Header Bar -->
+                <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-3">
+                    <div>
+                        <h5 class="fw-bold mb-1 text-dark">
+                            <i class="fa-solid fa-file-invoice-dollar text-primary me-2"></i> Recovery Cash Statement
+                        </h5>
+                        <div class="text-muted small">
+                            Bank-style ledger statement showing cash collected from subscribers (Credit) and submissions to Admin (Debit)
+                        </div>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <button type="button" onclick="printRecoveryStatement()" class="btn btn-outline-primary btn-sm rounded-pill px-3 shadow-sm fw-bold">
+                            <i class="fa-solid fa-print me-1"></i> Print Statement
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 4 Bank Statement Summary Metric Cards -->
+                <div class="row g-3 mb-4">
+                    <!-- 1. Opening Balance -->
+                    <div class="col-6 col-lg-3">
+                        <div class="p-3 bg-light border rounded-3 text-center h-100 d-flex flex-column justify-content-center">
+                            <div class="text-muted small fw-bold text-uppercase">Opening Balance (B/F)</div>
+                            <h4 class="mb-0 fw-bold <?= $opening_balance >= 0 ? 'text-secondary' : 'text-danger' ?> mt-1">
+                                Rs. <?= number_format($opening_balance, 0) ?>
+                            </h4>
+                            <div class="text-muted" style="font-size: 0.72rem;">Prior to selected date</div>
+                        </div>
+                    </div>
+
+                    <!-- 2. Total Collections (Credit) -->
+                    <div class="col-6 col-lg-3">
+                        <div class="p-3 bg-success bg-opacity-10 border border-success border-opacity-25 rounded-3 text-center h-100 d-flex flex-column justify-content-center">
+                            <div class="text-success small fw-bold text-uppercase"><i class="fa-solid fa-arrow-down-left me-1"></i> Total Collections (Credit)</div>
+                            <h4 class="mb-0 fw-bold text-success mt-1">
+                                + Rs. <?= number_format($total_period_credit, 0) ?>
+                            </h4>
+                            <div class="text-muted" style="font-size: 0.72rem;"><?= number_format($statement_credit_count) ?> Receipts from users</div>
+                        </div>
+                    </div>
+
+                    <!-- 3. Total Submissions (Debit) -->
+                    <div class="col-6 col-lg-3">
+                        <div class="p-3 bg-danger bg-opacity-10 border border-danger border-opacity-25 rounded-3 text-center h-100 d-flex flex-column justify-content-center">
+                            <div class="text-danger small fw-bold text-uppercase"><i class="fa-solid fa-arrow-up-right me-1"></i> Submitted to Admin (Debit)</div>
+                            <h4 class="mb-0 fw-bold text-danger mt-1">
+                                - Rs. <?= number_format($total_period_debit, 0) ?>
+                            </h4>
+                            <div class="text-muted" style="font-size: 0.72rem;"><?= number_format($statement_debit_count) ?> Handover transactions</div>
+                        </div>
+                    </div>
+
+                    <!-- 4. Closing Balance / Cash in Hand -->
+                    <div class="col-6 col-lg-3">
+                        <div class="p-3 bg-primary bg-opacity-10 border border-primary border-opacity-25 rounded-3 text-center h-100 d-flex flex-column justify-content-center">
+                            <div class="text-primary small fw-bold text-uppercase">Closing / Net Balance</div>
+                            <h4 class="mb-0 fw-bold <?= $closing_balance > 0 ? 'text-primary' : ($closing_balance < 0 ? 'text-danger' : 'text-dark') ?> mt-1">
+                                Rs. <?= number_format($closing_balance, 0) ?>
+                            </h4>
+                            <div class="text-muted" style="font-size: 0.72rem;">Current Wallet: Rs. <?= number_format($rm['cash_in_hand'], 0) ?></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Statement Table -->
+                <div class="table-responsive">
+                    <table id="statementTable" class="table table-hover table-custom-ui table-borderless align-middle w-100">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width: 140px;">Date &amp; Time</th>
+                                <th style="width: 120px;">Type</th>
+                                <th>Particulars / Description</th>
+                                <th class="text-end" style="width: 130px;">Credit (Inflow)</th>
+                                <th class="text-end" style="width: 130px;">Debit (Outflow)</th>
+                                <th class="text-end" style="width: 140px;">Balance (PKR)</th>
+                                <th class="text-center" style="width: 80px;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if ($has_date_filter && $opening_balance != 0): ?>
+                            <tr class="table-light fst-italic">
+                                <td class="text-secondary small fw-bold"><?= date('d M Y, h:i A', strtotime($from_sql)) ?></td>
+                                <td><span class="badge bg-secondary-subtle text-secondary border">Opening B/F</span></td>
+                                <td class="fw-semibold text-muted">Opening Balance brought forward from previous transactions</td>
+                                <td class="text-end text-muted">-</td>
+                                <td class="text-end text-muted">-</td>
+                                <td class="text-end fw-bold text-dark fs-6">Rs. <?= number_format($opening_balance, 0) ?></td>
+                                <td class="text-center text-muted small">-</td>
+                            </tr>
+                            <?php endif; ?>
+
+                            <?php foreach($statement_entries_desc as $st): ?>
+                            <tr>
+                                <td class="text-secondary small fw-bold" style="white-space: nowrap;">
+                                    <?= date('d M Y, h:i A', strtotime($st['created_at'])) ?>
+                                </td>
+                                <td>
+                                    <?php if ($st['type'] === 'credit'): ?>
+                                        <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1">
+                                            <i class="fa-solid fa-arrow-down-left me-1"></i> Collection
+                                        </span>
+                                    <?php else: ?>
+                                        <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-2 py-1">
+                                            <i class="fa-solid fa-arrow-up-right me-1"></i> Submission
+                                        </span>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <?php if ($st['type'] === 'credit'): ?>
+                                        <div class="d-flex align-items-center">
+                                            <div>
+                                                <div class="fw-bold text-primary">
+                                                    <?php if (!empty($st['sub_id'])): ?>
+                                                        <a href="subscriber_view.php?id=<?= $st['sub_id'] ?>" class="text-decoration-none text-primary">
+                                                            <i class="fa-solid fa-user me-1 small"></i> <?= htmlspecialchars($st['party_username']) ?>
+                                                        </a>
+                                                    <?php else: ?>
+                                                        <i class="fa-solid fa-user me-1 small"></i> <?= htmlspecialchars($st['party_username']) ?>
+                                                    <?php endif; ?>
+                                                    <?php if (!empty($st['party_name']) && $st['party_name'] !== $st['party_username']): ?>
+                                                        <span class="text-dark small fw-normal ms-1">(<?= htmlspecialchars($st['party_name']) ?>)</span>
+                                                    <?php endif; ?>
+                                                </div>
+                                                <div class="small text-muted" style="font-size: 0.78rem;">
+                                                    <?= htmlspecialchars($st['remarks']) ?>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    <?php else: ?>
+                                        <div>
+                                            <div class="fw-bold text-dark">
+                                                <i class="fa-solid fa-building-columns me-1 text-danger small"></i>
+                                                Submitted to <?= htmlspecialchars($st['party_role']) ?>:
+                                                <span class="badge bg-dark"><?= htmlspecialchars($st['party_username']) ?></span>
+                                            </div>
+                                            <div class="small text-muted" style="font-size: 0.78rem;">
+                                                <?= htmlspecialchars($st['remarks']) ?>
+                                            </div>
+                                        </div>
+                                    <?php endif; ?>
+                                </td>
+                                <td class="text-end">
+                                    <?php if ($st['credit'] > 0): ?>
+                                        <span class="text-success fw-bold fs-6">+ Rs. <?= number_format($st['credit'], 0) ?></span>
+                                    <?php else: ?>
+                                        <span class="text-muted">-</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td class="text-end">
+                                    <?php if ($st['debit'] > 0): ?>
+                                        <span class="text-danger fw-bold fs-6">- Rs. <?= number_format($st['debit'], 0) ?></span>
+                                    <?php else: ?>
+                                        <span class="text-muted">-</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td class="text-end">
+                                    <span class="fw-bold fs-6 <?= $st['running_balance'] > 0 ? 'text-primary' : ($st['running_balance'] < 0 ? 'text-danger' : 'text-dark') ?>">
+                                        Rs. <?= number_format($st['running_balance'], 0) ?>
+                                    </span>
+                                </td>
+                                <td class="text-center">
+                                    <?php if ($st['type'] === 'credit' && !empty($st['sub_id'])): ?>
+                                        <a href="subscriber_view.php?id=<?= $st['sub_id'] ?>" class="btn btn-xs btn-outline-primary fw-bold" title="View Subscriber">
+                                            <i class="fa-solid fa-eye me-1"></i> View
+                                        </a>
+                                    <?php else: ?>
+                                        <span class="badge bg-light text-secondary border"><i class="fa-solid fa-check"></i></span>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+        </div>
+    </div>
+</div>
+
+<!-- Hidden Printable Recovery Statement -->
+<div id="printableRecoveryStatement" class="d-none d-print-block">
+    <div style="border-bottom: 2px solid #334155; padding-bottom: 12px; margin-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+            <div>
+                <h2 style="margin: 0; font-weight: 800; color: #0f172a; font-size: 22px; text-transform: uppercase;">
+                    <?= htmlspecialchars($company_display_name) ?>
+                </h2>
+                <div style="color: #64748b; font-size: 13px; margin-top: 4px; font-weight: 600;">
+                    OFFICIAL RECOVERY AGENT ACCOUNT STATEMENT
+                </div>
+            </div>
+            <div style="text-align: right; font-size: 11px; color: #475569; line-height: 1.4;">
+                <div><strong>Generated At:</strong> <?= date('d M Y, h:i A') ?></div>
+                <div><strong>Period:</strong> <?= $has_date_filter ? ((!empty($from_date) ? date('d M Y', strtotime($from_date)) : 'Start') . ' to ' . (!empty($to_date) ? date('d M Y', strtotime($to_date)) : 'Today')) : 'Complete History (All Time)' ?></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Agent Profile & Summary Grid -->
+    <table style="width: 100%; margin-bottom: 16px; border-collapse: collapse; font-size: 12px;">
+        <tr>
+            <td style="width: 50%; vertical-align: top; padding: 10px; background: #f8fafc; border: 1px solid #e2e8f0; line-height: 1.5;">
+                <div style="font-weight: 700; color: #1e293b; margin-bottom: 4px; text-transform: uppercase;">RECOVERY AGENT DETAILS</div>
+                <div><strong>Name:</strong> <?= htmlspecialchars($rm['full_name']) ?> (@<?= htmlspecialchars($rm['username']) ?>)</div>
+                <div><strong>Phone:</strong> <?= htmlspecialchars($rm['phone'] ?: 'N/A') ?> | <strong>City:</strong> <?= htmlspecialchars($rm['city'] ?: 'N/A') ?></div>
+                <div><strong>Current Cash in Hand:</strong> <span style="font-weight: 800; color: #16a34a;">Rs. <?= number_format($rm['cash_in_hand'], 0) ?></span></div>
+            </td>
+            <td style="width: 50%; vertical-align: top; padding: 10px; background: #f8fafc; border: 1px solid #e2e8f0; line-height: 1.5;">
+                <div style="font-weight: 700; color: #1e293b; margin-bottom: 4px; text-transform: uppercase;">STATEMENT SUMMARY</div>
+                <div><strong>Opening Balance:</strong> Rs. <?= number_format($opening_balance, 0) ?></div>
+                <div><strong>Total Collections (Credit):</strong> <span style="color: #16a34a; font-weight: 700;">+ Rs. <?= number_format($total_period_credit, 0) ?></span> (<?= $statement_credit_count ?> receipts)</div>
+                <div><strong>Total Submissions (Debit):</strong> <span style="color: #dc2626; font-weight: 700;">- Rs. <?= number_format($total_period_debit, 0) ?></span> (<?= $statement_debit_count ?> handovers)</div>
+                <div><strong>Closing Net Balance:</strong> <span style="font-weight: 800; color: #2563eb;">Rs. <?= number_format($closing_balance, 0) ?></span></div>
+            </td>
+        </tr>
+    </table>
+
+    <!-- Printable Statement Table -->
+    <table style="width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 24px;">
+        <thead>
+            <tr style="background: #f1f5f9; border-bottom: 2px solid #cbd5e1;">
+                <th style="padding: 6px 8px; text-align: left; border: 1px solid #e2e8f0;">Date &amp; Time</th>
+                <th style="padding: 6px 8px; text-align: left; border: 1px solid #e2e8f0;">Type</th>
+                <th style="padding: 6px 8px; text-align: left; border: 1px solid #e2e8f0;">Particulars / Description</th>
+                <th style="padding: 6px 8px; text-align: right; border: 1px solid #e2e8f0;">Credit (+PKR)</th>
+                <th style="padding: 6px 8px; text-align: right; border: 1px solid #e2e8f0;">Debit (-PKR)</th>
+                <th style="padding: 6px 8px; text-align: right; border: 1px solid #e2e8f0;">Balance (PKR)</th>
+            </tr>
+        </thead>
+        <tbody>
+            <?php if ($has_date_filter && $opening_balance != 0): ?>
+            <tr style="background: #fafafa; font-style: italic;">
+                <td style="padding: 6px 8px; border: 1px solid #e2e8f0;"><?= date('d M Y, h:i A', strtotime($from_sql)) ?></td>
+                <td style="padding: 6px 8px; border: 1px solid #e2e8f0;">Opening B/F</td>
+                <td style="padding: 6px 8px; border: 1px solid #e2e8f0;">Opening balance brought forward</td>
+                <td style="padding: 6px 8px; text-align: right; border: 1px solid #e2e8f0;">-</td>
+                <td style="padding: 6px 8px; text-align: right; border: 1px solid #e2e8f0;">-</td>
+                <td style="padding: 6px 8px; text-align: right; font-weight: 700; border: 1px solid #e2e8f0;">Rs. <?= number_format($opening_balance, 0) ?></td>
+            </tr>
+            <?php endif; ?>
+            <?php foreach($statement_entries as $pEntry): ?>
+            <tr>
+                <td style="padding: 5px 8px; border: 1px solid #e2e8f0; white-space: nowrap;"><?= date('d M Y, h:i A', strtotime($pEntry['created_at'])) ?></td>
+                <td style="padding: 5px 8px; border: 1px solid #e2e8f0;"><?= $pEntry['type'] === 'credit' ? 'Collection' : 'Submission' ?></td>
+                <td style="padding: 5px 8px; border: 1px solid #e2e8f0;">
+                    <?php if ($pEntry['type'] === 'credit'): ?>
+                        <strong>User: <?= htmlspecialchars($pEntry['party_username']) ?></strong> <?= !empty($pEntry['party_name']) ? '('.htmlspecialchars($pEntry['party_name']).')' : '' ?>
+                        <div style="font-size: 10px; color: #64748b;"><?= htmlspecialchars($pEntry['remarks']) ?></div>
+                    <?php else: ?>
+                        <strong>Handover to <?= htmlspecialchars($pEntry['party_role']) ?>: <?= htmlspecialchars($pEntry['party_username']) ?></strong>
+                        <div style="font-size: 10px; color: #64748b;"><?= htmlspecialchars($pEntry['remarks']) ?></div>
+                    <?php endif; ?>
+                </td>
+                <td style="padding: 5px 8px; text-align: right; border: 1px solid #e2e8f0; color: #16a34a; font-weight: 600;">
+                    <?= $pEntry['credit'] > 0 ? '+ Rs. ' . number_format($pEntry['credit'], 0) : '-' ?>
+                </td>
+                <td style="padding: 5px 8px; text-align: right; border: 1px solid #e2e8f0; color: #dc2626; font-weight: 600;">
+                    <?= $pEntry['debit'] > 0 ? '- Rs. ' . number_format($pEntry['debit'], 0) : '-' ?>
+                </td>
+                <td style="padding: 5px 8px; text-align: right; border: 1px solid #e2e8f0; font-weight: 700;">
+                    Rs. <?= number_format($pEntry['running_balance'], 0) ?>
+                </td>
+            </tr>
+            <?php endforeach; ?>
+        </tbody>
+        <tfoot>
+            <tr style="background: #f8fafc; font-weight: 700; border-top: 2px solid #cbd5e1;">
+                <td colspan="3" style="padding: 6px 8px; text-align: right; border: 1px solid #e2e8f0;">TOTAL PERIOD SUMMARY:</td>
+                <td style="padding: 6px 8px; text-align: right; border: 1px solid #e2e8f0; color: #16a34a;">+ Rs. <?= number_format($total_period_credit, 0) ?></td>
+                <td style="padding: 6px 8px; text-align: right; border: 1px solid #e2e8f0; color: #dc2626;">- Rs. <?= number_format($total_period_debit, 0) ?></td>
+                <td style="padding: 6px 8px; text-align: right; border: 1px solid #e2e8f0; color: #2563eb;">Rs. <?= number_format($closing_balance, 0) ?></td>
+            </tr>
+        </tfoot>
+    </table>
+
+    <!-- Signature Footer -->
+    <div style="display: flex; justify-content: space-between; margin-top: 40px; padding: 0 20px;">
+        <div style="text-align: center; border-top: 1px solid #94a3b8; width: 220px; padding-top: 6px; font-size: 11px; color: #475569;">
+            Recovery Agent Signature
+        </div>
+        <div style="text-align: center; border-top: 1px solid #94a3b8; width: 220px; padding-top: 6px; font-size: 11px; color: #475569;">
+            Authorized Admin Signature
+        </div>
+    </div>
+</div>
+
             
         </div>
     </div>
@@ -735,6 +1268,13 @@ function applyRmDatePreset(preset) {
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
 <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+<script src="https://cdn.datatables.net/buttons/2.4.2/js/dataTables.buttons.min.js"></script>
+<script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.bootstrap5.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.53/pdfmake.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.53/vfs_fonts.js"></script>
+<script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.html5.min.js"></script>
+<script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.print.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
 <script>
@@ -767,10 +1307,49 @@ $(document).ready(function() {
     });
 
     // Auto adjust table layout when switching tabs
+        // Statement Table with DataTables Buttons
+    $('#statementTable').DataTable({
+        "order": [[ 0, "desc" ]],
+        "pageLength": 25,
+        "dom": '<"row align-items-center mb-3"<"col-md-5"l><"col-md-7 text-md-end dt-buttons"B>>rt<"row align-items-center mt-3"<"col-md-6"i><"col-md-6"p>>',
+        "buttons": [
+            { extend: 'print', text: '<i class="fa-solid fa-print"></i> Print', className: 'btn btn-sm btn-outline-secondary' },
+            { extend: 'excel', text: '<i class="fa-solid fa-file-excel text-success"></i> Excel', className: 'btn btn-sm btn-outline-secondary' },
+            { extend: 'csv', text: '<i class="fa-solid fa-file-csv text-primary"></i> CSV', className: 'btn btn-sm btn-outline-secondary' },
+            { extend: 'pdf', text: '<i class="fa-solid fa-file-pdf text-danger"></i> PDF', className: 'btn btn-sm btn-outline-secondary' },
+            { extend: 'copy', text: '<i class="fa-solid fa-copy"></i> Copy', className: 'btn btn-sm btn-outline-secondary' }
+        ],
+        "language": {
+            "search": "",
+            "searchPlaceholder": "Search statement..."
+        }
+    });
+
+    // Auto adjust table layout when switching tabs & persist tab
     $('button[data-bs-toggle="tab"]').on('shown.bs.tab', function (e) {
+        var targetId = $(e.target).attr('data-bs-target').replace('#', '');
+        if (history.replaceState) {
+            history.replaceState(null, null, '#' + targetId);
+        }
+        $('#rm_filter_active_tab').val(targetId);
         $.fn.dataTable.tables({ visible: true, api: true }).columns.adjust();
     });
+
+    // Handle deep-linking to tabs via ?tab= or #hash
+    var urlParams = new URLSearchParams(window.location.search);
+    var activeTabParam = urlParams.get('tab') || window.location.hash.replace('#', '');
+    if (activeTabParam) {
+        var targetTabBtn = document.getElementById(activeTabParam + '-tab');
+        if (targetTabBtn) {
+            var tabTrigger = new bootstrap.Tab(targetTabBtn);
+            tabTrigger.show();
+        }
+    }
 });
+
+function printRecoveryStatement() {
+    window.print();
+}
 </script>
 
 <?php require_once 'footer.php'; ?>
