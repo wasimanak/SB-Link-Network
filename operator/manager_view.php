@@ -265,6 +265,10 @@ if (!empty($to_date) && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $to_date)) {
 $from_sql = !empty($from_date) ? "{$from_date} 00:00:00" : null;
 $to_sql = !empty($to_date) ? "{$to_date} 23:59:59" : null;
 $has_date_filter = (!empty($from_sql) || !empty($to_sql));
+$active_tab = !empty($_GET['tab']) ? trim($_GET['tab']) : (!empty($activeTabToOpen) ? $activeTabToOpen : 'recovery');
+if (!in_array($active_tab, ['recovery', 'tab-recovery', 'activity', 'tab-activity', 'salary', 'tab-salary', 'submissions', 'tab-submissions', 'statement', 'tab-statement'])) {
+    $active_tab = 'recovery';
+}
 
 // 1. Maintain activity retention:
 // Login activities: strictly 24 hours retention
@@ -629,6 +633,182 @@ if (!$has_date_filter) {
     $pdo->prepare("UPDATE managers SET cash_in_hand = ? WHERE id = ? AND client_id = ?")->execute([$pending_difference, $manager_id, $client_id]);
     $mgr['cash_in_hand'] = $pending_difference;
 }
+
+// ==========================================
+// 5. PREPARE BANK-STYLE MANAGER STATEMENT DATA
+// ==========================================
+// Fetch Operator Branding Info for Printable Statement
+$client_info = [];
+try {
+    $cStmt = $pdo->prepare("SELECT name, company_name, phone, email, address, city FROM clients WHERE id = ? LIMIT 1");
+    $cStmt->execute([$client_id]);
+    $client_info = $cStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+} catch (Exception $eC) {}
+$company_display_name = !empty($client_info['company_name']) ? $client_info['company_name'] : (!empty($client_info['name']) ? $client_info['name'] : (defined('BRAND_NAME') ? BRAND_NAME : 'Internet Network'));
+
+$opening_balance = 0.0;
+if ($has_date_filter && !empty($from_sql)) {
+    $prior_col_amt = 0.0;
+    $prior_sub_amt = 0.0;
+    try {
+        $pColStmt = $pdo->prepare("
+            SELECT a.activity, p.price as package_price
+            FROM activity_logs a
+            LEFT JOIN subscribers s ON a.against_to = s.username COLLATE utf8mb4_general_ci AND s.client_id = a.client_id
+            LEFT JOIN packages p ON s.package_id = p.id
+            WHERE a.client_id = ?
+              AND a.by_role = 'Manager'
+              AND (a.manager_id = ? OR a.by_user = ? OR a.by_user = ? OR a.by_user = ?)
+              AND a.by_user NOT IN ('Admin', 'Operator', 'System', ?)
+              AND a.by_user NOT LIKE 'Admin%'
+              AND a.by_user NOT LIKE 'Operator%'
+              AND (
+                  (a.activity LIKE '%Renew%' AND a.activity NOT LIKE '%Ready for renewal%')
+                  OR a.activity LIKE '%Collected%'
+                  OR a.activity LIKE '%Balance%'
+                  OR a.activity LIKE '%Payment%'
+                  OR a.activity LIKE '%Charged%'
+              )
+              AND a.created_at < ?
+        ");
+        $pColStmt->execute([
+            $client_id,
+            $manager_id,
+            $mgr_user_safe,
+            $mgr_full_safe,
+            'Manager: ' . $mgr_user_safe,
+            $admin_comp_safe,
+            $from_sql
+        ]);
+        $pRows = $pColStmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($pRows as $pr) {
+            $act_text = $pr['activity'];
+            $col = 0.0;
+            $chg = 0.0;
+            if (stripos($act_text, 'Renew') !== false) {
+                $chg = (float)($pr['package_price'] ?? 0);
+            }
+            if (preg_match('/Charged(?:: Rs\.| Rs\.)\s*([\d,.]+)/i', $act_text, $m)) {
+                $chg = (float)str_replace(',', '', $m[1]);
+            }
+            if (preg_match('/(?:Collected(?:\s+Cash)?|Added Balance|Funds added|Payment received|Payment Collected)(?:: Rs\.| Rs\.)\s*([\d,.]+)/i', $act_text, $m)) {
+                $col = (float)str_replace(',', '', $m[1]);
+            }
+            if (stripos($act_text, 'Renew') !== false && $col == 0 && $chg > 0) {
+                $col = $chg;
+            }
+            $prior_col_amt += $col;
+        }
+    } catch (Exception $ePC) {}
+
+    try {
+        $pSubStmt = $pdo->prepare("
+            SELECT activity FROM activity_logs
+            WHERE client_id = ?
+              AND against_role = 'Manager'
+              AND (against_to = ? OR against_to = ? OR against_to = ?)
+              AND activity LIKE 'Collected Cash Rs.%'
+              AND created_at < ?
+        ");
+        $pSubStmt->execute([
+            $client_id,
+            $mgr['full_name'],
+            $mgr['username'],
+            "Manager #{$manager_id}",
+            $from_sql
+        ]);
+        $pSubRows = $pSubStmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($pSubRows as $psr) {
+            if (preg_match('/Collected Cash Rs\.\s*([\d,.]+)/i', $psr['activity'], $pm)) {
+                $prior_sub_amt += (float)str_replace(',', '', $pm[1]);
+            }
+        }
+    } catch (Exception $ePS) {}
+
+    $opening_balance = round($prior_col_amt - $prior_sub_amt, 2);
+}
+
+// Combine into unified Statement Timeline
+$statement_entries = [];
+
+// 1. Add Collections (Credits) from $all_recoveries
+foreach ($all_recoveries as $rec) {
+    if ($rec['collected_amount'] > 0) {
+        $statement_entries[] = [
+            'id'             => 'rec_' . $rec['id'],
+            'created_at'     => $rec['created_at'],
+            'timestamp'      => strtotime($rec['created_at']),
+            'type'           => 'credit',
+            'type_label'     => 'Collection',
+            'party_username' => $rec['username'] ?: 'Subscriber',
+            'party_name'     => $rec['full_name'] ?: ($rec['username'] ?: 'Subscriber'),
+            'party_role'     => 'Subscriber',
+            'sub_id'         => $rec['sub_id'] ?? null,
+            'sub_mobile'     => $rec['mobile'] ?? '',
+            'remarks'        => $rec['activity_text'],
+            'credit'         => (float)$rec['collected_amount'],
+            'debit'          => 0.0,
+        ];
+    }
+}
+
+// 2. Add Submissions (Debits) to Admin
+foreach ($submissions as $sub) {
+    $sub_amt = 0.0;
+    if (preg_match('/Collected Cash Rs\.\s*([\d,.]+)/i', $sub['activity'], $m)) {
+        $sub_amt = (float)str_replace(',', '', $m[1]);
+    }
+    if ($sub_amt > 0) {
+        $statement_entries[] = [
+            'id'             => 'sub_' . $sub['id'],
+            'created_at'     => $sub['created_at'],
+            'timestamp'      => strtotime($sub['created_at']),
+            'type'           => 'debit',
+            'type_label'     => 'Submission',
+            'party_username' => $sub['by_user'] ?: 'Admin',
+            'party_name'     => $sub['by_user'] ?: 'Admin',
+            'party_role'     => 'Admin',
+            'sub_id'         => null,
+            'sub_mobile'     => '',
+            'remarks'        => $sub['activity'],
+            'credit'         => 0.0,
+            'debit'          => $sub_amt,
+        ];
+    }
+}
+
+// 3. Sort ascending (oldest first) to compute running balance
+usort($statement_entries, function($a, $b) {
+    if ($a['timestamp'] === $b['timestamp']) {
+        return ($a['type'] === 'credit') ? -1 : 1;
+    }
+    return $a['timestamp'] <=> $b['timestamp'];
+});
+
+// 4. Compute Running Balance row by row
+$curr_run_bal = $opening_balance;
+$total_period_credit = 0.0;
+$total_period_debit = 0.0;
+$statement_credit_count = 0;
+$statement_debit_count = 0;
+
+foreach ($statement_entries as &$st) {
+    if ($st['type'] === 'credit') {
+        $total_period_credit += $st['credit'];
+        $statement_credit_count++;
+    } else {
+        $total_period_debit += $st['debit'];
+        $statement_debit_count++;
+    }
+    $curr_run_bal = round($curr_run_bal + $st['credit'] - $st['debit'], 2);
+    $st['running_balance'] = $curr_run_bal;
+}
+unset($st);
+
+$closing_balance = $curr_run_bal;
+// 5. Reverse array so newest entries are on top
+$statement_entries_desc = array_reverse($statement_entries);
+
 ?>
 <!-- DataTables CSS -->
 <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
@@ -643,6 +823,21 @@ if (!$has_date_filter) {
     .table-custom-ui th { background-color: #f8fafc !important; color: #64748b; font-weight: 700; text-transform: uppercase; font-size: 0.78rem; letter-spacing: 0.5px; border-bottom: 2px solid #e2e8f0; }
     .table-custom-ui td { vertical-align: middle; border-bottom: 1px solid #f1f5f9; color: #475569; font-size: 0.9rem; }
     .table-custom-ui tbody tr:hover { background-color: #f8fafc; }
+    @media print {
+        body * { visibility: hidden !important; }
+        #printableManagerStatement, #printableManagerStatement * { visibility: visible !important; }
+        #printableManagerStatement {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            margin: 0 !important;
+            padding: 15px !important;
+            display: block !important;
+            background: #ffffff !important;
+            color: #000000 !important;
+        }
+    }
     .dt-buttons .btn {
         background: #475569;
         color: #fff;
@@ -803,6 +998,7 @@ if (!$has_date_filter) {
     <div class="card-body p-3 p-md-4">
         <form method="GET" class="row g-2 align-items-end" id="mgrDateFilterForm">
             <input type="hidden" name="id" value="<?= $manager_id ?>">
+            <input type="hidden" name="tab" id="mgr_filter_active_tab" value="<?= htmlspecialchars($active_tab) ?>">
             
             <div class="col-12 col-md-auto mb-1 mb-md-0 d-flex align-items-center">
                 <span class="fw-bold text-dark fs-6 me-2">
@@ -902,29 +1098,36 @@ function applyMgrDatePreset(preset) {
         <ul class="nav nav-tabs border-bottom" id="statementTabs" role="tablist">
             <!-- Tab 1: All Manager Recovery & Renewals -->
             <li class="nav-item" role="presentation">
-                <button class="nav-link active" id="recovery-tab" data-bs-toggle="tab" data-bs-target="#tab-recovery" type="button" role="tab">
+                <button class="nav-link <?= in_array($active_tab, ['recovery', 'tab-recovery']) ? 'active' : '' ?>" id="recovery-tab" data-bs-toggle="tab" data-bs-target="#tab-recovery" type="button" role="tab">
                     <i class="fa-solid fa-bolt me-1 text-warning"></i> Manager Activities &amp; Renewals
                     <span class="badge bg-primary ms-1"><?= count($all_recoveries) ?></span>
                 </button>
             </li>
             <!-- Tab 2: Activity Audit Trail -->
             <li class="nav-item" role="presentation">
-                <button class="nav-link" id="activity-tab" data-bs-toggle="tab" data-bs-target="#tab-activity" type="button" role="tab">
+                <button class="nav-link <?= in_array($active_tab, ['activity', 'tab-activity']) ? 'active' : '' ?>" id="activity-tab" data-bs-toggle="tab" data-bs-target="#tab-activity" type="button" role="tab">
                     <i class="fa-solid fa-list-check me-1 text-primary"></i> Activity Audit Trail
                     <span class="badge bg-secondary ms-1"><?= count($activities) ?></span>
                 </button>
             </li>
             <!-- Tab 3: Salary & Advances -->
             <li class="nav-item" role="presentation">
-                <button class="nav-link" id="salary-tab" data-bs-toggle="tab" data-bs-target="#tab-salary" type="button" role="tab">
+                <button class="nav-link <?= in_array($active_tab, ['salary', 'tab-salary']) ? 'active' : '' ?>" id="salary-tab" data-bs-toggle="tab" data-bs-target="#tab-salary" type="button" role="tab">
                     <i class="fa-solid fa-wallet me-1 text-success"></i> Salary &amp; Advances
                 </button>
             </li>
             <!-- Tab 4: Submissions to Admin -->
             <li class="nav-item" role="presentation">
-                <button class="nav-link" id="submissions-tab" data-bs-toggle="tab" data-bs-target="#tab-submissions" type="button" role="tab">
+                <button class="nav-link <?= in_array($active_tab, ['submissions', 'tab-submissions']) ? 'active' : '' ?>" id="submissions-tab" data-bs-toggle="tab" data-bs-target="#tab-submissions" type="button" role="tab">
                     <i class="fa-solid fa-building-columns me-1 text-danger"></i> Submissions to Admin
                     <span class="badge bg-secondary ms-1"><?= count($submissions) ?></span>
+                </button>
+            </li>
+            <!-- Tab 5: Statement (Bank-style Ledger) -->
+            <li class="nav-item" role="presentation">
+                <button class="nav-link <?= in_array($active_tab, ['statement', 'tab-statement']) ? 'active' : '' ?>" id="statement-tab" data-bs-toggle="tab" data-bs-target="#tab-statement" type="button" role="tab">
+                    <i class="fa-solid fa-file-invoice-dollar me-1 text-primary"></i> Statement
+                    <span class="badge bg-primary ms-1"><?= count($statement_entries) ?></span>
                 </button>
             </li>
         </ul>
@@ -933,7 +1136,7 @@ function applyMgrDatePreset(preset) {
         <div class="tab-content p-4" id="statementTabsContent">
 
             <!-- Tab 1 Content: All Recovery & Renewals -->
-            <div class="tab-pane fade show active" id="tab-recovery" role="tabpanel">
+            <div class="tab-pane fade <?= in_array($active_tab, ['recovery', 'tab-recovery']) ? 'show active' : '' ?>" id="tab-recovery" role="tabpanel">
                 
                 <!-- Quick Mini Stats -->
                 <div class="row g-3 mb-4">
@@ -1006,7 +1209,7 @@ function applyMgrDatePreset(preset) {
                                 $bal = (float)$rec['current_balance'];
                             ?>
                             <tr>
-                                <td class="text-secondary small fw-bold" style="white-space: nowrap;">
+                                <td data-order="<?= strtotime($rec['created_at']) ?>" class="text-secondary small fw-bold" style="white-space: nowrap;">
                                     <div class="text-dark"><?= date('d M Y', strtotime($rec['created_at'])) ?></div>
                                     <div class="text-muted small font-monospace"><?= date('h:i:s A', strtotime($rec['created_at'])) ?></div>
                                 </td>
@@ -1100,7 +1303,7 @@ function applyMgrDatePreset(preset) {
             </div>
 
             <!-- Tab 2 Content: Activity Audit Trail -->
-            <div class="tab-pane fade" id="tab-activity" role="tabpanel">
+            <div class="tab-pane fade <?= in_array($active_tab, ['activity', 'tab-activity']) ? 'show active' : '' ?>" id="tab-activity" role="tabpanel">
                 
                 <!-- Quick Mini Stats -->
                 <div class="row g-3 mb-4">
@@ -1153,7 +1356,7 @@ function applyMgrDatePreset(preset) {
                             <?php foreach ($activities as $act): ?>
                                 <tr>
                                     <td class="fw-bold text-secondary"><?= $act['id'] ?></td>
-                                    <td style="white-space: nowrap;">
+                                    <td data-order="<?= strtotime($act['created_at']) ?>" style="white-space: nowrap;">
                                         <div class="fw-semibold text-dark"><?= date('d M Y', strtotime($act['created_at'])) ?></div>
                                         <div class="text-muted small"><?= date('h:i:s A', strtotime($act['created_at'])) ?></div>
                                     </td>
@@ -1197,7 +1400,7 @@ function applyMgrDatePreset(preset) {
             </div>
 
             <!-- Tab 3 Content: Salary & Advances -->
-            <div class="tab-pane fade" id="tab-salary" role="tabpanel">
+            <div class="tab-pane fade <?= in_array($active_tab, ['salary', 'tab-salary']) ? 'show active' : '' ?>" id="tab-salary" role="tabpanel">
                 <?php
                 $staff_type = 'manager';
                 $staff_id = (int)$mgr['id'];
@@ -1209,7 +1412,7 @@ function applyMgrDatePreset(preset) {
             </div>
 
             <!-- Tab 4 Content: Submissions to Admin -->
-            <div class="tab-pane fade" id="tab-submissions" role="tabpanel">
+            <div class="tab-pane fade <?= in_array($active_tab, ['submissions', 'tab-submissions']) ? 'show active' : '' ?>" id="tab-submissions" role="tabpanel">
                 <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
                     <div>
                         <h6 class="fw-bold mb-1 text-dark">
@@ -1250,7 +1453,7 @@ function applyMgrDatePreset(preset) {
                                 }
                             ?>
                             <tr>
-                                <td class="text-secondary small fw-bold" style="white-space: nowrap;">
+                                <td data-order="<?= strtotime($sub['created_at']) ?>" class="text-secondary small fw-bold" style="white-space: nowrap;">
                                     <div class="text-dark"><?= date('d M Y', strtotime($sub['created_at'])) ?></div>
                                     <div class="text-muted small font-monospace"><?= date('h:i:s A', strtotime($sub['created_at'])) ?></div>
                                 </td>
@@ -1273,9 +1476,307 @@ function applyMgrDatePreset(preset) {
                 <?php endif; ?>
             </div>
 
+            <!-- Tab 5 Content: Account Statement (Bank-style Ledger) -->
+            <div class="tab-pane fade <?= in_array($active_tab, ['statement', 'tab-statement']) ? 'show active' : '' ?>" id="tab-statement" role="tabpanel">
+
+                <!-- Statement Top Header Bar -->
+                <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-3">
+                    <div>
+                        <h5 class="fw-bold mb-1 text-dark">
+                            <i class="fa-solid fa-file-invoice-dollar text-primary me-2"></i> Manager Cash Statement
+                        </h5>
+                        <div class="text-muted small">
+                            Bank-style ledger statement showing cash collected from subscribers (Credit) and submissions to Admin (Debit)
+                        </div>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <button type="button" onclick="printManagerStatement()" class="btn btn-outline-primary btn-sm rounded-pill px-3 shadow-sm fw-bold">
+                            <i class="fa-solid fa-print me-1"></i> Print Statement
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 4 Bank Statement Summary Metric Cards -->
+                <div class="row g-3 mb-4">
+                    <!-- 1. Opening Balance -->
+                    <div class="col-6 col-lg-3">
+                        <div class="p-3 bg-light border rounded-3 text-center h-100 d-flex flex-column justify-content-center">
+                            <div class="text-muted small fw-bold text-uppercase">Opening Balance (B/F)</div>
+                            <h4 class="mb-0 fw-bold <?= $opening_balance >= 0 ? 'text-secondary' : 'text-danger' ?> mt-1">
+                                Rs. <?= number_format($opening_balance, 0) ?>
+                            </h4>
+                            <div class="text-muted" style="font-size: 0.72rem;">Prior to selected date</div>
+                        </div>
+                    </div>
+
+                    <!-- 2. Total Collections (Credit) -->
+                    <div class="col-6 col-lg-3">
+                        <div class="p-3 bg-success bg-opacity-10 border border-success border-opacity-25 rounded-3 text-center h-100 d-flex flex-column justify-content-center">
+                            <div class="text-success small fw-bold text-uppercase"><i class="fa-solid fa-arrow-down-left me-1"></i> Total Collections (Credit)</div>
+                            <h4 class="mb-0 fw-bold text-success mt-1">
+                                + Rs. <?= number_format($total_period_credit, 0) ?>
+                            </h4>
+                            <div class="text-muted" style="font-size: 0.72rem;"><?= number_format($statement_credit_count) ?> Receipts from users</div>
+                        </div>
+                    </div>
+
+                    <!-- 3. Total Submissions (Debit) -->
+                    <div class="col-6 col-lg-3">
+                        <div class="p-3 bg-danger bg-opacity-10 border border-danger border-opacity-25 rounded-3 text-center h-100 d-flex flex-column justify-content-center">
+                            <div class="text-danger small fw-bold text-uppercase"><i class="fa-solid fa-arrow-up-right me-1"></i> Submitted to Admin (Debit)</div>
+                            <h4 class="mb-0 fw-bold text-danger mt-1">
+                                - Rs. <?= number_format($total_period_debit, 0) ?>
+                            </h4>
+                            <div class="text-muted" style="font-size: 0.72rem;"><?= number_format($statement_debit_count) ?> Handover transactions</div>
+                        </div>
+                    </div>
+
+                    <!-- 4. Closing Balance / Cash in Hand -->
+                    <div class="col-6 col-lg-3">
+                        <div class="p-3 bg-primary bg-opacity-10 border border-primary border-opacity-25 rounded-3 text-center h-100 d-flex flex-column justify-content-center">
+                            <div class="text-primary small fw-bold text-uppercase">Closing / Net Balance</div>
+                            <h4 class="mb-0 fw-bold <?= $closing_balance > 0 ? 'text-primary' : ($closing_balance < 0 ? 'text-danger' : 'text-dark') ?> mt-1">
+                                Rs. <?= number_format($closing_balance, 0) ?>
+                            </h4>
+                            <div class="text-muted" style="font-size: 0.72rem;">Current Wallet: Rs. <?= number_format($mgr['cash_in_hand'], 0) ?></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Statement Table -->
+                <div class="table-responsive">
+                    <table id="managerStatementTable" class="table table-hover table-custom-ui table-borderless align-middle w-100">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width: 150px;">Date &amp; Time</th>
+                                <th style="width: 120px;">Type</th>
+                                <th>Particulars / Description</th>
+                                <th class="text-end" style="width: 130px;">Credit (Inflow)</th>
+                                <th class="text-end" style="width: 130px;">Debit (Outflow)</th>
+                                <th class="text-end" style="width: 140px;">Balance (PKR)</th>
+                                <th class="text-center" style="width: 80px;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if ($has_date_filter && $opening_balance != 0): ?>
+                            <tr class="table-light fst-italic">
+                                <td data-order="0" class="text-secondary small fw-bold" style="white-space: nowrap;">
+                                    <div class="text-dark"><?= date('d M Y', strtotime($from_sql)) ?></div>
+                                    <div class="text-muted small font-monospace"><?= date('h:i:s A', strtotime($from_sql)) ?></div>
+                                </td>
+                                <td><span class="badge bg-secondary-subtle text-secondary border">Opening B/F</span></td>
+                                <td class="fw-semibold text-muted">Opening Balance brought forward from previous transactions</td>
+                                <td class="text-end text-muted">-</td>
+                                <td class="text-end text-muted">-</td>
+                                <td class="text-end fw-bold text-dark fs-6">Rs. <?= number_format($opening_balance, 0) ?></td>
+                                <td class="text-center text-muted small">-</td>
+                            </tr>
+                            <?php endif; ?>
+
+                            <?php foreach($statement_entries_desc as $st): ?>
+                            <tr>
+                                <td data-order="<?= strtotime($st['created_at']) ?>" class="text-secondary small fw-bold" style="white-space: nowrap;">
+                                    <div class="text-dark"><?= date('d M Y', strtotime($st['created_at'])) ?></div>
+                                    <div class="text-muted small font-monospace"><?= date('h:i:s A', strtotime($st['created_at'])) ?></div>
+                                </td>
+                                <td>
+                                    <?php if ($st['type'] === 'credit'): ?>
+                                        <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1">
+                                            <i class="fa-solid fa-arrow-down-left me-1"></i> Collection
+                                        </span>
+                                    <?php else: ?>
+                                        <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-2 py-1">
+                                            <i class="fa-solid fa-arrow-up-right me-1"></i> Submission
+                                        </span>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <?php if ($st['type'] === 'credit'): ?>
+                                        <div class="d-flex align-items-center">
+                                            <div>
+                                                <div class="fw-bold text-primary">
+                                                    <?php if (!empty($st['sub_id'])): ?>
+                                                        <a href="subscriber_view.php?id=<?= $st['sub_id'] ?>" class="text-decoration-none text-primary">
+                                                            <i class="fa-solid fa-user me-1 small"></i> <?= htmlspecialchars($st['party_username']) ?>
+                                                        </a>
+                                                    <?php else: ?>
+                                                        <i class="fa-solid fa-user me-1 small"></i> <?= htmlspecialchars($st['party_username']) ?>
+                                                    <?php endif; ?>
+                                                    <?php if (!empty($st['party_name']) && $st['party_name'] !== $st['party_username']): ?>
+                                                        <span class="text-dark small fw-normal ms-1">(<?= htmlspecialchars($st['party_name']) ?>)</span>
+                                                    <?php endif; ?>
+                                                </div>
+                                                <div class="small text-muted" style="font-size: 0.78rem;">
+                                                    <?= htmlspecialchars($st['remarks']) ?>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    <?php else: ?>
+                                        <div>
+                                            <div class="fw-bold text-dark">
+                                                <i class="fa-solid fa-building-columns me-1 text-danger small"></i>
+                                                Submitted to Admin:
+                                                <span class="badge bg-dark"><?= htmlspecialchars($st['party_username']) ?></span>
+                                            </div>
+                                            <div class="small text-muted" style="font-size: 0.78rem;">
+                                                <?= htmlspecialchars($st['remarks']) ?>
+                                            </div>
+                                        </div>
+                                    <?php endif; ?>
+                                </td>
+                                <td class="text-end">
+                                    <?php if ($st['credit'] > 0): ?>
+                                        <span class="text-success fw-bold fs-6">+ Rs. <?= number_format($st['credit'], 0) ?></span>
+                                    <?php else: ?>
+                                        <span class="text-muted">-</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td class="text-end">
+                                    <?php if ($st['debit'] > 0): ?>
+                                        <span class="text-danger fw-bold fs-6">- Rs. <?= number_format($st['debit'], 0) ?></span>
+                                    <?php else: ?>
+                                        <span class="text-muted">-</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td class="text-end">
+                                    <span class="fw-bold fs-6 <?= $st['running_balance'] > 0 ? 'text-primary' : ($st['running_balance'] < 0 ? 'text-danger' : 'text-dark') ?>">
+                                        Rs. <?= number_format($st['running_balance'], 0) ?>
+                                    </span>
+                                </td>
+                                <td class="text-center">
+                                    <?php if ($st['type'] === 'credit' && !empty($st['sub_id'])): ?>
+                                        <a href="subscriber_view.php?id=<?= $st['sub_id'] ?>" class="btn btn-xs btn-outline-primary fw-bold" title="View Subscriber">
+                                            <i class="fa-solid fa-eye me-1"></i> View
+                                        </a>
+                                    <?php else: ?>
+                                        <span class="badge bg-light text-secondary border"><i class="fa-solid fa-check"></i></span>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
         </div>
     </div>
 </div>
+
+<!-- Hidden Printable Manager Statement -->
+<div id="printableManagerStatement" class="d-none d-print-block">
+    <div style="border-bottom: 2px solid #334155; padding-bottom: 12px; margin-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+            <div>
+                <h2 style="margin: 0; font-weight: 800; color: #0f172a; font-size: 22px; text-transform: uppercase;">
+                    <?= htmlspecialchars($company_display_name) ?>
+                </h2>
+                <div style="color: #64748b; font-size: 13px; margin-top: 4px; font-weight: 600;">
+                    OFFICIAL MANAGER ACCOUNT STATEMENT
+                </div>
+            </div>
+            <div style="text-align: right; font-size: 11px; color: #475569; line-height: 1.4;">
+                <div><strong>Generated At:</strong> <?= date('d M Y, h:i A') ?></div>
+                <div><strong>Period:</strong> <?= $has_date_filter ? ((!empty($from_date) ? date('d M Y', strtotime($from_date)) : 'Start') . ' to ' . (!empty($to_date) ? date('d M Y', strtotime($to_date)) : 'Today')) : 'Complete History (All Time)' ?></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Manager Profile & Summary Grid -->
+    <table style="width: 100%; margin-bottom: 16px; border-collapse: collapse; font-size: 12px;">
+        <tr>
+            <td style="width: 50%; vertical-align: top; padding: 10px; background: #f8fafc; border: 1px solid #e2e8f0; line-height: 1.5;">
+                <div style="font-weight: 700; color: #1e293b; margin-bottom: 4px; text-transform: uppercase;">MANAGER DETAILS</div>
+                <div><strong>Name:</strong> <?= htmlspecialchars($mgr['full_name']) ?> (@<?= htmlspecialchars($mgr['username']) ?>)</div>
+                <div><strong>Phone:</strong> <?= htmlspecialchars($mgr['phone'] ?: 'N/A') ?></div>
+                <div><strong>Email:</strong> <?= htmlspecialchars($mgr['email'] ?: 'N/A') ?></div>
+                <div><strong>City:</strong> <?= htmlspecialchars($mgr['city'] ?: 'N/A') ?></div>
+                <div><strong>Status:</strong> <?= ucfirst($mgr['status'] ?? 'active') ?></div>
+            </td>
+            <td style="width: 50%; vertical-align: top; padding: 10px; background: #f8fafc; border: 1px solid #e2e8f0; line-height: 1.5;">
+                <div style="font-weight: 700; color: #1e293b; margin-bottom: 4px; text-transform: uppercase;">ACCOUNT SUMMARY</div>
+                <div><strong>Opening Balance:</strong> Rs. <?= number_format($opening_balance, 0) ?></div>
+                <div><strong>Total Collections (Credit):</strong> + Rs. <?= number_format($total_period_credit, 0) ?> (<?= $statement_credit_count ?> receipts)</div>
+                <div><strong>Total Handover (Debit):</strong> - Rs. <?= number_format($total_period_debit, 0) ?> (<?= $statement_debit_count ?> entries)</div>
+                <div style="font-size: 14px; font-weight: 800; color: #1e40af; margin-top: 4px;">
+                    Closing Net Balance: Rs. <?= number_format($closing_balance, 0) ?>
+                </div>
+            </td>
+        </tr>
+    </table>
+
+    <!-- Printable Table -->
+    <table style="width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 20px;">
+        <thead>
+            <tr style="background: #f1f5f9; text-transform: uppercase; font-size: 10px; color: #475569; border: 1px solid #cbd5e1;">
+                <th style="padding: 6px 8px; text-align: left; border: 1px solid #e2e8f0; width: 130px;">Date &amp; Time</th>
+                <th style="padding: 6px 8px; text-align: left; border: 1px solid #e2e8f0; width: 80px;">Type</th>
+                <th style="padding: 6px 8px; text-align: left; border: 1px solid #e2e8f0;">Particulars / Description</th>
+                <th style="padding: 6px 8px; text-align: right; border: 1px solid #e2e8f0; width: 100px;">Credit (Rs)</th>
+                <th style="padding: 6px 8px; text-align: right; border: 1px solid #e2e8f0; width: 100px;">Debit (Rs)</th>
+                <th style="padding: 6px 8px; text-align: right; border: 1px solid #e2e8f0; width: 110px;">Balance (Rs)</th>
+            </tr>
+        </thead>
+        <tbody>
+            <?php if ($has_date_filter && $opening_balance != 0): ?>
+            <tr style="background: #f8fafc; font-style: italic;">
+                <td style="padding: 6px 8px; border: 1px solid #e2e8f0;"><?= date('d M Y, h:i A', strtotime($from_sql)) ?></td>
+                <td style="padding: 6px 8px; border: 1px solid #e2e8f0;">OPENING</td>
+                <td style="padding: 6px 8px; border: 1px solid #e2e8f0;">Opening Balance B/F</td>
+                <td style="padding: 6px 8px; border: 1px solid #e2e8f0; text-align: right;">-</td>
+                <td style="padding: 6px 8px; border: 1px solid #e2e8f0; text-align: right;">-</td>
+                <td style="padding: 6px 8px; border: 1px solid #e2e8f0; text-align: right; font-weight: 700;">Rs. <?= number_format($opening_balance, 0) ?></td>
+            </tr>
+            <?php endif; ?>
+
+            <?php foreach($statement_entries_desc as $pEntry): ?>
+            <tr>
+                <td style="padding: 6px 8px; border: 1px solid #e2e8f0; white-space: nowrap;">
+                    <?= date('d M Y, h:i A', strtotime($pEntry['created_at'])) ?>
+                </td>
+                <td style="padding: 6px 8px; border: 1px solid #e2e8f0; font-weight: 700; color: <?= $pEntry['type'] === 'credit' ? '#16a34a' : '#dc2626' ?>;">
+                    <?= strtoupper($pEntry['type']) ?>
+                </td>
+                <td style="padding: 6px 8px; border: 1px solid #e2e8f0;">
+                    <strong><?= htmlspecialchars($pEntry['party_username']) ?></strong>
+                    <?php if (!empty($pEntry['party_name']) && $pEntry['party_name'] !== $pEntry['party_username']): ?>
+                        (<?= htmlspecialchars($pEntry['party_name']) ?>)
+                    <?php endif; ?>
+                    <span style="color: #64748b; font-size: 10px;"> - <?= htmlspecialchars($pEntry['remarks']) ?></span>
+                </td>
+                <td style="padding: 6px 8px; border: 1px solid #e2e8f0; text-align: right; color: #16a34a; font-weight: 600;">
+                    <?= $pEntry['credit'] > 0 ? '+ ' . number_format($pEntry['credit'], 0) : '-' ?>
+                </td>
+                <td style="padding: 6px 8px; border: 1px solid #e2e8f0; text-align: right; color: #dc2626; font-weight: 600;">
+                    <?= $pEntry['debit'] > 0 ? '- ' . number_format($pEntry['debit'], 0) : '-' ?>
+                </td>
+                <td style="padding: 6px 8px; border: 1px solid #e2e8f0; text-align: right; font-weight: 700;">
+                    Rs. <?= number_format($pEntry['running_balance'], 0) ?>
+                </td>
+            </tr>
+            <?php endforeach; ?>
+        </tbody>
+        <tfoot>
+            <tr style="background: #f8fafc; font-weight: 700; border-top: 2px solid #cbd5e1;">
+                <td colspan="3" style="padding: 6px 8px; text-align: right; border: 1px solid #e2e8f0;">TOTAL PERIOD SUMMARY:</td>
+                <td style="padding: 6px 8px; text-align: right; border: 1px solid #e2e8f0; color: #16a34a;">+ Rs. <?= number_format($total_period_credit, 0) ?></td>
+                <td style="padding: 6px 8px; text-align: right; border: 1px solid #e2e8f0; color: #dc2626;">- Rs. <?= number_format($total_period_debit, 0) ?></td>
+                <td style="padding: 6px 8px; text-align: right; border: 1px solid #e2e8f0; color: #2563eb;">Rs. <?= number_format($closing_balance, 0) ?></td>
+            </tr>
+        </tfoot>
+    </table>
+
+    <!-- Signature Footer -->
+    <div style="display: flex; justify-content: space-between; margin-top: 40px; padding: 0 20px;">
+        <div style="text-align: center; border-top: 1px solid #94a3b8; width: 220px; padding-top: 6px; font-size: 11px; color: #475569;">
+            Manager Signature
+        </div>
+        <div style="text-align: center; border-top: 1px solid #94a3b8; width: 220px; padding-top: 6px; font-size: 11px; color: #475569;">
+            Authorized Admin Signature
+        </div>
+    </div>
+</div>
+
 
 <!-- Collect Cash from Manager Modal -->
 <div class="modal fade" id="collectManagerCashModal" tabindex="-1" aria-labelledby="collectManagerCashModalLabel" aria-hidden="true">
@@ -1418,86 +1919,180 @@ function applyMgrDatePreset(preset) {
 <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.print.min.js"></script>
 
 <script>
-$(document).ready(function() {
-    if ($('#managerRecoveryTable').length) {
-        $('#managerRecoveryTable').DataTable({
-            dom: "<'row mb-3'<'col-sm-6'B><'col-sm-6 text-end'f>>" +
-                 "<'row'<'col-sm-12'tr>>" +
-                 "<'row mt-3'<'col-sm-5'i><'col-sm-7'p>>",
-            buttons: [
-                { extend: 'excel', text: '<i class="fa-solid fa-file-excel me-1"></i> Excel', className: 'btn btn-sm btn-outline-success' },
-                { extend: 'csv', text: '<i class="fa-solid fa-file-csv me-1"></i> CSV', className: 'btn btn-sm btn-outline-primary' },
-                { extend: 'print', text: '<i class="fa-solid fa-print me-1"></i> Print', className: 'btn btn-sm btn-outline-dark' }
-            ],
-            order: [[0, 'desc']],
-            pageLength: 25,
-            language: {
-                search: "_INPUT_",
-                searchPlaceholder: "Search recoveries, username, package..."
-            }
-        });
-    }
+function printManagerStatement() {
+    window.print();
+}
 
-    if ($('#managerLogsTable').length) {
-        $('#managerLogsTable').DataTable({
-            dom: "<'row mb-3'<'col-sm-6'B><'col-sm-6 text-end'f>>" +
-                 "<'row'<'col-sm-12'tr>>" +
-                 "<'row mt-3'<'col-sm-5'i><'col-sm-7'p>>",
-            buttons: [
-                { extend: 'excel', text: '<i class="fa-solid fa-file-excel me-1"></i> Excel', className: 'btn btn-sm btn-outline-success' },
-                { extend: 'csv', text: '<i class="fa-solid fa-file-csv me-1"></i> CSV', className: 'btn btn-sm btn-outline-primary' },
-                { extend: 'print', text: '<i class="fa-solid fa-print me-1"></i> Print', className: 'btn btn-sm btn-outline-dark' }
-            ],
-            order: [[0, 'desc']],
-            pageLength: 25,
-            language: {
-                search: "_INPUT_",
-                searchPlaceholder: "Search activities..."
-            }
-        });
-    }
+// 100% Guaranteed Tab Switching & Deep Linking Function for Manager View
+function switchMgrProfileTab(tabId) {
+    if (!tabId) return;
+    // Normalize aliases
+    if (tabId === 'tab-recovery' || tabId === 'recovery') tabId = 'recovery';
+    if (tabId === 'tab-activity' || tabId === 'activity' || tabId === 'activityLogs') tabId = 'activity';
+    if (tabId === 'tab-salary' || tabId === 'salary') tabId = 'salary';
+    if (tabId === 'tab-submissions' || tabId === 'submissions') tabId = 'submissions';
+    if (tabId === 'tab-statement' || tabId === 'statement') tabId = 'statement';
 
-    if ($('#managerSubmissionsTable').length) {
-        $('#managerSubmissionsTable').DataTable({
-            dom: "<'row mb-3'<'col-sm-6'B><'col-sm-6 text-end'f>>" +
-                 "<'row'<'col-sm-12'tr>>" +
-                 "<'row mt-3'<'col-sm-5'i><'col-sm-7'p>>",
-            buttons: [
-                { extend: 'excel', text: '<i class="fa-solid fa-file-excel me-1"></i> Excel', className: 'btn btn-sm btn-outline-success' },
-                { extend: 'csv', text: '<i class="fa-solid fa-file-csv me-1"></i> CSV', className: 'btn btn-sm btn-outline-primary' },
-                { extend: 'print', text: '<i class="fa-solid fa-print me-1"></i> Print', className: 'btn btn-sm btn-outline-dark' }
-            ],
-            order: [[0, 'desc']],
-            pageLength: 25,
-            language: {
-                search: "_INPUT_",
-                searchPlaceholder: "Search submissions..."
-            }
-        });
-    }
+    var validTabs = ['recovery', 'activity', 'salary', 'submissions', 'statement'];
+    if (validTabs.indexOf(tabId) === -1) return;
 
-    // Auto-adjust DataTables on tab switch
-    $('button[data-bs-toggle="tab"]').on('shown.bs.tab', function (e) {
-        $($.fn.dataTable.tables(true)).DataTable().columns.adjust();
+    // Remove active from all nav-links
+    document.querySelectorAll('#statementTabs .nav-link').forEach(function(el) {
+        el.classList.remove('active');
+        el.setAttribute('aria-selected', 'false');
     });
 
-    // Handle deep-link and state retention for tabs
-    const urlParams = new URLSearchParams(window.location.search);
-    const activeTabParam = urlParams.get('tab') || window.location.hash.replace('#', '') || '<?= $activeTabToOpen ?>';
-    if (activeTabParam === 'salary' || activeTabParam === 'tab-salary') {
-        const triggerEl = document.querySelector('#salary-tab');
-        if (triggerEl) {
-            bootstrap.Tab.getOrCreateInstance(triggerEl).show();
+    // Remove show & active from all tab-panes
+    document.querySelectorAll('#statementTabsContent .tab-pane').forEach(function(el) {
+        el.classList.remove('show', 'active');
+    });
+
+    // Activate the targeted tab button & pane
+    var btn = document.getElementById(tabId + '-tab');
+    var pane = document.getElementById('tab-' + tabId);
+    if (btn) {
+        btn.classList.add('active');
+        btn.setAttribute('aria-selected', 'true');
+    }
+    if (pane) {
+        pane.classList.add('show', 'active');
+    }
+
+    // Keep hidden filter input in sync
+    var filterTabInput = document.getElementById('mgr_filter_active_tab');
+    if (filterTabInput) {
+        filterTabInput.value = tabId;
+    }
+
+    // Update browser URL hash without jump
+    if (window.history && window.history.replaceState) {
+        window.history.replaceState(null, null, '#tab-' + tabId);
+    }
+
+    // Adjust DataTable column widths
+    if (window.jQuery && $.fn && $.fn.dataTable) {
+        setTimeout(function() {
+            $.fn.dataTable.tables({ visible: true, api: true }).columns.adjust();
+        }, 50);
+    }
+}
+
+// Attach instant click listeners to tab buttons
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('#statementTabs button[data-bs-toggle="tab"]').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+            var targetId = this.getAttribute('data-bs-target').replace('#tab-', '').replace('#', '');
+            switchMgrProfileTab(targetId);
+        });
+    });
+
+    // Check URL parameters and hash on load
+    var urlParams = new URLSearchParams(window.location.search);
+    var targetTab = urlParams.get('tab') || (window.location.hash ? window.location.hash.replace('#tab-', '').replace('#', '') : '');
+    if (targetTab) {
+        switchMgrProfileTab(targetTab);
+    }
+});
+
+// Window hashchange listener (back/forward or hash clicks)
+window.addEventListener('hashchange', function() {
+    var h = window.location.hash.replace('#tab-', '').replace('#', '');
+    if (h) switchMgrProfileTab(h);
+});
+
+// Initialize DataTables safely with numeric sorting and export buttons
+$(document).ready(function() {
+    var commonDtConfig = {
+        "order": [[ 0, "desc" ]],
+        "columnDefs": [{ "type": "num", "targets": 0 }],
+        "pageLength": 25,
+        "language": { "search": "", "searchPlaceholder": "Search..." }
+    };
+
+    if ($.fn.DataTable) {
+        if ($('#managerRecoveryTable').length) {
+            $('#managerRecoveryTable').DataTable({
+                "order": [[ 0, "desc" ]],
+                "columnDefs": [{ "type": "num", "targets": 0 }],
+                "pageLength": 25,
+                "dom": "<'row mb-3'<'col-sm-6'B><'col-sm-6 text-end'f>>" +
+                       "<'row'<'col-sm-12'tr>>" +
+                       "<'row mt-3'<'col-sm-5'i><'col-sm-7'p>>",
+                "buttons": [
+                    { extend: 'excel', text: '<i class="fa-solid fa-file-excel me-1"></i> Excel', className: 'btn btn-sm btn-outline-success' },
+                    { extend: 'csv', text: '<i class="fa-solid fa-file-csv me-1"></i> CSV', className: 'btn btn-sm btn-outline-primary' },
+                    { extend: 'print', text: '<i class="fa-solid fa-print me-1"></i> Print', className: 'btn btn-sm btn-outline-dark' }
+                ],
+                "language": {
+                    "search": "_INPUT_",
+                    "searchPlaceholder": "Search recoveries, username, package..."
+                }
+            });
         }
-    } else if (activeTabParam === 'activity' || activeTabParam === 'tab-activity' || activeTabParam === 'activityLogs') {
-        const triggerEl = document.querySelector('#activity-tab');
-        if (triggerEl) {
-            bootstrap.Tab.getOrCreateInstance(triggerEl).show();
+
+        if ($('#managerLogsTable').length) {
+            $('#managerLogsTable').DataTable({
+                "order": [[ 0, "desc" ]],
+                "columnDefs": [{ "type": "num", "targets": [0, 1] }],
+                "pageLength": 25,
+                "dom": "<'row mb-3'<'col-sm-6'B><'col-sm-6 text-end'f>>" +
+                       "<'row'<'col-sm-12'tr>>" +
+                       "<'row mt-3'<'col-sm-5'i><'col-sm-7'p>>",
+                "buttons": [
+                    { extend: 'excel', text: '<i class="fa-solid fa-file-excel me-1"></i> Excel', className: 'btn btn-sm btn-outline-success' },
+                    { extend: 'csv', text: '<i class="fa-solid fa-file-csv me-1"></i> CSV', className: 'btn btn-sm btn-outline-primary' },
+                    { extend: 'print', text: '<i class="fa-solid fa-print me-1"></i> Print', className: 'btn btn-sm btn-outline-dark' }
+                ],
+                "language": {
+                    "search": "_INPUT_",
+                    "searchPlaceholder": "Search activities..."
+                }
+            });
         }
-    } else if (activeTabParam === 'submissions' || activeTabParam === 'tab-submissions') {
-        const triggerEl = document.querySelector('#submissions-tab');
-        if (triggerEl) {
-            bootstrap.Tab.getOrCreateInstance(triggerEl).show();
+
+        if ($('#managerSubmissionsTable').length) {
+            $('#managerSubmissionsTable').DataTable({
+                "order": [[ 0, "desc" ]],
+                "columnDefs": [{ "type": "num", "targets": 0 }],
+                "pageLength": 25,
+                "dom": "<'row mb-3'<'col-sm-6'B><'col-sm-6 text-end'f>>" +
+                       "<'row'<'col-sm-12'tr>>" +
+                       "<'row mt-3'<'col-sm-5'i><'col-sm-7'p>>",
+                "buttons": [
+                    { extend: 'excel', text: '<i class="fa-solid fa-file-excel me-1"></i> Excel', className: 'btn btn-sm btn-outline-success' },
+                    { extend: 'csv', text: '<i class="fa-solid fa-file-csv me-1"></i> CSV', className: 'btn btn-sm btn-outline-primary' },
+                    { extend: 'print', text: '<i class="fa-solid fa-print me-1"></i> Print', className: 'btn btn-sm btn-outline-dark' }
+                ],
+                "language": {
+                    "search": "_INPUT_",
+                    "searchPlaceholder": "Search submissions..."
+                }
+            });
+        }
+
+        if ($('#managerStatementTable').length) {
+            var stmtConfig = {
+                "order": [[ 0, "desc" ]],
+                "columnDefs": [{ "type": "num", "targets": 0 }],
+                "pageLength": 25,
+                "language": { "search": "", "searchPlaceholder": "Search statement..." }
+            };
+            if ($.fn.dataTable.Buttons) {
+                stmtConfig.dom = '<"row align-items-center mb-3"<"col-md-5"l><"col-md-7 text-md-end dt-buttons"B>>rt<"row align-items-center mt-3"<"col-md-6"i><"col-md-6"p>>';
+                stmtConfig.buttons = [
+                    { extend: 'print', text: '<i class="fa-solid fa-print"></i> Print', className: 'btn btn-sm btn-outline-secondary' },
+                    { extend: 'excel', text: '<i class="fa-solid fa-file-excel text-success"></i> Excel', className: 'btn btn-sm btn-outline-secondary' },
+                    { extend: 'csv', text: '<i class="fa-solid fa-file-csv text-primary"></i> CSV', className: 'btn btn-sm btn-outline-secondary' },
+                    { extend: 'pdf', text: '<i class="fa-solid fa-file-pdf text-danger"></i> PDF', className: 'btn btn-sm btn-outline-secondary' },
+                    { extend: 'copy', text: '<i class="fa-solid fa-copy"></i> Copy', className: 'btn btn-sm btn-outline-secondary' }
+                ];
+            }
+            try {
+                $('#managerStatementTable').DataTable(stmtConfig);
+            } catch(e) {
+                console.warn('DataTables Buttons init warning:', e);
+                $('#managerStatementTable').DataTable(commonDtConfig);
+            }
         }
     }
 });
