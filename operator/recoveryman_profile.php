@@ -80,6 +80,10 @@ if (!empty($to_date) && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $to_date)) {
 $from_sql = !empty($from_date) ? "{$from_date} 00:00:00" : null;
 $to_sql = !empty($to_date) ? "{$to_date} 23:59:59" : null;
 $has_date_filter = (!empty($from_sql) || !empty($to_sql));
+$active_tab = !empty($_GET['tab']) ? trim($_GET['tab']) : '';
+if (!in_array($active_tab, ['activities', 'users', 'operator', 'statement'])) {
+    $active_tab = 'activities';
+}
 
 // Fetch User Collections by this RM
 $rm_ledger_sql = "
@@ -682,21 +686,21 @@ function applyRmDatePreset(preset) {
         <ul class="nav nav-tabs border-bottom" id="statementTabs" role="tablist">
             <!-- Tab on Left Side: All Operator Activities & Renewals -->
             <li class="nav-item" role="presentation">
-                <button class="nav-link active" id="activities-tab" data-bs-toggle="tab" data-bs-target="#activities" type="button" role="tab">
+                <button class="nav-link <?= ($active_tab === 'activities') ? 'active' : '' ?>" id="activities-tab" data-bs-toggle="tab" data-bs-target="#activities" type="button" role="tab">
                     <i class="fa-solid fa-bolt me-1 text-warning"></i> Operator Activities & Renewals
                     <span class="badge bg-primary ms-1"><?= count($all_activities) ?></span>
                 </button>
             </li>
             <!-- Existing Tab: Collections from Users -->
             <li class="nav-item" role="presentation">
-                <button class="nav-link" id="users-tab" data-bs-toggle="tab" data-bs-target="#users" type="button" role="tab">
+                <button class="nav-link <?= ($active_tab === 'users') ? 'active' : '' ?>" id="users-tab" data-bs-toggle="tab" data-bs-target="#users" type="button" role="tab">
                     <i class="fa-solid fa-money-bill-wave me-1 text-success"></i> Collections from Users
                     <span class="badge bg-secondary ms-1"><?= count($user_collections) ?></span>
                 </button>
             </li>
             <!-- Existing Tab: Submissions to Admin -->
             <li class="nav-item" role="presentation">
-                <button class="nav-link" id="operator-tab" data-bs-toggle="tab" data-bs-target="#operator" type="button" role="tab">
+                <button class="nav-link <?= ($active_tab === 'operator') ? 'active' : '' ?>" id="operator-tab" data-bs-toggle="tab" data-bs-target="#operator" type="button" role="tab">
                     <i class="fa-solid fa-building-columns me-1 text-danger"></i> Submissions to Admin
                     <span class="badge bg-secondary ms-1"><?= count($submissions) ?></span>
                 </button>
@@ -704,7 +708,7 @@ function applyRmDatePreset(preset) {
         
             <!-- New Tab: Statement (Bank-style Ledger) -->
             <li class="nav-item" role="presentation">
-                <button class="nav-link" id="statement-tab" data-bs-toggle="tab" data-bs-target="#statement" type="button" role="tab">
+                <button class="nav-link <?= ($active_tab === 'statement') ? 'active' : '' ?>" id="statement-tab" data-bs-toggle="tab" data-bs-target="#statement" type="button" role="tab">
                     <i class="fa-solid fa-file-invoice-dollar me-1 text-primary"></i> Statement
                     <span class="badge bg-primary ms-1"><?= count($statement_entries) ?></span>
                 </button>
@@ -715,7 +719,7 @@ function applyRmDatePreset(preset) {
         <div class="tab-content p-4" id="statementTabsContent">
             
             <!-- Tab 1 (Leftmost): All Activities & Renewals -->
-            <div class="tab-pane fade show active" id="activities" role="tabpanel">
+            <div class="tab-pane fade <?= ($active_tab === 'activities') ? 'show active' : '' ?>" id="activities" role="tabpanel">
                 
                 <!-- Quick Mini Stats -->
                 <div class="row g-3 mb-4">
@@ -848,7 +852,7 @@ function applyRmDatePreset(preset) {
             </div>
 
             <!-- Tab 2: User Collections -->
-            <div class="tab-pane fade" id="users" role="tabpanel">
+            <div class="tab-pane fade <?= ($active_tab === 'users') ? 'show active' : '' ?>" id="users" role="tabpanel">
                 <div class="table-responsive">
                     <table id="collectionsTable" class="table table-hover table-custom-ui table-borderless align-middle w-100">
                         <thead class="table-light">
@@ -909,7 +913,7 @@ function applyRmDatePreset(preset) {
             </div>
             
             <!-- Tab 3: Submissions to Operator -->
-            <div class="tab-pane fade" id="operator" role="tabpanel">
+            <div class="tab-pane fade <?= ($active_tab === 'operator') ? 'show active' : '' ?>" id="operator" role="tabpanel">
                 <div class="table-responsive">
                     <table id="submissionsTable" class="table table-hover table-custom-ui table-borderless align-middle w-100">
                         <thead class="table-light">
@@ -941,7 +945,7 @@ function applyRmDatePreset(preset) {
             </div>
 
             <!-- Tab 4: Account Statement (Bank-style Ledger) -->
-            <div class="tab-pane fade" id="statement" role="tabpanel">
+            <div class="tab-pane fade <?= ($active_tab === 'statement') ? 'show active' : '' ?>" id="statement" role="tabpanel">
 
                 <!-- Statement Top Header Bar -->
                 <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-3">
@@ -1275,81 +1279,131 @@ function applyRmDatePreset(preset) {
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.53/vfs_fonts.js"></script>
 <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.html5.min.js"></script>
 <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.print.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
 
 <script>
-$(document).ready(function() {
-    $('#activitiesTable').DataTable({
-        "order": [[ 0, "desc" ]],
-        "pageLength": 25,
-        "language": {
-            "search": "",
-            "searchPlaceholder": "Search activities..."
-        }
-    });
-
-    $('#collectionsTable').DataTable({
-        "order": [[ 0, "desc" ]],
-        "pageLength": 25,
-        "language": {
-            "search": "",
-            "searchPlaceholder": "Search collections..."
-        }
-    });
-
-    $('#submissionsTable').DataTable({
-        "order": [[ 0, "desc" ]],
-        "pageLength": 25,
-        "language": {
-            "search": "",
-            "searchPlaceholder": "Search submissions..."
-        }
-    });
-
-    // Auto adjust table layout when switching tabs
-        // Statement Table with DataTables Buttons
-    $('#statementTable').DataTable({
-        "order": [[ 0, "desc" ]],
-        "pageLength": 25,
-        "dom": '<"row align-items-center mb-3"<"col-md-5"l><"col-md-7 text-md-end dt-buttons"B>>rt<"row align-items-center mt-3"<"col-md-6"i><"col-md-6"p>>',
-        "buttons": [
-            { extend: 'print', text: '<i class="fa-solid fa-print"></i> Print', className: 'btn btn-sm btn-outline-secondary' },
-            { extend: 'excel', text: '<i class="fa-solid fa-file-excel text-success"></i> Excel', className: 'btn btn-sm btn-outline-secondary' },
-            { extend: 'csv', text: '<i class="fa-solid fa-file-csv text-primary"></i> CSV', className: 'btn btn-sm btn-outline-secondary' },
-            { extend: 'pdf', text: '<i class="fa-solid fa-file-pdf text-danger"></i> PDF', className: 'btn btn-sm btn-outline-secondary' },
-            { extend: 'copy', text: '<i class="fa-solid fa-copy"></i> Copy', className: 'btn btn-sm btn-outline-secondary' }
-        ],
-        "language": {
-            "search": "",
-            "searchPlaceholder": "Search statement..."
-        }
-    });
-
-    // Auto adjust table layout when switching tabs & persist tab
-    $('button[data-bs-toggle="tab"]').on('shown.bs.tab', function (e) {
-        var targetId = $(e.target).attr('data-bs-target').replace('#', '');
-        if (history.replaceState) {
-            history.replaceState(null, null, '#' + targetId);
-        }
-        $('#rm_filter_active_tab').val(targetId);
-        $.fn.dataTable.tables({ visible: true, api: true }).columns.adjust();
-    });
-
-    // Handle deep-linking to tabs via ?tab= or #hash
-    var urlParams = new URLSearchParams(window.location.search);
-    var activeTabParam = urlParams.get('tab') || window.location.hash.replace('#', '');
-    if (activeTabParam) {
-        var targetTabBtn = document.getElementById(activeTabParam + '-tab');
-        if (targetTabBtn) {
-            var tabTrigger = new bootstrap.Tab(targetTabBtn);
-            tabTrigger.show();
-        }
-    }
-});
-
 function printRecoveryStatement() {
     window.print();
 }
-</script>
 
+// 100% Guaranteed Tab Switching & Deep Linking Function
+function switchRmProfileTab(tabId) {
+    if (!tabId) return;
+    var validTabs = ['activities', 'users', 'operator', 'statement'];
+    if (validTabs.indexOf(tabId) === -1) return;
+
+    // Remove active from all nav-links
+    document.querySelectorAll('#statementTabs .nav-link').forEach(function(el) {
+        el.classList.remove('active');
+        el.setAttribute('aria-selected', 'false');
+    });
+
+    // Remove show & active from all tab-panes
+    document.querySelectorAll('#statementTabsContent .tab-pane').forEach(function(el) {
+        el.classList.remove('show', 'active');
+    });
+
+    // Activate the targeted tab and pane
+    var btn = document.getElementById(tabId + '-tab');
+    var pane = document.getElementById(tabId);
+    if (btn) {
+        btn.classList.add('active');
+        btn.setAttribute('aria-selected', 'true');
+    }
+    if (pane) {
+        pane.classList.add('show', 'active');
+    }
+
+    // Keep hidden filter input in sync
+    var filterTabInput = document.getElementById('rm_filter_active_tab');
+    if (filterTabInput) {
+        filterTabInput.value = tabId;
+    }
+
+    // Update browser URL hash without jump
+    if (window.history && window.history.replaceState) {
+        window.history.replaceState(null, null, '#' + tabId);
+    }
+
+    // Adjust DataTable column widths
+    if (window.jQuery && $.fn && $.fn.dataTable) {
+        setTimeout(function() {
+            $.fn.dataTable.tables({ visible: true, api: true }).columns.adjust();
+        }, 50);
+    }
+}
+
+// Attach instant click listeners to tab buttons
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('#statementTabs button[data-bs-toggle="tab"]').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+            var targetId = this.getAttribute('data-bs-target').replace('#', '');
+            switchRmProfileTab(targetId);
+        });
+    });
+
+    // Check URL parameters and hash on load
+    var urlParams = new URLSearchParams(window.location.search);
+    var targetTab = urlParams.get('tab') || (window.location.hash ? window.location.hash.replace('#', '') : '');
+    if (targetTab && ['activities', 'users', 'operator', 'statement'].indexOf(targetTab) !== -1) {
+        switchRmProfileTab(targetTab);
+    }
+});
+
+// Window hashchange listener (back/forward or hash clicks)
+window.addEventListener('hashchange', function() {
+    var h = window.location.hash.replace('#', '');
+    if (h) switchRmProfileTab(h);
+});
+
+// Initialize DataTables safely
+$(document).ready(function() {
+    var commonDtConfig = {
+        "order": [[ 0, "desc" ]],
+        "columnDefs": [{ "type": "num", "targets": 0 }],
+        "pageLength": 25,
+        "language": { "search": "", "searchPlaceholder": "Search..." }
+    };
+
+    if ($.fn.DataTable) {
+        if ($('#activitiesTable').length) {
+            $('#activitiesTable').DataTable($.extend({}, commonDtConfig, {
+                "language": { "search": "", "searchPlaceholder": "Search activities..." }
+            }));
+        }
+        if ($('#collectionsTable').length) {
+            $('#collectionsTable').DataTable($.extend({}, commonDtConfig, {
+                "language": { "search": "", "searchPlaceholder": "Search collections..." }
+            }));
+        }
+        if ($('#submissionsTable').length) {
+            $('#submissionsTable').DataTable($.extend({}, commonDtConfig, {
+                "language": { "search": "", "searchPlaceholder": "Search submissions..." }
+            }));
+        }
+
+        if ($('#statementTable').length) {
+            var stmtConfig = $.extend({}, commonDtConfig, {
+                "language": { "search": "", "searchPlaceholder": "Search statement..." }
+            });
+            if ($.fn.dataTable.Buttons) {
+                stmtConfig.dom = '<"row align-items-center mb-3"<"col-md-5"l><"col-md-7 text-md-end dt-buttons"B>>rt<"row align-items-center mt-3"<"col-md-6"i><"col-md-6"p>>';
+                stmtConfig.buttons = [
+                    { extend: 'print', text: '<i class="fa-solid fa-print"></i> Print', className: 'btn btn-sm btn-outline-secondary' },
+                    { extend: 'excel', text: '<i class="fa-solid fa-file-excel text-success"></i> Excel', className: 'btn btn-sm btn-outline-secondary' },
+                    { extend: 'csv', text: '<i class="fa-solid fa-file-csv text-primary"></i> CSV', className: 'btn btn-sm btn-outline-secondary' },
+                    { extend: 'pdf', text: '<i class="fa-solid fa-file-pdf text-danger"></i> PDF', className: 'btn btn-sm btn-outline-secondary' },
+                    { extend: 'copy', text: '<i class="fa-solid fa-copy"></i> Copy', className: 'btn btn-sm btn-outline-secondary' }
+                ];
+            }
+            try {
+                $('#statementTable').DataTable(stmtConfig);
+            } catch(e) {
+                console.warn('DataTables Buttons init warning:', e);
+                $('#statementTable').DataTable(commonDtConfig);
+            }
+        }
+    }
+});
+</script>
 <?php require_once 'footer.php'; ?>
