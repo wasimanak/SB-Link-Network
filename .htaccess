@@ -46,6 +46,8 @@ RewriteRule ^ %1 [R=301,L]
 
 # 6b. Admin to Operator Alias Routing (preserves backwards compatibility)
 RewriteRule ^admin/settings/?$ operator/profile.php [L,QSA]
+RewriteRule ^admin/backups/?$ operator/backups.php [L,QSA]
+RewriteRule ^operator/backups/?$ operator/backups.php [L,QSA]
 RewriteRule ^admin/?$ operator/dashboard.php [L,QSA]
 RewriteRule ^admin/(.*)$ operator/$1 [L,QSA]
 RewriteRule ^superadmin/admins/?$ superadmin/operators.php [L,QSA]

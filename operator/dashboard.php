@@ -11,6 +11,15 @@ if (!isset($_SESSION['last_expiry_sync']) || (time() - $_SESSION['last_expiry_sy
     $_SESSION['last_expiry_sync'] = time();
 }
 
+// Auto-Check Daily Financial Backup (Once every 24 hours)
+if (empty($is_mgr) && (!isset($_SESSION['last_financial_backup_check']) || (time() - $_SESSION['last_financial_backup_check']) > 3600)) {
+    require_once __DIR__ . '/../config/financial_backup_helper.php';
+    try {
+        auto_trigger_daily_backup_if_needed($pdo, $client_id);
+    } catch (Exception $e) {}
+    $_SESSION['last_financial_backup_check'] = time();
+}
+
 // --- Handle CSV Restore ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'restore_backup') {
     if (!empty($_SESSION['is_manager'])) {
@@ -1091,6 +1100,11 @@ unset($ms);
     <a href="javascript:void(0)" class="btn-zal-pill" data-bs-toggle="modal" data-bs-target="#restoreModal">
         <i class="fa-solid fa-cloud-arrow-down"></i> Import
     </a>
+    <?php if (empty($is_mgr)): ?>
+    <a href="backups" class="btn-zal-pill">
+        <i class="fa-solid fa-cloud-arrow-down"></i> Backups
+    </a>
+    <?php endif; ?>
     <a href="backup_users" class="btn-zal-pill">
         <i class="fa-solid fa-cloud-arrow-up"></i> Export
     </a>

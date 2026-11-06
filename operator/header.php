@@ -672,6 +672,14 @@ $userRoleLabel = !empty($_SESSION['is_manager']) ? 'MANAGER' : 'ADMIN';
                 </ul>
             </div>
 
+            <!-- 12. Financial Backups (30-Day Auto Retention & 1-Click Restore) -->
+            <?php if (empty($_SESSION['is_manager'])): ?>
+            <a href="backups" class="nav-item-link <?= in_array($p, ['backups.php', 'backups']) ? 'active-parent' : '' ?>">
+                <i class="fa-solid fa-cloud-arrow-down nav-icon"></i>
+                <span class="nav-text">Backups</span>
+            </a>
+            <?php endif; ?>
+
         </div>
         </div>
 
