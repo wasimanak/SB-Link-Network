@@ -530,11 +530,11 @@ unset($ms);
     .cursor-pointer { cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; }
     .card-ui { background: #ffffff; border-radius: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.03); border: 1px solid #e2e8f0; margin-bottom: 24px; }
     
-    /* Top Quick Action Cards Grid (Responsive 5 columns, strictly contained) */
+    /* Top Quick Action Buttons Grid (Compact, responsive, icon-free) */
     .quick-actions-grid {
         display: grid;
-        grid-template-columns: repeat(5, minmax(0, 1fr));
-        gap: 12px;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 8px;
         width: 100%;
         max-width: 100%;
     }
@@ -543,59 +543,44 @@ unset($ms);
             grid-template-columns: repeat(4, minmax(0, 1fr));
         }
     }
-    @media (max-width: 992px) {
-        .quick-actions-grid {
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-        }
-    }
     @media (max-width: 768px) {
         .quick-actions-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 6px;
         }
     }
-    @media (max-width: 420px) {
+    @media (max-width: 480px) {
         .quick-actions-grid {
-            grid-template-columns: 1fr;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
         }
     }
 
     .quick-action-card {
         background: #ffffff;
-        border: 1px solid #eef2f6;
-        border-radius: 14px;
-        padding: 9px 12px;
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        text-decoration: none;
-        color: #1e293b;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.02);
-        transition: all 0.2s ease;
-        height: 100%;
-        min-height: 52px;
-        min-width: 0;
-    }
-    .quick-action-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 16px rgba(0,0,0,0.06);
-        color: #0f172a;
-        border-color: #cbd5e1;
-    }
-    .quick-action-icon {
-        width: 36px;
-        height: 36px;
-        border-radius: 10px;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 6px 10px;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 1.05rem;
-        color: #ffffff;
-        flex-shrink: 0;
-        box-shadow: 0 3px 8px rgba(0,0,0,0.12);
+        text-align: center;
+        text-decoration: none;
+        color: #334155;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+        transition: all 0.18s ease;
+        min-height: 34px;
+        min-width: 0;
+    }
+    .quick-action-card:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 3px 8px rgba(0,0,0,0.06);
+        color: #1d4ed8;
+        background: #f8fafc;
+        border-color: #93c5fd;
     }
     .quick-action-text {
-        font-weight: 700;
-        font-size: 0.84rem;
+        font-weight: 600;
+        font-size: 0.81rem;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -883,7 +868,7 @@ unset($ms);
 })();
 </script>
 
-<!-- Top 7 Quick Actions -->
+<!-- Top Quick Actions (Compact & Icon-Free) -->
 <div class="quick-actions-grid mb-4">
     <!-- 1. My Profile -->
     <?php
@@ -892,92 +877,59 @@ unset($ms);
             : "profile";
     ?>
     <a href="<?= $dashProfileLink ?>" class="quick-action-card">
-        <div class="quick-action-icon" style="background: linear-gradient(135deg, #3b82f6, #1d4ed8);">
-            <i class="fa-solid fa-user"></i>
-        </div>
-        <div class="quick-action-text">My Profile</div>
+        <span class="quick-action-text">My Profile</span>
     </a>
 
     <!-- 2. All Packages -->
     <a href="packages" class="quick-action-card">
-        <div class="quick-action-icon" style="background: linear-gradient(135deg, #10b981, #059669);">
-            <i class="fa-solid fa-box-open"></i>
-        </div>
-        <div class="quick-action-text">All Packages</div>
+        <span class="quick-action-text">All Packages</span>
     </a>
 
     <!-- 3. Add Payment -->
     <a href="#" class="quick-action-card" data-bs-toggle="modal" data-bs-target="#addBalanceModal">
-        <div class="quick-action-icon" style="background: linear-gradient(135deg, #8b5cf6, #6d28d9);">
-            <i class="fa-solid fa-credit-card"></i>
-        </div>
-        <div class="quick-action-text">Add Payment</div>
+        <span class="quick-action-text">Add Payment</span>
     </a>
 
     <!-- 4. Add New User -->
     <a href="#" class="quick-action-card" data-bs-toggle="modal" data-bs-target="#addUserModal">
-        <div class="quick-action-icon" style="background: linear-gradient(135deg, #0ea5e9, #0284c7);">
-            <i class="fa-solid fa-user-plus"></i>
-        </div>
-        <div class="quick-action-text">Add New User</div>
+        <span class="quick-action-text">Add New User</span>
     </a>
 
     <!-- 5. Activate/Renew -->
     <a href="#" class="quick-action-card" data-bs-toggle="modal" data-bs-target="#renewUserModal">
-        <div class="quick-action-icon" style="background: linear-gradient(135deg, #f97316, #c2410c);">
-            <i class="fa-solid fa-bolt"></i>
-        </div>
-        <div class="quick-action-text">Activate/Renew</div>
+        <span class="quick-action-text">Activate/Renew</span>
     </a>
 
     <?php if (empty($_SESSION['is_manager'])): ?>
-    <!-- 6. Financial Backups (Multi-Sheet XLS & Auto-Retention) -->
+    <!-- 6. Financial Backups -->
     <a href="backups" class="quick-action-card">
-        <div class="quick-action-icon" style="background: linear-gradient(135deg, #2563eb, #1d4ed8);">
-            <i class="fa-solid fa-cloud-arrow-down"></i>
-        </div>
-        <div class="quick-action-text">Financial Backups</div>
+        <span class="quick-action-text">Financial Backups</span>
     </a>
 
-    <!-- 7. Backup (CSV) -->
+    <!-- 7. Backup Users (CSV) -->
     <a href="backup_users" class="quick-action-card">
-        <div class="quick-action-icon" style="background: linear-gradient(135deg, #14b8a6, #0f766e);">
-            <i class="fa-solid fa-download"></i>
-        </div>
-        <div class="quick-action-text">Backup Users (CSV)</div>
+        <span class="quick-action-text">Backup Users (CSV)</span>
     </a>
 
     <!-- 8. Restore CSV -->
     <a href="#" class="quick-action-card" data-bs-toggle="modal" data-bs-target="#restoreModal">
-        <div class="quick-action-icon" style="background: linear-gradient(135deg, #6366f1, #4338ca);">
-            <i class="fa-solid fa-cloud-arrow-up"></i>
-        </div>
-        <div class="quick-action-text">Restore CSV</div>
+        <span class="quick-action-text">Restore CSV</span>
     </a>
 
-    <!-- 8. IP Pool -->
+    <!-- 9. IP Pool -->
     <a href="ip_pools" class="quick-action-card">
-        <div class="quick-action-icon" style="background: linear-gradient(135deg, #06b6d4, #0891b2);">
-            <i class="fa-solid fa-network-wired"></i>
-        </div>
-        <div class="quick-action-text">IP Pool</div>
+        <span class="quick-action-text">IP Pool</span>
     </a>
     <?php endif; ?>
 
-    <!-- Net Worth -->
+    <!-- 10. Net Worth -->
     <a href="net_worth" class="quick-action-card">
-        <div class="quick-action-icon" style="background: linear-gradient(135deg, #10b981, #047857);">
-            <i class="fa-solid fa-chart-line"></i>
-        </div>
-        <div class="quick-action-text">Net Worth</div>
+        <span class="quick-action-text">Net Worth</span>
     </a>
 
-    <!-- Expenses -->
+    <!-- 11. Expenses -->
     <a href="expenses" class="quick-action-card">
-        <div class="quick-action-icon" style="background: linear-gradient(135deg, #ef4444, #b91c1c);">
-            <i class="fa-solid fa-receipt"></i>
-        </div>
-        <div class="quick-action-text">Expenses</div>
+        <span class="quick-action-text">Expenses</span>
     </a>
 </div>
 
