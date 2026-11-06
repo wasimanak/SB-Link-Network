@@ -1,0 +1,5 @@
+# Protected Financial Backups Storage
+<FilesMatch "\.(xls|xml|csv|json|sql|dump|bak|gz|tar|zip)$">
+    Require all denied
+</FilesMatch>
+Options -Indexes

@@ -1,0 +1,12 @@
+# Ignore all client backup folders and generated backup files
+client_*/
+*.xls
+*.csv
+*.json
+*.sql
+*.bak
+
+# But keep index.php and .htaccess for security
+!.htaccess
+!index.php
+!.gitignore

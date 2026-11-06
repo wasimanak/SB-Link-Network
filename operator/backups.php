@@ -42,9 +42,18 @@ if (isset($_GET['download']) && !empty($_GET['download'])) {
     
     $cleanBase = preg_replace('/[^a-zA-Z0-9_-]/', '', $baseName);
     $ext = in_array($format, ['xls', 'csv', 'json']) ? $format : 'xls';
-    $filePath = $storage_dir . '/' . $cleanBase . '.' . $ext;
+    
+    $candidates = get_financial_backup_storage_candidates($client_id);
+    $filePath = null;
+    foreach ($candidates as $cDir) {
+        $tryFile = $cDir . '/' . $cleanBase . '.' . $ext;
+        if (file_exists($tryFile)) {
+            $filePath = $tryFile;
+            break;
+        }
+    }
 
-    if (!file_exists($filePath)) {
+    if (!$filePath || !file_exists($filePath)) {
         die("Error: The requested backup file does not exist on storage.");
     }
 
@@ -178,9 +187,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $backup_base = trim($_POST['backup_basename'] ?? '');
         if (!empty($backup_base) && strpos($backup_base, "fin_backup_client{$client_id}_") === 0) {
             $cleanBase = preg_replace('/[^a-zA-Z0-9_-]/', '', $backup_base);
-            @unlink($storage_dir . '/' . $cleanBase . '.xls');
-            @unlink($storage_dir . '/' . $cleanBase . '.csv');
-            @unlink($storage_dir . '/' . $cleanBase . '.json');
+            $candidates = get_financial_backup_storage_candidates($client_id);
+            foreach ($candidates as $cDir) {
+                @unlink($cDir . '/' . $cleanBase . '.xls');
+                @unlink($cDir . '/' . $cleanBase . '.csv');
+                @unlink($cDir . '/' . $cleanBase . '.json');
+            }
             $flash_msg = "Backup snapshot <strong>{$cleanBase}</strong> was deleted from storage.";
             $flash_type = "warning";
         }
@@ -357,6 +369,23 @@ $latest_backup = $backups[0] ?? null;
             </button>
         </div>
     </div>
+
+    <!-- Storage Permission Check Warning (For VPS / Linux Permissions) -->
+    <?php if (!is_dir_actually_writable($storage_dir)): ?>
+        <div class="alert alert-warning alert-dismissible fade show rounded-4 border-0 shadow-sm p-3 mb-4" role="alert">
+            <div class="d-flex align-items-start gap-2">
+                <i class="fa-solid fa-triangle-exclamation text-warning fs-5 mt-1"></i>
+                <div class="flex-grow-1 small">
+                    <strong>Storage Permission Notice:</strong> The backup directory (<code><?= htmlspecialchars($storage_dir) ?></code>) is not writable by the web server.
+                    <div class="mt-1">
+                        To grant write access on your Linux VPS terminal, run:
+                        <code class="d-block mt-1 p-2 bg-dark text-white rounded user-select-all">sudo chmod -R 777 uploads/backups_storage backups_storage 2>/dev/null; sudo chown -R www-data:www-data uploads/backups_storage backups_storage 2>/dev/null</code>
+                    </div>
+                </div>
+                <button type="button" class="btn-close shadow-none" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        </div>
+    <?php endif; ?>
 
     <!-- Flash Alert Message -->
     <?php if (!empty($flash_msg)): ?>

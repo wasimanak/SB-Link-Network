@@ -35,31 +35,91 @@ if (!function_exists('parse_transaction_collector')) {
 }
 
 /**
+ * Reliable cross-platform directory write check (bypasses Windows NTFS is_writable bug)
+ */
+if (!function_exists('is_dir_actually_writable')) {
+    function is_dir_actually_writable($dir) {
+        if (!is_dir($dir)) return false;
+        $testFile = rtrim($dir, '/\\') . '/.wtest_' . bin2hex(random_bytes(4));
+        $written = @file_put_contents($testFile, '1');
+        if ($written !== false) {
+            @unlink($testFile);
+            return true;
+        }
+        return false;
+    }
+}
+
+/**
+ * Get all possible storage candidate directories for a client.
+ * 1. uploads/backups_storage/client_{id} (Preferred because uploads/ is already owned/writable by www-data on VPS)
+ * 2. backups_storage/client_{id} (Root-level fallback)
+ */
+if (!function_exists('get_financial_backup_storage_candidates')) {
+    function get_financial_backup_storage_candidates($client_id) {
+        $client_id = (int)$client_id;
+        return [
+            dirname(__DIR__) . '/uploads/backups_storage/client_' . $client_id,
+            dirname(__DIR__) . '/backups_storage/client_' . $client_id
+        ];
+    }
+}
+
+/**
  * Get or create the isolated secure backup storage directory for a client.
+ * Automatically chooses the best writable directory between uploads/ and root.
  * Includes .htaccess and index.php to block direct HTTP web access.
  */
 if (!function_exists('get_financial_backup_storage_dir')) {
     function get_financial_backup_storage_dir($client_id) {
         $client_id = (int)$client_id;
-        $base = dirname(__DIR__) . '/backups_storage/client_' . $client_id;
+        $candidates = get_financial_backup_storage_candidates($client_id);
         
-        if (!is_dir($base)) {
-            @mkdir($base, 0777, true);
+        $selected = null;
+        // Check if an existing candidate is already writable
+        foreach ($candidates as $dir) {
+            if (is_dir_actually_writable($dir)) {
+                $selected = $dir;
+                break;
+            }
+        }
+        
+        // If neither exists and is writable, try creating them (starting with uploads/ which is standard www-data writable)
+        if (!$selected) {
+            foreach ($candidates as $dir) {
+                if (!is_dir($dir)) {
+                    @mkdir($dir, 0777, true);
+                    @chmod($dir, 0777);
+                }
+                if (is_dir_actually_writable($dir)) {
+                    $selected = $dir;
+                    break;
+                }
+            }
+        }
+        
+        // Default to uploads/ candidate
+        if (!$selected) {
+            $selected = $candidates[0];
+            if (!is_dir($selected)) {
+                @mkdir($selected, 0777, true);
+                @chmod($selected, 0777);
+            }
         }
         
         // Strict Apache Access Control: block direct download of data files
-        $htaccess = $base . '/.htaccess';
+        $htaccess = $selected . '/.htaccess';
         if (!file_exists($htaccess)) {
             @file_put_contents($htaccess, "# Protected Financial Backups Storage\n<FilesMatch \"\\.(xls|xml|csv|json|sql|dump|bak|gz|tar|zip)$\">\n    Require all denied\n</FilesMatch>\nOptions -Indexes\n");
         }
         
         // Block directory listing
-        $index = $base . '/index.php';
+        $index = $selected . '/index.php';
         if (!file_exists($index)) {
             @file_put_contents($index, "<?php header('HTTP/1.0 403 Forbidden'); exit('Access Denied');\n");
         }
         
-        return $base;
+        return $selected;
     }
 }
 
@@ -1140,11 +1200,16 @@ if (!function_exists('create_client_financial_backup')) {
 
         // 1. Build Multi-Sheet XML
         $xmlContent = build_multisheet_excel_xml($data);
-        @file_put_contents($xlsPath, $xmlContent);
+        $wXls = @file_put_contents($xlsPath, $xmlContent);
+        if ($wXls === false || $wXls <= 0) {
+            $err = error_get_last();
+            $errMsg = $err['message'] ?? 'Permission denied';
+            throw new Exception("Storage write failed for '{$xlsPath}'. Directory '{$dir}' is not writable by web server. ({$errMsg}). Please ensure permissions: chmod -R 777 uploads/backups_storage or chown -R www-data:www-data uploads/backups_storage");
+        }
 
         // 2. Build Master Flat CSV
         $csvContent = build_flat_csv($data);
-        @file_put_contents($csvPath, $csvContent);
+        $wCsv = @file_put_contents($csvPath, $csvContent);
 
         // 3. Build Full Database JSON Payload (For 100% loss-free database restore)
         $jsonPayload = [
@@ -1171,7 +1236,7 @@ if (!function_exists('create_client_financial_backup')) {
             'staff_salaries'   => $data['staff_salaries'],
             'expenses'         => $data['expenses']
         ];
-        @file_put_contents($jsonPath, json_encode($jsonPayload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+        $wJson = @file_put_contents($jsonPath, json_encode($jsonPayload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
 
         // Enforce 30-day retention
         prune_financial_backups($client_id, FINANCIAL_BACKUP_RETENTION_DAYS);
@@ -1184,13 +1249,14 @@ if (!function_exists('create_client_financial_backup')) {
                 ->execute([$client_id, $user, $actMsg]);
         } catch (Exception $e) {}
 
+        $realSize = file_exists($xlsPath) ? filesize($xlsPath) : 0;
         return [
             'basename'      => $baseName,
             'xls_file'      => basename($xlsPath),
             'csv_file'      => basename($csvPath),
             'json_file'     => basename($jsonPath),
-            'size_bytes'    => filesize($xlsPath),
-            'size_fmt'      => round(filesize($xlsPath) / 1024, 1) . ' KB',
+            'size_bytes'    => $realSize,
+            'size_fmt'      => round($realSize / 1024, 1) . ' KB',
             'records_count' => count($data['user_collections']),
             'total_amount'  => $data['total_collected_amount'],
             'created_at'    => date('Y-m-d H:i:s')
@@ -1199,21 +1265,36 @@ if (!function_exists('create_client_financial_backup')) {
 }
 
 /**
- * List all available financial backups for this client (Up to 30 most recent)
+ * List all available financial backups for this client across candidate storage folders (Up to 30 most recent)
  */
 if (!function_exists('list_client_financial_backups')) {
     function list_client_financial_backups($client_id) {
         $client_id = (int)$client_id;
-        $dir = get_financial_backup_storage_dir($client_id);
+        $candidates = get_financial_backup_storage_candidates($client_id);
         
-        $files = glob($dir . '/fin_backup_*.xls');
-        if (!$files) return [];
+        $allFiles = [];
+        foreach ($candidates as $dir) {
+            if (is_dir($dir)) {
+                $found = glob($dir . '/fin_backup_*.xls');
+                if ($found) {
+                    foreach ($found as $f) {
+                        $bName = basename($f);
+                        if (!isset($allFiles[$bName])) {
+                            $allFiles[$bName] = $f;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (empty($allFiles)) return [];
 
         $list = [];
-        foreach ($files as $file) {
+        foreach ($allFiles as $file) {
+            $fDir = dirname($file);
             $base = pathinfo($file, PATHINFO_FILENAME);
-            $jsonFile = $dir . '/' . $base . '.json';
-            $csvFile  = $dir . '/' . $base . '.csv';
+            $jsonFile = $fDir . '/' . $base . '.json';
+            $csvFile  = $fDir . '/' . $base . '.csv';
             
             $mtime = filemtime($file);
             $size = filesize($file);
@@ -1248,6 +1329,7 @@ if (!function_exists('list_client_financial_backups')) {
                 'size_bytes'    => $size,
                 'size_fmt'      => round($size / 1024, 1) . ' KB',
                 'type'          => $type,
+                'storage_dir'   => $fDir,
                 'summary'       => $meta['summary'] ?? [
                     'total_user_collections' => 'N/A'
                 ]
@@ -1270,25 +1352,37 @@ if (!function_exists('prune_financial_backups')) {
     function prune_financial_backups($client_id, $keep_count = 30) {
         $client_id = (int)$client_id;
         $keep_count = max(5, (int)$keep_count);
-        $dir = get_financial_backup_storage_dir($client_id);
+        $candidates = get_financial_backup_storage_candidates($client_id);
 
-        $xlsFiles = glob($dir . '/fin_backup_*.xls');
-        if (!$xlsFiles || count($xlsFiles) <= $keep_count) {
+        $allXls = [];
+        foreach ($candidates as $dir) {
+            if (is_dir($dir)) {
+                $found = glob($dir . '/fin_backup_*.xls');
+                if ($found) {
+                    foreach ($found as $f) {
+                        $allXls[basename($f)] = $f;
+                    }
+                }
+            }
+        }
+
+        if (count($allXls) <= $keep_count) {
             return 0;
         }
 
         // Sort descending by modified time
-        usort($xlsFiles, function($a, $b) {
+        uasort($allXls, function($a, $b) {
             return filemtime($b) - filemtime($a);
         });
 
         $pruned = 0;
-        $toRemove = array_slice($xlsFiles, $keep_count);
+        $toRemove = array_slice($allXls, $keep_count);
         foreach ($toRemove as $oldXls) {
+            $fDir = dirname($oldXls);
             $base = pathinfo($oldXls, PATHINFO_FILENAME);
             @unlink($oldXls);
-            @unlink($dir . '/' . $base . '.csv');
-            @unlink($dir . '/' . $base . '.json');
+            @unlink($fDir . '/' . $base . '.csv');
+            @unlink($fDir . '/' . $base . '.json');
             $pruned++;
         }
 
@@ -1304,12 +1398,19 @@ if (!function_exists('prune_financial_backups')) {
 if (!function_exists('restore_client_financial_backup')) {
     function restore_client_financial_backup($pdo, $client_id, $backup_basename) {
         $client_id = (int)$client_id;
-        $dir = get_financial_backup_storage_dir($client_id);
-        
         $cleanBase = preg_replace('/[^a-zA-Z0-9_-]/', '', $backup_basename);
-        $jsonFile = $dir . '/' . $cleanBase . '.json';
+        $candidates = get_financial_backup_storage_candidates($client_id);
+        
+        $jsonFile = null;
+        foreach ($candidates as $cDir) {
+            $tryFile = $cDir . '/' . $cleanBase . '.json';
+            if (file_exists($tryFile)) {
+                $jsonFile = $tryFile;
+                break;
+            }
+        }
 
-        if (!file_exists($jsonFile)) {
+        if (!$jsonFile || !file_exists($jsonFile)) {
             throw new Exception("Backup JSON payload not found for: {$cleanBase}");
         }
 
