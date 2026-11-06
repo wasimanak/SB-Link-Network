@@ -1,3 +1,9 @@
+        <!-- Operator Footer Branding -->
+        <footer class="mt-5 mb-4 text-center">
+            <p class="small text-muted mb-0">
+                Powered by <a href="mailto:businessoperation7616@gmail.com" class="text-decoration-none fw-semibold text-primary" title="Contact Alpha4Technologies">Alpha4Technologies</a>
+            </p>
+        </footer>
     </div> <!-- End main-content -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <style>

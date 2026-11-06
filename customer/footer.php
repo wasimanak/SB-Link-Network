@@ -62,7 +62,7 @@ if (!isset($operator_info) && isset($client_id)) {
         
         <div class="text-center mt-4 pt-3 border-top border-secondary border-opacity-25 small text-muted">
             &copy; <?= date('Y') ?> <?= htmlspecialchars($operator_info['company_name'] ?? BRAND_NAME) ?>. All Rights Reserved. Fully compliant with consumer protection &amp; payment gateway standards. <br>
-            <span class="text-muted" style="font-size:0.75rem;">Powered by <?= BRAND_POWERED_BY ?></span>
+            <span class="text-muted" style="font-size:0.8rem;">Powered by <a href="mailto:businessoperation7616@gmail.com" class="text-decoration-none fw-semibold text-primary" title="Contact Alpha4Technologies">Alpha4Technologies</a></span>
         </div>
     </div>
 </footer>
