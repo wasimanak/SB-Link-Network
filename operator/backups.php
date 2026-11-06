@@ -5,7 +5,10 @@
 // Strictly retains the last 30 daily snapshots per client
 // =========================================================================
 
-require_once 'header.php';
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../config/financial_backup_helper.php';
 
 // Auth Guard: Only Admin / Operator can access Backups
@@ -21,18 +24,14 @@ if (!empty($_SESSION['is_manager'])) {
 $client_id = (int)$_SESSION['operator_id'];
 $storage_dir = get_financial_backup_storage_dir($client_id);
 
-// Auto-trigger daily backup if none generated in the last 24 hours
-try {
-    auto_trigger_daily_backup_if_needed($pdo, $client_id);
-} catch (Exception $e) {}
-
-$flash_msg = '';
-$flash_type = 'success';
-
 // -------------------------------------------------------------------------
-// 1. Handle File Download (xls, csv, json)
+// 1. Handle File Download (xls, csv, json) - MUST RUN BEFORE header.php!
 // -------------------------------------------------------------------------
 if (isset($_GET['download']) && !empty($_GET['download'])) {
+    while (ob_get_level()) {
+        ob_end_clean();
+    }
+    
     $baseName = basename($_GET['download']);
     $format   = strtolower($_GET['format'] ?? 'xls');
     
@@ -57,13 +56,31 @@ if (isset($_GET['download']) && !empty($_GET['download'])) {
         header('Content-Type: application/json; charset=utf-8');
     }
     
+    header('Content-Description: File Transfer');
     header('Content-Disposition: attachment; filename="' . basename($filePath) . '"');
-    header('Content-Length: ' . filesize($filePath));
-    header('Cache-Control: max-age=0, no-cache, no-store, must-revalidate');
+    header('Content-Transfer-Encoding: binary');
+    header('Expires: 0');
+    header('Cache-Control: must-revalidate, post-check=0, pre-check=0');
     header('Pragma: public');
+    header('Content-Length: ' . filesize($filePath));
+    
+    flush();
     readfile($filePath);
     exit;
 }
+
+// -------------------------------------------------------------------------
+// Include Page Header & Navbar (Only for HTML views)
+// -------------------------------------------------------------------------
+require_once 'header.php';
+
+// Auto-trigger daily backup if none generated in the last 24 hours
+try {
+    auto_trigger_daily_backup_if_needed($pdo, $client_id);
+} catch (Exception $e) {}
+
+$flash_msg = '';
+$flash_type = 'success';
 
 // -------------------------------------------------------------------------
 // 2. Handle POST Actions
@@ -536,15 +553,15 @@ $latest_backup = $backups[0] ?? null;
                                 <td class="text-center">
                                     <div class="btn-group btn-group-sm" role="group">
                                         <!-- Multi-Sheet Excel -->
-                                        <a href="backups?download=<?= urlencode($b['basename']) ?>&format=xls" class="btn btn-action-download" title="Download Multi-Sheet Excel Workbook (.xls)">
+                                        <a href="backups?download=<?= urlencode($b['basename']) ?>&format=xls" download="<?= htmlspecialchars($b['basename']) ?>.xls" class="btn btn-action-download" title="Download Multi-Sheet Excel Workbook (.xls)">
                                             <i class="fa-solid fa-file-excel text-success me-1"></i> XLS
                                         </a>
                                         <!-- Master CSV -->
-                                        <a href="backups?download=<?= urlencode($b['basename']) ?>&format=csv" class="btn btn-action-download" title="Download Master CSV File (.csv)">
+                                        <a href="backups?download=<?= urlencode($b['basename']) ?>&format=csv" download="<?= htmlspecialchars($b['basename']) ?>.csv" class="btn btn-action-download" title="Download Master CSV File (.csv)">
                                             <i class="fa-solid fa-file-csv text-primary me-1"></i> CSV
                                         </a>
                                         <!-- JSON DB Payload -->
-                                        <a href="backups?download=<?= urlencode($b['basename']) ?>&format=json" class="btn btn-action-download" title="Download Full JSON Payload (.json)">
+                                        <a href="backups?download=<?= urlencode($b['basename']) ?>&format=json" download="<?= htmlspecialchars($b['basename']) ?>.json" class="btn btn-action-download" title="Download Full JSON Payload (.json)">
                                             <i class="fa-solid fa-code text-warning me-1"></i> JSON
                                         </a>
                                     </div>
