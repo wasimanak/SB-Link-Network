@@ -45,14 +45,13 @@ if (!function_exists('fetch_client_financial_dataset')) {
         $client_id = (int)$client_id;
 
         // 1. Client / Tenant Profile
-        $stmt = $pdo->prepare("SELECT id, name, company_name, email, phone, city, address, created_at FROM clients WHERE id = ? LIMIT 1");
+        $stmt = $pdo->prepare("SELECT * FROM clients WHERE id = ? LIMIT 1");
         $stmt->execute([$client_id]);
-        $client = $stmt->fetch(PDO::FETCH_ASSOC) ?: [
-            'id' => $client_id,
-            'company_name' => 'SB Link Network',
-            'name' => 'Operator',
-            'city' => 'Head Office'
-        ];
+        $client = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        $client['id'] = $client_id;
+        $client['company_name'] = !empty($client['company_name']) ? $client['company_name'] : 'SB Link Network';
+        $client['full_name'] = !empty($client['full_name']) ? $client['full_name'] : (!empty($client['name']) ? $client['name'] : 'Operator');
+        $client['city'] = !empty($client['city']) ? $client['city'] : 'Head Office';
 
         // 2. All User Ledger Payments & Collections
         $stmt = $pdo->prepare("
@@ -81,7 +80,7 @@ if (!function_exists('fetch_client_financial_dataset')) {
         $user_ledgers = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         // 3. All Managers & Their Lifetime Financial Records
-        $stmt = $pdo->prepare("SELECT id, username, full_name, email, phone, city, status, cash_in_hand, created_at FROM managers WHERE client_id = ? ORDER BY id ASC");
+        $stmt = $pdo->prepare("SELECT * FROM managers WHERE client_id = ? ORDER BY id ASC");
         $stmt->execute([$client_id]);
         $raw_managers = $stmt->fetchAll(PDO::FETCH_ASSOC);
         $managers = [];
@@ -125,12 +124,12 @@ if (!function_exists('fetch_client_financial_dataset')) {
         }
 
         // 4. Staff Recovery Men (Operators)
-        $stmt = $pdo->prepare("SELECT id, username, full_name, phone, area, status, cash_in_hand, created_at FROM recovery_men WHERE client_id = ? ORDER BY id ASC");
+        $stmt = $pdo->prepare("SELECT * FROM recovery_men WHERE client_id = ? ORDER BY id ASC");
         $stmt->execute([$client_id]);
         $recovery_men = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         // 5. Staff Line Men (Technicians)
-        $stmt = $pdo->prepare("SELECT id, username, full_name, phone, area, status, monthly_salary, created_at FROM linemen WHERE client_id = ? ORDER BY id ASC");
+        $stmt = $pdo->prepare("SELECT * FROM linemen WHERE client_id = ? ORDER BY id ASC");
         $stmt->execute([$client_id]);
         $linemen = $stmt->fetchAll(PDO::FETCH_ASSOC);
 

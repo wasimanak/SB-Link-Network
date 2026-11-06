@@ -30,7 +30,7 @@ if ($target_client) {
     $clients = [['id' => $target_client]];
 } else {
     // Fetch all active clients
-    $cStmt = $pdo->query("SELECT id, name, company_name FROM clients WHERE status = 'active' OR status IS NULL");
+    $cStmt = $pdo->query("SELECT * FROM clients WHERE status = 'active' OR status IS NULL");
     $clients = $cStmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
