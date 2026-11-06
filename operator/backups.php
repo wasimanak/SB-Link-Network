@@ -518,8 +518,8 @@ $latest_backup = $backups[0] ?? null;
                                 elseif ($b['type'] === 'Pre-Restore Safety') $badgeClass = 'badge-pre-restore';
                                 elseif ($b['type'] === 'Manual Snapshot') $badgeClass = 'badge-manual';
                                 
-                                $trxCount = $b['summary']['total_transactions'] ?? 'All';
-                                $subLedgers = $b['summary']['total_user_ledgers'] ?? 'All';
+                                $colCount = $b['summary']['total_user_collections'] ?? ($b['summary']['total_transactions'] ?? 'All');
+                                $colAmt = !empty($b['summary']['total_collected_amount']) ? 'Rs. ' . number_format($b['summary']['total_collected_amount'], 0) : '';
                                 $mgrCount = $b['summary']['total_managers'] ?? 0;
                             ?>
                             <tr>
@@ -541,7 +541,7 @@ $latest_backup = $backups[0] ?? null;
                                 </td>
                                 <td>
                                     <span class="badge bg-light text-dark border fw-semibold">
-                                        <i class="fa-solid fa-receipt me-1 text-primary"></i> <?= $trxCount ?> Transactions
+                                        <i class="fa-solid fa-receipt me-1 text-success"></i> <?= $colCount ?> Collections <?= $colAmt ? "({$colAmt})" : '' ?>
                                     </span>
                                     <span class="badge bg-light text-dark border fw-semibold ms-1">
                                         <i class="fa-solid fa-user-shield me-1 text-info"></i> <?= $mgrCount ?> Managers

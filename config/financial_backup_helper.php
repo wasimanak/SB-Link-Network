@@ -9,6 +9,32 @@ if (!defined('FINANCIAL_BACKUP_RETENTION_DAYS')) {
 }
 
 /**
+ * Helper to identify who collected/recorded a transaction from its description
+ */
+if (!function_exists('parse_transaction_collector')) {
+    function parse_transaction_collector($desc) {
+        $desc = (string)$desc;
+        // 1. Manager: Name
+        if (preg_match('/(?:by Manager:\s*|Manager:\s*)([^\s,\(\)]+)/i', $desc, $m)) {
+            return ['name' => trim($m[1]), 'role' => 'Manager'];
+        }
+        // 2. Name RM (e.g. Saleem Balouch RM, Shabir RM, yasir munir RM)
+        if (preg_match('/(?:collected by|by)\s+([A-Za-z0-9_\s]+?)\s+RM\b/i', $desc, $m)) {
+            return ['name' => trim($m[1]), 'role' => 'Operator'];
+        }
+        // 3. RM: username
+        if (preg_match('/(?:RM:\s*)([^\s,\(\)]+)/i', $desc, $m)) {
+            return ['name' => trim($m[1]), 'role' => 'Operator'];
+        }
+        // 4. Admin
+        if (preg_match('/(?:by Admin|Admin\s*\([^\)]+\)|Admin)/i', $desc)) {
+            return ['name' => 'Admin', 'role' => 'Admin'];
+        }
+        return ['name' => 'System / Staff', 'role' => 'Staff'];
+    }
+}
+
+/**
  * Get or create the isolated secure backup storage directory for a client.
  * Includes .htaccess and index.php to block direct HTTP web access.
  */
@@ -77,7 +103,26 @@ if (!function_exists('fetch_client_financial_dataset')) {
             ORDER BY l.created_at DESC, l.id DESC
         ");
         $stmt->execute([$client_id]);
-        $user_ledgers = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $all_ledgers = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Separate Actual Money Collections (Credit) from Package Charges (Debit)
+        $user_collections = [];
+        $user_charges     = [];
+        $total_collected_amount = 0;
+
+        foreach ($all_ledgers as &$ul) {
+            $collector = parse_transaction_collector($ul['description']);
+            $ul['collector_name'] = $collector['name'];
+            $ul['collector_role'] = $collector['role'];
+
+            if ($ul['type'] === 'credit') {
+                $user_collections[] = $ul;
+                $total_collected_amount += (float)$ul['amount'];
+            } else {
+                $user_charges[] = $ul;
+            }
+        }
+        unset($ul);
 
         // 3. All Managers & Their Lifetime Financial Records
         $stmt = $pdo->prepare("SELECT * FROM managers WHERE client_id = ? ORDER BY id ASC");
@@ -86,11 +131,11 @@ if (!function_exists('fetch_client_financial_dataset')) {
         $managers = [];
 
         foreach ($raw_managers as $mgr) {
-            $m_id = (int)$mgr['id'];
-            $m_name = $mgr['full_name'];
-            $m_user = $mgr['username'];
+            $m_id   = (int)$mgr['id'];
+            $m_name = trim($mgr['full_name']);
+            $m_user = trim($mgr['username']);
 
-            // Fetch manager transactions from activity logs + user ledger
+            // Fetch manager transactions from activity logs
             $stmtAct = $pdo->prepare("
                 SELECT id, by_user, by_role, against_to, against_role, activity, created_at 
                 FROM activity_logs 
@@ -105,28 +150,75 @@ if (!function_exists('fetch_client_financial_dataset')) {
             $stmtAct->execute([$client_id, $m_id, $m_user, $m_name, $m_name]);
             $mgr_acts = $stmtAct->fetchAll(PDO::FETCH_ASSOC);
 
-            // Fetch manager-collected user payments
-            $stmtMgrLedger = $pdo->prepare("
-                SELECT l.id, l.username, l.type, l.amount, l.balance_after, l.description, l.created_at, s.full_name, s.mobile
-                FROM user_ledger l
-                LEFT JOIN subscribers s ON l.username = s.username COLLATE utf8mb4_general_ci AND s.client_id = l.client_id
-                WHERE l.client_id = ?
-                  AND l.description LIKE '%Manager%'
-                  AND (l.description LIKE ? OR l.description LIKE ?)
-                ORDER BY l.created_at DESC, l.id DESC
-            ");
-            $stmtMgrLedger->execute([$client_id, "%{$m_name}%", "%{$m_user}%"]);
-            $mgr_ledgers = $stmtMgrLedger->fetchAll(PDO::FETCH_ASSOC);
+            // Filter collections made by this manager from user_collections
+            $mgr_cols = [];
+            $mgr_total_collected = 0;
+            foreach ($user_collections as $uc) {
+                $desc = $uc['description'];
+                $match = false;
+                if (!empty($m_name) && (stripos($desc, $m_name) !== false || strcasecmp($uc['collector_name'], $m_name) === 0)) {
+                    $match = true;
+                } elseif (!empty($m_user) && (stripos($desc, $m_user) !== false || strcasecmp($uc['collector_name'], $m_user) === 0)) {
+                    $match = true;
+                }
+                if ($match) {
+                    $mgr_cols[] = $uc;
+                    $mgr_total_collected += (float)$uc['amount'];
+                }
+            }
 
-            $mgr['activities'] = $mgr_acts;
-            $mgr['user_collections'] = $mgr_ledgers;
+            $mgr['activities']       = $mgr_acts;
+            $mgr['collections']      = $mgr_cols;
+            $mgr['total_collected']  = $mgr_total_collected;
             $managers[] = $mgr;
         }
 
-        // 4. Staff Recovery Men (Operators)
+        // 4. Staff Recovery Men (Operators) & Their Individual Recoveries
         $stmt = $pdo->prepare("SELECT * FROM recovery_men WHERE client_id = ? ORDER BY id ASC");
         $stmt->execute([$client_id]);
-        $recovery_men = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $raw_recovery_men = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $recovery_men = [];
+
+        foreach ($raw_recovery_men as $rm) {
+            $rm_id   = (int)$rm['id'];
+            $rm_name = trim($rm['full_name']);
+            $rm_user = trim($rm['username']);
+
+            // Filter recoveries made by this specific RecoveryMan from user_collections
+            $rm_cols = [];
+            $rm_total_collected = 0;
+
+            foreach ($user_collections as $uc) {
+                $desc = $uc['description'];
+                $match = false;
+                if (!empty($rm_name) && (stripos($desc, $rm_name) !== false || strcasecmp($uc['collector_name'], $rm_name) === 0)) {
+                    $match = true;
+                } elseif (!empty($rm_user) && (stripos($desc, $rm_user) !== false || strcasecmp($uc['collector_name'], $rm_user) === 0)) {
+                    $match = true;
+                }
+                if ($match) {
+                    $rm_cols[] = $uc;
+                    $rm_total_collected += (float)$uc['amount'];
+                }
+            }
+
+            // Also fetch cash submissions to Admin / Manager from activity_logs
+            $stmtRmAct = $pdo->prepare("
+                SELECT id, by_user, by_role, against_to, against_role, activity, created_at 
+                FROM activity_logs 
+                WHERE client_id = ? 
+                  AND against_role = 'RecoveryMan' 
+                  AND (against_to = ? OR against_to = ?)
+                ORDER BY created_at DESC, id DESC
+            ");
+            $stmtRmAct->execute([$client_id, $rm_name, $rm_user]);
+            $rm_handovers = $stmtRmAct->fetchAll(PDO::FETCH_ASSOC);
+
+            $rm['collections']     = $rm_cols;
+            $rm['handovers']       = $rm_handovers;
+            $rm['total_collected'] = $rm_total_collected;
+            $recovery_men[]        = $rm;
+        }
 
         // 5. Staff Line Men (Technicians)
         $stmt = $pdo->prepare("SELECT * FROM linemen WHERE client_id = ? ORDER BY id ASC");
@@ -162,21 +254,37 @@ if (!function_exists('fetch_client_financial_dataset')) {
         // 8. Consolidated Master Journal
         $all_transactions = [];
 
-        // Add user ledger collections
-        foreach ($user_ledgers as $ul) {
-            $is_credit = ($ul['type'] === 'credit' || (float)$ul['amount'] > 0);
+        // Add user collections (Money In - Credit)
+        foreach ($user_collections as $ul) {
             $all_transactions[] = [
                 'trans_date'   => $ul['created_at'],
                 'ref_id'       => 'UL-' . $ul['id'],
-                'category'     => 'Subscriber Payment',
+                'category'     => 'Subscriber Payment (Collection)',
                 'entity_type'  => 'Subscriber',
                 'entity_name'  => (!empty($ul['subscriber_name']) ? $ul['subscriber_name'] : $ul['username']),
                 'entity_sub'   => '@' . $ul['username'],
-                'description'  => $ul['description'] ?: 'Subscriber payment/recharge',
-                'credit'       => $is_credit ? (float)$ul['amount'] : 0,
-                'debit'        => !$is_credit ? (float)$ul['amount'] : 0,
+                'description'  => $ul['description'] ?: 'Payment received',
+                'credit'       => (float)$ul['amount'],
+                'debit'        => 0,
                 'balance_after'=> (float)$ul['balance_after'],
-                'recorded_by'  => 'System / Staff'
+                'recorded_by'  => $ul['collector_name'] ? ($ul['collector_name'] . ' (' . $ul['collector_role'] . ')') : 'Staff'
+            ];
+        }
+
+        // Add user charges (Billing deductions - Debit)
+        foreach ($user_charges as $ul) {
+            $all_transactions[] = [
+                'trans_date'   => $ul['created_at'],
+                'ref_id'       => 'CHG-' . $ul['id'],
+                'category'     => 'Package Renewal / Account Billing',
+                'entity_type'  => 'Subscriber',
+                'entity_name'  => (!empty($ul['subscriber_name']) ? $ul['subscriber_name'] : $ul['username']),
+                'entity_sub'   => '@' . $ul['username'],
+                'description'  => $ul['description'] ?: 'Package Renewal Fee',
+                'credit'       => 0,
+                'debit'        => (float)$ul['amount'],
+                'balance_after'=> (float)$ul['balance_after'],
+                'recorded_by'  => 'System'
             ];
         }
 
@@ -221,16 +329,19 @@ if (!function_exists('fetch_client_financial_dataset')) {
         });
 
         return [
-            'client'           => $client,
-            'client_id'        => $client_id,
-            'generated_at'     => date('Y-m-d H:i:s'),
-            'user_ledgers'     => $user_ledgers,
-            'managers'         => $managers,
-            'recovery_men'     => $recovery_men,
-            'linemen'          => $linemen,
-            'staff_salaries'   => $staff_salaries,
-            'expenses'         => $expenses,
-            'all_transactions' => $all_transactions
+            'client'                 => $client,
+            'client_id'              => $client_id,
+            'generated_at'           => date('Y-m-d H:i:s'),
+            'user_collections'       => $user_collections,
+            'user_charges'           => $user_charges,
+            'user_ledgers'           => $all_ledgers,
+            'total_collected_amount' => $total_collected_amount,
+            'managers'               => $managers,
+            'recovery_men'           => $recovery_men,
+            'linemen'                => $linemen,
+            'staff_salaries'         => $staff_salaries,
+            'expenses'               => $expenses,
+            'all_transactions'       => $all_transactions
         ];
     }
 }
@@ -275,7 +386,7 @@ if (!function_exists('xml_escape')) {
  */
 if (!function_exists('build_multisheet_excel_xml')) {
     function build_multisheet_excel_xml($data) {
-        $company = $data['client']['company_name'] ?: 'SB Link Network';
+        $company = !empty($data['client']['company_name']) ? $data['client']['company_name'] : 'SB Link Network';
         $used_sheet_names = [];
 
         ob_start();
@@ -396,16 +507,16 @@ if (!function_exists('build_multisheet_excel_xml')) {
    <Column ss:Width="140"/>
    <Column ss:Width="90"/>
    <Column ss:Width="260"/>
-   <Column ss:Width="95"/>
-   <Column ss:Width="95"/>
    <Column ss:Width="105"/>
-   <Column ss:Width="110"/>
+   <Column ss:Width="105"/>
+   <Column ss:Width="105"/>
+   <Column ss:Width="120"/>
 
    <Row ss:Height="30">
     <Cell ss:MergeAcross="9" ss:StyleID="CompanyBanner"><Data ss:Type="String"><?= xml_escape($company) ?> - MASTER FINANCIAL JOURNAL</Data></Cell>
    </Row>
    <Row ss:Height="22">
-    <Cell ss:MergeAcross="9" ss:StyleID="SheetSubtitle"><Data ss:Type="String">Snapshot Date: <?= xml_escape($data['generated_at']) ?> | Client ID: <?= (int)$data['client_id'] ?> | 30-Day Auto Retention</Data></Cell>
+    <Cell ss:MergeAcross="9" ss:StyleID="SheetSubtitle"><Data ss:Type="String">Snapshot: <?= xml_escape($data['generated_at']) ?> | Client ID: <?= (int)$data['client_id'] ?> | Total Collected: Rs. <?= number_format($data['total_collected_amount'], 2) ?></Data></Cell>
    </Row>
    <Row><Cell ss:MergeAcross="9"><Data ss:Type="String"></Data></Cell></Row>
 
@@ -449,13 +560,13 @@ if (!function_exists('build_multisheet_excel_xml')) {
     <Cell ss:StyleID="TotalRow"><Data ss:Type="Number"><?= (float)$totCredit ?></Data></Cell>
     <Cell ss:StyleID="TotalRow"><Data ss:Type="Number"><?= (float)$totDebit ?></Data></Cell>
     <Cell ss:StyleID="TotalRow"><Data ss:Type="Number"><?= (float)($totCredit - $totDebit) ?></Data></Cell>
-    <Cell ss:StyleID="TotalRow"><Data ss:Type="String">Net Volume</Data></Cell>
+    <Cell ss:StyleID="TotalRow"><Data ss:Type="String">Net Cash Flow</Data></Cell>
    </Row>
   </Table>
  </Worksheet>
 
  <!-- ================================================================= -->
- <!-- SHEET 2: USER COLLECTIONS (SUBSCRIBER PAYMENTS & RECHARGES) -->
+ <!-- SHEET 2: USER COLLECTIONS (SUBSCRIBER PAYMENTS RECEIVED) -->
  <!-- ================================================================= -->
  <?php $sheetName = sanitize_excel_sheet_name("User_Collections", $used_sheet_names); ?>
  <Worksheet ss:Name="<?= $sheetName ?>">
@@ -466,36 +577,37 @@ if (!function_exists('build_multisheet_excel_xml')) {
    <Column ss:Width="140"/>
    <Column ss:Width="105"/>
    <Column ss:Width="110"/>
-   <Column ss:Width="75"/>
+   <Column ss:Width="110"/>
    <Column ss:Width="95"/>
-   <Column ss:Width="95"/>
-   <Column ss:Width="250"/>
+   <Column ss:Width="140"/>
+   <Column ss:Width="260"/>
 
    <Row ss:Height="30">
     <Cell ss:MergeAcross="9" ss:StyleID="CompanyBanner"><Data ss:Type="String"><?= xml_escape($company) ?> - SUBSCRIBER COLLECTIONS &amp; PAYMENTS</Data></Cell>
    </Row>
    <Row ss:Height="22">
-    <Cell ss:MergeAcross="9" ss:StyleID="SheetSubtitle"><Data ss:Type="String">All Received Payments from Internet Subscribers</Data></Cell>
+    <Cell ss:MergeAcross="9" ss:StyleID="SheetSubtitle"><Data ss:Type="String">Received Cash &amp; Online Payments from Customers (Total: Rs. <?= number_format($data['total_collected_amount'], 2) ?>)</Data></Cell>
    </Row>
    <Row><Cell ss:MergeAcross="9"><Data ss:Type="String"></Data></Cell></Row>
 
    <Row ss:Height="24">
-    <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Ledger ID</Data></Cell>
+    <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Trx ID</Data></Cell>
     <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Date &amp; Time</Data></Cell>
     <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Username</Data></Cell>
     <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Full Name</Data></Cell>
     <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Mobile</Data></Cell>
     <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Package</Data></Cell>
-    <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Type</Data></Cell>
-    <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Amount (Rs.)</Data></Cell>
+    <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Amount Collected (Rs.)</Data></Cell>
     <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Balance After</Data></Cell>
-    <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Description / Collector</Data></Cell>
+    <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Recovered By / Staff</Data></Cell>
+    <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Receipt Description</Data></Cell>
    </Row>
 
    <?php
    $totSubColl = 0;
-   foreach ($data['user_ledgers'] as $ul):
+   foreach ($data['user_collections'] as $ul):
        $totSubColl += (float)$ul['amount'];
+       $recBy = $ul['collector_name'] ? ($ul['collector_name'] . ' (' . $ul['collector_role'] . ')') : 'Staff';
    ?>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="Number"><?= (int)$ul['id'] ?></Data></Cell>
@@ -504,17 +616,17 @@ if (!function_exists('build_multisheet_excel_xml')) {
     <Cell ss:StyleID="CellLeft"><Data ss:Type="String"><?= xml_escape($ul['subscriber_name'] ?: 'N/A') ?></Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String"><?= xml_escape($ul['subscriber_mobile'] ?: 'N/A') ?></Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String"><?= xml_escape($ul['package_name'] ?: 'N/A') ?></Data></Cell>
-    <Cell ss:StyleID="CellCenter"><Data ss:Type="String"><?= xml_escape(strtoupper($ul['type'])) ?></Data></Cell>
     <Cell ss:StyleID="CellCredit"><Data ss:Type="Number"><?= (float)$ul['amount'] ?></Data></Cell>
     <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number"><?= (float)$ul['balance_after'] ?></Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String"><?= xml_escape($recBy) ?></Data></Cell>
     <Cell ss:StyleID="CellLeft"><Data ss:Type="String"><?= xml_escape($ul['description']) ?></Data></Cell>
    </Row>
    <?php endforeach; ?>
 
    <Row ss:Height="24">
-    <Cell ss:MergeAcross="6" ss:StyleID="TotalRow"><Data ss:Type="String">TOTAL COLLECTED (PKR):</Data></Cell>
+    <Cell ss:MergeAcross="5" ss:StyleID="TotalRow"><Data ss:Type="String">TOTAL AMOUNT COLLECTED (PKR):</Data></Cell>
     <Cell ss:StyleID="TotalRow"><Data ss:Type="Number"><?= (float)$totSubColl ?></Data></Cell>
-    <Cell ss:MergeAcross="1" ss:StyleID="TotalRow"><Data ss:Type="String"><?= count($data['user_ledgers']) ?> Transactions</Data></Cell>
+    <Cell ss:MergeAcross="2" ss:StyleID="TotalRow"><Data ss:Type="String"><?= count($data['user_collections']) ?> Receipts (No Duplicates)</Data></Cell>
    </Row>
   </Table>
  </Worksheet>
@@ -560,13 +672,12 @@ if (!function_exists('build_multisheet_excel_xml')) {
    $mgrTotalCredit = 0;
    $mgrTotalDebit = 0;
    
-   // Combine Manager collections + admin handovers
    $mgrTrans = [];
-   foreach ($mgr['user_collections'] as $c) {
+   foreach ($mgr['collections'] as $c) {
        $mgrTrans[] = [
            'date' => $c['created_at'],
            'type' => 'User Collection',
-           'entity' => $c['username'] . ($c['full_name'] ? " ({$c['full_name']})" : ''),
+           'entity' => $c['username'] . ($c['subscriber_name'] ? " ({$c['subscriber_name']})" : ''),
            'desc' => $c['description'] ?: 'Collected subscriber recharge',
            'credit' => (float)$c['amount'],
            'debit' => 0
@@ -575,7 +686,6 @@ if (!function_exists('build_multisheet_excel_xml')) {
    foreach ($mgr['activities'] as $act) {
        $actText = $act['activity'];
        if (stripos($actText, 'Collected Cash') !== false && stripos($actText, 'from Manager') !== false) {
-           // Admin collected cash from this Manager -> Debit from manager's cash
            $amt = 0;
            if (preg_match('/Rs\.?\s*([\d,.]+)/i', $actText, $m)) {
                $amt = (float)str_replace(',', '', $m[1]);
@@ -589,7 +699,6 @@ if (!function_exists('build_multisheet_excel_xml')) {
                'debit' => $amt
            ];
        } elseif (stripos($actText, 'from Operator') !== false || stripos($actText, 'from RecoveryMan') !== false) {
-           // Manager collected from RM -> Credit to Manager
            $amt = 0;
            if (preg_match('/Rs\.?\s*([\d,.]+)/i', $actText, $m)) {
                $amt = (float)str_replace(',', '', $m[1]);
@@ -606,7 +715,7 @@ if (!function_exists('build_multisheet_excel_xml')) {
    }
 
    usort($mgrTrans, function($a, $b) {
-       return strcmp($a['date'], $b['date']); // chronological for running balance
+       return strcmp($a['date'], $b['date']);
    });
 
    $runningMgrBal = 0;
@@ -616,7 +725,6 @@ if (!function_exists('build_multisheet_excel_xml')) {
        $mgrTotalCredit += $mt['credit'];
        $mgrTotalDebit += $mt['debit'];
    }
-   // Reverse for newest first display in excel
    $mgrTrans = array_reverse($mgrTrans);
 
    foreach ($mgrTrans as $mt):
@@ -643,7 +751,73 @@ if (!function_exists('build_multisheet_excel_xml')) {
  <?php endforeach; ?>
 
  <!-- ================================================================= -->
- <!-- SHEET: STAFF RECOVERY MEN (OPERATORS) -->
+ <!-- DEDICATED WORKSHEET FOR EVERY RECOVERY MAN / OPERATOR BY NAME -->
+ <!-- ================================================================= -->
+ <?php foreach ($data['recovery_men'] as $rm): ?>
+ <?php
+    $rmName = !empty($rm['full_name']) ? $rm['full_name'] : $rm['username'];
+    $sheetTitle = "RM_" . $rmName;
+    $sheetName = sanitize_excel_sheet_name($sheetTitle, $used_sheet_names);
+    $rmCols = $rm['collections'] ?? [];
+ ?>
+ <Worksheet ss:Name="<?= $sheetName ?>">
+  <Table ss:DefaultRowHeight="20">
+   <Column ss:Width="130"/>
+   <Column ss:Width="105"/>
+   <Column ss:Width="140"/>
+   <Column ss:Width="105"/>
+   <Column ss:Width="120"/>
+   <Column ss:Width="110"/>
+   <Column ss:Width="105"/>
+   <Column ss:Width="260"/>
+
+   <Row ss:Height="30">
+    <Cell ss:MergeAcross="7" ss:StyleID="CompanyBanner"><Data ss:Type="String"><?= xml_escape($company) ?> - OPERATOR RECOVERY REPORT</Data></Cell>
+   </Row>
+   <Row ss:Height="22">
+    <Cell ss:MergeAcross="7" ss:StyleID="SheetSubtitle"><Data ss:Type="String">Operator: <?= xml_escape($rm['full_name']) ?> (@<?= xml_escape($rm['username']) ?>) | Mobile: <?= xml_escape($rm['phone'] ?: 'N/A') ?> | Area: <?= xml_escape($rm['area'] ?: 'All') ?> | Cash in Hand: Rs. <?= number_format($rm['cash_in_hand'], 0) ?></Data></Cell>
+   </Row>
+   <Row><Cell ss:MergeAcross="7"><Data ss:Type="String"></Data></Cell></Row>
+
+   <Row ss:Height="24">
+    <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Date &amp; Time</Data></Cell>
+    <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Username</Data></Cell>
+    <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Subscriber Name</Data></Cell>
+    <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Contact Mobile</Data></Cell>
+    <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Package</Data></Cell>
+    <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Recovered (Rs.)</Data></Cell>
+    <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Balance After</Data></Cell>
+    <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Receipt Description</Data></Cell>
+   </Row>
+
+   <?php
+   $totRmCol = 0;
+   foreach ($rmCols as $rc):
+       $totRmCol += (float)$rc['amount'];
+   ?>
+   <Row>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String"><?= xml_escape($rc['created_at']) ?></Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String"><?= xml_escape($rc['username']) ?></Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String"><?= xml_escape($rc['subscriber_name'] ?: 'N/A') ?></Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String"><?= xml_escape($rc['subscriber_mobile'] ?: 'N/A') ?></Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String"><?= xml_escape($rc['package_name'] ?: 'N/A') ?></Data></Cell>
+    <Cell ss:StyleID="CellCredit"><Data ss:Type="Number"><?= (float)$rc['amount'] ?></Data></Cell>
+    <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number"><?= (float)$rc['balance_after'] ?></Data></Cell>
+    <Cell ss:StyleID="CellLeft"><Data ss:Type="String"><?= xml_escape($rc['description']) ?></Data></Cell>
+   </Row>
+   <?php endforeach; ?>
+
+   <Row ss:Height="24">
+    <Cell ss:MergeAcross="4" ss:StyleID="TotalRow"><Data ss:Type="String">TOTAL RECOVERED BY <?= xml_escape($rm['full_name']) ?> (PKR):</Data></Cell>
+    <Cell ss:StyleID="TotalRow"><Data ss:Type="Number"><?= (float)$totRmCol ?></Data></Cell>
+    <Cell ss:MergeAcross="1" ss:StyleID="TotalRow"><Data ss:Type="String"><?= count($rmCols) ?> Recoveries Collected</Data></Cell>
+   </Row>
+  </Table>
+ </Worksheet>
+ <?php endforeach; ?>
+
+ <!-- ================================================================= -->
+ <!-- SHEET: STAFF RECOVERY MEN (OPERATORS SUMMARY) -->
  <!-- ================================================================= -->
  <?php $sheetName = sanitize_excel_sheet_name("Staff_RecoveryMen", $used_sheet_names); ?>
  <Worksheet ss:Name="<?= $sheetName ?>">
@@ -654,16 +828,17 @@ if (!function_exists('build_multisheet_excel_xml')) {
    <Column ss:Width="110"/>
    <Column ss:Width="110"/>
    <Column ss:Width="80"/>
+   <Column ss:Width="120"/>
    <Column ss:Width="110"/>
    <Column ss:Width="120"/>
 
    <Row ss:Height="30">
-    <Cell ss:MergeAcross="7" ss:StyleID="CompanyBanner"><Data ss:Type="String"><?= xml_escape($company) ?> - OPERATORS / RECOVERY MEN</Data></Cell>
+    <Cell ss:MergeAcross="8" ss:StyleID="CompanyBanner"><Data ss:Type="String"><?= xml_escape($company) ?> - OPERATORS / RECOVERY MEN</Data></Cell>
    </Row>
    <Row ss:Height="22">
-    <Cell ss:MergeAcross="7" ss:StyleID="SheetSubtitle"><Data ss:Type="String">Field Recovery Team Financial Status &amp; Cash in Hand</Data></Cell>
+    <Cell ss:MergeAcross="8" ss:StyleID="SheetSubtitle"><Data ss:Type="String">Field Recovery Team Financial Status &amp; Cash in Hand</Data></Cell>
    </Row>
-   <Row><Cell ss:MergeAcross="7"><Data ss:Type="String"></Data></Cell></Row>
+   <Row><Cell ss:MergeAcross="8"><Data ss:Type="String"></Data></Cell></Row>
 
    <Row ss:Height="24">
     <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Staff ID</Data></Cell>
@@ -672,14 +847,17 @@ if (!function_exists('build_multisheet_excel_xml')) {
     <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Contact Mobile</Data></Cell>
     <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Assigned Area</Data></Cell>
     <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Status</Data></Cell>
+    <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Total Recoveries (Rs.)</Data></Cell>
     <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Cash In Hand (Rs.)</Data></Cell>
     <Cell ss:StyleID="TableHeader"><Data ss:Type="String">Joined Date</Data></Cell>
    </Row>
 
    <?php
    $totRmCash = 0;
+   $totRmColAll = 0;
    foreach ($data['recovery_men'] as $rm):
        $totRmCash += (float)$rm['cash_in_hand'];
+       $totRmColAll += (float)$rm['total_collected'];
    ?>
    <Row>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="Number"><?= (int)$rm['id'] ?></Data></Cell>
@@ -688,13 +866,15 @@ if (!function_exists('build_multisheet_excel_xml')) {
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String"><?= xml_escape($rm['phone'] ?: 'N/A') ?></Data></Cell>
     <Cell ss:StyleID="CellLeft"><Data ss:Type="String"><?= xml_escape($rm['area'] ?: 'All Areas') ?></Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String"><?= xml_escape(strtoupper($rm['status'])) ?></Data></Cell>
+    <Cell ss:StyleID="CellCredit"><Data ss:Type="Number"><?= (float)$rm['total_collected'] ?></Data></Cell>
     <Cell ss:StyleID="<?= $rm['cash_in_hand'] > 0 ? 'CellCredit' : 'CellCurrency' ?>"><Data ss:Type="Number"><?= (float)$rm['cash_in_hand'] ?></Data></Cell>
-    <Cell ss:StyleID="CellCenter"><Data ss:Type="String"><?= xml_escape($rm['created_at']) ?></Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String"><?= xml_escape($rm['created_at'] ?? 'N/A') ?></Data></Cell>
    </Row>
    <?php endforeach; ?>
 
    <Row ss:Height="24">
-    <Cell ss:MergeAcross="5" ss:StyleID="TotalRow"><Data ss:Type="String">TOTAL OPERATOR CASH IN HAND (PKR):</Data></Cell>
+    <Cell ss:MergeAcross="5" ss:StyleID="TotalRow"><Data ss:Type="String">TOTALS (PKR):</Data></Cell>
+    <Cell ss:StyleID="TotalRow"><Data ss:Type="Number"><?= (float)$totRmColAll ?></Data></Cell>
     <Cell ss:StyleID="TotalRow"><Data ss:Type="Number"><?= (float)$totRmCash ?></Data></Cell>
     <Cell ss:StyleID="TotalRow"><Data ss:Type="String"><?= count($data['recovery_men']) ?> Operators</Data></Cell>
    </Row>
@@ -748,7 +928,7 @@ if (!function_exists('build_multisheet_excel_xml')) {
     <Cell ss:StyleID="CellLeft"><Data ss:Type="String"><?= xml_escape($lm['area'] ?: 'All Areas') ?></Data></Cell>
     <Cell ss:StyleID="CellCenter"><Data ss:Type="String"><?= xml_escape(strtoupper($lm['status'])) ?></Data></Cell>
     <Cell ss:StyleID="CellCurrency"><Data ss:Type="Number"><?= (float)($lm['monthly_salary'] ?? 0) ?></Data></Cell>
-    <Cell ss:StyleID="CellCenter"><Data ss:Type="String"><?= xml_escape($lm['created_at']) ?></Data></Cell>
+    <Cell ss:StyleID="CellCenter"><Data ss:Type="String"><?= xml_escape($lm['created_at'] ?? 'N/A') ?></Data></Cell>
    </Row>
    <?php endforeach; ?>
 
@@ -910,8 +1090,8 @@ if (!function_exists('build_flat_csv')) {
             'Entity Name',
             'Entity Identifier',
             'Description',
-            'Credit (Rs.)',
-            'Debit (Rs.)',
+            'Money In / Credit (Rs.)',
+            'Money Out / Debit (Rs.)',
             'Balance After (Rs.)',
             'Recorded By'
         ]);
@@ -974,20 +1154,22 @@ if (!function_exists('create_client_financial_backup')) {
             'created_at'    => date('Y-m-d H:i:s'),
             'type_label'    => $type_label,
             'summary'       => [
-                'total_transactions' => count($data['all_transactions']),
-                'total_user_ledgers' => count($data['user_ledgers']),
-                'total_managers'     => count($data['managers']),
-                'total_recovery_men' => count($data['recovery_men']),
-                'total_linemen'      => count($data['linemen']),
-                'total_salaries'     => count($data['staff_salaries']),
-                'total_expenses'     => count($data['expenses'])
+                'total_transactions'     => count($data['all_transactions']),
+                'total_user_collections' => count($data['user_collections']),
+                'total_collected_amount' => $data['total_collected_amount'],
+                'total_managers'         => count($data['managers']),
+                'total_recovery_men'     => count($data['recovery_men']),
+                'total_linemen'          => count($data['linemen']),
+                'total_salaries'         => count($data['staff_salaries']),
+                'total_expenses'         => count($data['expenses'])
             ],
-            'user_ledgers'   => $data['user_ledgers'],
-            'managers'       => $data['managers'],
-            'recovery_men'   => $data['recovery_men'],
-            'linemen'        => $data['linemen'],
-            'staff_salaries' => $data['staff_salaries'],
-            'expenses'       => $data['expenses']
+            'user_collections' => $data['user_collections'],
+            'user_ledgers'     => $data['user_ledgers'],
+            'managers'         => $data['managers'],
+            'recovery_men'     => $data['recovery_men'],
+            'linemen'          => $data['linemen'],
+            'staff_salaries'   => $data['staff_salaries'],
+            'expenses'         => $data['expenses']
         ];
         @file_put_contents($jsonPath, json_encode($jsonPayload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
 
@@ -997,7 +1179,7 @@ if (!function_exists('create_client_financial_backup')) {
         // Log to activity logs
         try {
             $user = $_SESSION['operator_username'] ?? ($_SESSION['operator_name'] ?? 'System/Cron');
-            $actMsg = "Created Financial Backup ({$type_label}): {$baseName} with " . count($data['all_transactions']) . " transactions";
+            $actMsg = "Created Financial Backup ({$type_label}): {$baseName} with " . count($data['user_collections']) . " collections (Rs. " . number_format($data['total_collected_amount'], 0) . ")";
             $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, ?, 'Financial Backup', 'System', ?)")
                 ->execute([$client_id, $user, $actMsg]);
         } catch (Exception $e) {}
@@ -1009,7 +1191,8 @@ if (!function_exists('create_client_financial_backup')) {
             'json_file'     => basename($jsonPath),
             'size_bytes'    => filesize($xlsPath),
             'size_fmt'      => round(filesize($xlsPath) / 1024, 1) . ' KB',
-            'records_count' => count($data['all_transactions']),
+            'records_count' => count($data['user_collections']),
+            'total_amount'  => $data['total_collected_amount'],
             'created_at'    => date('Y-m-d H:i:s')
         ];
     }
@@ -1066,7 +1249,7 @@ if (!function_exists('list_client_financial_backups')) {
                 'size_fmt'      => round($size / 1024, 1) . ' KB',
                 'type'          => $type,
                 'summary'       => $meta['summary'] ?? [
-                    'total_transactions' => 'N/A'
+                    'total_user_collections' => 'N/A'
                 ]
             ];
         }
@@ -1157,14 +1340,15 @@ if (!function_exists('restore_client_financial_backup')) {
 
         try {
             // A. Restore / Insert missing User Ledgers
-            if (!empty($payload['user_ledgers'])) {
+            $ledgersToRestore = !empty($payload['user_ledgers']) ? $payload['user_ledgers'] : (!empty($payload['user_collections']) ? $payload['user_collections'] : []);
+            if (!empty($ledgersToRestore)) {
                 $checkStmt = $pdo->prepare("SELECT id FROM user_ledger WHERE client_id = ? AND username = ? AND created_at = ? AND amount = ? LIMIT 1");
                 $insLedger = $pdo->prepare("
                     INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description, created_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                 ");
 
-                foreach ($payload['user_ledgers'] as $ul) {
+                foreach ($ledgersToRestore as $ul) {
                     $uName = trim($ul['username'] ?? '');
                     $cAt   = $ul['created_at'] ?? date('Y-m-d H:i:s');
                     $amt   = (float)($ul['amount'] ?? 0);
@@ -1183,11 +1367,10 @@ if (!function_exists('restore_client_financial_backup')) {
             }
 
             // B. Reconcile Subscriber Balances from snapshot
-            if (!empty($payload['user_ledgers'])) {
+            if (!empty($ledgersToRestore)) {
                 $updSub = $pdo->prepare("UPDATE subscribers SET balance = ? WHERE client_id = ? AND username = ?");
                 $subSeen = [];
-                // Sort by created_at desc so latest balance is restored
-                foreach ($payload['user_ledgers'] as $ul) {
+                foreach ($ledgersToRestore as $ul) {
                     $uName = trim($ul['username'] ?? '');
                     if (!empty($uName) && !isset($subSeen[$uName]) && isset($ul['balance_after'])) {
                         $subSeen[$uName] = true;
