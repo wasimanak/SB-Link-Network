@@ -444,15 +444,22 @@ require_once 'header.php';
     <!-- 4 High-Level Metric Cards -->
     <div class="row g-3 mb-4">
         <!-- 1. Gateway Phone Status -->
+        <?php
+            $isStandby = (!$stats['gateway_online'] && $stats['phone_seen_ago'] !== 'Never' && !empty($settings['last_phone_ping_at']) && (time() - strtotime($settings['last_phone_ping_at'])) <= 3600);
+            $cardBg = $stats['gateway_online'] ? '#ecfdf5' : ($isStandby ? '#fffbeb' : '#fff1f2');
+            $cardIconColor = $stats['gateway_online'] ? '#059669' : ($isStandby ? '#d97706' : '#e11d48');
+            $cardTextColor = $stats['gateway_online'] ? 'text-success' : ($isStandby ? 'text-warning text-dark' : 'text-danger');
+            $cardStatusLabel = $stats['gateway_online'] ? 'Connected (Active)' : ($isStandby ? 'Connected (Standby)' : 'Phone Offline');
+        ?>
         <div class="col-12 col-sm-6 col-xl-3">
             <div class="gateway-stat-card">
-                <div class="gateway-stat-icon" style="background-color: <?= $stats['gateway_online'] ? '#ecfdf5' : '#fff1f2' ?>; color: <?= $stats['gateway_online'] ? '#059669' : '#e11d48' ?>;">
+                <div class="gateway-stat-icon" style="background-color: <?= $cardBg ?>; color: <?= $cardIconColor ?>;">
                     <i class="fa-solid fa-mobile-screen-button"></i>
                 </div>
                 <div class="flex-grow-1 overflow-hidden">
                     <div class="text-secondary small fw-bold text-uppercase" style="font-size: 0.72rem; letter-spacing: 0.5px;">Mobile Gateway</div>
-                    <h5 class="fw-bold mb-0 <?= $stats['gateway_online'] ? 'text-success' : 'text-danger' ?>" style="font-size: 1.05rem;">
-                        <?= $stats['gateway_online'] ? 'Connected (Active)' : 'Phone Offline' ?>
+                    <h5 class="fw-bold mb-0 <?= $cardTextColor ?>" style="font-size: 1.05rem;">
+                        <?= $cardStatusLabel ?>
                     </h5>
                     <div class="text-muted small text-truncate" style="font-size: 0.78rem;">
                         SIM <?= (int)($settings['sim_slot'] ?? 1) ?> &bull; <?= htmlspecialchars($stats['device_name']) ?>

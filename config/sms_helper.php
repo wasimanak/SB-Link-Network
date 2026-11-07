@@ -482,7 +482,7 @@ if (!function_exists('get_sms_dashboard_stats')) {
         $stmt = $pdo->prepare("
             SELECT 
                 SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending_queue,
-                SUM(CASE WHEN status IN ('sent', 'delivered') AND DATE(sent_at) = CURRENT_DATE() THEN 1 ELSE 0 END) as sent_today,
+                SUM(CASE WHEN status IN ('sent', 'delivered') AND (sent_at IS NOT NULL AND DATE(sent_at) = CURRENT_DATE() OR DATE(created_at) = CURRENT_DATE()) THEN 1 ELSE 0 END) as sent_today,
                 SUM(CASE WHEN status IN ('sent', 'delivered') AND sent_at >= DATE_FORMAT(NOW(), '%Y-%m-01') THEN 1 ELSE 0 END) as sent_month,
                 SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed_count
             FROM sms_queue_logs 
