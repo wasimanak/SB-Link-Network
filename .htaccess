@@ -6,6 +6,10 @@ Options -Indexes -MultiViews +FollowSymLinks
 
 <IfModule mod_rewrite.c>
 RewriteEngine On
+
+# Pass Authorization Header to PHP (Required for REST APIs, Bearer & ServerKey Tokens)
+SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
 RewriteBase /
 
 # 1. Force HTTPS on live domain (lasani.tech, sblink.tech, etc. - skips raw IP)
@@ -50,7 +54,11 @@ RewriteRule ^admin/backups/?$ operator/backups.php [L,QSA]
 RewriteRule ^operator/backups/?$ operator/backups.php [L,QSA]
 RewriteRule ^admin/reminders/?$ operator/reminders.php [L,QSA]
 RewriteRule ^operator/reminders/?$ operator/reminders.php [L,QSA]
-RewriteRule ^api/sms_gateway/?$ operator/api_sms_gateway.php [L,QSA]
+RewriteRule ^api/sms_gateway(/.*)?$ operator/api_sms_gateway.php [L,QSA]
+RewriteRule ^api/mobile/v1(/.*)?$ operator/api_sms_gateway.php [L,QSA]
+RewriteRule ^mobile/v1(/.*)?$ operator/api_sms_gateway.php [L,QSA]
+RewriteRule ^health/?$ operator/api_sms_gateway.php [L,QSA]
+RewriteRule ^api/health/?$ operator/api_sms_gateway.php [L,QSA]
 RewriteRule ^admin/?$ operator/dashboard.php [L,QSA]
 RewriteRule ^admin/(.*)$ operator/$1 [L,QSA]
 RewriteRule ^superadmin/admins/?$ superadmin/operators.php [L,QSA]
@@ -61,9 +69,9 @@ RewriteRule ^superadmin/backups/?$ superadmin/backups.php [L,QSA]
 # 6c. MASTER SYSTEM CYBER SECURITY SHIELD
 # Protect all root-level utility, maintenance, and database scripts against unauthorized access
 # Whitelist public entry points, policies, legitimate webhooks, and cron endpoints
-RewriteCond %{REQUEST_URI} !^/(index|login|logout|security_gate|safepay_webhook|reset_all_usage_db|cron_sync_mikrotik|privacy-policy|terms-and-conditions|terms|contact|refund-policy|shipping-policy|faqs|policies)(\.php)?$ [NC]
+RewriteCond %{REQUEST_URI} !^/(index|login|logout|security_gate|safepay_webhook|reset_all_usage_db|cron_sync_mikrotik|health|privacy-policy|terms-and-conditions|terms|contact|refund-policy|shipping-policy|faqs|policies)(\.php)?$ [NC]
 # Whitelist portal subfolders and static assets
-RewriteCond %{REQUEST_URI} !^/(api|customer|admin|operator|dealer|superadmin|recoveryman|lineman|uploads|assets|css|js|images)/ [NC]
+RewriteCond %{REQUEST_URI} !^/(api|mobile|customer|admin|operator|dealer|superadmin|recoveryman|lineman|uploads|assets|css|js|images)/ [NC]
 # Intercept any requested root PHP script
 RewriteCond %{DOCUMENT_ROOT}/$1.php -f [OR]
 RewriteCond %{REQUEST_FILENAME} -f
