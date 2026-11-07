@@ -11,6 +11,12 @@ if (session_status() === PHP_SESSION_NONE) {
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../config/financial_backup_helper.php';
 
+@ini_set('upload_max_filesize', '256M');
+@ini_set('post_max_size', '256M');
+@ini_set('memory_limit', '512M');
+@ini_set('max_execution_time', 600);
+@set_time_limit(600);
+
 // Auth Guard: Only Admin / Operator can access Backups
 if (!isset($_SESSION['operator_logged_in']) || !isset($_SESSION['operator_id'])) {
     header("Location: ../login.php");
@@ -79,6 +85,93 @@ if (isset($_GET['download']) && !empty($_GET['download'])) {
 }
 
 // -------------------------------------------------------------------------
+// 1b. Handle Chunked Upload & Restore API (Bypasses server PHP size limits)
+// -------------------------------------------------------------------------
+if (isset($_GET['action']) && $_GET['action'] === 'upload_chunk') {
+    while (ob_get_level()) { ob_end_clean(); }
+    header('Content-Type: application/json; charset=utf-8');
+
+    $chunkIndex = (int)($_POST['chunk_index'] ?? 0);
+    $totalChunks = (int)($_POST['total_chunks'] ?? 1);
+    $fileId = preg_replace('/[^a-zA-Z0-9_-]/', '', $_POST['file_id'] ?? ('chunk_' . time()));
+
+    $tempDir = get_financial_backup_storage_dir($client_id);
+    $partFile = $tempDir . '/temp_upload_' . $fileId . '.json.part';
+
+    $chunkData = '';
+    if (isset($_FILES['chunk']) && $_FILES['chunk']['error'] === UPLOAD_ERR_OK) {
+        $chunkData = file_get_contents($_FILES['chunk']['tmp_name']);
+    } elseif (!empty($_POST['chunk_data'])) {
+        $chunkData = $_POST['chunk_data'];
+    }
+
+    if ($chunkData === '' && $chunkIndex === 0) {
+        echo json_encode(['status' => 'error', 'message' => 'Empty chunk payload received']);
+        exit;
+    }
+
+    if ($chunkIndex === 0) {
+        file_put_contents($partFile, $chunkData);
+    } else {
+        file_put_contents($partFile, $chunkData, FILE_APPEND);
+    }
+
+    $isComplete = ($chunkIndex + 1 >= $totalChunks);
+    if ($isComplete) {
+        $jsonContent = file_get_contents($partFile);
+        @unlink($partFile);
+
+        $decoded = json_decode($jsonContent, true);
+        if (!$decoded || !is_array($decoded) || !isset($decoded['client_id'])) {
+            echo json_encode(['status' => 'error', 'message' => 'Invalid JSON backup: Missing client metadata or corrupted JSON.']);
+            exit;
+        }
+        if ((int)$decoded['client_id'] !== $client_id) {
+            echo json_encode(['status' => 'error', 'message' => "Security mismatch: This backup was created for Client ID #{$decoded['client_id']}, but your active portal Client ID is #{$client_id}."]);
+            exit;
+        }
+
+        $newBase = "fin_backup_client{$client_id}_" . date('Y-m-d_His') . "_uploaded";
+        $destJson = $tempDir . '/' . $newBase . '.json';
+        file_put_contents($destJson, json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+
+        try {
+            $stats = restore_client_financial_backup($pdo, $client_id, $newBase);
+            try {
+                $fullData = fetch_client_financial_dataset($pdo, $client_id);
+                $xml = build_multisheet_excel_xml($fullData);
+                file_put_contents($tempDir . '/' . $newBase . '.xls', $xml);
+                $csv = build_flat_csv($fullData);
+                file_put_contents($tempDir . '/' . $newBase . '.csv', $csv);
+            } catch (Exception $eGen) {}
+
+            $_SESSION['backup_flash_msg'] = "<strong>Uploaded Backup Restored Successfully!</strong><br>" .
+                "&bull; <strong>{$stats['restored_user_ledgers']}</strong> missing subscriber payment ledgers restored.<br>" .
+                "&bull; <strong>{$stats['updated_sub_balances']}</strong> subscriber balances reconciled.<br>" .
+                "&bull; <strong>{$stats['restored_salaries']}</strong> salary records restored.<br>" .
+                "&bull; <strong>{$stats['restored_expenses']}</strong> daily expense records restored.<br>" .
+                "<small class='text-muted'>A safety rollback snapshot was automatically generated prior to applying this restore.</small>";
+            $_SESSION['backup_flash_type'] = "success";
+
+            echo json_encode([
+                'status' => 'ok',
+                'complete' => true,
+                'stats' => $stats,
+                'message' => "Backup Restored Successfully!",
+                'redirect' => 'backups'
+            ]);
+            exit;
+        } catch (Exception $e) {
+            echo json_encode(['status' => 'error', 'message' => 'Restore execution failed: ' . $e->getMessage()]);
+            exit;
+        }
+    } else {
+        echo json_encode(['status' => 'ok', 'complete' => false, 'chunk' => $chunkIndex]);
+        exit;
+    }
+}
+
+// -------------------------------------------------------------------------
 // Include Page Header & Navbar (Only for HTML views)
 // -------------------------------------------------------------------------
 require_once 'header.php';
@@ -90,6 +183,11 @@ try {
 
 $flash_msg = '';
 $flash_type = 'success';
+if (!empty($_SESSION['backup_flash_msg'])) {
+    $flash_msg = $_SESSION['backup_flash_msg'];
+    $flash_type = $_SESSION['backup_flash_type'] ?? 'success';
+    unset($_SESSION['backup_flash_msg'], $_SESSION['backup_flash_type']);
+}
 
 // -------------------------------------------------------------------------
 // 2. Handle POST Actions
@@ -134,50 +232,66 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
     }
 
-    // Action C: Upload & Restore
+    // Action C: Upload & Restore (Supports direct payload & file fallback)
     elseif ($action === 'upload_restore') {
-        if (isset($_FILES['backup_file']) && $_FILES['backup_file']['error'] === UPLOAD_ERR_OK) {
-            $tmpPath = $_FILES['backup_file']['tmp_name'];
-            $origName = $_FILES['backup_file']['name'];
-            $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
+        $jsonContent = null;
+        if (!empty($_POST['json_content'])) {
+            $jsonContent = trim($_POST['json_content']);
+        } elseif (isset($_FILES['backup_file']) && $_FILES['backup_file']['error'] === UPLOAD_ERR_OK) {
+            $jsonContent = file_get_contents($_FILES['backup_file']['tmp_name']);
+        }
 
-            if ($ext === 'json') {
-                $jsonContent = file_get_contents($tmpPath);
-                $decoded = json_decode($jsonContent, true);
-                if (!$decoded || !isset($decoded['client_id'])) {
-                    $flash_msg = "Invalid JSON backup file: Missing client header metadata.";
-                    $flash_type = "danger";
-                } elseif ((int)$decoded['client_id'] !== $client_id) {
-                    $flash_msg = "Security mismatch: This backup was created for Client ID #{$decoded['client_id']}, but your Client ID is #{$client_id}.";
-                    $flash_type = "danger";
-                } else {
-                    $newBase = "fin_backup_client{$client_id}_" . date('Y-m-d_His') . "_uploaded";
-                    $destJson = $storage_dir . '/' . $newBase . '.json';
-                    move_uploaded_file($tmpPath, $destJson);
+        if (!empty($jsonContent)) {
+            $decoded = json_decode($jsonContent, true);
+            if (!$decoded || !is_array($decoded) || !isset($decoded['client_id'])) {
+                $flash_msg = "Invalid JSON backup file: Missing client header metadata or corrupted structure.";
+                $flash_type = "danger";
+            } elseif ((int)$decoded['client_id'] !== $client_id) {
+                $flash_msg = "Security mismatch: This backup was created for Client ID #{$decoded['client_id']}, but your active portal Client ID is #{$client_id}.";
+                $flash_type = "danger";
+            } else {
+                $newBase = "fin_backup_client{$client_id}_" . date('Y-m-d_His') . "_uploaded";
+                $destJson = $storage_dir . '/' . $newBase . '.json';
+                file_put_contents($destJson, json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
 
-                    // Also generate corresponding .xls and .csv for it
+                try {
+                    // Execute restore
+                    $stats = restore_client_financial_backup($pdo, $client_id, $newBase);
+
+                    // Generate corresponding .xls and .csv for the uploaded snapshot
                     try {
                         $fullData = fetch_client_financial_dataset($pdo, $client_id);
                         $xml = build_multisheet_excel_xml($fullData);
                         file_put_contents($storage_dir . '/' . $newBase . '.xls', $xml);
                         $csv = build_flat_csv($fullData);
                         file_put_contents($storage_dir . '/' . $newBase . '.csv', $csv);
+                    } catch (Exception $eGen) {}
 
-                        // Execute restore
-                        $stats = restore_client_financial_backup($pdo, $client_id, $newBase);
-                        $flash_msg = "<strong>Uploaded Backup Restored Successfully!</strong> Restored {$stats['restored_user_ledgers']} ledgers and reconciled {$stats['updated_sub_balances']} subscribers.";
-                        $flash_type = "success";
-                    } catch (Exception $e) {
-                        $flash_msg = "Restore failed: " . htmlspecialchars($e->getMessage());
-                        $flash_type = "danger";
-                    }
+                    $flash_msg = "<strong>Uploaded Backup Restored Successfully!</strong><br>" .
+                        "&bull; <strong>{$stats['restored_user_ledgers']}</strong> missing subscriber payment ledgers restored.<br>" .
+                        "&bull; <strong>{$stats['updated_sub_balances']}</strong> subscriber balances reconciled.<br>" .
+                        "&bull; <strong>{$stats['restored_salaries']}</strong> salary records restored.<br>" .
+                        "&bull; <strong>{$stats['restored_expenses']}</strong> daily expense records restored.<br>" .
+                        "<small class='text-muted'>A safety rollback snapshot was automatically generated prior to applying this restore.</small>";
+                    $flash_type = "success";
+                } catch (Exception $e) {
+                    $flash_msg = "Restore failed: " . htmlspecialchars($e->getMessage());
+                    $flash_type = "danger";
                 }
-            } else {
-                $flash_msg = "Please upload a valid <strong>.json</strong> database backup snapshot file.";
-                $flash_type = "danger";
             }
         } else {
-            $flash_msg = "File upload error. Please select a valid file.";
+            $errCode = $_FILES['backup_file']['error'] ?? 4;
+            $maxUpload = ini_get('upload_max_filesize') ?: '2M';
+            $maxPost = ini_get('post_max_size') ?: '8M';
+            if ($errCode === UPLOAD_ERR_INI_SIZE || $errCode === UPLOAD_ERR_FORM_SIZE) {
+                $flash_msg = "File upload failed: File size exceeds server limit (upload_max_filesize: {$maxUpload}, post_max_size: {$maxPost}). Please select the file again using the verified stream restore.";
+            } elseif ($errCode === UPLOAD_ERR_NO_FILE) {
+                $flash_msg = "No file was selected. Please choose a valid .json backup file.";
+            } elseif ($errCode === UPLOAD_ERR_PARTIAL) {
+                $flash_msg = "File upload was interrupted. Please try again.";
+            } else {
+                $flash_msg = "File upload error (Code: {$errCode}). Please try selecting the file again.";
+            }
             $flash_type = "danger";
         }
     }
@@ -689,7 +803,7 @@ $latest_backup = $backups[0] ?? null;
 </div>
 
 <!-- ========================================================================= -->
-<!-- 2. UPLOAD & RESTORE MODAL -->
+<!-- 2. UPLOAD & RESTORE MODAL (Upgraded with Instant Validation & Chunked Stream) -->
 <!-- ========================================================================= -->
 <div class="modal fade" id="uploadRestoreModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
@@ -701,27 +815,45 @@ $latest_backup = $backups[0] ?? null;
                 </div>
                 <button type="button" class="btn-close btn-close-white shadow-none" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-            <form method="POST" enctype="multipart/form-data" onsubmit="showGlobalLoader()">
+            <form method="POST" id="uploadRestoreForm" enctype="multipart/form-data">
                 <input type="hidden" name="action" value="upload_restore">
+                <textarea name="json_content" id="backupJsonPayloadInput" style="display:none;"></textarea>
+
                 <div class="modal-body p-4">
                     <p class="text-secondary small mb-3">
                         Upload a previously downloaded <strong>.json</strong> database snapshot file from this client.
                     </p>
 
+                    <!-- Dropzone / File Selector -->
                     <div class="mb-3">
                         <label class="form-label fw-bold text-dark small">Select Backup File (.json):</label>
-                        <input type="file" name="backup_file" class="form-control" accept=".json" required>
-                        <div class="form-text small">Only .json backup payloads generated from your portal are supported for 100% loss-free atomic restoration.</div>
+                        <input type="file" name="backup_file" id="restoreFileInput" class="form-control" accept=".json,application/json" required>
+                        <div class="form-text small">Instant validation &amp; resilient chunked stream restores even multi-megabyte payloads.</div>
                     </div>
 
-                    <div class="alert alert-info border-0 rounded-3 small mb-0">
+                    <!-- Client-Side Instant Verification Box -->
+                    <div id="restoreFilePreviewBox" class="d-none mb-3"></div>
+
+                    <!-- Live Chunked Progress Bar -->
+                    <div id="restoreProgressBox" class="d-none mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <span class="small fw-bold text-primary" id="restoreProgressStage"><i class="fa-solid fa-cloud-arrow-up me-1"></i> Streaming Payload...</span>
+                            <span class="small fw-bold text-primary" id="restoreProgressPercent">0%</span>
+                        </div>
+                        <div class="progress" style="height: 10px; border-radius: 6px;">
+                            <div id="restoreProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" role="progressbar" style="width: 0%"></div>
+                        </div>
+                        <div class="small text-muted mt-1" id="restoreProgressStatus" style="font-size: 0.78rem;">Preparing chunked upload...</div>
+                    </div>
+
+                    <div class="alert alert-info border-0 rounded-3 small mb-0" id="restoreSafetyNote">
                         <i class="fa-solid fa-circle-info me-1"></i>
-                        The system will verify client authenticity, create a safety rollback snapshot, and restore ledgers.
+                        The system verifies client authenticity, creates a safety rollback snapshot, and restores missing ledgers loss-free.
                     </div>
                 </div>
                 <div class="modal-footer border-0 bg-light py-3 px-4">
-                    <button type="button" class="btn btn-light border fw-semibold rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-primary fw-bold rounded-pill px-4 shadow-sm">
+                    <button type="button" class="btn btn-light border fw-semibold rounded-pill px-4" data-bs-dismiss="modal" id="restoreCancelBtn">Cancel</button>
+                    <button type="submit" class="btn btn-primary fw-bold rounded-pill px-4 shadow-sm" id="restoreSubmitBtn">
                         <i class="fa-solid fa-upload me-1"></i> Upload &amp; Restore
                     </button>
                 </div>
@@ -793,6 +925,211 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 });
+
+// -------------------------------------------------------------------------
+// Instant Client-Side JSON Validation & Resilient Chunked Stream Restore
+// -------------------------------------------------------------------------
+const currentClientId = <?= (int)$client_id ?>;
+let selectedBackupFile = null;
+let parsedBackupData = null;
+
+const restoreFileInput = document.getElementById('restoreFileInput');
+const restorePreviewBox = document.getElementById('restoreFilePreviewBox');
+const restoreSubmitBtn = document.getElementById('restoreSubmitBtn');
+const restorePayloadInput = document.getElementById('backupJsonPayloadInput');
+const restoreProgressBox = document.getElementById('restoreProgressBox');
+const restoreProgressBar = document.getElementById('restoreProgressBar');
+const restoreProgressPercent = document.getElementById('restoreProgressPercent');
+const restoreProgressStage = document.getElementById('restoreProgressStage');
+const restoreProgressStatus = document.getElementById('restoreProgressStatus');
+
+if (restoreFileInput) {
+    restoreFileInput.addEventListener('change', function(e) {
+        selectedBackupFile = e.target.files[0] || null;
+        parsedBackupData = null;
+        restorePayloadInput.value = '';
+
+        if (!selectedBackupFile) {
+            restorePreviewBox.classList.add('d-none');
+            restorePreviewBox.innerHTML = '';
+            restoreSubmitBtn.disabled = false;
+            return;
+        }
+
+        const sizeFmt = (selectedBackupFile.size > 1048576) 
+            ? (selectedBackupFile.size / 1048576).toFixed(2) + ' MB'
+            : (selectedBackupFile.size / 1024).toFixed(1) + ' KB';
+
+        // Read file contents via FileReader locally
+        const reader = new FileReader();
+        reader.onload = function(evt) {
+            const rawContent = evt.target.result;
+            try {
+                const parsed = JSON.parse(rawContent);
+                if (!parsed || typeof parsed !== 'object' || !parsed.client_id) {
+                    showPreviewError('Invalid backup file: Missing client_id metadata in JSON payload.');
+                    return;
+                }
+                if (parseInt(parsed.client_id) !== currentClientId) {
+                    showPreviewError('Security Mismatch: This backup was generated for Client ID #' + parsed.client_id + ', but your current portal is Client ID #' + currentClientId + '.');
+                    return;
+                }
+
+                parsedBackupData = parsed;
+                // Pre-populate hidden textarea as direct fallback
+                restorePayloadInput.value = rawContent;
+
+                const compName = parsed.company_name || 'Client #' + parsed.client_id;
+                const crDate = parsed.created_at || 'Recorded snapshot';
+                const totalTrx = (parsed.summary && parsed.summary.total_transactions) ? parsed.summary.total_transactions : ((parsed.user_collections ? parsed.user_collections.length : 0) + ' items');
+
+                restorePreviewBox.className = 'alert alert-success border-0 rounded-3 p-3 mb-3 shadow-sm';
+                restorePreviewBox.innerHTML = `
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <span class="fw-bold text-success"><i class="fa-solid fa-circle-check me-1"></i> Valid Backup Verified</span>
+                        <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1">${sizeFmt}</span>
+                    </div>
+                    <div class="small text-dark" style="font-size: 0.82rem; line-height: 1.5;">
+                        <div><strong>Network:</strong> ${escapeHtml(compName)}</div>
+                        <div><strong>Snapshot Date:</strong> ${escapeHtml(crDate)}</div>
+                        <div><strong>Transactions:</strong> <span class="badge bg-primary bg-opacity-10 text-primary fw-bold">${totalTrx} records</span></div>
+                    </div>
+                `;
+                restorePreviewBox.classList.remove('d-none');
+                restoreSubmitBtn.disabled = false;
+
+            } catch (err) {
+                showPreviewError('Corrupted JSON: Failed to parse file content (' + err.message + ').');
+            }
+        };
+        reader.onerror = function() {
+            showPreviewError('Unable to read selected file from local storage.');
+        };
+        reader.readAsText(selectedBackupFile);
+    });
+}
+
+function showPreviewError(msg) {
+    restorePreviewBox.className = 'alert alert-danger border-0 rounded-3 p-3 mb-3 shadow-sm';
+    restorePreviewBox.innerHTML = '<i class="fa-solid fa-triangle-exclamation me-1"></i> <strong>File Error:</strong> ' + escapeHtml(msg);
+    restorePreviewBox.classList.remove('d-none');
+    restoreSubmitBtn.disabled = true;
+}
+
+function escapeHtml(text) {
+    var div = document.createElement('div');
+    div.innerText = text;
+    return div.innerHTML;
+}
+
+// Form Submission with Resilient Chunked Streaming
+const uploadRestoreForm = document.getElementById('uploadRestoreForm');
+if (uploadRestoreForm) {
+    uploadRestoreForm.addEventListener('submit', function(e) {
+        if (!selectedBackupFile && !restorePayloadInput.value) {
+            return; // Let standard HTML5 validation handle empty file
+        }
+
+        e.preventDefault();
+
+        // If file is available, use chunked upload to bypass ALL server size limits
+        if (selectedBackupFile) {
+            startChunkedUploadAndRestore(selectedBackupFile);
+        } else {
+            // Fallback submit
+            if (typeof showGlobalLoader === 'function') showGlobalLoader();
+            uploadRestoreForm.submit();
+        }
+    });
+}
+
+function startChunkedUploadAndRestore(file) {
+    const CHUNK_SIZE = 512 * 1024; // 512 KB chunks (never blocked by 2M/8M limits)
+    const totalBytes = file.size;
+    const totalChunks = Math.ceil(totalBytes / CHUNK_SIZE);
+    const fileId = 'up_' + Date.now() + '_' + Math.floor(Math.random() * 10000);
+    let currentChunk = 0;
+
+    restoreSubmitBtn.disabled = true;
+    document.getElementById('restoreCancelBtn').classList.add('disabled');
+    restoreProgressBox.classList.remove('d-none');
+    document.getElementById('restoreSafetyNote').classList.add('d-none');
+
+    function sendNext() {
+        if (currentChunk >= totalChunks) return;
+
+        const start = currentChunk * CHUNK_SIZE;
+        const end = Math.min(totalBytes, start + CHUNK_SIZE);
+        const chunkBlob = file.slice(start, end);
+
+        const pct = Math.min(95, Math.round(((currentChunk + 1) / totalChunks) * 100));
+        restoreProgressBar.style.width = pct + '%';
+        restoreProgressPercent.innerText = pct + '%';
+
+        if (currentChunk + 1 === totalChunks) {
+            restoreProgressStage.innerHTML = '<i class="fa-solid fa-gear fa-spin me-1"></i> Restoring Database...';
+            restoreProgressStatus.innerText = 'Assembling payload & reconciling ledgers...';
+        } else {
+            restoreProgressStage.innerHTML = '<i class="fa-solid fa-cloud-arrow-up me-1"></i> Uploading Chunk ' + (currentChunk + 1) + ' of ' + totalChunks;
+            restoreProgressStatus.innerText = 'Streaming snapshot chunks safely to server...';
+        }
+
+        const formData = new FormData();
+        formData.append('chunk', chunkBlob, file.name);
+        formData.append('chunk_index', currentChunk);
+        formData.append('total_chunks', totalChunks);
+        formData.append('file_id', fileId);
+
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', 'backups?action=upload_chunk', true);
+
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                try {
+                    const res = JSON.parse(xhr.responseText);
+                    if (res.status === 'ok') {
+                        if (res.complete) {
+                            restoreProgressBar.style.width = '100%';
+                            restoreProgressPercent.innerText = '100%';
+                            restoreProgressBar.classList.remove('bg-primary');
+                            restoreProgressBar.classList.add('bg-success');
+                            restoreProgressStage.innerHTML = '<i class="fa-solid fa-circle-check text-success me-1"></i> Restore Complete!';
+                            restoreProgressStatus.innerText = res.message || 'Reloading portal...';
+                            setTimeout(function() {
+                                window.location.href = res.redirect || 'backups';
+                            }, 800);
+                        } else {
+                            currentChunk++;
+                            sendNext();
+                        }
+                    } else {
+                        showUploadFailure(res.message || 'Chunk error occurred.');
+                    }
+                } catch (e) {
+                    showUploadFailure('Invalid server response: ' + xhr.responseText.substring(0, 120));
+                }
+            } else {
+                showUploadFailure('Server HTTP error ' + xhr.status + '. Please retry.');
+            }
+        };
+
+        xhr.onerror = function() {
+            showUploadFailure('Network connection error during restore stream.');
+        };
+
+        xhr.send(formData);
+    }
+
+    sendNext();
+}
+
+function showUploadFailure(msg) {
+    restoreProgressBox.classList.add('d-none');
+    document.getElementById('restoreSafetyNote').classList.remove('d-none');
+    restoreSubmitBtn.disabled = false;
+    document.getElementById('restoreCancelBtn').classList.remove('disabled');
+    showPreviewError(msg);
+}
 </script>
 
 <?php require_once 'footer.php'; ?>

@@ -921,11 +921,11 @@ unset($ms);
             </div>
         </div>
 
-        <div class="dropdown mt-2 mt-md-0">
+        <!-- <div class="dropdown mt-2 mt-md-0">
             <button class="btn btn-sm btn-white bg-white border rounded-pill px-3 py-2 fw-semibold text-secondary d-flex align-items-center gap-2 shadow-sm" type="button">
                 <i class="fa-regular fa-calendar"></i> Last 30 Days <i class="fa-solid fa-chevron-down small"></i>
             </button>
-        </div>
+        </div> -->
     </div>
     
     <!-- Sub-navigation Pills -->
