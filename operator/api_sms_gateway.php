@@ -1,10 +1,13 @@
 <?php
 // =========================================================================
 // Android Phone SMS Gateway - High-Performance Multi-Protocol REST API
-// Fully compatible with:
-//   1. Capcom6 Android SMS Gateway App (Cloud & Private Mode: /mobile/v1/*)
-//   2. Direct REST Webhook Polling (/api/sms_gateway?action=pull)
-//   3. Custom SMS Clients & Microservices
+// Native Capcom6 GatewayApi.kt wire-protocol implementation:
+//   - GET/POST/PATCH /device
+//   - GET/PATCH /message (singular) & /messages (plural)
+//   - GET /settings
+//   - GET /webhooks
+//   - POST /inbox
+// Plus legacy /api/sms_gateway?action=pull / ping / report
 // =========================================================================
 
 header('Content-Type: application/json; charset=utf-8');
@@ -16,7 +19,7 @@ require_once __DIR__ . '/../config/sms_helper.php';
 ensure_sms_tables_exist($pdo);
 
 // -------------------------------------------------------------------------
-// 1. Health Probe Endpoint (Does not require auth)
+// 1. Health Probe Endpoint
 // -------------------------------------------------------------------------
 $requestUri = $_SERVER['REQUEST_URI'] ?? '';
 $parsedPath = parse_url($requestUri, PHP_URL_PATH);
@@ -42,7 +45,6 @@ $jsonInput = json_decode($rawInput, true);
 // -------------------------------------------------------------------------
 $token = trim($_REQUEST['token'] ?? '');
 
-// Check Header sources
 $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? ($_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '');
 if (empty($authHeader) && function_exists('apache_request_headers')) {
     $hdrs = apache_request_headers();
@@ -61,18 +63,16 @@ if (empty($token) && !empty($authHeader)) {
     }
 }
 
-// Check custom header fallbacks
 if (empty($token)) {
     $token = trim($_SERVER['HTTP_X_TOKEN'] ?? ($_SERVER['HTTP_X_API_KEY'] ?? ($_SERVER['HTTP_X_GATEWAY_TOKEN'] ?? '')));
 }
 
-// Check JSON body fallback
 if (empty($token) && is_array($jsonInput) && !empty($jsonInput['token'])) {
     $token = trim($jsonInput['token']);
 }
 
 // -------------------------------------------------------------------------
-// 4. Debug Request Logging (Safely log last requests for troubleshooting)
+// 4. Debug Request Logging
 // -------------------------------------------------------------------------
 $debugDir = __DIR__ . '/../logs';
 if (!is_dir($debugDir)) {
@@ -88,7 +88,7 @@ if (empty($token)) {
     http_response_code(401);
     echo json_encode([
         'success' => false,
-        'error'   => 'Unauthorized: Missing gateway token. Provide Authorization Bearer/ServerKey header or ?token=YOUR_SECRET_TOKEN.'
+        'error'   => 'Unauthorized: Missing gateway token.'
     ]);
     exit;
 }
@@ -135,96 +135,139 @@ $updSql = "UPDATE sms_gateway_settings SET " . implode(', ', $updFields) . " WHE
 $pdo->prepare($updSql)->execute($updParams);
 
 // -------------------------------------------------------------------------
-// 7. ROUTE HANDLER: CAPCOM6 ANDROID APP PROTOCOL
+// 7. ROUTE HANDLER: CAPCOM6 NATIVE PROTOCOL (GatewayApi.kt)
 // -------------------------------------------------------------------------
 
-// Endpoint A: Device Registration or Query (/mobile/v1/device)
-if (strpos($parsedPath, '/device') !== false) {
-    $dispDeviceName = !empty($deviceName) ? $deviceName : (!empty($gateway['phone_device_name']) ? $gateway['phone_device_name'] : 'Android Phone');
-    
+// Endpoint A: Device Registration (POST /device)
+if (strpos($parsedPath, '/device') !== false && $httpMethod === 'POST') {
     echo json_encode([
-        'id'        => 'dev_' . $client_id,
-        'name'      => $dispDeviceName,
-        'token'     => $token,
-        'createdAt' => date('c', strtotime($gateway['created_at'] ?? 'now')),
-        'updatedAt' => date('c')
+        'id'       => 'dev_' . $client_id,
+        'token'    => $token,
+        'login'    => 'admin',
+        'password' => null
     ]);
     exit;
 }
 
-// Endpoint B: Message Polling or Status Update (/mobile/v1/messages)
-if (strpos($parsedPath, '/messages') !== false) {
-    // Check if path has a specific message ID: e.g. /messages/123
-    $pathMsgId = 0;
-    if (preg_match('#/messages/(\d+)#', $parsedPath, $m)) {
-        $pathMsgId = (int)$m[1];
+// Endpoint B: Device Info (GET /device)
+if (strpos($parsedPath, '/device') !== false && $httpMethod === 'GET') {
+    echo json_encode([
+        'externalIp' => $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1'
+    ]);
+    exit;
+}
+
+// Endpoint C: Device Patch (PATCH /device)
+if (strpos($parsedPath, '/device') !== false && $httpMethod === 'PATCH') {
+    http_response_code(204);
+    exit;
+}
+
+// Endpoint D: Settings (GET /settings)
+if (strpos($parsedPath, '/settings') !== false && $httpMethod === 'GET') {
+    echo json_encode((object)[]);
+    exit;
+}
+
+// Endpoint E: Webhooks (GET /webhooks)
+if (strpos($parsedPath, '/webhooks') !== false && $httpMethod === 'GET') {
+    echo json_encode([]);
+    exit;
+}
+
+// Endpoint F: Inbox (POST /inbox)
+if (strpos($parsedPath, '/inbox') !== false && $httpMethod === 'POST') {
+    http_response_code(204);
+    exit;
+}
+
+// Endpoint G: Outbound Messages Polling (GET /message OR /messages)
+if ((strpos($parsedPath, '/message') !== false || strpos($parsedPath, '/messages') !== false) && $httpMethod === 'GET') {
+    $limit = max(1, min(25, (int)($_REQUEST['limit'] ?? 10)));
+
+    $stmt = $pdo->prepare("
+        SELECT id, recipient_mobile, message_text
+        FROM sms_queue_logs
+        WHERE client_id = ?
+          AND status = 'pending'
+          AND (scheduled_at IS NULL OR scheduled_at <= NOW() OR scheduled_at <= DATE_ADD(NOW(), INTERVAL 1 HOUR))
+        ORDER BY id ASC
+        LIMIT $limit
+    ");
+    $stmt->execute([$client_id]);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $capcomList = [];
+    foreach ($rows as $r) {
+        $cleanPhone = format_mobile_for_sms($r['recipient_mobile']);
+        $text = (string)$r['message_text'];
+
+        $capcomList[] = [
+            'id'                 => (string)$r['id'],
+            'phoneNumbers'       => [$cleanPhone],
+            'simNumber'          => (int)($gateway['sim_slot'] ?? 1),
+            'withDeliveryReport' => false,
+            'isEncrypted'        => false,
+            'state'              => 'Pending',
+            'message'            => $text,
+            'textMessage'        => [
+                'text' => $text
+            ]
+        ];
     }
 
-    // 1. Status Update from Phone (PATCH / POST / PUT)
-    if (in_array($httpMethod, ['PATCH', 'POST', 'PUT']) || $pathMsgId > 0) {
-        $targetMsgId = $pathMsgId ?: (int)($jsonInput['id'] ?? ($_REQUEST['id'] ?? 0));
-        $rawStatus   = strtolower(trim($jsonInput['status'] ?? ($_REQUEST['status'] ?? 'sent')));
-        $errorMsg    = trim($jsonInput['error'] ?? ($_REQUEST['error'] ?? ''));
+    echo json_encode($capcomList, JSON_UNESCAPED_UNICODE);
+    exit;
+}
 
-        $normStatus = 'sent';
-        if (in_array($rawStatus, ['delivered', 'success', 'ok'])) {
-            $normStatus = 'delivered';
-        } elseif (in_array($rawStatus, ['failed', 'error'])) {
-            $normStatus = 'failed';
-        } elseif (in_array($rawStatus, ['cancelled', 'cancel'])) {
-            $normStatus = 'cancelled';
+// Endpoint H: Message Delivery Status Patch (PATCH /message OR /messages)
+if ((strpos($parsedPath, '/message') !== false || strpos($parsedPath, '/messages') !== false) && in_array($httpMethod, ['PATCH', 'POST', 'PUT'])) {
+    $patchList = [];
+    if (is_array($jsonInput)) {
+        if (isset($jsonInput['id'])) {
+            $patchList[] = $jsonInput;
+        } elseif (isset($jsonInput[0]) && is_array($jsonInput[0])) {
+            $patchList = $jsonInput;
         }
-
-        if ($targetMsgId > 0) {
-            $upd = $pdo->prepare("
-                UPDATE sms_queue_logs 
-                SET status = ?, 
-                    sent_at = CASE WHEN ? IN ('sent', 'delivered') THEN NOW() ELSE sent_at END,
-                    error_message = ?,
-                    gateway_ref = ?
-                WHERE id = ? AND client_id = ?
-            ");
-            $upd->execute([$normStatus, $normStatus, $errorMsg ?: null, 'SIM' . ($gateway['sim_slot'] ?? 1), $targetMsgId, $client_id]);
-        }
-
-        echo json_encode([
-            'success' => true,
-            'id'      => $targetMsgId,
-            'status'  => $normStatus
-        ]);
-        exit;
     }
 
-    // 2. Outbound Message Polling (GET /mobile/v1/messages)
-    if ($httpMethod === 'GET') {
-        $limit = max(1, min(15, (int)($_REQUEST['limit'] ?? 5)));
+    $updStmt = $pdo->prepare("
+        UPDATE sms_queue_logs 
+        SET status = ?, 
+            sent_at = CASE WHEN ? IN ('sent', 'delivered') THEN NOW() ELSE sent_at END,
+            error_message = ?,
+            gateway_ref = ?
+        WHERE id = ? AND client_id = ?
+    ");
 
-        $stmt = $pdo->prepare("
-            SELECT id, recipient_mobile, message_text
-            FROM sms_queue_logs
-            WHERE client_id = ?
-              AND status = 'pending'
-              AND (scheduled_at IS NULL OR scheduled_at <= NOW() OR scheduled_at <= DATE_ADD(NOW(), INTERVAL 1 HOUR))
-            ORDER BY id ASC
-            LIMIT $limit
-        ");
-        $stmt->execute([$client_id]);
-        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $updated = 0;
+    foreach ($patchList as $p) {
+        $mId = (int)($p['id'] ?? 0);
+        $rawState = strtolower(trim((string)($p['state'] ?? 'sent')));
+        
+        $norm = 'sent';
+        if (in_array($rawState, ['delivered', 'processed'])) $norm = 'delivered';
+        elseif (in_array($rawState, ['failed', 'error'])) $norm = 'failed';
+        elseif (in_array($rawState, ['cancelled', 'cancelling'])) $norm = 'cancelled';
 
-        $capcomMessages = [];
-        foreach ($rows as $r) {
-            $capcomMessages[] = [
-                'id'           => (string)$r['id'],
-                'deviceId'     => 'dev_' . $client_id,
-                'message'      => $r['message_text'],
-                'phoneNumbers' => [format_mobile_for_sms($r['recipient_mobile'])],
-                'simNumber'    => (int)($gateway['sim_slot'] ?? 1)
-            ];
+        $err = null;
+        if (!empty($p['recipients']) && is_array($p['recipients'])) {
+            foreach ($p['recipients'] as $rcp) {
+                if (!empty($rcp['error'])) {
+                    $err = substr($rcp['error'], 0, 250);
+                    break;
+                }
+            }
         }
 
-        echo json_encode($capcomMessages, JSON_UNESCAPED_UNICODE);
-        exit;
+        if ($mId > 0) {
+            $updStmt->execute([$norm, $norm, $err, 'SIM' . ($gateway['sim_slot'] ?? 1), $mId, $client_id]);
+            $updated++;
+        }
     }
+
+    echo json_encode(['success' => true, 'updated' => $updated]);
+    exit;
 }
 
 // -------------------------------------------------------------------------
@@ -232,25 +275,11 @@ if (strpos($parsedPath, '/messages') !== false) {
 // -------------------------------------------------------------------------
 $action = strtolower(trim($_REQUEST['action'] ?? ''));
 
-// If no action specified and request is GET to base URL -> Treat as ping
-if (empty($action) && $httpMethod === 'GET') {
-    $action = 'ping';
-}
-
 // Action 1: PING (Heartbeat / Connectivity Test)
-if ($action === 'ping') {
+if ($action === 'ping' || (empty($action) && $httpMethod === 'GET' && strpos($parsedPath, 'sms_gateway') !== false)) {
     $cStmt = $pdo->prepare("SELECT COUNT(*) FROM sms_queue_logs WHERE client_id = ? AND status = 'pending'");
     $cStmt->execute([$client_id]);
     $pendingCount = (int)$cStmt->fetchColumn();
-
-    $debugData = null;
-    if (!empty($_REQUEST['debug'])) {
-        $debugData = [
-            'all_settings' => $pdo->query("SELECT id, client_id, gateway_token, last_phone_ping_at, phone_device_name FROM sms_gateway_settings")->fetchAll(),
-            'queue_summary' => $pdo->query("SELECT client_id, status, count(*) as cnt FROM sms_queue_logs GROUP BY client_id, status")->fetchAll(),
-            'recent_queue' => $pdo->query("SELECT id, client_id, recipient_mobile, status, scheduled_at, created_at FROM sms_queue_logs ORDER BY id DESC LIMIT 5")->fetchAll()
-        ];
-    }
 
     echo json_encode([
         'success'        => true,
@@ -260,7 +289,6 @@ if ($action === 'ping') {
         'sim_slot'       => (int)($gateway['sim_slot'] ?? 1),
         'pending_count'  => $pendingCount,
         'server_time'    => date('Y-m-d H:i:s'),
-        'debug'          => $debugData,
         'message'        => 'Android SMS Gateway connected successfully.'
     ]);
     exit;
@@ -292,7 +320,7 @@ elseif ($action === 'pull') {
     exit;
 }
 
-// Action 3: REPORT (Delivery Report)
+// Action 3: REPORT
 elseif ($action === 'report') {
     $reports = [];
     if (is_array($jsonInput)) {
@@ -354,7 +382,7 @@ elseif ($action === 'cancel') {
     }
 }
 
-// Fallback response
+// Fallback
 echo json_encode([
     'success' => true,
     'status'  => 'online',
