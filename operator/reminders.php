@@ -101,8 +101,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     if (empty($rn)) continue;
                     $cleanM = format_mobile_for_sms($rn);
                     if (!empty($cleanM)) {
-                        queue_sms_message($pdo, $client_id, $cleanM, $customText, 'custom_bulk', null, null, 'Admin Composer');
-                        $queuedCount++;
+                        if (queue_sms_message($pdo, $client_id, $cleanM, $customText, 'custom_bulk', null, null, 'Admin Composer')) {
+                            $queuedCount++;
+                        }
                     }
                 }
             }

@@ -269,7 +269,7 @@ if (!function_exists('queue_sms_message')) {
         $cleanMobile = format_mobile_for_sms($mobile);
         $message = trim((string)$message);
 
-        if (empty($cleanMobile) || strlen($cleanMobile) < 10) {
+        if (empty($cleanMobile) || strlen($cleanMobile) < 3) {
             return false;
         }
         if (empty($message)) {
