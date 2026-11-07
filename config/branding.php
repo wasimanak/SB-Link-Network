@@ -50,7 +50,7 @@ $BRAND_CONFIG = [
     'support_whatsapp'     => '0301-6542060',                    // Official WhatsApp Number for Orders & Helpline (e.g. 03036542000)
     'support_email'        => 'malikmobiles4004@gmail.com',            // Official Support & Inquiries Email
     'support_address'      => 'Al Munir Mobile Shop Nearr MCB Bank, Piplan, District Mianwali, Pakistan', // Office / NOC Location
-    'website_url'          => 'https://lasani.tech',            // Official Website URL
+    'website_url'          => 'https://lasaninetwork.com',            // Official Website URL
     'customer_portal_url'  => '/customer/login',                // Customer Self-Care Login URL
     'login_url'            => '/login',                         // Unified Multi-Role Login URL
 

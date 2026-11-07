@@ -48,6 +48,9 @@ RewriteRule ^ %1 [R=301,L]
 RewriteRule ^admin/settings/?$ operator/profile.php [L,QSA]
 RewriteRule ^admin/backups/?$ operator/backups.php [L,QSA]
 RewriteRule ^operator/backups/?$ operator/backups.php [L,QSA]
+RewriteRule ^admin/reminders/?$ operator/reminders.php [L,QSA]
+RewriteRule ^operator/reminders/?$ operator/reminders.php [L,QSA]
+RewriteRule ^api/sms_gateway/?$ operator/api_sms_gateway.php [L,QSA]
 RewriteRule ^admin/?$ operator/dashboard.php [L,QSA]
 RewriteRule ^admin/(.*)$ operator/$1 [L,QSA]
 RewriteRule ^superadmin/admins/?$ superadmin/operators.php [L,QSA]
@@ -60,7 +63,7 @@ RewriteRule ^superadmin/backups/?$ superadmin/backups.php [L,QSA]
 # Whitelist public entry points, policies, legitimate webhooks, and cron endpoints
 RewriteCond %{REQUEST_URI} !^/(index|login|logout|security_gate|safepay_webhook|reset_all_usage_db|cron_sync_mikrotik|privacy-policy|terms-and-conditions|terms|contact|refund-policy|shipping-policy|faqs|policies)(\.php)?$ [NC]
 # Whitelist portal subfolders and static assets
-RewriteCond %{REQUEST_URI} !^/(customer|admin|operator|dealer|superadmin|recoveryman|lineman|uploads|assets|css|js|images)/ [NC]
+RewriteCond %{REQUEST_URI} !^/(api|customer|admin|operator|dealer|superadmin|recoveryman|lineman|uploads|assets|css|js|images)/ [NC]
 # Intercept any requested root PHP script
 RewriteCond %{DOCUMENT_ROOT}/$1.php -f [OR]
 RewriteCond %{REQUEST_FILENAME} -f

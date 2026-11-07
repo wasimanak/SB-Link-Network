@@ -626,8 +626,14 @@ $userRoleLabel = !empty($_SESSION['is_manager']) ? 'MANAGER' : 'ADMIN';
                 </ul>
             </div>
 
-            <!-- 8. Messages -->
-            <a href="#" class="nav-item-link">
+            <!-- 8. Reminders & Mobile SMS Gateway -->
+            <a href="reminders" class="nav-item-link <?= (in_array($p, ['reminders.php', 'reminders']) && ($_GET['tab'] ?? '') !== 'custom') ? 'active-parent' : '' ?>">
+                <i class="fa-solid fa-bell nav-icon"></i>
+                <span class="nav-text">Reminders</span>
+            </a>
+
+            <!-- 8b. Messages / Bulk SMS -->
+            <a href="reminders?tab=custom" class="nav-item-link <?= (in_array($p, ['reminders.php', 'reminders']) && ($_GET['tab'] ?? '') === 'custom') ? 'active-parent' : '' ?>">
                 <i class="fa-solid fa-comment-dots nav-icon"></i>
                 <span class="nav-text">Messages</span>
             </a>

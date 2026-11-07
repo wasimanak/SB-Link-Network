@@ -901,7 +901,12 @@ unset($ms);
     </a>
 
     <?php if (empty($_SESSION['is_manager'])): ?>
-    <!-- 6. Financial Backups -->
+    <!-- 6. SMS Reminders Gateway -->
+    <a href="reminders" class="quick-action-card">
+        <span class="quick-action-text">SMS Reminders</span>
+    </a>
+
+    <!-- 7. Financial Backups -->
     <a href="backups" class="quick-action-card">
         <span class="quick-action-text">Financial Backups</span>
     </a>
