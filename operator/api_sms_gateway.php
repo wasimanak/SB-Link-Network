@@ -243,6 +243,15 @@ if ($action === 'ping') {
     $cStmt->execute([$client_id]);
     $pendingCount = (int)$cStmt->fetchColumn();
 
+    $debugData = null;
+    if (!empty($_REQUEST['debug'])) {
+        $debugData = [
+            'all_settings' => $pdo->query("SELECT id, client_id, gateway_token, last_phone_ping_at, phone_device_name FROM sms_gateway_settings")->fetchAll(),
+            'queue_summary' => $pdo->query("SELECT client_id, status, count(*) as cnt FROM sms_queue_logs GROUP BY client_id, status")->fetchAll(),
+            'recent_queue' => $pdo->query("SELECT id, client_id, recipient_mobile, status, scheduled_at, created_at FROM sms_queue_logs ORDER BY id DESC LIMIT 5")->fetchAll()
+        ];
+    }
+
     echo json_encode([
         'success'        => true,
         'status'         => 'online',
@@ -251,6 +260,7 @@ if ($action === 'ping') {
         'sim_slot'       => (int)($gateway['sim_slot'] ?? 1),
         'pending_count'  => $pendingCount,
         'server_time'    => date('Y-m-d H:i:s'),
+        'debug'          => $debugData,
         'message'        => 'Android SMS Gateway connected successfully.'
     ]);
     exit;
