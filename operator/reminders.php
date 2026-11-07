@@ -390,6 +390,10 @@ require_once 'header.php';
                     <span class="badge rounded-pill bg-success bg-opacity-10 text-success px-3 py-1 fw-bold d-inline-flex align-items-center gap-1" style="font-size: 0.78rem;">
                         <span class="pulse-dot online"></span> Phone Gateway Online (<?= $stats['phone_seen_ago'] ?>)
                     </span>
+                <?php elseif ($stats['phone_seen_ago'] !== 'Never' && !empty($settings['last_phone_ping_at']) && (time() - strtotime($settings['last_phone_ping_at'])) <= 3600): ?>
+                    <span class="badge rounded-pill bg-warning bg-opacity-10 text-dark px-3 py-1 fw-bold d-inline-flex align-items-center gap-1" style="font-size: 0.78rem;">
+                        <span class="pulse-dot" style="background:#f59e0b;"></span> Phone Standby (<?= $stats['phone_seen_ago'] ?>)
+                    </span>
                 <?php else: ?>
                     <span class="badge rounded-pill bg-danger bg-opacity-10 text-danger px-3 py-1 fw-bold d-inline-flex align-items-center gap-1" style="font-size: 0.78rem;">
                         <span class="pulse-dot offline"></span> Phone Gateway Offline

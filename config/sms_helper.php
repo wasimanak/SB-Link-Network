@@ -504,7 +504,7 @@ if (!function_exists('get_sms_dashboard_stats')) {
             $diffSeconds = time() - $lastPingTs;
             
             // If phone pinged in the last 90 seconds, mark as ONLINE
-            if ($diffSeconds <= 180) {
+            if ($diffSeconds <= 900) {
                 $stats['gateway_online'] = true;
             }
 
