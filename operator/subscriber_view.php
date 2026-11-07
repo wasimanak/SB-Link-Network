@@ -1430,6 +1430,13 @@ if ($last_debit) {
 <!-- DataTables & Buttons CSS -->
 <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
 <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.2/css/buttons.bootstrap5.min.css">
+<!-- Select2 CSS -->
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<style>
+    .select2-container .select2-selection--single { height: 31px; border: 1px solid #dee2e6; }
+    .select2-container--default .select2-selection--single .select2-selection__rendered { line-height: 29px; color: #475569; font-size: 0.875rem; }
+    .select2-dropdown { border: 1px solid #dee2e6; }
+</style>
 
 <style>
     .dt-buttons .btn {
@@ -1623,7 +1630,7 @@ if ($last_debit) {
             <div class="action-grid">
                 <!-- Modals Triggers -->
                 <button type="button" class="btn-pill" data-bs-toggle="modal" data-bs-target="#paymentModal"><i class="fa-brands fa-paypal"></i> Payment</button>
-                <button type="button" class="btn-pill" data-bs-toggle="modal" data-bs-target="#renewModal"><i class="fa-solid fa-rotate"></i> Renew</button>
+                <button type="button" class="btn-pill" data-bs-toggle="modal" data-bs-target="#renewUserModal" onclick="openRenewModal(<?= $id ?>)"><i class="fa-solid fa-rotate"></i> Renew</button>
                 <a href="print_receipt.php?sub_id=<?= $id ?>&return=<?= urlencode('subscriber_view.php?id=' . $id) ?>" target="_blank" class="btn-pill text-primary fw-bold"><i class="fa-solid fa-receipt text-primary"></i> Print Receipt</a>
                 <button type="button" class="btn-pill <?= !empty($user['last_renewal_receipt']) ? 'text-primary fw-bold' : '' ?>" data-bs-toggle="modal" data-bs-target="#renewalReceiptModal"><i class="fa-solid fa-file-invoice-dollar <?= !empty($user['last_renewal_receipt']) ? 'text-success' : 'text-primary' ?>"></i> View Renewal Receipt <?= !empty($user['last_renewal_receipt']) ? '<span class="badge bg-success ms-1" style="font-size: 0.62rem;">Attached</span>' : '' ?></button>
                 <button type="button" class="btn-pill" onclick="alert('User Password: <?= htmlspecialchars($user['password']) ?>')"><i class="fa-solid fa-lock"></i> Toggle Password</button>
@@ -2017,171 +2024,120 @@ $last_login_display = ($latest_login_ts && $latest_login_ts > 86400) ? date('d M
   </div>
 </div>
 
-<!-- Renew & Custom Expiry Modal -->
-<div class="modal fade" id="renewModal" tabindex="-1">
+<!-- Activate/Renew User Modal (Dashboard Unified) -->
+<?php
+// Fetch users and packages for the renew modal
+$renewUsers = $pdo->query("SELECT s.id, s.username, s.full_name, s.status, s.expiry_date, s.package_id, s.balance, p.price as pkg_price, p.validity_days as pkg_val FROM subscribers s LEFT JOIN packages p ON s.package_id = p.id WHERE s.client_id = $client_id ORDER BY s.username ASC")->fetchAll();
+$renewPackages = $pdo->query("SELECT id, name, price, validity_days FROM packages WHERE client_id = $client_id OR client_id = 0 ORDER BY name ASC")->fetchAll();
+?>
+<div class="modal fade" id="renewUserModal" tabindex="-1">
   <div class="modal-dialog modal-lg">
-    <div class="modal-content shadow-lg border-0 rounded-4">
-      <div class="modal-header bg-light border-bottom px-4 py-3">
-        <h5 class="modal-title fw-bold text-dark">
-          <i class="fa-solid fa-rotate text-primary me-2"></i> <?= $is_manager ? 'Renew Subscriber Package' : 'Renew &amp; Custom Expiry Management' ?>
-        </h5>
+    <div class="modal-content light-modal" style="background-color: #f8fafc;">
+      <div class="modal-header bg-white border-bottom-0">
+        <h5 class="modal-title fw-bold"><i class="fa-solid fa-bolt text-warning me-2"></i> Activate / Renew User</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
-      <form method="POST" enctype="multipart/form-data" onsubmit="var btn=this.querySelector('button[type=submit]'); if(this.submitted){return false;} this.submitted=true; if(btn){btn.disabled=true; btn.innerHTML='<i class=\'fa-solid fa-spinner fa-spin me-2\'></i> Processing Renewal... Please wait...';} return true;">
-        <input type="hidden" name="action" value="renew_user">
-        <div class="modal-body p-4">
-
-            <!-- Subscriber Quick Status Strip -->
-            <div class="bg-light rounded-3 p-3 mb-3 border">
-                <div class="row g-2 align-items-center">
-                    <div class="col-6 col-md-3">
-                        <div class="text-muted small fw-semibold">Status</div>
-                        <div class="mt-1">
-                            <?php if (!$is_disabled && !$is_expired): ?>
-                                <span class="badge bg-success-subtle text-success border border-success-subtle fw-bold rounded-pill px-2 py-1">
-                                    <i class="fa-solid fa-circle-check me-1"></i> Active
-                                </span>
-                            <?php elseif ($is_disabled): ?>
-                                <span class="badge bg-danger-subtle text-danger border border-danger-subtle fw-bold rounded-pill px-2 py-1">
-                                    <i class="fa-solid fa-ban me-1"></i> Disabled
-                                </span>
-                            <?php else: ?>
-                                <span class="badge bg-danger-subtle text-danger border border-danger-subtle fw-bold rounded-pill px-2 py-1">
-                                    <i class="fa-solid fa-circle-xmark me-1"></i> Expired
-                                </span>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-                    <div class="col-6 col-md-3">
-                        <div class="text-muted small fw-semibold">Current Expiry</div>
-                        <div class="fw-bold text-dark mt-1 font-monospace small">
-                            <?= is_valid_date($user['expiry_date'] ?? '') ? safe_date('d M Y, h:i A', $user['expiry_date']) : '<span class="text-muted">None / Expired</span>' ?>
-                        </div>
-                    </div>
-                    <div class="col-6 col-md-3">
-                        <div class="text-muted small fw-semibold">Current Balance</div>
-                        <div class="fw-bold mt-1 <?= (float)$user['balance'] < 0 ? 'text-danger' : 'text-success' ?>">
-                            Rs. <?= number_format((float)$user['balance'], 2) ?>
-                        </div>
-                    </div>
-                    <div class="col-6 col-md-3">
-                        <div class="text-muted small fw-semibold">Current Package</div>
-                        <div class="fw-bold text-dark mt-1 small">
-                            <?= htmlspecialchars($user['pkg_name'] ?? 'N/A') ?>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Form Inputs -->
-            <div class="row g-3">
-                <div class="col-md-6">
-                    <label class="form-label fw-semibold text-secondary small">Package <span class="text-danger">*</span></label>
-                    <select name="package_id" id="renew_package_select" class="form-select form-select-sm" required onchange="recalculateRenewAdjustment()">
-                        <?php foreach($packages as $p): ?>
-                            <option value="<?= $p['id'] ?>" 
-                                data-price="<?= (float)$p['price'] ?>" 
-                                data-days="<?= (int)(($p['validity_days'] ?? 0) > 0 ? $p['validity_days'] : 30) ?>" 
-                                data-name="<?= htmlspecialchars($p['name']) ?>"
-                                <?= $p['id'] == $user['package_id'] ? 'selected' : '' ?>>
-                                <?= htmlspecialchars($p['name']) ?> (Rs. <?= number_format($p['price']) ?> / <?= $p['validity_days'] ?: 30 ?>d) - <?= htmlspecialchars($p['rate_limit']) ?>
+      <form action="renew_user_action.php" method="POST" enctype="multipart/form-data" onsubmit="var btn=this.querySelector('button[type=submit]'); if(this.submitted){return false;} this.submitted=true; if(btn){btn.disabled=true; btn.innerHTML='<i class=\'fa-solid fa-spinner fa-spin me-2\'></i> Processing Renewal... Please wait...';} return true;">
+        <input type="hidden" name="redirect_to" value="subscriber_view.php?id=<?= $id ?>">
+        <div class="modal-body p-4 pt-2">
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label class="col-form-label text-secondary small fw-bold">Select User <span class="text-danger">*</span></label>
+                    <select name="user_id" id="renew_user_id" class="form-select form-select-sm" required onchange="updateRenewDetails()">
+                        <option value="">-- Choose User --</option>
+                        <?php foreach($renewUsers as $ru): ?>
+                            <option value="<?= $ru['id'] ?>" 
+                                <?= $ru['id'] == $id ? 'selected' : '' ?>
+                                data-username="<?= htmlspecialchars($ru['username']) ?>"
+                                data-fullname="<?= htmlspecialchars($ru['full_name']) ?>"
+                                data-status="<?= $ru['status'] ?>"
+                                data-expiry="<?= $ru['expiry_date'] ?>"
+                                data-pkg="<?= $ru['package_id'] ?>"
+                                data-curpkgprice="<?= (float)($ru['pkg_price'] ?? 0) ?>"
+                                data-curpkgval="<?= (int)(($ru['pkg_val'] ?? 0) > 0 ? $ru['pkg_val'] : 30) ?>"
+                                data-curbal="<?= (float)($ru['balance'] ?? 0) ?>">
+                                <?= htmlspecialchars($ru['username']) ?> (<?= htmlspecialchars($ru['full_name']) ?>)
                             </option>
                         <?php endforeach; ?>
                     </select>
                 </div>
-
+                <div class="col-md-6 mb-3">
+                    <label class="col-form-label text-secondary small fw-bold">Package <span class="text-danger">*</span></label>
+                    <select name="package_id" id="renew_package_id" class="form-select form-select-sm" required onchange="updateRenewDetails()">
+                        <option value="">-- Select Package --</option>
+                        <?php foreach($renewPackages as $rp): ?>
+                            <option value="<?= $rp['id'] ?>" 
+                                <?= $rp['id'] == ($user['package_id'] ?? 0) ? 'selected' : '' ?>
+                                data-name="<?= htmlspecialchars($rp['name']) ?>"
+                                data-duration="<?= $rp['validity_days'] ?>"
+                                data-price="<?= $rp['price'] ?>">
+                                <?= htmlspecialchars($rp['name']) ?> (Rs <?= number_format($rp['price']) ?>)
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                
                 <?php if (!$is_manager): ?>
-                <div class="col-md-6">
-                    <label class="form-label fw-semibold text-secondary small">Set Expiry Date &amp; Time <span class="text-danger">*</span></label>
-                    <input type="datetime-local" name="expiry_date" id="renew_expiry_input" class="form-control form-control-sm" 
-                           value="<?= (!empty($user['expiry_date']) && $user['expiry_date'] !== '0000-00-00 00:00:00') ? date('Y-m-d\TH:i', strtotime($user['expiry_date'])) : date('Y-m-d\TH:i', strtotime('+30 days')) ?>" 
-                           required oninput="recalculateRenewAdjustment()">
+                <div class="col-md-6 mb-3">
+                    <label class="col-form-label text-secondary small fw-bold">Expiry Type <span class="text-danger">*</span></label>
+                    <select name="expiry_type" id="renew_expiry_type" class="form-select form-select-sm" onchange="toggleCustomExpiry()">
+                        <option value="default">Default (Package Duration)</option>
+                        <option value="custom">Custom Date & Time</option>
+                    </select>
+                </div>
+                
+                <div class="col-md-6 mb-3 d-none" id="custom_expiry_container">
+                    <label class="col-form-label text-secondary small fw-bold">Custom Expiry Date/Time <span class="text-danger">*</span></label>
+                    <input type="datetime-local" name="custom_expiry" id="renew_custom_expiry" class="form-control form-control-sm" onchange="updateRenewDetails()">
                 </div>
                 <?php else: ?>
-                <div class="col-md-6">
-                    <label class="form-label fw-semibold text-secondary small">Package Validity / Expiry</label>
-                    <div class="form-control form-control-sm bg-light text-primary fw-bold d-flex align-items-center justify-content-between">
-                        <span><i class="fa-solid fa-calendar-check me-2 text-success"></i> Auto (+<span id="mgr_pkg_days_display">30</span> Days)</span>
-                        <span class="badge bg-primary text-white" id="mgr_target_expiry_display">Calculating...</span>
-                    </div>
-                    <input type="hidden" name="expiry_date" id="renew_expiry_input" value="">
+                <input type="hidden" name="expiry_type" id="renew_expiry_type" value="default">
+                <div class="col-md-6 mb-3">
+                    <label class="col-form-label text-secondary small fw-bold">Expiry Duration</label>
+                    <div class="form-control form-control-sm bg-light text-primary fw-bold"><i class="fa-solid fa-calendar-check text-success me-1"></i> Auto Package Duration</div>
                 </div>
                 <?php endif; ?>
 
-                <!-- Dedicated Payment Received Field -->
-                <div class="col-12 mt-2">
-                    <div class="p-3 rounded-3 border border-success-subtle bg-success bg-opacity-10 shadow-sm">
-                        <div class="row align-items-center g-2">
-                            <div class="col-md-7">
-                                <label class="form-label fw-bold text-success mb-0 d-flex align-items-center fs-6">
-                                    <i class="fa-solid fa-money-bill-wave me-2 text-success fs-5"></i> Payment Received (Rs)
-                                </label>
-                                <div class="text-muted small mt-1" style="font-size: 0.78rem;">
-                                    Enter cash received from subscriber at renewal. Recorded in Ledger <?= $is_manager ? "and added to your <strong>Cash in Hand</strong>" : "and subscriber balance" ?>.
-                                </div>
-                            </div>
-                            <div class="col-md-5">
-                                <div class="input-group">
-                                    <span class="input-group-text bg-white fw-bold text-success border-success-subtle">Rs.</span>
-                                    <input type="number" step="any" min="0" name="payment_amount" id="renew_payment_amount" class="form-control form-control-lg fw-bold text-success border-success-subtle shadow-none" placeholder="0.00" value="<?= (float)($user['pkg_price'] ?? 0) ?>" oninput="recalculateRenewAdjustment()">
-                                </div>
-                            </div>
-                        </div>
+                <div class="col-md-6 mb-3">
+                    <label class="col-form-label text-secondary small fw-bold">
+                        <i class="fa-solid fa-money-bill-wave text-success me-1"></i> Payment Received (Rs)
+                    </label>
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text bg-white fw-bold text-success border-success-subtle">Rs.</span>
+                        <input type="number" step="any" min="0" name="payment_amount" id="dash_renew_payment" class="form-control form-control-sm fw-bold text-success border-success-subtle shadow-none" placeholder="0.00" oninput="updateRenewDetails()">
                     </div>
                 </div>
-
-                <!-- Optional Renewal Receipt Upload -->
-                <div class="col-12 mb-3">
-                    <div class="p-3 rounded-3 border bg-white shadow-sm">
-                        <div class="row align-items-center">
-                            <div class="col-md-7">
-                                <label class="form-label fw-bold text-dark mb-0 d-flex align-items-center small">
-                                    <i class="fa-solid fa-paperclip text-primary me-2 fs-6"></i> Attach Receipt / Slip <span class="badge bg-light text-muted border ms-2" style="font-size: 0.65rem;">Optional</span>
-                                </label>
-                                <div class="text-muted small mt-1" style="font-size: 0.75rem;">
-                                    Customer deposit slip, transfer screenshot, or voucher (JPG, PNG, PDF).
-                                </div>
-                            </div>
-                            <div class="col-md-5">
-                                <input type="file" name="renewal_receipt" class="form-control form-control-sm" accept="image/*,.pdf">
-                            </div>
-                        </div>
-                    </div>
+                <div class="col-md-6 mb-3">
+                    <label class="col-form-label text-secondary small fw-bold">
+                        <i class="fa-solid fa-paperclip text-primary me-1"></i> Attach Receipt / Slip <span class="badge bg-light text-muted border ms-1" style="font-size: 0.65rem;">Optional</span>
+                    </label>
+                    <input type="file" name="renewal_receipt" class="form-control form-control-sm" accept="image/*,.pdf">
+                    <div class="form-text text-muted" style="font-size: 0.72rem;">Customer deposit slip, transfer screenshot, or PDF.</div>
                 </div>
             </div>
 
-            <?php if (!$is_manager): ?>
-            <!-- Quick Preset Helper Buttons -->
-            <div class="mt-3">
-                <label class="form-label fw-semibold text-secondary small mb-1">
-                    <i class="fa-solid fa-wand-magic-sparkles text-primary me-1"></i> Quick Expiry Presets:
-                </label>
-                <div class="d-flex flex-wrap gap-1">
-                    <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3" onclick="setRenewPreset(7)">+7 Days</button>
-                    <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3" onclick="setRenewPreset(15)">+15 Days</button>
-                    <button type="button" class="btn btn-sm btn-outline-primary fw-semibold rounded-pill px-3" onclick="setRenewPreset(30)">+30 Days (1 Month)</button>
-                    <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3" onclick="setRenewPreset(60)">+60 Days (2 Months)</button>
-                    <button type="button" class="btn btn-sm btn-outline-danger rounded-pill px-2" onclick="setRenewPreset(0)" title="Set Expiry to Right Now (Expire User)">Expire Now</button>
-                </div>
-            </div>
-            <?php endif; ?>
-
-            <!-- Live Financial Calculation Container -->
-            <div class="mt-4">
-                <label class="form-label fw-semibold text-secondary small mb-1">
-                    <i class="fa-solid fa-calculator text-primary me-1"></i> Live Financial Impact &amp; Ledger Calculation:
-                </label>
-                <div id="renew_calculation_result">
-                    <!-- Populated dynamically by JavaScript -->
+            <!-- Expanding Details Section -->
+            <div id="renew_details_section" class="d-none mt-3">
+                <h6 class="fw-bold text-primary border-bottom pb-2 mb-3"><i class="fa-solid fa-list me-1"></i> Renewal Summary</h6>
+                <div class="table-responsive bg-white border rounded shadow-sm">
+                    <table class="table table-sm table-hover mb-0 align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="text-secondary ps-3" style="width: 40%;">Attribute</th>
+                                <th class="text-secondary">Description</th>
+                            </tr>
+                        </thead>
+                        <tbody id="renew_details_tbody">
+                            <!-- Filled via JS -->
+                        </tbody>
+                    </table>
                 </div>
             </div>
 
         </div>
-        <div class="modal-footer bg-light border-top px-4 py-3">
-          <button type="button" class="btn btn-outline-secondary rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-primary fw-semibold rounded-pill px-4 shadow-sm">
-              <i class="fa-solid fa-check me-1"></i> <?= $is_manager ? 'Confirm Renewal' : 'Save Expiry &amp; Apply Ledger' ?>
-          </button>
+        <div class="modal-footer bg-white border-top-0 pt-0">
+          <button type="button" class="btn btn-light border" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-warning fw-bold px-4"><i class="fa-solid fa-bolt me-2"></i> Confirm Renewal</button>
         </div>
       </form>
     </div>
@@ -2189,303 +2145,154 @@ $last_login_display = ($latest_login_ts && $latest_login_ts > 86400) ? date('d M
 </div>
 
 <script>
-const isManagerUser = <?= $is_manager ? 'true' : 'false' ?>;
-const userCurBal = <?= (float)($user['balance'] ?? 0) ?>;
-const userCurExpStr = <?= json_encode((!empty($user['expiry_date']) && $user['expiry_date'] !== '0000-00-00 00:00:00') ? $user['expiry_date'] : '') ?>;
-const userCurPkgPrice = <?= (float)($user['pkg_price'] ?? 0) ?>;
-const userCurPkgValidity = <?= (int)(($user['validity_days'] ?? 0) > 0 ? $user['validity_days'] : 30) ?>;
-
-function recalculateRenewAdjustment() {
-    const pkgSelect = document.getElementById('renew_package_select');
-    const expiryInput = document.getElementById('renew_expiry_input');
-    const resultBox = document.getElementById('renew_calculation_result');
-    const payInput = document.getElementById('renew_payment_amount');
-    if (!pkgSelect || !expiryInput || !resultBox) return;
-
-    const opt = pkgSelect.options[pkgSelect.selectedIndex];
-    const newPrice = opt ? parseFloat(opt.dataset.price || 0) : 0;
-    const newValidity = opt ? parseInt(opt.dataset.days || 30) : 30;
-    const newDaily = newPrice / (newValidity > 0 ? newValidity : 30);
-
-    const now = Math.floor(Date.now() / 1000);
-    let curExpTs = userCurExpStr ? Math.floor(new Date(userCurExpStr).getTime() / 1000) : 0;
-    if (isNaN(curExpTs)) curExpTs = 0;
-
-    // If manager, auto-calculate target expiry strictly from validity days
-    if (isManagerUser) {
-        const mgrDaysDisp = document.getElementById('mgr_pkg_days_display');
-        const mgrExpDisp = document.getElementById('mgr_target_expiry_display');
-        if (mgrDaysDisp) mgrDaysDisp.innerText = newValidity;
-
-        const baseTs = (curExpTs > now) ? curExpTs : now;
-        const targetTs = baseTs + (newValidity * 86400);
-        const targetDate = new Date(targetTs * 1000);
-        
-        const y = targetDate.getFullYear();
-        const m = String(targetDate.getMonth() + 1).padStart(2, '0');
-        const d = String(targetDate.getDate()).padStart(2, '0');
-        const h = String(targetDate.getHours()).padStart(2, '0');
-        const min = String(targetDate.getMinutes()).padStart(2, '0');
-        expiryInput.value = `${y}-${m}-${d}T${h}:${min}`;
-
-        if (mgrExpDisp) {
-            mgrExpDisp.innerText = targetDate.toLocaleDateString('en-GB', {day: '2-digit', month: 'short', year: 'numeric'}) + ', ' + targetDate.toLocaleTimeString('en-US', {hour: '2-digit', minute: '2-digit', hour12: true});
-        }
+function toggleCustomExpiry() {
+    var type = document.getElementById('renew_expiry_type').value;
+    var container = document.getElementById('custom_expiry_container');
+    var input = document.getElementById('renew_custom_expiry');
+    if (!container || !input) return;
+    if (type === 'custom') {
+        container.classList.remove('d-none');
+        input.setAttribute('required', 'required');
+    } else {
+        container.classList.add('d-none');
+        input.removeAttribute('required');
     }
+    updateRenewDetails();
+}
 
-    let newExpTs = expiryInput.value ? Math.floor(new Date(expiryInput.value).getTime() / 1000) : 0;
-    if (isNaN(newExpTs) || newExpTs <= 0) {
-        resultBox.innerHTML = '<div class="alert alert-secondary py-2 px-3 small mb-0"><i class="fa-solid fa-circle-info me-1"></i> Please enter an Expiry Date &amp; Time.</div>';
-        return;
-    }
-
-    // 1. Old remaining credit if currently active
-    let oldCredit = 0;
-    let curDaysLeft = 0;
-    if (curExpTs > now) {
-        curDaysLeft = (curExpTs - now) / 86400;
-        const curDaily = userCurPkgPrice / (userCurPkgValidity > 0 ? userCurPkgValidity : 30);
-        oldCredit = curDaysLeft * curDaily;
-    }
-
-    // 2. New period cost
-    let newCost = 0;
-    let newDaysAhead = 0;
-    if (newExpTs > now) {
-        newDaysAhead = (newExpTs - now) / 86400;
-        newCost = newDaysAhead * newDaily;
-    }
-
-    // 3. Net adjustment: positive = charge (balance minus), negative = refund (balance plus)
-    const net = Math.round((newCost - oldCredit) * 100) / 100;
+function updateRenewDetails() {
+    var userSelect = document.getElementById('renew_user_id');
+    var pkgSelect = document.getElementById('renew_package_id');
+    var section = document.getElementById('renew_details_section');
+    var tbody = document.getElementById('renew_details_tbody');
     
-    // Read payment amount
-    let paymentVal = payInput ? parseFloat(payInput.value || 0) : 0;
-    if (isNaN(paymentVal) || paymentVal < 0) paymentVal = 0;
-
-    const balAfterDebit = Math.round((userCurBal - net) * 100) / 100;
-    const projectedBal = Math.round((balAfterDebit + paymentVal) * 100) / 100;
-
-    let html = '';
-    const diffSecs = newExpTs - Math.max(now, curExpTs);
-    const diffDays = Math.round((diffSecs / 86400) * 10) / 10;
-
-    const cashBadge = isManagerUser ? (
-        paymentVal > 0 
-            ? `<div class="mt-2 pt-2 border-top d-flex align-items-center justify-content-between small text-success fw-bold"><span><i class="fa-solid fa-hand-holding-dollar me-1"></i> Manager Cash in Hand:</span><span>+ Rs. ${paymentVal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></div>`
-            : `<div class="mt-2 pt-2 border-top small text-muted"><i class="fa-solid fa-info-circle me-1"></i> No payment entered (Renewal on credit). Manager Cash in Hand unchanged.</div>`
-    ) : '';
-
-    if (net > 0) {
-        html = `
-            <div class="alert alert-warning border border-warning-subtle rounded-3 p-3 mb-0" style="background:#fffbeb;">
-                <div class="d-flex align-items-center justify-content-between mb-2">
-                    <span class="fw-bold text-dark"><i class="fa-solid fa-arrow-up-right-dots text-danger me-1"></i> Date Extended (+${Math.abs(diffDays)} Days)</span>
-                    <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-2 py-1 fw-bold fs-6">Charge: - Rs. ${net.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
-                </div>
-                <div class="small text-muted mb-2">
-                    Package: <strong>${opt ? opt.dataset.name : ''}</strong> (Rs. ${newPrice} / ${newValidity}d). 
-                    ${oldCredit > 0 ? `Unused Credit: <strong>Rs. ${oldCredit.toFixed(2)}</strong>. ` : ''}
-                    New Cost: <strong>Rs. ${newCost.toFixed(2)}</strong>.
-                </div>
-                <div class="d-flex justify-content-between align-items-center pt-2 border-top small">
-                    <span class="text-secondary">Cash Payment Received:</span>
-                    <span class="fw-bold text-success fs-6">+ Rs. ${paymentVal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
-                </div>
-                <div class="d-flex justify-content-between align-items-center pt-1 small">
-                    <span class="text-secondary">Net Balance After Renewal:</span>
-                    <span class="fw-bold text-dark">Rs. ${userCurBal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} &rarr; <span class="${projectedBal < 0 ? 'text-danger' : 'text-success'} fw-bold">Rs. ${projectedBal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></span>
-                </div>
-                ${cashBadge}
-            </div>
-        `;
-    } else if (net < 0) {
-        const absNet = Math.abs(net);
-        const daysReduced = Math.round(((curExpTs - newExpTs) / 86400) * 10) / 10;
-        html = `
-            <div class="alert alert-success border border-success-subtle rounded-3 p-3 mb-0" style="background:#f0fdf4;">
-                <div class="d-flex align-items-center justify-content-between mb-2">
-                    <span class="fw-bold text-dark"><i class="fa-solid fa-arrow-down-left-and-up-right-to-center text-success me-1"></i> Date Reduced (-${daysReduced} Days)</span>
-                    <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1 fw-bold fs-6">+ Rs. ${absNet.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} (Refund)</span>
-                </div>
-                <div class="small text-muted mb-2">
-                    Unused days refunded at package rate. 
-                    Unused Credit: <strong>Rs. ${oldCredit.toFixed(2)}</strong>. 
-                    New Cost: <strong>Rs. ${newCost.toFixed(2)}</strong>.
-                </div>
-                <div class="d-flex justify-content-between align-items-center pt-2 border-top small">
-                    <span class="text-secondary">Net Balance After Renewal:</span>
-                    <span class="fw-bold text-dark">Rs. ${userCurBal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} &rarr; <span class="${projectedBal < 0 ? 'text-danger' : 'text-success'} fw-bold">Rs. ${projectedBal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></span>
-                </div>
-                ${cashBadge}
-            </div>
-        `;
-    } else {
-        html = `
-            <div class="alert alert-secondary border rounded-3 p-3 mb-0 small text-secondary">
-                <div class="d-flex justify-content-between align-items-center">
-                    <span><i class="fa-solid fa-check text-success me-1"></i> Expiry date unchanged.</span>
-                    <span class="fw-bold text-success">+ Rs. ${paymentVal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} (Payment)</span>
-                </div>
-                <div class="d-flex justify-content-between align-items-center pt-2 mt-2 border-top small">
-                    <span class="text-secondary">Balance Impact:</span>
-                    <span class="fw-bold text-dark">Rs. ${userCurBal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} &rarr; <span class="${projectedBal < 0 ? 'text-danger' : 'text-success'} fw-bold">Rs. ${projectedBal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></span>
-                </div>
-                ${cashBadge}
-            </div>
-        `;
+    if (!userSelect || !pkgSelect || !section || !tbody) return;
+    
+    if (userSelect.value === "") {
+        section.classList.add('d-none');
+        return;
+    }
+    
+    section.classList.remove('d-none');
+    
+    var uOpt = userSelect.options[userSelect.selectedIndex];
+    if (!uOpt) return;
+    var username = uOpt.getAttribute('data-username') || '';
+    var uid = userSelect.value;
+    var status = uOpt.getAttribute('data-status') || '';
+    var curExp = uOpt.getAttribute('data-expiry') || '';
+    var uPkgId = uOpt.getAttribute('data-pkg') || '';
+    
+    // Auto-select package if user has one and package select is currently empty
+    if(pkgSelect.value === "" && uPkgId && uPkgId != "0" && uPkgId != "") {
+        for(let i=0; i<pkgSelect.options.length; i++){
+            if(pkgSelect.options[i].value == uPkgId) {
+                pkgSelect.selectedIndex = i;
+                break;
+            }
+        }
+    }
+    
+    var pOpt = pkgSelect.options[pkgSelect.selectedIndex];
+    var pName = (pOpt && pOpt.value) ? pOpt.getAttribute('data-name') : 'N/A';
+    var pDur = (pOpt && pOpt.value) ? parseInt(pOpt.getAttribute('data-duration')) : 0;
+    var pPrice = (pOpt && pOpt.value) ? parseFloat(pOpt.getAttribute('data-price')).toFixed(0) : '0';
+    
+    // Formatting Current Expiry
+    var curExpFormatted = "No Expiry";
+    if (curExp && curExp !== "" && curExp !== "null" && curExp !== "0000-00-00 00:00:00") {
+        let d = new Date(curExp);
+        if(!isNaN(d)) curExpFormatted = d.toLocaleString('en-GB', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit'}).replace(',', '');
     }
 
-    resultBox.innerHTML = html;
-    return;
-}
-
-
-function setRenewPreset(days) {
-    const input = document.getElementById('renew_expiry_input');
-    if (!input) return;
-
-    let base = new Date();
-    if (userCurExpStr) {
-        const cd = new Date(userCurExpStr);
-        if (cd > base) {
-            base = cd;
+    // Calculating New Expiry
+    var newExpFormatted = "Select Package/Date";
+    var expTypeEl = document.getElementById('renew_expiry_type');
+    var expType = expTypeEl ? expTypeEl.value : 'default';
+    
+    if (expType === 'custom') {
+        var customVal = document.getElementById('renew_custom_expiry').value;
+        if(customVal) {
+            let nd = new Date(customVal);
+            if(!isNaN(nd)) newExpFormatted = nd.toLocaleString('en-GB', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit'}).replace(',', '');
+        }
+    } else {
+        if (pDur > 0) {
+            let baseDate = new Date();
+            // Append to current expiry if it's in the future
+            if(curExp && curExp !== "" && curExp !== "null" && curExp !== "0000-00-00 00:00:00") {
+                let cd = new Date(curExp);
+                if(cd > baseDate) baseDate = cd;
+            }
+            
+            baseDate.setDate(baseDate.getDate() + pDur);
+            // Set to rat 12 bajy (23:59:59)
+            baseDate.setHours(23, 59, 59, 0);
+            newExpFormatted = baseDate.toLocaleString('en-GB', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit'}).replace(',', '');
         }
     }
 
-    if (days === 0) {
-        base = new Date();
-    } else {
-        base.setDate(base.getDate() + days);
+    var statusHtml = status === 'active' ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-danger">Disabled</span>';
+
+    var curPkgPrice = parseFloat(uOpt.getAttribute('data-curpkgprice') || 0);
+    var curPkgVal = parseInt(uOpt.getAttribute('data-curpkgval') || 30);
+    var curBal = parseFloat(uOpt.getAttribute('data-curbal') || 0);
+
+    var now = new Date();
+    var cd = (curExp && curExp !== "" && curExp !== "null" && curExp !== "0000-00-00 00:00:00") ? new Date(curExp) : null;
+    var isUserActive = (cd && cd > now);
+    var isPkgChanged = (uPkgId && pkgSelect.value && uPkgId != pkgSelect.value);
+
+    var oldCredit = 0;
+    var remDays = 0;
+    if (isUserActive && cd) {
+        remDays = Math.round(((cd - now) / 86400000) * 10) / 10;
+        var oldDaily = curPkgPrice / (curPkgVal > 0 ? curPkgVal : 30);
+        oldCredit = Math.round(((cd - now) / 86400000) * oldDaily * 100) / 100;
     }
 
-    const y = base.getFullYear();
-    const m = String(base.getMonth() + 1).padStart(2, '0');
-    const d = String(base.getDate()).padStart(2, '0');
-    const h = String(base.getHours()).padStart(2, '0');
-    const min = String(base.getMinutes()).padStart(2, '0');
+    var netPayable = parseFloat(pPrice);
+    var payField = document.getElementById('dash_renew_payment');
+    if (payField && (payField.dataset.lastPkg !== String(pkgSelect.value) || payField.value === "")) {
+        payField.value = isNaN(netPayable) ? 0 : netPayable;
+        payField.dataset.lastPkg = String(pkgSelect.value);
+    }
+    var adjustmentRow = '';
+    if (isPkgChanged && oldCredit > 0) {
+        netPayable = Math.max(0, Math.round(parseFloat(pPrice) - oldCredit));
+        adjustmentRow = `
+            <tr><td class="fw-bold ps-3 text-warning"><i class="fa-solid fa-arrow-up-right-dots me-1"></i> Package Change Adjustment</td><td><span class="badge bg-warning text-dark fw-bold">Upgrade Credit Applied</span></td></tr>
+            <tr><td class="fw-bold ps-3">Old Unused Credit</td><td class="text-success fw-bold">- Rs ${oldCredit.toFixed(2)} (${remDays} days left)</td></tr>
+            <tr><td class="fw-bold ps-3">Net Charge to Balance</td><td class="text-primary fw-bold fs-6">Rs ${netPayable.toFixed(2)}</td></tr>
+        `;
+    }
 
-    input.value = `${y}-${m}-${d}T${h}:${min}`;
-    recalculateRenewAdjustment();
+    tbody.innerHTML = `
+        <tr><td class="fw-bold ps-3">Username & ID</td><td>${username} (#${uid})</td></tr>
+        <tr><td class="fw-bold ps-3">User Status</td><td>${statusHtml}</td></tr>
+        <tr><td class="fw-bold ps-3">Current Expiration</td><td class="text-danger fw-bold">${curExpFormatted}</td></tr>
+        <tr><td class="fw-bold ps-3">New Expiration</td><td class="text-success fw-bold">${newExpFormatted}</td></tr>
+        <tr><td class="fw-bold ps-3">Package</td><td><span class="badge bg-primary bg-opacity-10 text-primary">${pName}</span></td></tr>
+        <tr><td class="fw-bold ps-3">Package Duration</td><td>${pDur} Days</td></tr>
+        <tr><td class="fw-bold ps-3">Package Price</td><td class="text-success fw-bold">Rs ${pPrice}</td></tr>
+        ${adjustmentRow}
+        <tr>
+            <td class="fw-bold ps-3 text-success"><i class="fa-solid fa-money-bill-wave me-1"></i> Payment Received (Cash)</td>
+            <td class="text-success fw-bold fs-6">Rs. ${parseFloat(payField ? (payField.value || 0) : 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+        </tr>
+    `;
 }
 
-function resetToCurrentExpiry() {
-    const input = document.getElementById('renew_expiry_input');
-    if (!input) return;
-    if (userCurExpStr && userCurExpStr !== '0000-00-00 00:00:00') {
-        const d = new Date(userCurExpStr);
-        const y = d.getFullYear();
-        const m = String(d.getMonth() + 1).padStart(2, '0');
-        const day = String(d.getDate()).padStart(2, '0');
-        const h = String(d.getHours()).padStart(2, '0');
-        const min = String(d.getMinutes()).padStart(2, '0');
-        input.value = `${y}-${m}-${day}T${h}:${min}`;
-    } else {
-        input.value = '';
+function openRenewModal(userId) {
+    if (typeof $ !== 'undefined' && $('#renew_user_id').length) {
+        $('#renew_user_id').val(userId).trigger('change');
     }
-    recalculateRenewAdjustment();
+    var m = bootstrap.Modal.getOrCreateInstance(document.getElementById('renewUserModal'));
+    m.show();
+    setTimeout(updateRenewDetails, 100);
 }
 
-const userCurPkgId = <?= (int)($user['package_id'] ?? 0) ?>;
-
-function recalculateEditProfileAdjustment() {
-    const pkgSelect = document.getElementById('edit_package_select');
-    const expiryInput = document.getElementById('edit_expiry_input');
-    const resultBox = document.getElementById('edit_profile_calculation_result');
-    if (!pkgSelect || !expiryInput || !resultBox) return;
-
-    const opt = pkgSelect.options[pkgSelect.selectedIndex];
-    const newPrice = opt ? parseFloat(opt.dataset.price || 0) : 0;
-    const newValidity = opt ? parseInt(opt.dataset.days || 30) : 30;
-    const newDaily = newPrice / (newValidity > 0 ? newValidity : 30);
-    const selectedPkgId = opt ? parseInt(opt.value || 0) : 0;
-
-    const now = Math.floor(Date.now() / 1000);
-    let curExpTs = userCurExpStr ? Math.floor(new Date(userCurExpStr).getTime() / 1000) : 0;
-    if (isNaN(curExpTs)) curExpTs = 0;
-
-    let newExpTs = expiryInput.value ? Math.floor(new Date(expiryInput.value).getTime() / 1000) : 0;
-    if (isNaN(newExpTs)) newExpTs = 0;
-
-    const expChanged = (Math.abs(curExpTs - newExpTs) > 60);
-    const pkgChanged = (selectedPkgId !== userCurPkgId);
-
-    if (!expChanged && !pkgChanged) {
-        resultBox.innerHTML = '<div class="alert alert-secondary border rounded-3 p-2 px-3 mb-0 small text-secondary"><i class="fa-solid fa-check text-success me-1"></i> Expiry date and package unchanged. Balance will not be affected.</div>';
-        return;
-    }
-
-    // 1. Old remaining credit
-    let oldCredit = 0;
-    if (curExpTs > now) {
-        const curDaysLeft = (curExpTs - now) / 86400;
-        const curDaily = userCurPkgPrice / (userCurPkgValidity > 0 ? userCurPkgValidity : 30);
-        oldCredit = curDaysLeft * curDaily;
-    }
-
-    // 2. New period cost
-    let newCost = 0;
-    if (newExpTs > now) {
-        const newDaysAhead = (newExpTs - now) / 86400;
-        newCost = newDaysAhead * newDaily;
-    }
-
-    // 3. Net adjustment: positive = charge (balance minus), negative = refund (balance plus)
-    const net = Math.round((newCost - oldCredit) * 100) / 100;
-    const projectedBal = Math.round((userCurBal - net) * 100) / 100;
-
-    let html = '';
-    if (net > 0) {
-        const diffDays = Math.round(((newExpTs - Math.max(now, curExpTs)) / 86400) * 10) / 10;
-        html = '<div class="alert alert-warning border border-warning-subtle rounded-3 p-2 px-3 mb-0" style="background:#fffbeb;">' +
-            '<div class="d-flex align-items-center justify-content-between mb-1">' +
-                '<span class="fw-bold text-dark small"><i class="fa-solid fa-arrow-up-right-dots text-danger me-1"></i> Expiry Extended (+' + Math.abs(diffDays) + ' Days)</span>' +
-                '<span class="badge bg-danger-subtle text-danger border border-danger-subtle px-2 py-1 fw-bold fs-6">- Rs. ' + net.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + '</span>' +
-            '</div>' +
-            '<div class="small text-muted mb-1" style="font-size: 0.78rem;">' +
-                'Daily Rate: <strong>Rs. ' + newDaily.toFixed(2) + '/day</strong>. ' +
-                (oldCredit > 0 ? ('Unused Credit: <strong>Rs. ' + oldCredit.toFixed(2) + '</strong>. ') : '') +
-                'New Cost: <strong>Rs. ' + newCost.toFixed(2) + '</strong>.' +
-            '</div>' +
-            '<div class="d-flex justify-content-between align-items-center pt-1 border-top small" style="font-size: 0.8rem;">' +
-                '<span class="text-secondary">Balance Impact (Deduction):</span>' +
-                '<span class="fw-bold text-dark">Rs. ' + userCurBal.toFixed(2) + ' &rarr; <span class="' + (projectedBal < 0 ? 'text-danger' : 'text-success') + ' fw-bold">Rs. ' + projectedBal.toFixed(2) + '</span></span>' +
-            '</div>' +
-        '</div>';
-    } else if (net < 0) {
-        const absNet = Math.abs(net);
-        const daysReduced = Math.round(((curExpTs - newExpTs) / 86400) * 10) / 10;
-        html = '<div class="alert alert-success border border-success-subtle rounded-3 p-2 px-3 mb-0" style="background:#f0fdf4;">' +
-            '<div class="d-flex align-items-center justify-content-between mb-1">' +
-                '<span class="fw-bold text-dark small"><i class="fa-solid fa-arrow-down-left-and-up-right-to-center text-success me-1"></i> Expiry Reduced (-' + daysReduced + ' Days)</span>' +
-                '<span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1 fw-bold fs-6">+ Rs. ' + absNet.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' (Refund)</span>' +
-            '</div>' +
-            '<div class="small text-muted mb-1" style="font-size: 0.78rem;">' +
-                'Unused days will be refunded and <strong>added to customer balance</strong>. ' +
-                (oldCredit > 0 ? ('Unused Credit: <strong>Rs. ' + oldCredit.toFixed(2) + '</strong>. ') : '') +
-                'New Cost: <strong>Rs. ' + newCost.toFixed(2) + '</strong>.' +
-            '</div>' +
-            '<div class="d-flex justify-content-between align-items-center pt-1 border-top small" style="font-size: 0.8rem;">' +
-                '<span class="text-secondary">Balance Impact (Refund to Balance):</span>' +
-                '<span class="fw-bold text-dark">Rs. ' + userCurBal.toFixed(2) + ' &rarr; <span class="' + (projectedBal < 0 ? 'text-danger' : 'text-success') + ' fw-bold">Rs. ' + projectedBal.toFixed(2) + '</span></span>' +
-            '</div>' +
-        '</div>';
-    } else {
-        html = '<div class="alert alert-secondary border rounded-3 p-2 px-3 mb-0 small text-secondary"><i class="fa-solid fa-check text-success me-1"></i> Balance unchanged.</div>';
-    }
-
-    resultBox.innerHTML = html;
-}
-
-// Auto calculate on modal open
 document.addEventListener('DOMContentLoaded', function() {
-    const renewModalEl = document.getElementById('renewModal');
-    if (renewModalEl) {
-        renewModalEl.addEventListener('shown.bs.modal', function () {
-            recalculateRenewAdjustment();
-        });
-    }
-
     const editProfileModalEl = document.getElementById('editProfileModal');
     if (editProfileModalEl) {
         editProfileModalEl.addEventListener('shown.bs.modal', function () {
@@ -2494,7 +2301,6 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 </script>
-
 <!-- Edit Profile Modal -->
 <div class="modal fade" id="editProfileModal" tabindex="-1">
   <div class="modal-dialog modal-lg">
@@ -2771,6 +2577,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
 <!-- jQuery & DataTables JS -->
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<!-- Select2 JS -->
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 <!-- Leaflet Map JS -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
@@ -2786,6 +2594,24 @@ document.addEventListener('DOMContentLoaded', function() {
 
 <script>
 $(document).ready(function() {
+    if (typeof $.fn.select2 !== "undefined") {
+        $("#renew_user_id").select2({
+            dropdownParent: $("#renewUserModal"),
+            width: "100%",
+            placeholder: "-- Choose User --"
+        });
+    }
+    $("#renewUserModal").on("shown.bs.modal", function () {
+        if (typeof $.fn.select2 !== "undefined") {
+            $("#renew_user_id").select2({
+                dropdownParent: $("#renewUserModal"),
+                width: "100%",
+                placeholder: "-- Choose User --"
+            });
+        }
+        updateRenewDetails();
+    });
+
     // Custom filtering function for date range
     $.fn.dataTable.ext.search.push(function(settings, data, dataIndex, rowData, counter) {
         let min = $('#minLedgerDate').val();

@@ -62,7 +62,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $custom_expiry = $is_mgr ? '' : ($_POST['custom_expiry'] ?? '');
     $payment_amount = isset($_POST['payment_amount']) ? (float)$_POST['payment_amount'] : 0;
     if ($payment_amount < 0) $payment_amount = 0;
-    $redirect_url = (!empty($_POST['redirect_to']) && strpos($_POST['redirect_to'], 'subscribers') !== false) ? 'subscribers.php' : 'dashboard.php';
+    $redirect_url = 'dashboard.php';
+    if (!empty($_POST['redirect_to'])) {
+        $raw_red = trim($_POST['redirect_to']);
+        if (preg_match('#^(subscriber_view\.php\?id=\d+|subscribers\.php|dashboard\.php)$#', $raw_red)) {
+            $redirect_url = $raw_red;
+        }
+    }
     
     try {
         $userStmt = $pdo->prepare("SELECT username, expiry_date, balance, dealer_id, package_id FROM subscribers WHERE id = ? AND client_id = ?");
@@ -70,7 +76,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $uData = $userStmt->fetch();
         
         if (!$uData) {
-            die("<script>alert('User not found!'); window.location='dashboard.php';</script>");
+            die("<script>alert('User not found!'); window.location='$redirect_url';</script>");
         }
         
         $cd = check_renewal_cooldown($pdo, $user_id, 600);
@@ -119,7 +125,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pkg = $p->fetch();
         
         if (!$pkg) {
-            die("<script>alert('Package not found!'); window.location='dashboard.php';</script>");
+            die("<script>alert('Package not found!'); window.location='$redirect_url';</script>");
         }
         
         if ($expiry_type === 'custom') {
