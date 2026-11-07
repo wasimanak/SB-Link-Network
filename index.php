@@ -1106,7 +1106,7 @@ if (empty($site_packages)) {
 
             <div class="pt-4 border-top border-slate-200 d-flex flex-wrap justify-content-between align-items-center gap-2 small" style="color: #64748b;">
                 <div>&copy; <?= date('Y') ?> <strong class="text-dark"><?= BRAND_NAME ?></strong>. All Rights Reserved. Fully compliant with Payment Gateway &amp; Consumer Fair Trade Standards.</div>
-                <div>Powered by <a href="mailto:businessoperation7616@gmail.com" class="text-decoration-none fw-semibold text-primary" title="Contact Alpha4Technologies">Alpha4Technologies</a></div>
+                <div><?= render_powered_by_html('text-primary') ?></div>
             </div>
         </div>
     </footer>

@@ -856,16 +856,16 @@ if ($is_blocked) {
                     &copy; <?= date('Y') ?> <?= BRAND_NAME ?>. All rights reserved.
                 </p>
                 <p class="copyright-text mt-1" style="font-size: 0.8rem;">
-                    Powered by <a href="mailto:businessoperation7616@gmail.com" class="text-decoration-none fw-semibold" style="color: #60a5fa;" title="Contact Alpha4Technologies">Alpha4Technologies</a>
+                    <?= render_powered_by_html('text-info') ?>
                 </p>
             </div>
 
         </div>
 
-        <!-- Bottom Page Branding -->
+        <!-- Bottom Page Branding (Controlled via config/branding.php) -->
         <div class="text-center mt-3" style="position: relative; z-index: 2;">
             <p class="small mb-0" style="color: rgba(255,255,255,0.7); font-size: 0.82rem;">
-                Powered by <a href="mailto:businessoperation7616@gmail.com" class="text-decoration-none fw-semibold text-white" style="text-decoration: underline !important;" title="Contact Alpha4Technologies">Alpha4Technologies</a>
+                <?= render_powered_by_html('text-white text-decoration-underline') ?>
             </p>
         </div>
     </div>

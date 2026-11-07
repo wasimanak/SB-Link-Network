@@ -1884,6 +1884,7 @@ unset($ms);
                                 </div>
                             </div>
                         </div>
+                    </div>
         </div>
         <div class="modal-footer bg-white border-top-0 pt-0">
           <button type="button" class="btn btn-light border" data-bs-dismiss="modal">Cancel</button>

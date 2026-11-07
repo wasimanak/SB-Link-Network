@@ -1,7 +1,7 @@
-        <!-- Operator Footer Branding -->
-        <footer class="mt-5 mb-4 text-center">
+        <!-- Operator Footer Branding (Controlled via config/branding.php) -->
+        <footer class="mt-5 mb-4 text-center border-top pt-4">
             <p class="small text-muted mb-0">
-                Powered by <a href="mailto:businessoperation7616@gmail.com" class="text-decoration-none fw-semibold text-primary" title="Contact Alpha4Technologies">Alpha4Technologies</a>
+                <?= render_powered_by_html('text-primary') ?>
             </p>
         </footer>
     </div> <!-- End main-content -->

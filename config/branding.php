@@ -30,8 +30,10 @@ $BRAND_CONFIG = [
     'tagline'           => 'Next-Gen High-Speed Internet & RADIUS Management System',
     'customer_slogan'   => 'Providing ultra-fast, reliable, and unlimited internet connectivity for your home and business.',
     
-    // 3. Powered By & Copyright
-    'powered_by'        => 'LASANI NETWORK (Pvt) Ltd',
+    // 3. Powered By & Copyright (Centrally controlled for all portals & pages)
+    'powered_by'        => 'Alpha4Technologies',
+    'powered_by_email'  => 'businessoperation7616@gmail.com',
+    'powered_by_link'   => 'mailto:businessoperation7616@gmail.com',
     'copyright_holder'  => 'LASANI NETWORK (Pvt) Ltd',
     
     // 4. Portal Titles (Browser Tab Titles & Topbars)
@@ -65,6 +67,8 @@ if (!defined('BRAND_SHORT_NAME'))          define('BRAND_SHORT_NAME',          $
 if (!defined('BRAND_LOGO_ABBR'))           define('BRAND_LOGO_ABBR',           $BRAND_CONFIG['logo_abbr']);
 if (!defined('BRAND_TAGLINE'))             define('BRAND_TAGLINE',             $BRAND_CONFIG['tagline']);
 if (!defined('BRAND_POWERED_BY'))          define('BRAND_POWERED_BY',          $BRAND_CONFIG['powered_by']);
+if (!defined('BRAND_POWERED_BY_EMAIL'))    define('BRAND_POWERED_BY_EMAIL',    $BRAND_CONFIG['powered_by_email'] ?? 'businessoperation7616@gmail.com');
+if (!defined('BRAND_POWERED_BY_LINK'))     define('BRAND_POWERED_BY_LINK',     $BRAND_CONFIG['powered_by_link'] ?? ('mailto:' . ($BRAND_CONFIG['powered_by_email'] ?? 'businessoperation7616@gmail.com')));
 if (!defined('BRAND_SUPPORT_EMAIL'))       define('BRAND_SUPPORT_EMAIL',       $BRAND_CONFIG['support_email']);
 if (!defined('BRAND_SUPPORT_PHONE'))       define('BRAND_SUPPORT_PHONE',       $BRAND_CONFIG['support_phone']);
 if (!defined('BRAND_SUPPORT_WHATSAPP'))    define('BRAND_SUPPORT_WHATSAPP',    $BRAND_CONFIG['support_whatsapp']);
@@ -96,6 +100,18 @@ if (!function_exists('brand_whatsapp_number')) {
             $clean = '92' . substr($clean, 1);
         }
         return $clean;
+    }
+}
+
+if (!function_exists('render_powered_by_html')) {
+    /**
+     * Centralized Powered By HTML with mailto link.
+     * Controlled directly by $BRAND_CONFIG['powered_by'] and $BRAND_CONFIG['powered_by_email'].
+     */
+    function render_powered_by_html($extraClass = 'text-primary') {
+        $name = defined('BRAND_POWERED_BY') ? BRAND_POWERED_BY : 'Alpha4Technologies';
+        $link = defined('BRAND_POWERED_BY_LINK') ? BRAND_POWERED_BY_LINK : 'mailto:businessoperation7616@gmail.com';
+        return 'Powered by <a href="' . htmlspecialchars($link) . '" class="text-decoration-none fw-semibold ' . htmlspecialchars($extraClass) . '" title="Contact ' . htmlspecialchars($name) . '">' . htmlspecialchars($name) . '</a>';
     }
 }
 
