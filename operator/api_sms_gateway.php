@@ -41,9 +41,11 @@ $rawInput = file_get_contents('php://input');
 $jsonInput = json_decode($rawInput, true);
 
 // -------------------------------------------------------------------------
-// 3. Robust Authentication Token Extraction
+// 3. Robust Authentication Token Extraction (Bearer, Basic, Header, Query, Body)
 // -------------------------------------------------------------------------
 $token = trim($_REQUEST['token'] ?? '');
+$basicUser = '';
+$basicPass = '';
 
 $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? ($_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '');
 if (empty($authHeader) && function_exists('apache_request_headers')) {
@@ -55,8 +57,24 @@ if (empty($authHeader) && function_exists('getallheaders')) {
     $authHeader = $hdrs['Authorization'] ?? ($hdrs['authorization'] ?? '');
 }
 
-if (empty($token) && !empty($authHeader)) {
-    if (preg_match('/(?:Bearer|ServerKey|Token)\s+(\S+)/i', $authHeader, $m)) {
+if (!empty($_SERVER['PHP_AUTH_USER'])) {
+    $basicUser = trim($_SERVER['PHP_AUTH_USER']);
+}
+if (!empty($_SERVER['PHP_AUTH_PW'])) {
+    $basicPass = trim($_SERVER['PHP_AUTH_PW']);
+}
+
+if (!empty($authHeader)) {
+    if (preg_match('/^Basic\s+(.*)$/i', $authHeader, $bm)) {
+        $decoded = base64_decode(trim($bm[1]));
+        if (strpos($decoded, ':') !== false) {
+            list($bu, $bp) = explode(':', $decoded, 2);
+            $basicUser = trim($bu);
+            $basicPass = trim($bp);
+        } else {
+            $token = trim($decoded);
+        }
+    } elseif (preg_match('/(?:Bearer|ServerKey|Token)\s+(\S+)/i', $authHeader, $m)) {
         $token = trim($m[1]);
     } else {
         $token = trim($authHeader);
@@ -64,11 +82,11 @@ if (empty($token) && !empty($authHeader)) {
 }
 
 if (empty($token)) {
-    $token = trim($_SERVER['HTTP_X_TOKEN'] ?? ($_SERVER['HTTP_X_API_KEY'] ?? ($_SERVER['HTTP_X_GATEWAY_TOKEN'] ?? '')));
+    $token = trim($_SERVER['HTTP_X_TOKEN'] ?? ($_SERVER['HTTP_X_API_KEY'] ?? ($_SERVER['HTTP_X_GATEWAY_TOKEN'] ?? ($_SERVER['HTTP_X_DEVICE_TOKEN'] ?? ''))));
 }
 
-if (empty($token) && is_array($jsonInput) && !empty($jsonInput['token'])) {
-    $token = trim($jsonInput['token']);
+if (empty($token) && is_array($jsonInput)) {
+    $token = trim($jsonInput['token'] ?? ($jsonInput['apiKey'] ?? ($jsonInput['api_key'] ?? ($jsonInput['login'] ?? ''))));
 }
 
 // -------------------------------------------------------------------------
@@ -78,13 +96,34 @@ $debugDir = __DIR__ . '/../logs';
 if (!is_dir($debugDir)) {
     @mkdir($debugDir, 0755, true);
 }
-$logLine = "[" . date('Y-m-d H:i:s') . "] {$httpMethod} {$requestUri} | Token: " . substr($token, 0, 10) . "..." . " | AuthHdr: " . substr($authHeader, 0, 25) . " | Body: " . substr($rawInput, 0, 180) . "\n";
+$logLine = "[" . date('Y-m-d H:i:s') . "] {$httpMethod} {$requestUri} | Token: " . substr($token, 0, 10) . "..." . " | BasicU: " . substr($basicUser, 0, 10) . " | BasicP: " . substr($basicPass, 0, 10) . " | AuthHdr: " . substr($authHeader, 0, 25) . " | Body: " . substr($rawInput, 0, 180) . "\n";
 @file_put_contents($debugDir . '/sms_gateway_debug.log', $logLine, FILE_APPEND);
 
 // -------------------------------------------------------------------------
-// 5. Validate Gateway Token
+// 5. Validate Gateway Token against Database
 // -------------------------------------------------------------------------
-if (empty($token)) {
+$gateway = null;
+if (!empty($token)) {
+    $stmt = $pdo->prepare("SELECT * FROM sms_gateway_settings WHERE gateway_token = ? LIMIT 1");
+    $stmt->execute([$token]);
+    $gateway = $stmt->fetch();
+}
+
+if (!$gateway && !empty($basicPass)) {
+    $stmt = $pdo->prepare("SELECT * FROM sms_gateway_settings WHERE gateway_token = ? LIMIT 1");
+    $stmt->execute([$basicPass]);
+    $gateway = $stmt->fetch();
+    if ($gateway) $token = $basicPass;
+}
+
+if (!$gateway && !empty($basicUser)) {
+    $stmt = $pdo->prepare("SELECT * FROM sms_gateway_settings WHERE gateway_token = ? LIMIT 1");
+    $stmt->execute([$basicUser]);
+    $gateway = $stmt->fetch();
+    if ($gateway) $token = $basicUser;
+}
+
+if (!$gateway && empty($token) && empty($basicPass) && empty($basicUser)) {
     http_response_code(401);
     echo json_encode([
         'success' => false,
@@ -92,10 +131,6 @@ if (empty($token)) {
     ]);
     exit;
 }
-
-$stmt = $pdo->prepare("SELECT * FROM sms_gateway_settings WHERE gateway_token = ? LIMIT 1");
-$stmt->execute([$token]);
-$gateway = $stmt->fetch();
 
 if (!$gateway) {
     http_response_code(403);
@@ -195,28 +230,45 @@ if ((strpos($parsedPath, '/events') !== false || substr($parsedPath, -7) === '/e
     exit;
 }
 
-// Endpoint A: Device Registration (POST /device)
-if (strpos($parsedPath, '/device') !== false && $httpMethod === 'POST') {
+// Endpoint A: Device Registration (POST /device OR /devices)
+if ((strpos($parsedPath, '/device') !== false || strpos($parsedPath, '/devices') !== false) && $httpMethod === 'POST') {
     echo json_encode([
-        'id'       => 'dev_' . $client_id,
-        'token'    => $token,
-        'login'    => 'admin',
-        'password' => null
+        'id'         => 'dev_' . $client_id,
+        'token'      => $token,
+        'login'      => 'admin',
+        'password'   => null,
+        'name'       => $deviceName ?: ($gateway['phone_device_name'] ?: 'Android Phone'),
+        'createdAt'  => $gateway['created_at'] ?: date('c'),
+        'updatedAt'  => date('c'),
+        'lastSeen'   => date('c')
     ]);
     exit;
 }
 
-// Endpoint B: Device Info (GET /device)
-if (strpos($parsedPath, '/device') !== false && $httpMethod === 'GET') {
+// Endpoint B: Device Info (GET /device OR /devices)
+if ((strpos($parsedPath, '/device') !== false || strpos($parsedPath, '/devices') !== false) && $httpMethod === 'GET') {
     echo json_encode([
-        'externalIp' => $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1'
+        'id'         => 'dev_' . $client_id,
+        'name'       => $gateway['phone_device_name'] ?: 'Android Phone',
+        'externalIp' => $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1',
+        'createdAt'  => $gateway['created_at'] ?: date('c'),
+        'updatedAt'  => date('c'),
+        'lastSeen'   => $gateway['last_phone_ping_at'] ?: date('c'),
+        'simCards'   => [
+            [
+                'slot'    => (int)($gateway['sim_slot'] ?? 1),
+                'sign'    => 'SIM' . ($gateway['sim_slot'] ?? 1),
+                'carrier' => 'Active SIM'
+            ]
+        ]
     ]);
     exit;
 }
 
-// Endpoint C: Device Patch (PATCH /device)
-if (strpos($parsedPath, '/device') !== false && $httpMethod === 'PATCH') {
-    http_response_code(204);
+// Endpoint C: Device Patch (PATCH /device OR /devices)
+if ((strpos($parsedPath, '/device') !== false || strpos($parsedPath, '/devices') !== false) && $httpMethod === 'PATCH') {
+    http_response_code(200);
+    echo json_encode(['success' => true]);
     exit;
 }
 

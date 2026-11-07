@@ -436,6 +436,12 @@ require_once 'header.php';
                 </button>
             </form>
 
+            <!-- Git Update Trigger -->
+            <a href="git_pull.php" class="btn btn-outline-secondary fw-semibold px-3 py-2 rounded-3 bg-white shadow-sm d-flex align-items-center gap-2" title="Pull & Activate Latest Updates from GitHub">
+                <i class="fa-solid fa-cloud-arrow-down text-primary"></i>
+                <span>Sync Updates</span>
+            </a>
+
             <!-- Test SMS Trigger Modal -->
             <button type="button" class="btn btn-light border fw-bold px-3 py-2 rounded-3 shadow-sm d-flex align-items-center gap-2" data-bs-toggle="modal" data-bs-target="#testSmsModal">
                 <i class="fa-solid fa-paper-plane text-secondary"></i>
