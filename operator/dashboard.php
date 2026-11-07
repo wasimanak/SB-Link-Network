@@ -556,8 +556,8 @@ unset($ms);
     }
 
     .quick-action-card {
-        background: #ffffff;
-        border: 1px solid #e2e8f0;
+        background: #8726d1;
+        border: 1px solid #771fbd;
         border-radius: 8px;
         padding: 6px 10px;
         display: flex;
@@ -565,18 +565,22 @@ unset($ms);
         justify-content: center;
         text-align: center;
         text-decoration: none;
-        color: #334155;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+        color: #ffffff !important;
+        box-shadow: 0 2px 5px rgba(135, 38, 209, 0.22);
         transition: all 0.18s ease;
         min-height: 34px;
         min-width: 0;
     }
     .quick-action-card:hover {
         transform: translateY(-1px);
-        box-shadow: 0 3px 8px rgba(0,0,0,0.06);
-        color: #1d4ed8;
-        background: #f8fafc;
-        border-color: #93c5fd;
+        box-shadow: 0 4px 12px rgba(135, 38, 209, 0.35);
+        color: #ffffff !important;
+        background: #761db8;
+        border-color: #64159f;
+    }
+    .quick-action-card:active {
+        transform: translateY(0);
+        box-shadow: 0 1px 3px rgba(135, 38, 209, 0.2);
     }
     .quick-action-text {
         font-weight: 600;
@@ -585,6 +589,7 @@ unset($ms);
         overflow: hidden;
         text-overflow: ellipsis;
         min-width: 0;
+        color: #ffffff !important;
     }
 
     /* Reports & Statistics Header & Pills */
