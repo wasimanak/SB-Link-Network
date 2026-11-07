@@ -1042,12 +1042,23 @@ require_once 'header.php';
                         </div>
 
                         <!-- Step 4 -->
-                        <div class="d-flex gap-3">
+                        <div class="d-flex gap-3 mb-3 pb-3 border-bottom">
                             <div class="badge rounded-circle bg-primary text-white d-flex align-items-center justify-content-center" style="width: 28px; height: 28px; flex-shrink: 0;">4</div>
                             <div>
                                 <h6 class="fw-bold text-dark mb-1">Background Permission &amp; Battery Saver Disable Karein</h6>
                                 <p class="small text-muted mb-0">
                                     Phone ki Settings &rarr; Apps me ja kar is app ke liye <strong>Battery Optimization</strong> ko "Unrestricted / Not Optimized" par set karein ta k mobile screen lock hone par bhi background me 24/7 SMS automatically send hote rahen.
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Step 5 -->
+                        <div class="d-flex gap-3">
+                            <div class="badge rounded-circle bg-success text-white d-flex align-items-center justify-content-center" style="width: 28px; height: 28px; flex-shrink: 0;">5</div>
+                            <div>
+                                <h6 class="fw-bold text-dark mb-1">App me "Start Service" par tap karein</h6>
+                                <p class="small text-muted mb-0">
+                                    URL aur Token daalnay k baad app ki Main screen par ja kar <strong>"Start Service"</strong> karein (agar pehlay se chalu ho to aik baar <strong>Stop</strong> kar k dobara <strong>Start</strong> karein). Status <strong>Running</strong> aana chahiye.
                                 </p>
                             </div>
                         </div>

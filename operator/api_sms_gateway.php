@@ -204,7 +204,7 @@ if (strpos($parsedPath, '/messages') !== false) {
             FROM sms_queue_logs
             WHERE client_id = ?
               AND status = 'pending'
-              AND scheduled_at <= NOW()
+              AND (scheduled_at IS NULL OR scheduled_at <= NOW() OR scheduled_at <= DATE_ADD(NOW(), INTERVAL 1 HOUR))
             ORDER BY id ASC
             LIMIT $limit
         ");
@@ -275,7 +275,7 @@ elseif ($action === 'pull') {
         FROM sms_queue_logs
         WHERE client_id = ?
           AND status = 'pending'
-          AND scheduled_at <= NOW()
+          AND (scheduled_at IS NULL OR scheduled_at <= NOW() OR scheduled_at <= DATE_ADD(NOW(), INTERVAL 1 HOUR))
         ORDER BY id ASC
         LIMIT $limit
     ");
