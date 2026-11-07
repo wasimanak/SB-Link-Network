@@ -276,7 +276,7 @@ if ((strpos($parsedPath, '/message') !== false || strpos($parsedPath, '/messages
 $action = strtolower(trim($_REQUEST['action'] ?? ''));
 
 // Action 1: PING (Heartbeat / Connectivity Test)
-if ($action === 'ping' || (empty($action) && $httpMethod === 'GET' && strpos($parsedPath, 'sms_gateway') !== false)) {
+if ($action === 'ping' || (empty($action) && $httpMethod === 'GET' && preg_match('#^/api/sms_gateway/?$#', $parsedPath))) {
     $cStmt = $pdo->prepare("SELECT COUNT(*) FROM sms_queue_logs WHERE client_id = ? AND status = 'pending'");
     $cStmt->execute([$client_id]);
     $pendingCount = (int)$cStmt->fetchColumn();
