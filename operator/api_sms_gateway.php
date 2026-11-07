@@ -138,6 +138,63 @@ $pdo->prepare($updSql)->execute($updParams);
 // 7. ROUTE HANDLER: CAPCOM6 NATIVE PROTOCOL (GatewayApi.kt)
 // -------------------------------------------------------------------------
 
+// Endpoint 0: Server-Sent Events (SSE) Stream for Zero-Delay Real-time Push
+if ((strpos($parsedPath, '/events') !== false || substr($parsedPath, -7) === '/events') && $httpMethod === 'GET') {
+    while (ob_get_level()) {
+        ob_end_clean();
+    }
+    header('Content-Type: text/event-stream; charset=utf-8');
+    header('Cache-Control: no-cache, no-transform');
+    header('Connection: keep-alive');
+    header('X-Accel-Buffering: no');
+
+    @set_time_limit(40);
+    @ini_set('max_execution_time', '40');
+
+    echo "event: ping\ndata: {\"status\":\"connected\",\"server_time\":\"" . date('c') . "\"}\n\n";
+    @flush();
+
+    $startTime = time();
+    $lastPingTime = time();
+    $lastNotifiedMsgId = 0;
+
+    while (time() - $startTime < 30) {
+        if (connection_aborted()) {
+            break;
+        }
+
+        $pStmt = $pdo->prepare("
+            SELECT id FROM sms_queue_logs 
+            WHERE client_id = ? 
+              AND status = 'pending' 
+              AND (scheduled_at IS NULL OR scheduled_at <= NOW())
+              AND id > ?
+            ORDER BY id ASC LIMIT 10
+        ");
+        $pStmt->execute([$client_id, $lastNotifiedMsgId]);
+        $pendingIds = $pStmt->fetchAll(PDO::FETCH_COLUMN);
+
+        if (!empty($pendingIds)) {
+            $lastNotifiedMsgId = max($pendingIds);
+            echo "event: MessageEnqueued\ndata: {\"count\":" . count($pendingIds) . "}\n\n";
+            echo "event: message:new\ndata: {\"count\":" . count($pendingIds) . "}\n\n";
+            @flush();
+        }
+
+        if (time() - $lastPingTime >= 10) {
+            echo "event: ping\ndata: {\"timestamp\":\"" . date('c') . "\"}\n\n";
+            @flush();
+            $lastPingTime = time();
+
+            $pdo->prepare("UPDATE sms_gateway_settings SET last_phone_ping_at = NOW() WHERE client_id = ?")->execute([$client_id]);
+        }
+
+        usleep(500000); // 0.5s check interval
+    }
+
+    exit;
+}
+
 // Endpoint A: Device Registration (POST /device)
 if (strpos($parsedPath, '/device') !== false && $httpMethod === 'POST') {
     echo json_encode([
@@ -190,7 +247,7 @@ if ((strpos($parsedPath, '/message') !== false || strpos($parsedPath, '/messages
         FROM sms_queue_logs
         WHERE client_id = ?
           AND status = 'pending'
-          AND (scheduled_at IS NULL OR scheduled_at <= NOW() OR scheduled_at <= DATE_ADD(NOW(), INTERVAL 1 HOUR))
+          AND (scheduled_at IS NULL OR scheduled_at <= NOW())
         ORDER BY id ASC
         LIMIT $limit
     ");
@@ -303,7 +360,7 @@ elseif ($action === 'pull') {
         FROM sms_queue_logs
         WHERE client_id = ?
           AND status = 'pending'
-          AND (scheduled_at IS NULL OR scheduled_at <= NOW() OR scheduled_at <= DATE_ADD(NOW(), INTERVAL 1 HOUR))
+          AND (scheduled_at IS NULL OR scheduled_at <= NOW())
         ORDER BY id ASC
         LIMIT $limit
     ");

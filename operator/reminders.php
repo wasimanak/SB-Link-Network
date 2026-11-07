@@ -101,7 +101,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     if (empty($rn)) continue;
                     $cleanM = format_mobile_for_sms($rn);
                     if (!empty($cleanM)) {
-                        if (queue_sms_message($pdo, $client_id, $cleanM, $customText, 'custom_bulk', null, null, 'Admin Composer')) {
+                        if (queue_sms_message($pdo, $client_id, $cleanM, $customText, 'custom_bulk', null, null, 'Admin Composer', $scheduledAt)) {
                             $queuedCount++;
                         }
                     }
@@ -122,7 +122,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     if ($sub) {
                         $mobile = !empty($sub['mobile']) ? $sub['mobile'] : $sub['phone'];
                         $resolved = resolve_sms_template_tags($customText, $sub, $client);
-                        if (queue_sms_message($pdo, $client_id, $mobile, $resolved, 'custom_single', $sub['id'], $sub['username'], 'Admin Composer')) {
+                        if (queue_sms_message($pdo, $client_id, $mobile, $resolved, 'custom_single', $sub['id'], $sub['username'], 'Admin Composer', $scheduledAt)) {
                             $queuedCount = 1;
                         }
                     }
@@ -151,7 +151,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 foreach ($sList as $sub) {
                     $m = !empty($sub['mobile']) ? $sub['mobile'] : $sub['phone'];
                     $resolved = resolve_sms_template_tags($customText, $sub, $client);
-                    if (queue_sms_message($pdo, $client_id, $m, $resolved, 'custom_bulk', $sub['id'], $sub['username'], 'Admin Composer')) {
+                    if (queue_sms_message($pdo, $client_id, $m, $resolved, 'custom_bulk', $sub['id'], $sub['username'], 'Admin Composer', $scheduledAt)) {
                         $queuedCount++;
                     }
                 }
@@ -175,6 +175,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $flash_type = "warning";
         } else {
             $flash_msg = "Automated expiry scan finished! <strong>{$res['queued']}</strong> reminder messages queued for expiring/expired customers.";
+            $flash_type = "success";
+        }
+    }
+
+    // 6b. Send Pending Message Immediately (Bypass Schedule)
+    elseif ($action === 'send_now') {
+        $msgId = (int)($_POST['message_id'] ?? 0);
+        if ($msgId > 0) {
+            $pdo->prepare("UPDATE sms_queue_logs SET scheduled_at = NOW() WHERE id = ? AND client_id = ? AND status = 'pending'")->execute([$msgId, $client_id]);
+            $flash_msg = "Message #{$msgId} was dispatched for immediate sending (schedule bypassed).";
             $flash_type = "success";
         }
     }
@@ -253,6 +263,17 @@ $allSubscribers = $pdo->query("SELECT id, username, full_name, mobile, phone, ex
 $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? "https://" : "http://";
 $host = $_SERVER['HTTP_HOST'];
 $gatewayEndpointUrl = $protocol . $host . "/api/sms_gateway";
+
+// Determine Active Tab from query param or default
+$initialTab = 'queue';
+if (isset($_GET['tab'])) {
+    $t = strtolower(trim($_GET['tab']));
+    if (in_array($t, ['custom', 'composer'])) {
+        $initialTab = 'composer';
+    } elseif (in_array($t, ['queue', 'rules', 'logs', 'connect'])) {
+        $initialTab = $t;
+    }
+}
 
 require_once 'header.php';
 ?>
@@ -545,7 +566,7 @@ require_once 'header.php';
         <!-- =================================================================== -->
         <!-- TAB 1: PENDING QUEUE -->
         <!-- =================================================================== -->
-        <div id="tab-content-queue">
+        <div id="tab-content-queue" class="<?= $initialTab === 'queue' ? '' : 'd-none' ?>">
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <div>
                     <h5 class="fw-bold text-dark mb-0">Pending SMS Queue</h5>
@@ -628,7 +649,7 @@ require_once 'header.php';
         <!-- =================================================================== -->
         <!-- TAB 2: EXPIRY RULES & TEMPLATES -->
         <!-- =================================================================== -->
-        <div id="tab-content-rules" class="d-none">
+        <div id="tab-content-rules" class="<?= $initialTab === 'rules' ? '' : 'd-none' ?>">
             <form method="POST">
                 <input type="hidden" name="action" value="save_settings">
                 <input type="hidden" name="gateway_mode" value="<?= htmlspecialchars($settings['gateway_mode']) ?>">
@@ -789,10 +810,10 @@ require_once 'header.php';
         <!-- =================================================================== -->
         <!-- TAB 3: CUSTOM & BULK SMS COMPOSER -->
         <!-- =================================================================== -->
-        <div id="tab-content-composer" class="d-none">
+        <div id="tab-content-composer" class="<?= $initialTab === 'composer' ? '' : 'd-none' ?>">
             <div class="row g-4">
                 <div class="col-lg-7">
-                    <form method="POST" id="bulkSmsForm" onsubmit="return confirm('Are you sure you want to queue this SMS broadcast?');">
+                    <form method="POST" id="bulkSmsForm" onsubmit="return confirmSendBroadcast();">
                         <input type="hidden" name="action" value="send_bulk_sms">
 
                         <h5 class="fw-bold text-dark mb-1">Compose &amp; Dispatch SMS Broadcast</h5>
@@ -890,7 +911,7 @@ require_once 'header.php';
         <!-- =================================================================== -->
         <!-- TAB 4: SMS HISTORY & DELIVERY LOGS -->
         <!-- =================================================================== -->
-        <div id="tab-content-logs" class="d-none">
+        <div id="tab-content-logs" class="<?= $initialTab === 'logs' ? '' : 'd-none' ?>">
             <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
                 <div>
                     <h5 class="fw-bold text-dark mb-0">SMS Logs &amp; Delivery History</h5>
@@ -994,7 +1015,7 @@ require_once 'header.php';
         <!-- =================================================================== -->
         <!-- TAB 5: MOBILE APP CONNECTION & GATEWAY SETTINGS -->
         <!-- =================================================================== -->
-        <div id="tab-content-connect" class="d-none">
+        <div id="tab-content-connect" class="<?= $initialTab === 'connect' ? '' : 'd-none' ?>">
             <div class="row g-4">
                 <!-- Left: Step-by-Step Connection Guide -->
                 <div class="col-lg-7">
@@ -1312,7 +1333,76 @@ function copyToClipboardText(inputId) {
     });
 }
 
+function toggleSchedulerInput() {
+    var chk = document.getElementById('enable_scheduler');
+    var isSched = chk ? chk.checked : false;
+    var container = document.getElementById('scheduler_container');
+    var btn = document.getElementById('submitComposerBtn');
+    var badge = document.getElementById('sendModeBadge');
+    var dateInput = document.getElementById('scheduled_at_input');
+    var desc = document.getElementById('scheduler_desc');
+
+    if (isSched) {
+        if (container) container.classList.remove('d-none');
+        if (dateInput) {
+            dateInput.setAttribute('required', 'required');
+            if (!dateInput.value) {
+                var now = new Date();
+                now.setHours(now.getHours() + 1);
+                var pad = function(n) { return String(n).padStart(2, '0'); };
+                var yyyy = now.getFullYear();
+                var mm = pad(now.getMonth() + 1);
+                var dd = pad(now.getDate());
+                var hh = pad(now.getHours());
+                var min = pad(now.getMinutes());
+                dateInput.value = yyyy + '-' + mm + '-' + dd + 'T' + hh + ':' + min;
+            }
+        }
+        if (btn) {
+            btn.innerHTML = '<i class="fa-solid fa-clock me-2"></i> Schedule SMS Broadcast';
+            btn.className = 'btn btn-warning text-dark fw-bold px-4 py-2 rounded-3 shadow-sm';
+        }
+        if (badge) {
+            badge.className = 'badge bg-warning-subtle text-warning-emphasis border border-warning-subtle px-3 py-2 rounded-pill';
+            badge.innerHTML = '<i class="fa-solid fa-clock me-1"></i> Mode: Scheduled Dispatch';
+        }
+        if (desc) {
+            desc.innerHTML = 'Scheduler is <strong>ACTIVE</strong>. Message will wait until the selected date and time.';
+        }
+    } else {
+        if (container) container.classList.add('d-none');
+        if (dateInput) dateInput.removeAttribute('required');
+        if (btn) {
+            btn.innerHTML = '<i class="fa-solid fa-bolt me-2"></i> Send Immediately (Direct Send)';
+            btn.className = 'btn btn-primary fw-bold px-4 py-2 rounded-3 shadow-sm';
+        }
+        if (badge) {
+            badge.className = 'badge bg-success-subtle text-success border border-success-subtle px-3 py-2 rounded-pill';
+            badge.innerHTML = '<i class="fa-solid fa-bolt me-1"></i> Mode: Direct Instant Send';
+        }
+        if (desc) {
+            desc.innerHTML = 'Default: <strong>Direct Send (Immediate)</strong>. Turn this switch ON if you want to set a specific future date and time.';
+        }
+    }
+}
+
+function confirmSendBroadcast() {
+    var chk = document.getElementById('enable_scheduler');
+    var isSched = chk ? chk.checked : false;
+    if (isSched) {
+        var dateInput = document.getElementById('scheduled_at_input');
+        if (!dateInput || !dateInput.value) {
+            alert('Please select a scheduled date and time.');
+            if (dateInput) dateInput.focus();
+            return false;
+        }
+        return confirm('Confirm scheduled dispatch for: ' + dateInput.value + '?');
+    }
+    return confirm('Send this SMS broadcast immediately (Direct Send)?');
+}
+
 function switchMainTab(tabName, el) {
+    if (tabName === 'custom') tabName = 'composer';
     var tabs = ['queue', 'rules', 'composer', 'logs', 'connect'];
     tabs.forEach(function(t) {
         var content = document.getElementById('tab-content-' + t);
