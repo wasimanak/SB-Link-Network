@@ -790,6 +790,7 @@ require_once 'header.php';
                         <div class="mb-3">
                             <label class="form-label fw-bold text-dark small">Select Target Audience</label>
                             <select name="target_audience" id="target_audience" class="form-select" onchange="toggleAudienceOptions()">
+                                <option value="all">All Subscribers (Active + Inactive / Expired)</option>
                                 <option value="active">All Active Subscribers</option>
                                 <option value="expired">All Expired Subscribers</option>
                                 <option value="expiring_1d">Subscribers Expiring in 1 Day (<?= $exp_1d ?>)</option>
