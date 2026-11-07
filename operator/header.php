@@ -191,6 +191,68 @@ $userRoleLabel = !empty($_SESSION['is_manager']) ? 'MANAGER' : 'ADMIN';
             letter-spacing: 0.8px;
         }
 
+        /* Sidebar Time Card */
+        .sidebar-time-card {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 8px 12px;
+            margin: 0 16px 12px 16px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+            flex-shrink: 0;
+        }
+        .sidebar-time-badge {
+            font-size: 0.65rem;
+            font-weight: 700;
+            color: #0284c7;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .pulse-dot-time {
+            width: 6px;
+            height: 6px;
+            background: #0ea5e9;
+            border-radius: 50%;
+            display: inline-block;
+            box-shadow: 0 0 0 0 rgba(14, 165, 233, 0.7);
+            animation: pulseDotTime 2s infinite;
+        }
+        @keyframes pulseDotTime {
+            0% { box-shadow: 0 0 0 0 rgba(14, 165, 233, 0.7); }
+            70% { box-shadow: 0 0 0 6px rgba(14, 165, 233, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(14, 165, 233, 0); }
+        }
+        .sidebar-time-tz {
+            font-size: 0.62rem;
+            font-weight: 600;
+            color: #64748b;
+        }
+        .sidebar-time-val {
+            font-size: 0.78rem;
+            color: #1e293b;
+            line-height: 1.3;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+        .sidebar-time-val .clock-date {
+            font-weight: 600;
+            color: #334155;
+            font-size: 0.76rem;
+        }
+        .sidebar-time-val .clock-time {
+            font-weight: 800;
+            color: #2563eb;
+            font-family: monospace;
+            font-size: 0.82rem;
+            letter-spacing: -0.2px;
+        }
+
         /* Scrollable Menu Area */
         .sidebar-menu-scroll {
             flex: 1 1 auto;
@@ -510,6 +572,19 @@ $userRoleLabel = !empty($_SESSION['is_manager']) ? 'MANAGER' : 'ADMIN';
                     <?= htmlspecialchars($tenant['company_name']) ?>
                 </div>
                 <div class="sidebar-logo-sub"><?= BRAND_SHORT_NAME ?> ADMIN</div>
+            </div>
+        </div>
+
+        <!-- Sidebar Live System Time Capsule -->
+        <div class="sidebar-time-card">
+            <div class="d-flex align-items-center justify-content-between mb-1">
+                <span class="sidebar-time-badge">
+                    <span class="pulse-dot-time"></span> Live Time
+                </span>
+                <span class="sidebar-time-tz"><?= date_default_timezone_get() ?></span>
+            </div>
+            <div id="live-server-clock" class="sidebar-time-val">
+                <span class="text-muted">Loading time...</span>
             </div>
         </div>
 
@@ -863,6 +938,26 @@ document.addEventListener("DOMContentLoaded", function() {
             }
         });
     }
+
+    // Live System Clock in Sidebar
+(function() {
+    var tz = "<?= date_default_timezone_get() ?>";
+    function updateSidebarClock() {
+        var now = new Date();
+        var timeOptions = { timeZone: tz, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true };
+        var timeString = now.toLocaleTimeString('en-US', timeOptions);
+        var day = now.toLocaleDateString('en-GB', { timeZone: tz, day: 'numeric' });
+        var month = now.toLocaleDateString('en-GB', { timeZone: tz, month: 'short' });
+        var year = now.toLocaleDateString('en-GB', { timeZone: tz, year: 'numeric' });
+        var dateString = day + ' ' + month + ' ' + year;
+        var clockEl = document.getElementById('live-server-clock');
+        if(clockEl) {
+            clockEl.innerHTML = '<span class="clock-date">' + dateString + '</span><span class="clock-time">' + timeString + '</span>';
+        }
+    }
+    updateSidebarClock();
+    setInterval(updateSidebarClock, 1000);
+})();
 
     // Close mobile drawer when clicking outside
     document.addEventListener("click", function(e) {

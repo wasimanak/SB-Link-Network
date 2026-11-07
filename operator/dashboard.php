@@ -830,43 +830,7 @@ unset($ms);
     .leaflet-popup-content { margin: 14px 16px; line-height: 1.4; }
 </style>
 
-<!-- Dashboard Header -->
-<div class="d-flex flex-wrap justify-content-between align-items-center mb-4">
-    <div>
-        <h3 class="fw-bold text-dark mb-1">Admin Dashboard</h3>
-        <p class="text-secondary small mb-0">Manage your network, users and services</p>
-    </div>
-    
-    <div class="d-flex align-items-center gap-3">
-        <!-- Live System Time Capsule -->
-        <div class="d-flex align-items-center bg-white px-3 py-2 rounded-pill shadow-sm border">
-            <i class="fa-regular fa-clock fs-5 text-primary me-2"></i>
-            <div>
-                <div class="text-muted" style="font-size: 0.68rem; font-weight: 600; text-transform: uppercase;">Live System Time (<?= date_default_timezone_get() ?>)</div>
-                <div id="live-server-clock" class="fw-bold text-primary" style="font-size: 0.95rem; font-family: monospace;">Loading...</div>
-            </div>
-        </div>
-    </div>
-</div>
 
-<script>
-(function() {
-    var tz = "<?= date_default_timezone_get() ?>";
-    function updateClock() {
-        var now = new Date();
-        var timeOptions = { timeZone: tz, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true };
-        var timeString = now.toLocaleTimeString('en-US', timeOptions);
-        var dateOptions = { timeZone: tz, day: 'numeric', month: 'short', year: 'numeric' };
-        var dateString = now.toLocaleDateString('en-GB', dateOptions);
-        var clockEl = document.getElementById('live-server-clock');
-        if(clockEl) {
-            clockEl.innerHTML = '<span class="text-dark">' + dateString + '</span> &nbsp;|&nbsp; ' + timeString;
-        }
-    }
-    updateClock();
-    setInterval(updateClock, 1000);
-})();
-</script>
 
 <!-- Top Quick Actions (Compact & Icon-Free) -->
 <div class="quick-actions-grid mb-4">
