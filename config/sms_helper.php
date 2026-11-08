@@ -29,8 +29,10 @@ if (!function_exists('ensure_sms_tables_exist')) {
                 `gateway_api_key` VARCHAR(255) NULL,
                 `sim_slot` TINYINT NOT NULL DEFAULT 1,
                 `auto_expiry_reminders` TINYINT NOT NULL DEFAULT 1,
+                `remind_before_expiry` TINYINT NOT NULL DEFAULT 1,
                 `remind_days_before` VARCHAR(50) NOT NULL DEFAULT '3,1',
                 `remind_on_expiry` TINYINT NOT NULL DEFAULT 1,
+                `remind_after_expiry` TINYINT NOT NULL DEFAULT 1,
                 `remind_days_after` VARCHAR(50) NOT NULL DEFAULT '1,3',
                 `template_before_expiry` TEXT NULL,
                 `template_on_expiry` TEXT NULL,
@@ -38,6 +40,7 @@ if (!function_exists('ensure_sms_tables_exist')) {
                 `last_phone_ping_at` DATETIME NULL,
                 `phone_device_name` VARCHAR(100) NULL,
                 `phone_battery_level` VARCHAR(20) NULL,
+                `last_auto_scan_date` DATE NULL,
                 `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
                 `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 INDEX (`client_id`),
@@ -70,6 +73,23 @@ if (!function_exists('ensure_sms_tables_exist')) {
                 INDEX (`created_at`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
         ");
+
+        // Self-Healing Column Migrations for existing databases
+        try {
+            $pdo->query("SELECT remind_before_expiry FROM sms_gateway_settings LIMIT 1");
+        } catch (Exception $e) {
+            @$pdo->exec("ALTER TABLE `sms_gateway_settings` ADD COLUMN `remind_before_expiry` TINYINT NOT NULL DEFAULT 1 AFTER `auto_expiry_reminders`");
+        }
+        try {
+            $pdo->query("SELECT remind_after_expiry FROM sms_gateway_settings LIMIT 1");
+        } catch (Exception $e) {
+            @$pdo->exec("ALTER TABLE `sms_gateway_settings` ADD COLUMN `remind_after_expiry` TINYINT NOT NULL DEFAULT 1 AFTER `remind_on_expiry`");
+        }
+        try {
+            $pdo->query("SELECT last_auto_scan_date FROM sms_gateway_settings LIMIT 1");
+        } catch (Exception $e) {
+            @$pdo->exec("ALTER TABLE `sms_gateway_settings` ADD COLUMN `last_auto_scan_date` DATE NULL AFTER `phone_battery_level`");
+        }
     }
 }
 
@@ -126,11 +146,13 @@ if (!function_exists('get_sms_gateway_settings')) {
             $ins = $pdo->prepare("
                 INSERT INTO sms_gateway_settings (
                     client_id, gateway_mode, gateway_token, sim_slot,
-                    auto_expiry_reminders, remind_days_before, remind_on_expiry, remind_days_after,
+                    auto_expiry_reminders, remind_before_expiry, remind_days_before,
+                    remind_on_expiry, remind_after_expiry, remind_days_after,
                     template_before_expiry, template_on_expiry, template_after_expiry
                 ) VALUES (
                     ?, 'polling', ?, 1,
-                    1, '3,1', 1, '1,3',
+                    1, 1, '3,1',
+                    1, 1, '1,3',
                     ?, ?, ?
                 )
             ");
@@ -151,6 +173,16 @@ if (!function_exists('get_sms_gateway_settings')) {
             $settings['template_after_expiry'] = "Salam {name}, apka internet package expire hue {days_expired} din ho chuke hain. Dubara bahali k liye rabta karein: {phone}. Shukriya - {company}";
         }
 
+        if (!isset($settings['remind_before_expiry'])) {
+            $settings['remind_before_expiry'] = 1;
+        }
+        if (!isset($settings['remind_on_expiry'])) {
+            $settings['remind_on_expiry'] = 1;
+        }
+        if (!isset($settings['remind_after_expiry'])) {
+            $settings['remind_after_expiry'] = 1;
+        }
+
         return $settings;
     }
 }
@@ -168,8 +200,10 @@ if (!function_exists('save_sms_gateway_settings')) {
         $gateway_api_key       = trim($data['gateway_api_key'] ?? '');
         $sim_slot              = max(1, min(2, (int)($data['sim_slot'] ?? 1)));
         $auto_expiry_reminders = !empty($data['auto_expiry_reminders']) ? 1 : 0;
+        $remind_before_expiry  = !empty($data['remind_before_expiry']) ? 1 : 0;
         $remind_days_before    = trim($data['remind_days_before'] ?? '3,1');
         $remind_on_expiry      = !empty($data['remind_on_expiry']) ? 1 : 0;
+        $remind_after_expiry   = !empty($data['remind_after_expiry']) ? 1 : 0;
         $remind_days_after     = trim($data['remind_days_after'] ?? '1,3');
         $template_before       = trim($data['template_before_expiry'] ?? '');
         $template_on           = trim($data['template_on_expiry'] ?? '');
@@ -179,7 +213,8 @@ if (!function_exists('save_sms_gateway_settings')) {
         $tokenSql = "";
         $params = [
             $gateway_mode, $gateway_http_url, $gateway_api_key, $sim_slot,
-            $auto_expiry_reminders, $remind_days_before, $remind_on_expiry, $remind_days_after,
+            $auto_expiry_reminders, $remind_before_expiry, $remind_days_before,
+            $remind_on_expiry, $remind_after_expiry, $remind_days_after,
             $template_before, $template_on, $template_after
         ];
 
@@ -198,8 +233,10 @@ if (!function_exists('save_sms_gateway_settings')) {
                 gateway_api_key = ?,
                 sim_slot = ?,
                 auto_expiry_reminders = ?,
+                remind_before_expiry = ?,
                 remind_days_before = ?,
                 remind_on_expiry = ?,
+                remind_after_expiry = ?,
                 remind_days_after = ?,
                 template_before_expiry = ?,
                 template_on_expiry = ?,
@@ -305,9 +342,18 @@ if (!function_exists('queue_sms_message')) {
  */
 if (!function_exists('scan_and_queue_expiry_reminders')) {
     function scan_and_queue_expiry_reminders($pdo, $client_id) {
+        ensure_sms_tables_exist($pdo);
         $settings = get_sms_gateway_settings($pdo, $client_id);
         if (empty($settings['auto_expiry_reminders'])) {
             return ['status' => 'disabled', 'queued' => 0];
+        }
+
+        $remindBefore = !empty($settings['remind_before_expiry']);
+        $remindOn     = !empty($settings['remind_on_expiry']);
+        $remindAfter  = !empty($settings['remind_after_expiry']);
+
+        if (!$remindBefore && !$remindOn && !$remindAfter) {
+            return ['status' => 'all_stages_off', 'queued' => 0];
         }
 
         // Fetch client branding
@@ -316,12 +362,16 @@ if (!function_exists('scan_and_queue_expiry_reminders')) {
         $client = $cStmt->fetch() ?: [];
 
         // Parse rules
-        $beforeDays = array_filter(array_map('intval', explode(',', $settings['remind_days_before'] ?? '3,1')));
-        $afterDays  = array_filter(array_map('intval', explode(',', $settings['remind_days_after'] ?? '1,3')));
-        $onExpiry   = !empty($settings['remind_on_expiry']);
+        $beforeDays = $remindBefore ? array_filter(array_map('intval', explode(',', $settings['remind_days_before'] ?? '3,1'))) : [];
+        $afterDays  = $remindAfter ? array_filter(array_map('intval', explode(',', $settings['remind_days_after'] ?? '1,3'))) : [];
 
         $todayDate = date('Y-m-d');
-        $now = time();
+        $todayTs = strtotime($todayDate);
+
+        // Update last auto scan date
+        try {
+            $pdo->prepare("UPDATE sms_gateway_settings SET last_auto_scan_date = ? WHERE client_id = ?")->execute([$todayDate, $client_id]);
+        } catch (Exception $e) {}
 
         // Fetch all subscribers with valid mobile numbers and packages
         $stmt = $pdo->prepare("
@@ -360,17 +410,28 @@ if (!function_exists('scan_and_queue_expiry_reminders')) {
 
         foreach ($subscribers as $sub) {
             $subId = (int)$sub['id'];
-            $expTs = strtotime($sub['expiry_date']);
-            $diffSeconds = $expTs - $now;
-            $diffDays = (int)round($diffSeconds / 86400);
+            $expDateRaw = trim($sub['expiry_date'] ?? '');
+            if (empty($expDateRaw) || $expDateRaw <= '2000-01-01') continue;
+
+            $expTs = strtotime($expDateRaw);
+            if (!$expTs) continue;
+
+            $expDateOnly = date('Y-m-d', $expTs);
+            $expDateOnlyTs = strtotime($expDateOnly);
+
+            // Calendar days difference relative to today:
+            // > 0 => Expiring in X days (Before Expiry)
+            // == 0 => Expires today (On Expiry Day)
+            // < 0 => Expired X days ago (After Expiry Recovery)
+            $calendarDiffDays = (int)round(($expDateOnlyTs - $todayTs) / 86400);
 
             $targetMobile = !empty($sub['mobile']) ? $sub['mobile'] : $sub['phone'];
             $formattedMobile = format_mobile_for_sms($targetMobile);
             if (empty($formattedMobile)) continue;
 
-            // Rule 1: Before Expiry (diffDays > 0)
-            if ($diffDays > 0 && in_array($diffDays, $beforeDays)) {
-                $typeKey = "expiry_before_{$diffDays}d";
+            // Rule 1: Before Expiry (calendarDiffDays > 0)
+            if ($remindBefore && $calendarDiffDays > 0 && in_array($calendarDiffDays, $beforeDays)) {
+                $typeKey = "expiry_before_{$calendarDiffDays}d";
                 if (!isset($alreadySentToday[$subId . '_' . $typeKey])) {
                     $msgText = resolve_sms_template_tags($settings['template_before_expiry'], $sub, $client);
                     queue_sms_message($pdo, $client_id, $formattedMobile, $msgText, $typeKey, $subId, $sub['username'], 'Auto Cron');
@@ -379,8 +440,8 @@ if (!function_exists('scan_and_queue_expiry_reminders')) {
                 }
             }
 
-            // Rule 2: On Expiry Day (diffDays == 0 or expires today)
-            elseif ($onExpiry && $diffDays === 0 && date('Y-m-d', $expTs) === $todayDate) {
+            // Rule 2: On Expiry Day (calendarDiffDays === 0)
+            elseif ($remindOn && $calendarDiffDays === 0) {
                 $typeKey = "expiry_on_day";
                 if (!isset($alreadySentToday[$subId . '_' . $typeKey])) {
                     $msgText = resolve_sms_template_tags($settings['template_on_expiry'], $sub, $client);
@@ -390,9 +451,9 @@ if (!function_exists('scan_and_queue_expiry_reminders')) {
                 }
             }
 
-            // Rule 3: After Expiry (diffDays < 0 -> expired recovery)
-            elseif ($diffDays < 0) {
-                $pastDays = abs($diffDays);
+            // Rule 3: After Expiry (calendarDiffDays < 0 -> expired recovery)
+            elseif ($remindAfter && $calendarDiffDays < 0) {
+                $pastDays = abs($calendarDiffDays);
                 if (in_array($pastDays, $afterDays)) {
                     $typeKey = "expiry_after_{$pastDays}d";
                     if (!isset($alreadySentToday[$subId . '_' . $typeKey])) {

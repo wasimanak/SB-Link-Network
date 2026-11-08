@@ -173,6 +173,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         if ($res['status'] === 'disabled') {
             $flash_msg = "Automated expiry reminders are currently disabled. Enable them in the Expiry Rules tab.";
             $flash_type = "warning";
+        } elseif ($res['status'] === 'all_stages_off') {
+            $flash_msg = "Automated expiry scan skipped: All reminder stages (Before Expiry, On Expiry Day, and After Expiry) are currently switched OFF.";
+            $flash_type = "warning";
         } else {
             $flash_msg = "Automated expiry scan finished! <strong>{$res['queued']}</strong> reminder messages queued for expiring/expired customers.";
             $flash_type = "success";
@@ -221,6 +224,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 // Load Current Settings, Metrics & Lists
 // -------------------------------------------------------------------------
 $settings = get_sms_gateway_settings($pdo, $client_id);
+
+// Opportunistic daily automated reminder scan if not yet run today
+if (!empty($settings['auto_expiry_reminders'])) {
+    $todayDate = date('Y-m-d');
+    if (empty($settings['last_auto_scan_date']) || $settings['last_auto_scan_date'] !== $todayDate) {
+        scan_and_queue_expiry_reminders($pdo, $client_id);
+        $settings = get_sms_gateway_settings($pdo, $client_id);
+    }
+}
+
 $stats = get_sms_dashboard_stats($pdo, $client_id);
 
 // Expiring counts for display
@@ -674,77 +687,114 @@ require_once 'header.php';
                 </div>
 
                 <!-- Master Toggle -->
-                <div class="p-3 rounded-4 mb-4 border d-flex justify-content-between align-items-center" style="background: #f8fafc;">
+                <div class="p-3 rounded-4 mb-4 border d-flex justify-content-between align-items-center shadow-sm" style="background: #f8fafc;">
                     <div class="d-flex align-items-center gap-3">
                         <div class="bg-primary text-white rounded-3 p-2 fs-5">
                             <i class="fa-solid fa-robot"></i>
                         </div>
                         <div>
-                            <h6 class="fw-bold text-dark mb-0">Automated Daily Expiry Reminders</h6>
-                            <p class="text-secondary small mb-0">When enabled, the system automatically detects expiring subscribers and queues reminders for your phone.</p>
+                            <div class="d-flex align-items-center gap-2">
+                                <h6 class="fw-bold text-dark mb-0">Automated Daily Expiry Reminders (Master Switch)</h6>
+                                <span id="masterToggleBadge" class="badge <?= !empty($settings['auto_expiry_reminders']) ? 'bg-success-subtle text-success border border-success-subtle' : 'bg-secondary-subtle text-secondary border border-secondary-subtle' ?>">
+                                    <?= !empty($settings['auto_expiry_reminders']) ? 'Automated Scanning Active' : 'Master Scanner Paused' ?>
+                                </span>
+                            </div>
+                            <p class="text-secondary small mb-0">When enabled, the server scans daily and queues reminder SMS for each active stage below.</p>
                         </div>
                     </div>
                     <div class="form-check form-switch fs-4">
-                        <input class="form-check-input" type="checkbox" name="auto_expiry_reminders" value="1" id="autoExpiryToggle" <?= !empty($settings['auto_expiry_reminders']) ? 'checked' : '' ?>>
+                        <input class="form-check-input" type="checkbox" name="auto_expiry_reminders" value="1" id="autoExpiryToggle" <?= !empty($settings['auto_expiry_reminders']) ? 'checked' : '' ?> onchange="syncMasterToggleState()">
                     </div>
                 </div>
 
-                <!-- Milestone Timing Checkboxes -->
+                <!-- 3 Independent Milestone Stages (Each with ON/OFF Toggle) -->
                 <div class="row g-3 mb-4">
-                    <!-- Before Expiry Milestone -->
+                    <!-- Milestone 1: Before Expiry -->
                     <div class="col-md-4">
-                        <div class="p-3 rounded-3 border h-100 bg-white">
-                            <h6 class="fw-bold text-primary mb-2"><i class="fa-solid fa-clock me-1"></i> 1. Before Expiry</h6>
-                            <p class="small text-muted mb-3">Send reminder X days before package expires:</p>
-                            <?php $currBefore = array_map('trim', explode(',', $settings['remind_days_before'] ?? '3,1')); ?>
-                            <div class="d-flex flex-wrap gap-2">
-                                <label class="btn btn-sm btn-outline-secondary rounded-pill <?= in_array('7', $currBefore) ? 'active' : '' ?>">
-                                    <input type="checkbox" class="d-none before-day-chk" value="7" <?= in_array('7', $currBefore) ? 'checked' : '' ?> onchange="updateMilestonesString()"> 7 Days Before
-                                </label>
-                                <label class="btn btn-sm btn-outline-secondary rounded-pill <?= in_array('3', $currBefore) ? 'active' : '' ?>">
-                                    <input type="checkbox" class="d-none before-day-chk" value="3" <?= in_array('3', $currBefore) ? 'checked' : '' ?> onchange="updateMilestonesString()"> 3 Days Before
-                                </label>
-                                <label class="btn btn-sm btn-outline-secondary rounded-pill <?= in_array('2', $currBefore) ? 'active' : '' ?>">
-                                    <input type="checkbox" class="d-none before-day-chk" value="2" <?= in_array('2', $currBefore) ? 'checked' : '' ?> onchange="updateMilestonesString()"> 2 Days Before
-                                </label>
-                                <label class="btn btn-sm btn-outline-secondary rounded-pill <?= in_array('1', $currBefore) ? 'active' : '' ?>">
-                                    <input type="checkbox" class="d-none before-day-chk" value="1" <?= in_array('1', $currBefore) ? 'checked' : '' ?> onchange="updateMilestonesString()"> 1 Day Before
-                                </label>
+                        <div class="p-3 rounded-4 border h-100 bg-white shadow-sm d-flex flex-column" id="card_milestone_before">
+                            <div class="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom">
+                                <h6 class="fw-bold text-primary mb-0"><i class="fa-solid fa-clock me-1"></i> 1. Before Expiry</h6>
+                                <div class="form-check form-switch m-0 fs-5">
+                                    <input class="form-check-input" type="checkbox" name="remind_before_expiry" value="1" id="remind_before_toggle" <?= !empty($settings['remind_before_expiry']) ? 'checked' : '' ?> onchange="syncMilestoneState('before')">
+                                </div>
                             </div>
-                            <input type="hidden" name="remind_days_before" id="remind_days_before_input" value="<?= htmlspecialchars($settings['remind_days_before'] ?? '3,1') ?>">
-                        </div>
-                    </div>
-
-                    <!-- On Expiry Day Milestone -->
-                    <div class="col-md-4">
-                        <div class="p-3 rounded-3 border h-100 bg-white">
-                            <h6 class="fw-bold text-warning text-dark mb-2"><i class="fa-solid fa-calendar-xmark text-warning me-1"></i> 2. On Expiry Day</h6>
-                            <p class="small text-muted mb-3">Send reminder on the exact day when package expires:</p>
-                            <div class="form-check form-switch pt-2">
-                                <input class="form-check-input" type="checkbox" name="remind_on_expiry" value="1" id="remindOnExpiryChk" <?= !empty($settings['remind_on_expiry']) ? 'checked' : '' ?>>
-                                <label class="form-check-label fw-semibold text-dark small" for="remindOnExpiryChk">Send Expiry Day Alert</label>
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <span class="small text-muted">Expiry se pehlay SMS</span>
+                                <span id="badge_milestone_before" class="badge <?= !empty($settings['remind_before_expiry']) ? 'bg-success-subtle text-success border border-success-subtle' : 'bg-secondary-subtle text-secondary border border-secondary-subtle' ?> px-2 py-1">
+                                    <?= !empty($settings['remind_before_expiry']) ? '<i class="fa-solid fa-check me-1"></i> Enabled (ON)' : '<i class="fa-solid fa-ban me-1"></i> Turned OFF' ?>
+                                </span>
+                            </div>
+                            <div id="content_milestone_before" class="flex-grow-1" style="<?= empty($settings['remind_before_expiry']) ? 'opacity: 0.45; pointer-events: none;' : '' ?>">
+                                <p class="small text-muted mb-2">Select kitne din pehlay reminder bhejna hai:</p>
+                                <?php $currBefore = array_map('trim', explode(',', $settings['remind_days_before'] ?? '3,1')); ?>
+                                <div class="d-flex flex-wrap gap-2 mb-2">
+                                    <button type="button" class="btn btn-sm btn-pill-day <?= in_array('7', $currBefore) ? 'btn-primary text-white active' : 'btn-outline-secondary' ?>" onclick="toggleDayPill(this, 'before', 7)">7 Days</button>
+                                    <button type="button" class="btn btn-sm btn-pill-day <?= in_array('5', $currBefore) ? 'btn-primary text-white active' : 'btn-outline-secondary' ?>" onclick="toggleDayPill(this, 'before', 5)">5 Days</button>
+                                    <button type="button" class="btn btn-sm btn-pill-day <?= in_array('3', $currBefore) ? 'btn-primary text-white active' : 'btn-outline-secondary' ?>" onclick="toggleDayPill(this, 'before', 3)">3 Days</button>
+                                    <button type="button" class="btn btn-sm btn-pill-day <?= in_array('2', $currBefore) ? 'btn-primary text-white active' : 'btn-outline-secondary' ?>" onclick="toggleDayPill(this, 'before', 2)">2 Days</button>
+                                    <button type="button" class="btn btn-sm btn-pill-day <?= in_array('1', $currBefore) ? 'btn-primary text-white active' : 'btn-outline-secondary' ?>" onclick="toggleDayPill(this, 'before', 1)">1 Day</button>
+                                </div>
+                                <div class="mt-2">
+                                    <label class="form-label small fw-bold text-dark mb-1">Days List (Comma-separated):</label>
+                                    <input type="text" name="remind_days_before" id="remind_days_before_input" class="form-control form-control-sm font-monospace" value="<?= htmlspecialchars($settings['remind_days_before'] ?? '3,1') ?>" oninput="syncPillsFromInput('before')" placeholder="e.g. 3, 1">
+                                </div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- After Expiry Recovery Milestone -->
+                    <!-- Milestone 2: On Expiry Day -->
                     <div class="col-md-4">
-                        <div class="p-3 rounded-3 border h-100 bg-white">
-                            <h6 class="fw-bold text-danger mb-2"><i class="fa-solid fa-rotate-left me-1"></i> 3. After Expiry (Recovery)</h6>
-                            <p class="small text-muted mb-3">Remind unpaid / expired users to recover them:</p>
-                            <?php $currAfter = array_map('trim', explode(',', $settings['remind_days_after'] ?? '1,3')); ?>
-                            <div class="d-flex flex-wrap gap-2">
-                                <label class="btn btn-sm btn-outline-secondary rounded-pill <?= in_array('1', $currAfter) ? 'active' : '' ?>">
-                                    <input type="checkbox" class="d-none after-day-chk" value="1" <?= in_array('1', $currAfter) ? 'checked' : '' ?> onchange="updateMilestonesString()"> 1 Day After
-                                </label>
-                                <label class="btn btn-sm btn-outline-secondary rounded-pill <?= in_array('3', $currAfter) ? 'active' : '' ?>">
-                                    <input type="checkbox" class="d-none after-day-chk" value="3" <?= in_array('3', $currAfter) ? 'checked' : '' ?> onchange="updateMilestonesString()"> 3 Days After
-                                </label>
-                                <label class="btn btn-sm btn-outline-secondary rounded-pill <?= in_array('7', $currAfter) ? 'active' : '' ?>">
-                                    <input type="checkbox" class="d-none after-day-chk" value="7" <?= in_array('7', $currAfter) ? 'checked' : '' ?> onchange="updateMilestonesString()"> 7 Days After
-                                </label>
+                        <div class="p-3 rounded-4 border h-100 bg-white shadow-sm d-flex flex-column" id="card_milestone_on">
+                            <div class="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom">
+                                <h6 class="fw-bold text-warning text-dark mb-0"><i class="fa-solid fa-calendar-check text-warning me-1"></i> 2. On Expiry Day</h6>
+                                <div class="form-check form-switch m-0 fs-5">
+                                    <input class="form-check-input" type="checkbox" name="remind_on_expiry" value="1" id="remind_on_toggle" <?= !empty($settings['remind_on_expiry']) ? 'checked' : '' ?> onchange="syncMilestoneState('on')">
+                                </div>
                             </div>
-                            <input type="hidden" name="remind_days_after" id="remind_days_after_input" value="<?= htmlspecialchars($settings['remind_days_after'] ?? '1,3') ?>">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <span class="small text-muted">Expiry walay din SMS</span>
+                                <span id="badge_milestone_on" class="badge <?= !empty($settings['remind_on_expiry']) ? 'bg-success-subtle text-success border border-success-subtle' : 'bg-secondary-subtle text-secondary border border-secondary-subtle' ?> px-2 py-1">
+                                    <?= !empty($settings['remind_on_expiry']) ? '<i class="fa-solid fa-check me-1"></i> Enabled (ON)' : '<i class="fa-solid fa-ban me-1"></i> Turned OFF' ?>
+                                </span>
+                            </div>
+                            <div id="content_milestone_on" class="flex-grow-1 d-flex flex-column justify-content-center" style="<?= empty($settings['remind_on_expiry']) ? 'opacity: 0.45;' : '' ?>">
+                                <div class="p-3 bg-light rounded-3 border">
+                                    <div class="fw-semibold text-dark small mb-1"><i class="fa-solid fa-bell text-warning me-1"></i> Expiry Day Notification</div>
+                                    <p class="small text-muted mb-0">Subscribers whose internet package expires <strong>today</strong> will receive an urgent renewal alert to avoid disconnection.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Milestone 3: After Expiry (Recovery) -->
+                    <div class="col-md-4">
+                        <div class="p-3 rounded-4 border h-100 bg-white shadow-sm d-flex flex-column" id="card_milestone_after">
+                            <div class="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom">
+                                <h6 class="fw-bold text-danger mb-0"><i class="fa-solid fa-rotate-left me-1"></i> 3. After Expiry (Recovery)</h6>
+                                <div class="form-check form-switch m-0 fs-5">
+                                    <input class="form-check-input" type="checkbox" name="remind_after_expiry" value="1" id="remind_after_toggle" <?= !empty($settings['remind_after_expiry']) ? 'checked' : '' ?> onchange="syncMilestoneState('after')">
+                                </div>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <span class="small text-muted">Expiry k baad follow-up</span>
+                                <span id="badge_milestone_after" class="badge <?= !empty($settings['remind_after_expiry']) ? 'bg-success-subtle text-success border border-success-subtle' : 'bg-secondary-subtle text-secondary border border-secondary-subtle' ?> px-2 py-1">
+                                    <?= !empty($settings['remind_after_expiry']) ? '<i class="fa-solid fa-check me-1"></i> Enabled (ON)' : '<i class="fa-solid fa-ban me-1"></i> Turned OFF' ?>
+                                </span>
+                            </div>
+                            <div id="content_milestone_after" class="flex-grow-1" style="<?= empty($settings['remind_after_expiry']) ? 'opacity: 0.45; pointer-events: none;' : '' ?>">
+                                <p class="small text-muted mb-2">Select kitne din baad follow-up SMS bhejna hai:</p>
+                                <?php $currAfter = array_map('trim', explode(',', $settings['remind_days_after'] ?? '1,3')); ?>
+                                <div class="d-flex flex-wrap gap-2 mb-2">
+                                    <button type="button" class="btn btn-sm btn-pill-day <?= in_array('1', $currAfter) ? 'btn-danger text-white active' : 'btn-outline-secondary' ?>" onclick="toggleDayPill(this, 'after', 1)">1 Day After</button>
+                                    <button type="button" class="btn btn-sm btn-pill-day <?= in_array('2', $currAfter) ? 'btn-danger text-white active' : 'btn-outline-secondary' ?>" onclick="toggleDayPill(this, 'after', 2)">2 Days After</button>
+                                    <button type="button" class="btn btn-sm btn-pill-day <?= in_array('3', $currAfter) ? 'btn-danger text-white active' : 'btn-outline-secondary' ?>" onclick="toggleDayPill(this, 'after', 3)">3 Days After</button>
+                                    <button type="button" class="btn btn-sm btn-pill-day <?= in_array('7', $currAfter) ? 'btn-danger text-white active' : 'btn-outline-secondary' ?>" onclick="toggleDayPill(this, 'after', 7)">7 Days After</button>
+                                </div>
+                                <div class="mt-2">
+                                    <label class="form-label small fw-bold text-dark mb-1">Days List (Comma-separated):</label>
+                                    <input type="text" name="remind_days_after" id="remind_days_after_input" class="form-control form-control-sm font-monospace" value="<?= htmlspecialchars($settings['remind_days_after'] ?? '1,3') ?>" oninput="syncPillsFromInput('after')" placeholder="e.g. 1, 3">
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -770,35 +820,47 @@ require_once 'header.php';
                 <div class="row g-4 mb-3">
                     <!-- Template 1: Before Expiry -->
                     <div class="col-lg-4">
-                        <div class="card h-100 border p-3 rounded-4 shadow-sm">
-                            <label class="fw-bold text-dark mb-2 d-flex justify-content-between align-items-center">
-                                <span><i class="fa-solid fa-bell text-primary me-1"></i> Before Expiry Template</span>
-                                <span class="badge bg-light text-secondary border">Milestone 1</span>
-                            </label>
+                        <div class="card h-100 border p-3 rounded-4 shadow-sm" id="card_tpl_before">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <label class="fw-bold text-dark mb-0">
+                                    <i class="fa-solid fa-bell text-primary me-1"></i> Before Expiry Template
+                                </label>
+                                <span id="tpl_badge_before" class="badge <?= !empty($settings['remind_before_expiry']) ? 'bg-primary-subtle text-primary border border-primary-subtle' : 'bg-secondary-subtle text-secondary border border-secondary-subtle' ?>">
+                                    <?= !empty($settings['remind_before_expiry']) ? 'Stage 1 Active' : 'Stage 1 OFF' ?>
+                                </span>
+                            </div>
                             <textarea name="template_before_expiry" id="template_before_expiry" rows="6" class="form-control form-control-sm font-monospace" required onfocus="setActiveTextarea('template_before_expiry')"><?= htmlspecialchars($settings['template_before_expiry']) ?></textarea>
-                            <small class="text-muted mt-2">Sent X days prior to package end date.</small>
+                            <small class="text-muted mt-2"><i class="fa-solid fa-circle-info me-1"></i> Sent X days prior to package end date.</small>
                         </div>
                     </div>
 
                     <!-- Template 2: On Expiry Day -->
                     <div class="col-lg-4">
-                        <div class="card h-100 border p-3 rounded-4 shadow-sm">
-                            <label class="fw-bold text-dark mb-2 d-flex justify-content-between align-items-center">
-                                <span><i class="fa-solid fa-triangle-exclamation text-warning me-1"></i> On Expiry Day Template</span>
-                                <span class="badge bg-light text-secondary border">Milestone 2</span>
-                            </label>
+                        <div class="card h-100 border p-3 rounded-4 shadow-sm" id="card_tpl_on">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <label class="fw-bold text-dark mb-0">
+                                    <i class="fa-solid fa-calendar-day text-warning me-1"></i> On Expiry Day Template
+                                </label>
+                                <span id="tpl_badge_on" class="badge <?= !empty($settings['remind_on_expiry']) ? 'bg-warning-subtle text-warning-emphasis border border-warning-subtle' : 'bg-secondary-subtle text-secondary border border-secondary-subtle' ?>">
+                                    <?= !empty($settings['remind_on_expiry']) ? 'Stage 2 Active' : 'Stage 2 OFF' ?>
+                                </span>
+                            </div>
                             <textarea name="template_on_expiry" id="template_on_expiry" rows="6" class="form-control form-control-sm font-monospace" required onfocus="setActiveTextarea('template_on_expiry')"><?= htmlspecialchars($settings['template_on_expiry']) ?></textarea>
-                            <small class="text-muted mt-2">Sent on the day subscriber package expires.</small>
+                            <small class="text-muted mt-2"><i class="fa-solid fa-circle-info me-1"></i> Sent on the day subscriber package expires.</small>
                         </div>
                     </div>
 
                     <!-- Template 3: After Expiry -->
                     <div class="col-lg-4">
-                        <div class="card h-100 border p-3 rounded-4 shadow-sm">
-                            <label class="fw-bold text-dark mb-2 d-flex justify-content-between align-items-center">
-                                <span><i class="fa-solid fa-circle-exclamation text-danger me-1"></i> Expired Recovery Template</span>
-                                <span class="badge bg-light text-secondary border">Milestone 3</span>
-                            </label>
+                        <div class="card h-100 border p-3 rounded-4 shadow-sm" id="card_tpl_after">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <label class="fw-bold text-dark mb-0">
+                                    <i class="fa-solid fa-circle-exclamation text-danger me-1"></i> Expired Recovery Template
+                                </label>
+                                <span id="tpl_badge_after" class="badge <?= !empty($settings['remind_after_expiry']) ? 'bg-danger-subtle text-danger border border-danger-subtle' : 'bg-secondary-subtle text-secondary border border-secondary-subtle' ?>">
+                                    <?= !empty($settings['remind_after_expiry']) ? 'Stage 3 Active' : 'Stage 3 OFF' ?>
+                                </span>
+                            </div>
                             <textarea name="template_after_expiry" id="template_after_expiry" rows="6" class="form-control form-control-sm font-monospace" required onfocus="setActiveTextarea('template_after_expiry')"><?= htmlspecialchars($settings['template_after_expiry']) ?></textarea>
                             <small class="text-muted mt-2">Sent to recover inactive / expired subscribers.</small>
                         </div>
@@ -1241,18 +1303,126 @@ function insertComposerTag(tag) {
     updateComposerPreview();
 }
 
+function syncMasterToggleState() {
+    var chk = document.getElementById('autoExpiryToggle');
+    var isMaster = chk ? chk.checked : false;
+    var badge = document.getElementById('masterToggleBadge');
+    if (badge) {
+        if (isMaster) {
+            badge.className = 'badge bg-success-subtle text-success border border-success-subtle';
+            badge.innerText = 'Automated Scanning Active';
+        } else {
+            badge.className = 'badge bg-secondary-subtle text-secondary border border-secondary-subtle';
+            badge.innerText = 'Master Scanner Paused';
+        }
+    }
+}
+
+function syncMilestoneState(stage) {
+    var chk = document.getElementById('remind_' + stage + '_toggle');
+    var isEnabled = chk ? chk.checked : false;
+    var badge = document.getElementById('badge_milestone_' + stage);
+    var content = document.getElementById('content_milestone_' + stage);
+    var tplBadge = document.getElementById('tpl_badge_' + stage);
+
+    if (badge) {
+        if (isEnabled) {
+            badge.className = 'badge bg-success-subtle text-success border border-success-subtle px-2 py-1';
+            badge.innerHTML = '<i class="fa-solid fa-check me-1"></i> Enabled (ON)';
+        } else {
+            badge.className = 'badge bg-secondary-subtle text-secondary border border-secondary-subtle px-2 py-1';
+            badge.innerHTML = '<i class="fa-solid fa-ban me-1"></i> Turned OFF';
+        }
+    }
+
+    if (content) {
+        if (isEnabled) {
+            content.style.opacity = '1';
+            content.style.pointerEvents = 'auto';
+        } else {
+            content.style.opacity = '0.45';
+            content.style.pointerEvents = 'none';
+        }
+    }
+
+    if (tplBadge) {
+        var num = stage === 'before' ? '1' : (stage === 'on' ? '2' : '3');
+        var color = stage === 'before' ? 'primary' : (stage === 'on' ? 'warning' : 'danger');
+        if (isEnabled) {
+            tplBadge.className = 'badge bg-' + color + '-subtle text-' + color + (color === 'warning' ? '-emphasis' : '') + ' border border-' + color + '-subtle';
+            tplBadge.innerText = 'Stage ' + num + ' Active';
+        } else {
+            tplBadge.className = 'badge bg-secondary-subtle text-secondary border border-secondary-subtle';
+            tplBadge.innerText = 'Stage ' + num + ' OFF';
+        }
+    }
+}
+
+function toggleDayPill(btn, stage, day) {
+    var input = document.getElementById('remind_days_' + stage + '_input');
+    if (!input) return;
+
+    var days = input.value.split(',').map(function(s) { return s.trim(); }).filter(function(s) { return s.length > 0; });
+    var sDay = String(day);
+    var idx = days.indexOf(sDay);
+
+    var activeColor = stage === 'before' ? 'btn-primary' : 'btn-danger';
+
+    if (idx !== -1) {
+        days.splice(idx, 1);
+        btn.classList.remove(activeColor, 'text-white', 'active');
+        btn.classList.add('btn-outline-secondary');
+    } else {
+        days.push(sDay);
+        btn.classList.remove('btn-outline-secondary');
+        btn.classList.add(activeColor, 'text-white', 'active');
+    }
+
+    // Sort descending for before, ascending for after
+    days.sort(function(a, b) {
+        return stage === 'before' ? (parseInt(b) - parseInt(a)) : (parseInt(a) - parseInt(b));
+    });
+
+    input.value = days.join(',');
+}
+
+function syncPillsFromInput(stage) {
+    var input = document.getElementById('remind_days_' + stage + '_input');
+    if (!input) return;
+    var activeColor = stage === 'before' ? 'btn-primary' : 'btn-danger';
+    var days = input.value.split(',').map(function(s) { return s.trim(); });
+
+    var container = document.getElementById('content_milestone_' + stage);
+    if (!container) return;
+
+    container.querySelectorAll('.btn-pill-day').forEach(function(btn) {
+        var txt = btn.innerText.replace(/[^0-9]/g, '');
+        if (days.includes(txt)) {
+            btn.classList.remove('btn-outline-secondary');
+            btn.classList.add(activeColor, 'text-white', 'active');
+        } else {
+            btn.classList.remove(activeColor, 'text-white', 'active');
+            btn.classList.add('btn-outline-secondary');
+        }
+    });
+}
+
 function updateMilestonesString() {
     var beforeArr = [];
     document.querySelectorAll('.before-day-chk:checked').forEach(function(el) {
         beforeArr.push(el.value);
     });
-    document.getElementById('remind_days_before_input').value = beforeArr.join(',');
+    if (beforeArr.length > 0) {
+        document.getElementById('remind_days_before_input').value = beforeArr.join(',');
+    }
 
     var afterArr = [];
     document.querySelectorAll('.after-day-chk:checked').forEach(function(el) {
         afterArr.push(el.value);
     });
-    document.getElementById('remind_days_after_input').value = afterArr.join(',');
+    if (afterArr.length > 0) {
+        document.getElementById('remind_days_after_input').value = afterArr.join(',');
+    }
 }
 
 function toggleAudienceOptions() {

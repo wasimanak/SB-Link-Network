@@ -292,6 +292,15 @@ if (strpos($parsedPath, '/inbox') !== false && $httpMethod === 'POST') {
 
 // Endpoint G: Outbound Messages Polling (GET /message OR /messages)
 if ((strpos($parsedPath, '/message') !== false || strpos($parsedPath, '/messages') !== false) && $httpMethod === 'GET') {
+    // Opportunistic automated daily scan if scheduled scan hasn't run yet today
+    if (!empty($gateway['auto_expiry_reminders'])) {
+        $todayStr = date('Y-m-d');
+        if (empty($gateway['last_auto_scan_date']) || $gateway['last_auto_scan_date'] !== $todayStr) {
+            scan_and_queue_expiry_reminders($pdo, $client_id);
+            $gateway['last_auto_scan_date'] = $todayStr;
+        }
+    }
+
     $limit = max(1, min(25, (int)($_REQUEST['limit'] ?? 10)));
 
     $stmt = $pdo->prepare("
