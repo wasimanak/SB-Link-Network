@@ -658,6 +658,217 @@ $wa_text_encoded = urlencode($wa_text);
             width: 100%;
         }
 
+                /* Paper Size Selector Pill */
+        .paper-size-pill {
+            width: 360px;
+            max-width: 95vw;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: #ffffff;
+            border: 1px solid #cbd5e1;
+            border-radius: 50px;
+            padding: 6px 14px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+            margin-bottom: 10px;
+        }
+        .paper-label {
+            font-size: 13px;
+            font-weight: 700;
+            color: #1e293b;
+        }
+        .btn-paper-group {
+            display: flex;
+            gap: 4px;
+        }
+        .btn-paper-opt {
+            border: 1px solid #cbd5e1;
+            background: #f8fafc;
+            color: #475569;
+            font-size: 12px;
+            font-weight: 700;
+            padding: 4px 12px;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .btn-paper-opt.active {
+            background: #0f172a;
+            color: #ffffff;
+            border-color: #0f172a;
+        }
+        .btn-thermer {
+            background: #f59e0b !important;
+            color: #000000 !important;
+            font-weight: 800 !important;
+            border: 1px solid #d97706 !important;
+        }
+        .btn-thermer:hover {
+            background: #d97706 !important;
+            color: #ffffff !important;
+        }
+        .btn-copy-text {
+            background: #0284c7 !important;
+            color: #ffffff !important;
+        }
+        .btn-copy-text:hover {
+            background: #0369a1 !important;
+        }
+
+        /* 58mm Paper Responsive Overrides */
+        body.mode-58mm .receipt-wrapper {
+            width: 300px;
+            max-width: 95vw;
+            padding: 16px 12px;
+        }
+        body.mode-58mm .paper-size-pill,
+        body.mode-58mm .no-print-toolbar,
+        body.mode-58mm .alert-top {
+            width: 300px;
+        }
+        body.mode-58mm .brand-title {
+            font-size: 20px !important;
+        }
+        body.mode-58mm .brand-sub,
+        body.mode-58mm .brand-phone {
+            font-size: 13px !important;
+        }
+        body.mode-58mm .receipt-title {
+            font-size: 15px !important;
+        }
+        body.mode-58mm .receipt-row {
+            font-size: 14px !important;
+        }
+        body.mode-58mm .receipt-row-highlight {
+            font-size: 16px !important;
+        }
+        body.mode-58mm .receipt-row-due {
+            font-size: 16.5px !important;
+        }
+
+        body.mode-58mm .thermal-export-canvas {
+            width: 384px !important;
+            min-width: 384px !important;
+            max-width: 384px !important;
+            padding: 10px 8px 18px 8px !important;
+            font-size: 14px !important;
+        }
+        body.mode-58mm .thermal-export-canvas .brand-title {
+            font-size: 20px !important;
+        }
+        body.mode-58mm .thermal-export-canvas .receipt-row {
+            font-size: 14px !important;
+        }
+
+        /* Toast Notification */
+        #print-toast {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #0f172a;
+            color: #ffffff;
+            padding: 10px 20px;
+            border-radius: 50px;
+            font-size: 13px;
+            font-weight: 700;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+            z-index: 99999;
+            display: none;
+            text-align: center;
+            max-width: 90vw;
+        }
+
+        /* Guide Modal */
+        .guide-modal-backdrop {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(15, 23, 42, 0.65);
+            backdrop-filter: blur(4px);
+            z-index: 99998;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+        }
+        .guide-modal-card {
+            background: #ffffff;
+            border-radius: 18px;
+            width: 100%;
+            max-width: 480px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+            overflow: hidden;
+            max-height: 90vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .guide-modal-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: #f8fafc;
+        }
+        .btn-close-guide {
+            background: none;
+            border: none;
+            font-size: 24px;
+            line-height: 1;
+            color: #64748b;
+            cursor: pointer;
+        }
+        .guide-modal-body {
+            padding: 18px 20px;
+            overflow-y: auto;
+            font-size: 13.5px;
+            color: #334155;
+            line-height: 1.5;
+        }
+        .guide-section {
+            margin-bottom: 14px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 12px 14px;
+        }
+        .guide-title {
+            font-weight: 700;
+            color: #0f172a;
+            margin-bottom: 6px;
+            font-size: 13.5px;
+        }
+        .guide-desc {
+            font-size: 12.5px;
+            color: #475569;
+        }
+        .guide-desc ul {
+            margin: 6px 0 0 16px;
+            padding: 0;
+        }
+        .guide-desc li {
+            margin-bottom: 5px;
+        }
+        .guide-modal-footer {
+            padding: 12px 20px;
+            border-top: 1px solid #e2e8f0;
+            text-align: right;
+            background: #f8fafc;
+        }
+        .btn-guide-close {
+            background: #0f172a;
+            color: #ffffff;
+            font-weight: 700;
+            border: none;
+            border-radius: 50px;
+            padding: 8px 22px;
+            font-size: 13px;
+            cursor: pointer;
+        }
+
         /* Screen Simulation / Interactive Toolbar */
         @media screen {
             body {
@@ -977,36 +1188,119 @@ $wa_text_encoded = urlencode($wa_text);
         <?= !empty($ledger_id) ? 'Official Receipt (Transaction Copy)' : (($paid_amount > 0) ? (($type === 'renew') ? 'Package Renewed &amp; Activated!' : 'Payment Collected Successfully!') : 'Account Created (Pending Renewal &amp; Activation)') ?>
     </div>
 
+    <!-- Paper Size Selector Pill -->
+    <div class="paper-size-pill no-print">
+        <span class="paper-label"><i class="fa-solid fa-scroll text-primary me-1"></i> Paper Size:</span>
+        <div class="btn-paper-group">
+            <button type="button" class="btn-paper-opt active" id="btnPaper80" onclick="setPaperSize('80mm')">80mm (Desktop)</button>
+            <button type="button" class="btn-paper-opt" id="btnPaper58" onclick="setPaperSize('58mm')">58mm (Mobile)</button>
+        </div>
+    </div>
+
     <!-- Screen Action Toolbar -->
     <div class="no-print-toolbar">
-        <button type="button" class="btn-action btn-print" id="btnPrintMain" onclick="handlePrintClick()">
-            <i class="fa-solid fa-print"></i> Print (80mm)
+        <!-- 1. Print via Thermer (1-Click Direct Share) -->
+        <button type="button" class="btn-action btn-thermer" id="btnThermerShare" onclick="shareToThermerApp()" title="Direct 1-Click Print in Thermer App">
+            <i class="fa-solid fa-bolt"></i> Print in Thermer
         </button>
-        <button type="button" class="btn-action btn-gallery" id="btnDownloadImg" onclick="downloadImage()">
-            <i class="fa-solid fa-images"></i> Download to Gallery
+
+        <!-- 2. Copy Formatted Monospace Text for Thermer -->
+        <button type="button" class="btn-action btn-copy-text" id="btnCopyText" onclick="copyReceiptText()" title="Copy perfectly aligned 48/32-column text for Thermer">
+            <i class="fa-regular fa-copy"></i> Copy Text (Thermer)
         </button>
+
+        <!-- 3. Download Ultra-Sharp 1-Bit Thermal PNG -->
+        <button type="button" class="btn-action btn-gallery" id="btnDownloadImg" onclick="downloadCrispImage()" title="Download exact 1:1 needle-sharp thermal image">
+            <i class="fa-solid fa-file-image"></i> HD Thermal Image
+        </button>
+
+        <!-- 4. System / Browser Print Dialog -->
+        <button type="button" class="btn-action btn-print" id="btnPrintMain" onclick="handlePrintClick()" title="Browser Print Dialog / ESC-POS Print Service">
+            <i class="fa-solid fa-print"></i> System Print (<span id="lblPaperPrint">80mm</span>)
+        </button>
+
+        <!-- 5. Download PDF -->
         <button type="button" class="btn-action btn-pdf" id="btnDownloadPdf" onclick="downloadPDF()">
             <i class="fa-solid fa-file-pdf"></i> Download PDF
         </button>
+
+        <!-- 6. WhatsApp Share -->
         <button type="button" class="btn-action btn-whatsapp" id="btnShareWa" onclick="shareWhatsApp()">
             <i class="fa-brands fa-whatsapp"></i> WhatsApp Share
         </button>
+
+        <!-- 7. Back Button -->
         <a href="<?= htmlspecialchars($return_url) ?>" class="btn-action btn-back">
             <i class="fa-solid fa-arrow-left"></i> Back
         </a>
-        <div style="grid-column: span 2; text-align: center; margin-top: 3px;" class="no-print">
-            <a href="javascript:void(0)" onclick="handleDirectTextPrintClick()" id="btnDirectTextLink" style="font-size: 11px; color: #059669; text-decoration: underline; font-weight: 700; margin-right: 8px;">
-                <i class="fa-solid fa-bolt me-1"></i> Direct Hardware Text Print (Ultra-Fast)
+
+        <!-- Extra Helpers & Guide Link -->
+        <div style="grid-column: span 2; text-align: center; margin-top: 4px;" class="no-print">
+            <a href="javascript:void(0)" onclick="openPrinterGuide()" style="font-size: 11.5px; color: #2563eb; text-decoration: underline; font-weight: 700; margin-right: 8px;">
+                <i class="fa-solid fa-circle-question me-1"></i> Bluetooth Printer Kaise Connect Karein? (Guide)
             </a>
             |
-            <a href="javascript:void(0)" onclick="window.print()" style="font-size: 11px; color: #475569; text-decoration: underline; font-weight: 700; margin-left: 8px;">
-                <i class="fa-solid fa-desktop me-1"></i> Browser Print Dialog
+            <a href="javascript:void(0)" onclick="handleDirectTextPrintClick()" id="btnDirectTextLink" style="font-size: 11px; color: #059669; text-decoration: underline; font-weight: 700; margin-left: 8px;">
+                <i class="fa-solid fa-bluetooth-b me-1"></i> Web Bluetooth BLE
             </a>
             <span id="bleForgetLink" style="display:none; margin-left: 10px;">
                 | <a href="javascript:void(0)" onclick="forgetBlePrinter()" style="font-size: 11px; color: #dc2626; text-decoration: underline; font-weight: 700;">
                     <i class="fa-solid fa-link-slash me-1"></i> Disconnect Bluetooth
                 </a>
             </span>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="print-toast" class="no-print"></div>
+
+    <!-- Printer Help Modal -->
+    <div id="printerGuideModal" class="guide-modal-backdrop no-print" style="display:none;">
+        <div class="guide-modal-card">
+            <div class="guide-modal-header">
+                <h6 class="fw-bold mb-0 text-dark"><i class="fa-solid fa-print text-primary me-2"></i> Thermal Printer Solutions &amp; Setup</h6>
+                <button type="button" class="btn-close-guide" onclick="closePrinterGuide()">&times;</button>
+            </div>
+            <div class="guide-modal-body">
+                <!-- Problem 1 -->
+                <div class="guide-section">
+                    <div class="guide-title"><i class="fa-solid fa-circle-xmark text-danger me-1"></i> 1. "Print 80mm" dabane se Bluetooth Printer show nahi hota:</div>
+                    <div class="guide-desc">
+                        Android ka browser direct Bluetooth Classic (SPP) printers ko show nahi karta. Iske 2 aasan tareeqay hain:
+                        <ul>
+                            <li><strong>Tareeqa A (1-Click - Sab se aasan):</strong> Uppar peela button <strong>"Print in Thermer"</strong> dabayein aur list me se <strong>Thermer</strong> select karein. Receipt seedha Thermer me khul jayegi, foran Print dabayein!</li>
+                            <li><strong>Tareeqa B (System Print me Bluetooth laana):</strong> Play Store se free app <strong>"RawBT Print Service"</strong> install karein. Phone ki <code>Settings -> Connected devices -> Printing -> RawBT: ON</code> kar dein. Iske baad <strong>"System Print"</strong> dabate hi aapka printer direct list me aayega!</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Problem 2 -->
+                <div class="guide-section">
+                    <div class="guide-title"><i class="fa-solid fa-align-left text-primary me-1"></i> 2. Thermer me Text print krne se layout kharab hona:</div>
+                    <div class="guide-desc">
+                        Thermal printer me line width fix hoti hai. Humne exact monospaced tables create kar diye hain:
+                        <ul>
+                            <li>Uppar <strong>"Copy Text (Thermer)"</strong> button dabayein.</li>
+                            <li>Thermer app khol kar <strong>Text Print</strong> me paste karein — har border, label aur balance 100% seedha aur aligned print hoga!</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Problem 3 -->
+                <div class="guide-section">
+                    <div class="guide-title"><i class="fa-solid fa-image text-warning me-1"></i> 3. Gallery se Image print krne par text blurry/faint hona:</div>
+                    <div class="guide-desc">
+                        Pehly image gray anti-aliased thi jo dither ho kar faint hoti thi. Humne <strong>1-Bit Pure Jet-Black Engine</strong> laga diya hai:
+                        <ul>
+                            <li>Agar chota portable belt printer hai to <strong>58mm</strong> select karein, agar bada desktop printer hai to <strong>80mm</strong> select karein.</li>
+                            <li>Ab image 1:1 exact thermal resolution par 100% solid black dots me banegi aur needle-sharp print hogi!</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            <div class="guide-modal-footer">
+                <button type="button" class="btn-guide-close" onclick="closePrinterGuide()">Samajh Aa Gaya / Close</button>
+            </div>
         </div>
     </div>
 
@@ -1291,18 +1585,70 @@ $wa_text_encoded = urlencode($wa_text);
             });
         }
 
-        // 1. Offscreen canvas renderer for 80mm thermal operations
-        // scale = 1: native 576 dots ESC/POS Bluetooth raster
-        // scale = 2: HD 1152px for Gallery Download / Crisp Mobile View
-        function renderReceiptCanvas(scale) {
-            scale = scale || 1;
+                // Global State & Paper Mode (80mm vs 58mm)
+        var currentPaperSize = localStorage.getItem('thermal_paper_size') || '80mm';
+        window.subUsername = <?= json_encode($sub['username'] ?? 'User') ?>;
+
+        function applyPaperSizeUi() {
+            var b80 = document.getElementById('btnPaper80');
+            var b58 = document.getElementById('btnPaper58');
+            var lbl = document.getElementById('lblPaperPrint');
+            if (currentPaperSize === '58mm') {
+                document.body.classList.add('mode-58mm');
+                if (b80) b80.classList.remove('active');
+                if (b58) b58.classList.add('active');
+                if (lbl) lbl.innerText = '58mm';
+            } else {
+                document.body.classList.remove('mode-58mm');
+                if (b80) b80.classList.add('active');
+                if (b58) b58.classList.remove('active');
+                if (lbl) lbl.innerText = '80mm';
+            }
+        }
+
+        function setPaperSize(size) {
+            currentPaperSize = size;
+            localStorage.setItem('thermal_paper_size', size);
+            applyPaperSizeUi();
+            showToastMessage('Paper size set to ' + size);
+        }
+
+        // Apply on load
+        applyPaperSizeUi();
+
+        // 1-Bit Pure Thermal Binarization Filter (Eliminates dithering & blur)
+        function applyThermalBinarization(canvas) {
+            var ctx = canvas.getContext('2d');
+            var imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            var d = imgData.data;
+            for (var i = 0; i < d.length; i += 4) {
+                var lum = 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
+                var val = (lum < 205 && d[i+3] > 64) ? 0 : 255;
+                d[i] = val;
+                d[i+1] = val;
+                d[i+2] = val;
+                d[i+3] = 255; // 100% opaque
+            }
+            ctx.putImageData(imgData, 0, 0);
+            return canvas;
+        }
+
+        // 1. Offscreen Crisp Thermal Canvas Renderer
+        // Exact 1:1 Pixel-to-Dot mapping: 576px for 80mm, 384px for 58mm
+        function renderCrispThermalCanvas() {
             return new Promise(function(resolve, reject) {
+                var is58mm = (currentPaperSize === '58mm');
+                var targetWidth = is58mm ? 384 : 576;
+
                 var element = document.getElementById('receipt-content');
                 if (!element) return reject(new Error("Receipt element not found"));
 
                 var clone = element.cloneNode(true);
-                clone.id = 'receipt-content-thermal-clone';
+                clone.id = 'receipt-content-crisp-clone';
                 clone.className = 'thermal-export-canvas';
+                clone.style.width = targetWidth + 'px';
+                clone.style.minWidth = targetWidth + 'px';
+                clone.style.maxWidth = targetWidth + 'px';
 
                 var cloneBarcode = clone.querySelector('#receipt-barcode');
                 if (cloneBarcode && typeof JsBarcode === 'function') {
@@ -1310,13 +1656,13 @@ $wa_text_encoded = urlencode($wa_text);
                         JsBarcode(cloneBarcode, <?= json_encode($invoice_number) ?>, {
                             format: "CODE128",
                             lineColor: "#000000",
-                            width: 2.2,
-                            height: 50,
+                            width: is58mm ? 1.5 : 2.0,
+                            height: is58mm ? 38 : 48,
                             displayValue: true,
                             font: "monospace",
                             fontOptions: "bold",
-                            fontSize: 16,
-                            textMargin: 5,
+                            fontSize: is58mm ? 13 : 15,
+                            textMargin: 4,
                             margin: 0
                         });
                     } catch (e) {
@@ -1328,17 +1674,19 @@ $wa_text_encoded = urlencode($wa_text);
 
                 setTimeout(function() {
                     html2canvas(clone, {
-                        scale: scale, // 1 for native 576 dots, 2 for HD 1152px gallery
+                        scale: 1, // Exact 1:1 hardware match (No downscaling in printer!)
                         backgroundColor: '#ffffff',
                         useCORS: true,
                         allowTaint: true,
                         logging: false,
-                        width: 576,
-                        windowWidth: 576
+                        width: targetWidth,
+                        windowWidth: targetWidth
                     }).then(function(canvas) {
                         if (clone && clone.parentNode) {
                             clone.parentNode.removeChild(clone);
                         }
+                        // Binarize to 1-bit solid black on pure white
+                        applyThermalBinarization(canvas);
                         resolve(canvas);
                     }).catch(function(err) {
                         if (clone && clone.parentNode) {
@@ -1346,26 +1694,31 @@ $wa_text_encoded = urlencode($wa_text);
                         }
                         reject(err);
                     });
-                }, 60);
+                }, 70);
             });
         }
 
-        // 2. Download 80mm Thermal Image to Gallery (High Definition 1152px)
-        function downloadImage() {
+        // Backward compatibility bridge
+        function renderReceiptCanvas(scale) {
+            return renderCrispThermalCanvas();
+        }
+
+        // 2. Download Crisp Thermal Image to Gallery (100% Needle Sharp for Thermer)
+        function downloadCrispImage() {
             var btn = document.getElementById('btnDownloadImg');
             var origHtml = btn ? btn.innerHTML : '';
             if (btn) {
-                btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving HD...';
+                btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
                 btn.disabled = true;
             }
 
-            renderReceiptCanvas(2).then(function(canvas) { // 2x Scale (1152px HD)
+            renderCrispThermalCanvas().then(function(canvas) {
                 if (btn) {
                     btn.innerHTML = origHtml;
                     btn.disabled = false;
                 }
 
-                var filename = <?= json_encode('Receipt_' . ($sub['username'] ?? 'User') . '_80mm_HD.png') ?>;
+                var filename = 'Receipt_' + (window.subUsername || 'User') + '_' + currentPaperSize + '_Crisp.png';
 
                 canvas.toBlob(function(blob) {
                     if (!blob) {
@@ -1376,7 +1729,7 @@ $wa_text_encoded = urlencode($wa_text);
                         document.body.appendChild(a);
                         a.click();
                         document.body.removeChild(a);
-                        alert('HD Receipt image downloaded to Gallery / Downloads!');
+                        showToastMessage('Crisp ' + currentPaperSize + ' Image Saved to Gallery!');
                         return;
                     }
 
@@ -1392,16 +1745,183 @@ $wa_text_encoded = urlencode($wa_text);
                         URL.revokeObjectURL(url);
                     }, 3000);
 
-                    alert('HD Receipt image saved to Gallery / Downloads!');
-                }, 'image/png', 1.0);
+                    showToastMessage('✓ Crisp ' + currentPaperSize + ' Image Saved! (Thermer me 100% sharp print hoga)');
+                }, 'image/png');
             }).catch(function(err) {
                 if (btn) {
                     btn.innerHTML = origHtml;
                     btn.disabled = false;
                 }
-                console.error('html2canvas error:', err);
-                alert('Error creating receipt image: ' + err);
+                alert('Error generating image: ' + err.message);
             });
+        }
+
+        function downloadImage() {
+            downloadCrispImage();
+        }
+
+        // 3. Direct 1-Click Share to Thermer App (Bypasses gallery completely!)
+        async function shareToThermerApp() {
+            var btn = document.getElementById('btnThermerShare');
+            var origHtml = btn ? btn.innerHTML : '';
+            if (btn) {
+                btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Preparing...';
+                btn.disabled = true;
+            }
+
+            try {
+                var canvas = await renderCrispThermalCanvas();
+                canvas.toBlob(async function(blob) {
+                    if (btn) {
+                        btn.innerHTML = origHtml;
+                        btn.disabled = false;
+                    }
+
+                    var file = new File([blob], 'Receipt_' + (window.subUsername || 'User') + '_' + currentPaperSize + '.png', { type: 'image/png' });
+
+                    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                        try {
+                            await navigator.share({
+                                files: [file],
+                                title: 'Receipt ' + (window.subUsername || ''),
+                                text: 'Open in Thermer / Bluetooth Print'
+                            });
+                        } catch (shareErr) {
+                            if (shareErr.name !== 'AbortError') {
+                                downloadCrispImage();
+                            }
+                        }
+                    } else {
+                        // If Web Share not supported, download crisp image & notify
+                        downloadCrispImage();
+                    }
+                }, 'image/png');
+            } catch (e) {
+                if (btn) {
+                    btn.innerHTML = origHtml;
+                    btn.disabled = false;
+                }
+                alert('Error preparing receipt: ' + e.message);
+            }
+        }
+
+        // 4. Generate Mathematically Aligned Plain Text (48 cols for 80mm, 32 cols for 58mm)
+        function buildReceiptPlainText(cols) {
+            cols = cols || (currentPaperSize === '58mm' ? 32 : 48);
+
+            function pad(left, right) {
+                left = String(left || '');
+                right = String(right || '');
+                var total = left.length + right.length;
+                if (total >= cols) {
+                    return left + " " + right + "\n";
+                }
+                var spaces = " ".repeat(cols - total);
+                return left + spaces + right + "\n";
+            }
+
+            function center(text) {
+                text = String(text || '').trim();
+                if (text.length >= cols) return text + "\n";
+                var leftSpaces = Math.floor((cols - text.length) / 2);
+                return " ".repeat(leftSpaces) + text + "\n";
+            }
+
+            var lines = [];
+            lines.push("=".repeat(cols));
+            lines.push(center(<?= json_encode($company_name) ?>));
+            lines.push(center("BROADBAND & NETWORK SERVICES"));
+            <?php if(!empty($company_phone)): ?>
+            lines.push(center("Helpline: " + <?= json_encode($company_phone) ?>));
+            <?php endif; ?>
+            lines.push("=".repeat(cols));
+            lines.push(center(<?= json_encode(($paid_amount > 0) ? (($type === 'renew') ? 'PACKAGE RENEWAL RECEIPT' : 'PAYMENT RECEIPT') : 'BILLING INVOICE') ?>));
+            lines.push(center("*** OFFICIAL CUSTOMER COPY ***"));
+            lines.push("-".repeat(cols));
+            lines.push(pad("Invoice No:", <?= json_encode($invoice_number) ?>));
+            lines.push(pad("Date & Time:", <?= json_encode($date) ?>));
+            lines.push(pad("Collected By:", <?= json_encode($rm_name) ?>));
+            <?php if(!empty($transaction_desc)): ?>
+            lines.push(pad("Description:", <?= json_encode($transaction_desc) ?>));
+            <?php endif; ?>
+            lines.push("-".repeat(cols));
+            lines.push(center("SUBSCRIBER DETAILS"));
+            lines.push(pad("Subscriber ID:", <?= json_encode((string)$sub['id']) ?>));
+            lines.push(pad("Username:", <?= json_encode($sub['username'] ?? '') ?>));
+            <?php if(!empty($sub['full_name'])): ?>
+            lines.push(pad("Full Name:", <?= json_encode($sub['full_name']) ?>));
+            <?php endif; ?>
+            <?php if(!empty($sub['mobile'])): ?>
+            lines.push(pad("Mobile No:", <?= json_encode($sub['mobile']) ?>));
+            <?php endif; ?>
+            lines.push("-".repeat(cols));
+            lines.push(center("PACKAGE & BILLING"));
+            lines.push(pad("Package:", <?= json_encode($pkg_name) ?>));
+            lines.push(pad("Package Price:", "Rs. " + <?= json_encode(number_format((float)$pkg_price)) ?>));
+            lines.push("-".repeat(cols));
+            lines.push(pad("AMOUNT PAID:", "Rs. " + <?= json_encode(number_format((float)$paid_amount, 2)) ?>));
+            <?php if(!empty($formatted_expiry) && $formatted_expiry !== 'N/A'): ?>
+            lines.push(pad("NEW EXPIRY:", <?= json_encode($formatted_expiry) ?>));
+            <?php endif; ?>
+            lines.push(pad("BALANCE:", "Rs. " + <?= json_encode(number_format((float)($sub['balance'] ?? 0), 2)) ?>));
+            lines.push("=".repeat(cols));
+            lines.push(center("Thank You For Choosing Our ISP"));
+            lines.push("=".repeat(cols));
+            return lines.join("\n");
+        }
+
+        // 5. Copy Formatted Text to Clipboard
+        function copyReceiptText() {
+            var cols = (currentPaperSize === '58mm') ? 32 : 48;
+            var text = buildReceiptPlainText(cols);
+
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(function() {
+                    showToastMessage('✓ Formatted Text (' + cols + ' cols) Copied!\nThermer khol kar Text Print me paste karein.');
+                }).catch(function() {
+                    fallbackCopyText(text);
+                });
+            } else {
+                fallbackCopyText(text);
+            }
+        }
+
+        function fallbackCopyText(text) {
+            var ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.left = '-9999px';
+            document.body.appendChild(ta);
+            ta.focus();
+            ta.select();
+            try {
+                document.execCommand('copy');
+                showToastMessage('✓ Formatted Receipt Text Copied!\nThermer khol kar Text Print me paste karein.');
+            } catch(e) {
+                alert('Could not copy text automatically. Please select and copy manually.');
+            }
+            document.body.removeChild(ta);
+        }
+
+        // Toast Helper
+        function showToastMessage(msg) {
+            var toast = document.getElementById('print-toast');
+            if (!toast) return;
+            toast.innerText = msg;
+            toast.style.display = 'block';
+            setTimeout(function() {
+                toast.style.display = 'none';
+            }, 3500);
+        }
+
+        // Printer Guide Modal Handlers
+        function openPrinterGuide() {
+            var m = document.getElementById('printerGuideModal');
+            if (m) m.style.display = 'flex';
+        }
+        function closePrinterGuide() {
+            var m = document.getElementById('printerGuideModal');
+            if (m) m.style.display = 'none';
         }
 
         // 3. Web Bluetooth ESC/POS 80mm Thermal Printing
