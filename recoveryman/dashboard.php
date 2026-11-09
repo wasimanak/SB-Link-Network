@@ -766,6 +766,9 @@ function formatBytes($bytes) {
 <form method="GET" class="d-flex gap-2">
                         <input type="text" name="search_query" class="form-control form-control-lg bg-light" placeholder="Search by Name, Username or Phone..." value="<?= isset($_GET['search_query']) ? htmlspecialchars($_GET['search_query']) : '' ?>" required>
                         <button type="submit" class="btn btn-danger px-4 fw-bold"><i class="fa-solid fa-magnifying-glass me-2"></i> Search</button>
+                        <?php if(isset($_GET['search_query']) && trim($_GET['search_query']) !== ''): ?>
+                            <a href="dashboard.php" class="btn btn-secondary px-3 fw-bold d-flex align-items-center justify-content-center" title="Reset Search"><i class="fa-solid fa-rotate-left me-1"></i> Reset</a>
+                        <?php endif; ?>
                     </form>
                 </div>
             </div>
@@ -774,6 +777,14 @@ function formatBytes($bytes) {
 
 <!-- Search Results -->
             <?php if(isset($_GET['search_query'])): ?>
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h6 class="fw-bold text-muted mb-0">
+                        <i class="fa-solid fa-magnifying-glass text-primary me-1"></i> Search Results for: "<span class="text-dark font-monospace"><?= htmlspecialchars($_GET['search_query']) ?></span>"
+                    </h6>
+                    <a href="dashboard.php" class="btn btn-sm btn-outline-danger fw-bold rounded-pill px-3 shadow-xs">
+                        <i class="fa-solid fa-rotate-left me-1"></i> Reset Search
+                    </a>
+                </div>
                 <?php if($search_results): ?>
                     <div class="row g-3 mb-4">
                         <?php foreach($search_results as $u): ?>
@@ -1013,7 +1024,10 @@ function formatBytes($bytes) {
 <?php endforeach; ?>
                     </div>
                 <?php else: ?>
-                    <div class="alert alert-warning fw-bold shadow-sm"><i class="fa-solid fa-circle-exclamation me-2"></i> No users found matching your search.</div>
+                    <div class="alert alert-warning fw-bold shadow-sm d-flex justify-content-between align-items-center mb-4">
+                        <div><i class="fa-solid fa-circle-exclamation me-2"></i> No users found matching your search.</div>
+                        <a href="dashboard.php" class="btn btn-sm btn-outline-dark fw-bold rounded-pill px-3"><i class="fa-solid fa-rotate-left me-1"></i> Reset</a>
+                    </div>
                 <?php endif; ?>
             <?php endif; ?>
             
