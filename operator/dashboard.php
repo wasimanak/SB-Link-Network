@@ -760,8 +760,123 @@ unset($ms);
     @media(max-width: 850px) {
         .metrics-12-grid { grid-template-columns: repeat(2, 1fr); }
     }
-    @media(max-width: 480px) {
-        .metrics-12-grid { grid-template-columns: 1fr; }
+
+    /* Mobile Responsive Split Layout: Donut & Details on Left, Metrics on Right */
+    @media(max-width: 767.98px) {
+        #stat-content-user.stat-user-grid-mobile:not(.d-none) {
+            display: grid !important;
+            grid-template-columns: minmax(0, 48%) minmax(0, 52%) !important;
+            gap: 8px !important;
+            margin-left: 0 !important;
+            margin-right: 0 !important;
+            margin-top: 0 !important;
+        }
+        #stat-content-user.stat-user-grid-mobile > .donut-col-wrapper {
+            grid-column: 1 !important;
+            grid-row: 1 / span 4 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            height: 100% !important;
+            padding: 0 !important;
+            margin: 0 !important;
+        }
+        #stat-content-user.stat-user-grid-mobile > .metrics-col-wrapper {
+            display: contents !important;
+        }
+        #stat-content-user.stat-user-grid-mobile .metrics-12-grid {
+            display: contents !important;
+        }
+
+        .all-users-donut-card {
+            padding: 10px 8px !important;
+            border-radius: 12px !important;
+        }
+        .donut-hdr-icon {
+            width: 24px !important;
+            height: 24px !important;
+            font-size: 0.75rem !important;
+            margin-right: 5px !important;
+        }
+        .donut-hdr-title {
+            font-size: 0.82rem !important;
+        }
+        .donut-hdr-sub {
+            display: none !important;
+        }
+        .donut-container-pro {
+            max-width: 115px !important;
+            margin: 2px auto !important;
+        }
+        .donut-center-pro h3 {
+            font-size: 1.05rem !important;
+            font-weight: 800 !important;
+        }
+        .donut-center-pro p {
+            font-size: 0.58rem !important;
+            margin: 0 !important;
+        }
+        .donut-center-pro i {
+            font-size: 0.7rem !important;
+        }
+        .donut-legend-pro {
+            font-size: 0.7rem !important;
+            padding-top: 4px !important;
+            margin-top: 3px !important;
+        }
+        .donut-legend-pro .d-flex.mb-1 {
+            margin-bottom: 2px !important;
+        }
+        .donut-legend-pro .small {
+            font-size: 0.62rem !important;
+        }
+
+        .metric-card-pro {
+            min-height: 48px !important;
+            padding: 6px 8px !important;
+            border-radius: 10px !important;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.02) !important;
+            height: 100% !important;
+            gap: 6px !important;
+        }
+        .metric-card-pro .metric-icon-wrap {
+            width: 28px !important;
+            height: 28px !important;
+            border-radius: 7px !important;
+            font-size: 0.78rem !important;
+            margin-right: 6px !important;
+        }
+        .metric-card-pro .metric-title {
+            font-size: 0.68rem !important;
+            line-height: 1.15 !important;
+            margin-bottom: 0px !important;
+            white-space: nowrap !important;
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
+            max-width: 85px !important;
+        }
+        .metric-card-pro .metric-val {
+            font-size: 1.05rem !important;
+            line-height: 1.1 !important;
+        }
+        .metric-card-pro .metric-pct {
+            font-size: 0.6rem !important;
+            line-height: 1 !important;
+        }
+        .metric-card-pro .metric-watermark {
+            font-size: 1.15rem !important;
+            right: 4px !important;
+            opacity: 0.12 !important;
+        }
+
+        .card-ui {
+            padding: 14px 12px !important;
+            border-radius: 16px !important;
+            margin-bottom: 16px !important;
+        }
+        .reports-pill-btn {
+            padding: 5px 14px !important;
+            font-size: 0.8rem !important;
+        }
     }
 
     .metric-card-pro {
@@ -1036,23 +1151,23 @@ unset($ms);
     </div>
 
     <!-- User Tab Content -->
-    <div id="stat-content-user" class="row g-3">
+    <div id="stat-content-user" class="row g-3 stat-user-grid-mobile">
         <!-- Left: Donut Chart Card -->
-        <div class="col-12 col-lg-3">
+        <div class="col-12 col-md-4 col-lg-3 donut-col-wrapper">
             <div class="all-users-donut-card">
                 <div>
                     <!-- Header -->
-                    <div class="d-flex justify-content-between align-items-start mb-3">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
                         <div class="d-flex align-items-center">
-                            <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center me-2" style="width: 32px; height: 32px; font-size: 0.9rem;">
+                            <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center me-2 donut-hdr-icon" style="width: 30px; height: 30px; font-size: 0.85rem;">
                                 <i class="fa-solid fa-user"></i>
                             </div>
                             <div>
-                                <h6 class="fw-bold text-dark mb-0">All Users</h6>
-                                <div class="text-muted" style="font-size: 0.72rem;">Total registered users in your system</div>
+                                <h6 class="fw-bold text-dark mb-0 donut-hdr-title">All Users</h6>
+                                <div class="text-muted donut-hdr-sub" style="font-size: 0.72rem;">Total registered users in your system</div>
                             </div>
                         </div>
-                        <div class="rounded-circle bg-primary bg-opacity-10 text-primary d-flex align-items-center justify-content-center" style="width: 32px; height: 32px;">
+                        <div class="rounded-circle bg-primary bg-opacity-10 text-primary d-none d-sm-flex align-items-center justify-content-center" style="width: 32px; height: 32px;">
                             <i class="fa-solid fa-users" style="font-size: 0.85rem;"></i>
                         </div>
                     </div>
@@ -1063,41 +1178,41 @@ unset($ms);
                         <div class="donut-center-pro">
                             <h3><?= number_format($total_users) ?></h3>
                             <p>All Users</p>
-                            <i class="fa-solid fa-users text-primary" style="font-size: 0.9rem;"></i>
+                            <i class="fa-solid fa-users text-primary" style="font-size: 0.85rem;"></i>
                         </div>
                     </div>
                 </div>
 
                 <!-- Legend -->
-                <div class="pt-3 border-top mt-2" style="font-size: 0.85rem;">
-                    <div class="d-flex justify-content-between align-items-center mb-2">
+                <div class="donut-legend-pro pt-2 border-top mt-1" style="font-size: 0.82rem;">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
                         <div class="d-flex align-items-center">
-                            <span class="rounded-circle me-2 d-inline-block" style="width: 10px; height: 10px; background-color: #0ea5e9;"></span>
+                            <span class="rounded-circle me-1 d-inline-block flex-shrink-0" style="width: 8px; height: 8px; background-color: #0ea5e9;"></span>
                             <span class="fw-semibold text-secondary">Active</span>
                         </div>
-                        <div>
+                        <div class="text-end">
                             <span class="fw-bold text-dark"><?= number_format($active_users) ?></span>
-                            <span class="text-muted small ms-2"><?= $pct($active_users) ?></span>
+                            <span class="text-muted small ms-1"><?= $pct($active_users) ?></span>
                         </div>
                     </div>
-                    <div class="d-flex justify-content-between align-items-center mb-2">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
                         <div class="d-flex align-items-center">
-                            <span class="rounded-circle me-2 d-inline-block" style="width: 10px; height: 10px; background-color: #ef4444;"></span>
+                            <span class="rounded-circle me-1 d-inline-block flex-shrink-0" style="width: 8px; height: 8px; background-color: #ef4444;"></span>
                             <span class="fw-semibold text-secondary">Expired</span>
                         </div>
-                        <div>
+                        <div class="text-end">
                             <span class="fw-bold text-dark"><?= number_format($expired) ?></span>
-                            <span class="text-muted small ms-2"><?= $pct($expired) ?></span>
+                            <span class="text-muted small ms-1"><?= $pct($expired) ?></span>
                         </div>
                     </div>
                     <div class="d-flex justify-content-between align-items-center">
                         <div class="d-flex align-items-center">
-                            <span class="rounded-circle me-2 d-inline-block" style="width: 10px; height: 10px; background-color: #64748b;"></span>
+                            <span class="rounded-circle me-1 d-inline-block flex-shrink-0" style="width: 8px; height: 8px; background-color: #64748b;"></span>
                             <span class="fw-semibold text-secondary">Others</span>
                         </div>
-                        <div>
+                        <div class="text-end">
                             <span class="fw-bold text-dark"><?= number_format($disabled_users) ?></span>
-                            <span class="text-muted small ms-2"><?= $pct($disabled_users) ?></span>
+                            <span class="text-muted small ms-1"><?= $pct($disabled_users) ?></span>
                         </div>
                     </div>
                 </div>
@@ -1105,7 +1220,7 @@ unset($ms);
         </div>
 
         <!-- Right: 12 Metrics Grid (3 columns x 4 rows) -->
-        <div class="col-12 col-lg-9">
+        <div class="col-12 col-md-8 col-lg-9 metrics-col-wrapper">
             <div class="metrics-12-grid">
                 <!-- 1. Users -->
                 <div class="metric-card-pro" style="background-color: #f0f7ff; border: 1px solid #dbeafe;" onclick="window.location.href='subscribers.php'" title="View all subscribers">
