@@ -110,6 +110,15 @@ $is_manager = !empty($_SESSION['is_manager']);
 $current_manager_id = $is_manager ? (int)($_SESSION['manager_id'] ?? 0) : null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!empty($_SESSION['is_manager'])) {
+        $chkSub = $pdo->prepare("SELECT dealer_id FROM subscribers WHERE id = ? AND client_id = ?");
+        $chkSub->execute([$id, $client_id]);
+        $subDId = $chkSub->fetchColumn();
+        if (!empty($subDId)) {
+            echo "<script>alert('Permission Denied: Managers cannot modify dealer subscribers.'); window.location='subscribers.php';</script>";
+            exit;
+        }
+    }
     // Handle Direct Renewal Receipt Upload
     if (isset($_POST['action']) && $_POST['action'] === 'upload_renewal_receipt') {
         if (!empty($_FILES['renewal_receipt']) && isset($_FILES['renewal_receipt']['error']) && $_FILES['renewal_receipt']['error'] === UPLOAD_ERR_OK) {
@@ -1048,6 +1057,11 @@ $user = $stmt->fetch();
 
 if (!$user) {
     echo "<script>alert('User not found!'); window.location='subscribers.php';</script>";
+    exit;
+}
+
+if (!empty($_SESSION['is_manager']) && !empty($user['dealer_id'])) {
+    echo "<script>alert('Permission Denied: Managers cannot view dealer subscribers.'); window.location='subscribers.php';</script>";
     exit;
 }
 

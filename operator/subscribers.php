@@ -80,10 +80,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $id = (int)$_POST['id'];
         $amount = (float)$_POST['amount'];
         if ($amount != 0) {
-            $uStmt = $pdo->prepare("SELECT username, balance FROM subscribers WHERE id = ? AND client_id = ?");
+            $uStmt = $pdo->prepare("SELECT username, balance, dealer_id FROM subscribers WHERE id = ? AND client_id = ?");
             $uStmt->execute([$id, $client_id]);
             $subRow = $uStmt->fetch(PDO::FETCH_ASSOC);
             if ($subRow) {
+                if (!empty($_SESSION['is_manager']) && !empty($subRow['dealer_id'])) {
+                    echo "<script>alert('Permission Denied: Managers cannot accept payments for dealer subscribers.'); window.location='subscribers.php';</script>";
+                    exit;
+                }
                 $sub_user = $subRow['username'];
                 $new_bal = round((float)$subRow['balance'] + $amount, 2);
                 $pdo->prepare("UPDATE subscribers SET balance = ? WHERE id = ?")->execute([$new_bal, $id]);
@@ -159,10 +163,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // DELETE
     if ($action === 'delete_id' && isset($_POST['id'])) {
         $del = (int)$_POST['id'];
-        $uStmt = $pdo->prepare("SELECT username FROM subscribers WHERE id = ? AND client_id = ?");
+        $uStmt = $pdo->prepare("SELECT username, dealer_id FROM subscribers WHERE id = ? AND client_id = ?");
         $uStmt->execute([$del, $client_id]);
-        $u = $uStmt->fetchColumn();
-        if ($u) {
+        $uRow = $uStmt->fetch(PDO::FETCH_ASSOC);
+        if ($uRow) {
+            if (!empty($_SESSION['is_manager']) && !empty($uRow['dealer_id'])) {
+                echo "<script>alert('Permission Denied: Managers cannot delete dealer subscribers.'); window.location='subscribers.php';</script>";
+                exit;
+            }
+            $u = $uRow['username'];
             $pdo->prepare("DELETE FROM subscribers WHERE id = ?")->execute([$del]);
             $pdo->prepare("DELETE FROM radcheck WHERE username = ?")->execute([$u]);
             $pdo->prepare("DELETE FROM radreply WHERE username = ?")->execute([$u]);
@@ -202,6 +211,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $dStmt->execute([$id]);
                     $subData = $dStmt->fetch(PDO::FETCH_ASSOC);
                     $sub_dealer_id = $subData['dealer_id'] ?? 0;
+                    if (!empty($_SESSION['is_manager']) && $sub_dealer_id > 0) {
+                        echo "<script>alert('Permission Denied: Managers cannot renew dealer subscribers.'); window.location='subscribers.php';</script>";
+                        exit;
+                    }
                     $now = time();
 
                     // Pro-Rata Subscriber Balance Adjustment
@@ -365,7 +378,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // ADD USER (From Modal)
     if ($action === 'add_user') {
-        $dealer_id = isset($_POST['dealer_id']) ? (int)$_POST['dealer_id'] : 0;
+        $dealer_id = (empty($_SESSION['is_manager']) && isset($_POST['dealer_id'])) ? (int)$_POST['dealer_id'] : 0;
         $expiry_date = !empty($_POST['expiry_date']) ? $_POST['expiry_date'] : null;
         $full_name = trim($_POST['full_name']);
         $username = trim($_POST['username']);
@@ -533,6 +546,11 @@ $filter = $_GET['filter'] ?? '';
 $filter_sql = "";
 $params = [$client_id];
 
+// Manager Isolation: Dealers' users should NOT be shown to Managers!
+if (!empty($_SESSION['is_manager'])) {
+    $filter_sql .= " AND (s.dealer_id IS NULL OR s.dealer_id = 0)";
+}
+
 if ($filter === 'active') {
     $filter_sql = " AND s.status = 'active'";
 } elseif ($filter === 'expired') {
@@ -605,12 +623,13 @@ function formatUptime($seconds) {
 }
 
 // Stats for quick filter capsules - 1 ultra-fast query (< 0.005s)
+$mgr_sub_filter = !empty($_SESSION['is_manager']) ? " AND (dealer_id IS NULL OR dealer_id = 0)" : "";
 $statsRow = $pdo->query("
     SELECT 
         COUNT(*) as total_count,
         SUM(CASE WHEN expiry_date < NOW() AND expiry_date > '2000-01-01' THEN 1 ELSE 0 END) as expired_count
     FROM subscribers 
-    WHERE client_id = $client_id
+    WHERE client_id = $client_id $mgr_sub_filter
 ")->fetch(PDO::FETCH_ASSOC);
 
 $count_all = (int)($statsRow['total_count'] ?? 0);
@@ -624,11 +643,12 @@ if (!empty($active_sessions)) {
             if (!empty($s['is_online'])) $count_online++;
         }
     } else {
+        $mgr_online_sub_filter = !empty($_SESSION['is_manager']) ? " AND (s.dealer_id IS NULL OR s.dealer_id = 0)" : "";
         $count_online = (int)$pdo->query("
             SELECT COUNT(DISTINCT s.username) 
             FROM subscribers s 
             JOIN radacct r ON s.username = r.username 
-            WHERE s.client_id = $client_id AND r.acctstoptime IS NULL
+            WHERE s.client_id = $client_id $mgr_online_sub_filter AND r.acctstoptime IS NULL
         ")->fetchColumn() ?: 0;
     }
 }
@@ -1193,6 +1213,7 @@ $count_offline = max(0, $count_all - $count_online);
                                         <?php endforeach; ?>
                                     </select>
                                 </div>
+                                <?php if (empty($_SESSION['is_manager'])): ?>
                                 <div class="col-md-6 mb-3">
                                     <label class="col-form-label">Assign Dealer (Optional)</label>
                                     <select name="dealer_id" class="form-select">
@@ -1202,6 +1223,7 @@ $count_offline = max(0, $count_all - $count_online);
                                         <?php endforeach; ?>
                                     </select>
                                 </div>
+                                <?php endif; ?>
                                 <div class="col-md-6 mb-3">
                                     <label class="col-form-label">Custom Expiry (Optional)</label>
                                     <input type="datetime-local" name="expiry_date" class="form-control">
@@ -1324,7 +1346,8 @@ if (empty($filter)) {
         return strcasecmp($a['username'] ?? '', $b['username'] ?? '');
     });
 } else {
-    $renewUsers = $pdo->query("SELECT s.id, s.username, s.full_name, s.status, s.expiry_date, s.package_id, s.balance, p.price as pkg_price, p.validity_days as pkg_val FROM subscribers s LEFT JOIN packages p ON s.package_id = p.id WHERE s.client_id = $client_id ORDER BY s.username ASC")->fetchAll(PDO::FETCH_ASSOC);
+    $mgr_renew_filter = !empty($_SESSION['is_manager']) ? " AND (s.dealer_id IS NULL OR s.dealer_id = 0)" : "";
+    $renewUsers = $pdo->query("SELECT s.id, s.username, s.full_name, s.status, s.expiry_date, s.package_id, s.balance, p.price as pkg_price, p.validity_days as pkg_val FROM subscribers s LEFT JOIN packages p ON s.package_id = p.id WHERE s.client_id = $client_id $mgr_renew_filter ORDER BY s.username ASC")->fetchAll(PDO::FETCH_ASSOC);
 }
 $renewPackages = $pdo->query("SELECT id, name, price, validity_days FROM packages WHERE client_id = $client_id OR client_id = 0 ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC);
 ?>

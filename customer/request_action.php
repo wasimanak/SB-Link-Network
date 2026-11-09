@@ -24,7 +24,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['package_id'])) {
         exit;
     }
 
-    $price = (float)$package['price'];
+    $dealer_id = (int)($current_user['dealer_id'] ?? 0);
+    $wholesale_cost = 0;
+
+    if ($dealer_id > 0) {
+        // Dealer's customer: must be assigned in dealer_packages
+        $dpStmt = $pdo->prepare("SELECT dealer_price, dealer_profit FROM dealer_packages WHERE dealer_id = ? AND package_id = ?");
+        $dpStmt->execute([$dealer_id, $package_id]);
+        $dp = $dpStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$dp) {
+            echo "<script>alert('Invalid package selected for this dealer.'); window.location='dashboard.php';</script>";
+            exit;
+        }
+        $price = ((float)$dp['dealer_price'] + (float)$dp['dealer_profit']) > 0 ? ((float)$dp['dealer_price'] + (float)$dp['dealer_profit']) : (float)$package['price'];
+        $wholesale_cost = (float)$dp['dealer_price'];
+    } else {
+        // Direct admin customer: dealer-only packages cannot be selected
+        if (!empty($package['package_target']) && $package['package_target'] === 'dealer') {
+            echo "<script>alert('This package is reserved for dealers only.'); window.location='dashboard.php';</script>";
+            exit;
+        }
+        $price = (float)$package['price'];
+    }
+
     $validity_days = (int)$package['validity_days'];
     
     // Check pending requests
@@ -58,6 +80,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['package_id'])) {
             if ($price > 0) {
                 $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, 'debit', ?, ?, ?)")
                     ->execute([$client_id, $current_user['username'], $price, $new_balance, "Auto-Renew: " . $package['name']]);
+            }
+
+            // If user belongs to a dealer, deduct wholesale price from dealer balance
+            if ($dealer_id > 0 && $wholesale_cost > 0) {
+                $pdo->prepare("UPDATE dealers SET balance = balance - ? WHERE id = ?")->execute([$wholesale_cost, $dealer_id]);
+                $pdo->prepare("INSERT INTO dealer_notes (dealer_id, note) VALUES (?, ?)")
+                    ->execute([$dealer_id, "Customer Portal Self-Renewal for user {$current_user['username']} - Package: {$package['name']}. Wholesale cost deducted: Rs. {$wholesale_cost}"]);
             }
 
             // Calculate Expiry

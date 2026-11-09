@@ -1,9 +1,43 @@
 <?php require_once 'header.php'; 
 
-// Fetch available packages for this operator
-$stmt = $pdo->prepare("SELECT * FROM packages WHERE client_id = ?");
-$stmt->execute([$client_id]);
-$packages = $stmt->fetchAll();
+$dealer_id = (int)($current_user['dealer_id'] ?? 0);
+
+if ($dealer_id > 0) {
+    // 1. Dealer's Customer: Show ONLY packages assigned to this dealer
+    // Price = dealer_price + dealer_profit (what the dealer was allocated + their profit margin)
+    $stmt = $pdo->prepare("
+        SELECT p.*, 
+               dp.dealer_price, 
+               dp.dealer_profit,
+               CASE 
+                   WHEN (dp.dealer_price + dp.dealer_profit) > 0 THEN (dp.dealer_price + dp.dealer_profit)
+                   WHEN dp.dealer_price > 0 THEN dp.dealer_price
+                   ELSE p.price 
+               END as effective_price
+        FROM dealer_packages dp
+        JOIN packages p ON dp.package_id = p.id
+        WHERE dp.dealer_id = ?
+        ORDER BY p.name ASC
+    ");
+    $stmt->execute([$dealer_id]);
+    $packages = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($packages as &$pkg) {
+        $pkg['price'] = (float)$pkg['effective_price'];
+    }
+    unset($pkg);
+} else {
+    // 2. Direct Admin Customer: Show packages made for customers (hide dealer-only packages)
+    $stmt = $pdo->prepare("
+        SELECT * 
+        FROM packages 
+        WHERE (client_id = ? OR client_id = 0)
+          AND (package_target = 'customer' OR package_target = 'both' OR package_target IS NULL OR package_target = '')
+          AND (package_target != 'dealer')
+        ORDER BY name ASC
+    ");
+    $stmt->execute([$client_id]);
+    $packages = $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
 
 // Check if request pending
 $reqStmt = $pdo->prepare("SELECT COUNT(*) FROM package_requests WHERE subscriber_id = ? AND status = 'pending'");

@@ -1,6 +1,11 @@
 <?php
 require_once 'header.php';
 
+if (!empty($_SESSION['is_manager'])) {
+    echo "<script>alert('Permission Denied: Managers cannot access Dealers Profile.'); window.location.href='dashboard.php';</script>";
+    exit;
+}
+
 try {
     $pdo->exec("DELETE t1 FROM dealer_packages t1 INNER JOIN dealer_packages t2 WHERE t1.id > t2.id AND t1.dealer_id = t2.dealer_id AND t1.package_id = t2.package_id");
     $pdo->exec("ALTER TABLE dealer_packages ADD UNIQUE KEY unique_dealer_pkg (dealer_id, package_id)");

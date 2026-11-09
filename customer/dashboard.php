@@ -74,10 +74,45 @@ if (($current_user['status'] ?? '') === 'expired') {
     $is_expired = true;
 }
 
-// Fetch available packages for this operator and global superadmin packages
-$pkgStmt = $pdo->prepare("SELECT * FROM packages WHERE client_id = ? OR client_id = 0");
-$pkgStmt->execute([$client_id]);
-$packages = $pkgStmt->fetchAll();
+// Fetch available packages based on subscriber type (Dealer customer vs Direct Admin customer)
+$dealer_id = (int)($current_user['dealer_id'] ?? 0);
+
+if ($dealer_id > 0) {
+    // 1. Dealer's Customer: Show ONLY packages assigned to this dealer
+    // Price = dealer_price + dealer_profit (what the dealer was allocated + their profit margin)
+    $pkgStmt = $pdo->prepare("
+        SELECT p.*, 
+               dp.dealer_price, 
+               dp.dealer_profit,
+               CASE 
+                   WHEN (dp.dealer_price + dp.dealer_profit) > 0 THEN (dp.dealer_price + dp.dealer_profit)
+                   WHEN dp.dealer_price > 0 THEN dp.dealer_price
+                   ELSE p.price 
+               END as effective_price
+        FROM dealer_packages dp
+        JOIN packages p ON dp.package_id = p.id
+        WHERE dp.dealer_id = ?
+        ORDER BY p.name ASC
+    ");
+    $pkgStmt->execute([$dealer_id]);
+    $packages = $pkgStmt->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($packages as &$pkg) {
+        $pkg['price'] = (float)$pkg['effective_price'];
+    }
+    unset($pkg);
+} else {
+    // 2. Direct Admin Customer: Show packages made for customers (hide dealer-only packages)
+    $pkgStmt = $pdo->prepare("
+        SELECT * 
+        FROM packages 
+        WHERE (client_id = ? OR client_id = 0)
+          AND (package_target = 'customer' OR package_target = 'both' OR package_target IS NULL OR package_target = '')
+          AND (package_target != 'dealer')
+        ORDER BY name ASC
+    ");
+    $pkgStmt->execute([$client_id]);
+    $packages = $pkgStmt->fetchAll(PDO::FETCH_ASSOC);
+}
 
 // Fetch Operator Details
 $opStmt = $pdo->prepare("SELECT company_name, phone, email, address, bank_details, qr_code FROM clients WHERE id = ?");

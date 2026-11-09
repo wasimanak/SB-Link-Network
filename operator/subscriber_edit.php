@@ -3,6 +3,16 @@ require_once 'header.php';
 $client_id = $_SESSION['operator_id'];
 $id = (int)$_GET['id'];
 
+if (!empty($_SESSION['is_manager'])) {
+    $chkStmt = $pdo->prepare("SELECT dealer_id FROM subscribers WHERE id = ? AND client_id = ?");
+    $chkStmt->execute([$id, $client_id]);
+    $chkDealerId = $chkStmt->fetchColumn();
+    if (!empty($chkDealerId)) {
+        echo "<script>alert('Permission Denied: Managers cannot edit dealer subscribers.'); window.location='subscribers.php';</script>";
+        exit;
+    }
+}
+
 $pkgStmt = $pdo->prepare("SELECT * FROM packages WHERE client_id = ?");
 $pkgStmt->execute([$client_id]);
 $packages = $pkgStmt->fetchAll();

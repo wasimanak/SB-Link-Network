@@ -47,7 +47,8 @@ foreach ($pages as $page) {
 }
 
 // 2. Search Users
-$uStmt = $pdo->prepare("SELECT id, username, full_name, phone FROM subscribers WHERE client_id = ? AND (username LIKE ? OR full_name LIKE ? OR phone LIKE ?) LIMIT 5");
+$mgr_sub_filter = !empty($_SESSION['is_manager']) ? " AND (dealer_id IS NULL OR dealer_id = 0)" : "";
+$uStmt = $pdo->prepare("SELECT id, username, full_name, phone FROM subscribers WHERE client_id = ? $mgr_sub_filter AND (username LIKE ? OR full_name LIKE ? OR phone LIKE ?) LIMIT 5");
 $like = "%$q%";
 $uStmt->execute([$client_id, $like, $like, $like]);
 while ($row = $uStmt->fetch()) {

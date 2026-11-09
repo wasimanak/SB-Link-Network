@@ -28,12 +28,13 @@ if (isset($_GET['action']) && $_GET['action'] === 'ajax_get_auth_logs') {
     $client_id = (int)$_SESSION['operator_id'];
     require_once __DIR__ . '/../config/db.php';
     try {
+        $mgr_log_filter = !empty($_SESSION['is_manager']) ? " AND (s.dealer_id IS NULL OR s.dealer_id = 0)" : "";
         $logStmt = $pdo->prepare("
             SELECT rp.id, rp.username, rp.reply, rp.authdate, s.id as sub_id, s.full_name, p.name as package_name
             FROM radpostauth rp
             INNER JOIN subscribers s ON LOWER(TRIM(rp.username)) = LOWER(TRIM(s.username))
             LEFT JOIN packages p ON s.package_id = p.id
-            WHERE s.client_id = ?
+            WHERE s.client_id = ? $mgr_log_filter
             ORDER BY rp.id DESC
             LIMIT 60
         ");
@@ -83,6 +84,7 @@ function formatMikroTikUptime($seconds) {
 // Uses resilient open-session check (handles NULL, empty, or 0) and safe join
 $all_sessions = [];
 try {
+    $mgr_sess_filter = !empty($_SESSION['is_manager']) ? " AND (s.dealer_id IS NULL OR s.dealer_id = 0)" : "";
     $sql = "SELECT r.*, 
                    s.id as subscriber_id, 
                    s.package_id, 
@@ -95,7 +97,7 @@ try {
             JOIN subscribers s ON r.username = s.username
             LEFT JOIN packages p ON s.package_id = p.id
             WHERE (r.acctstoptime IS NULL OR r.acctstoptime = '' OR r.acctstoptime = '0' OR r.acctstoptime = '0000-00-00 00:00:00')
-              AND s.client_id = ?
+              AND s.client_id = ? $mgr_sess_filter
             ORDER BY r.radacctid DESC";
     $stmt = $pdo->prepare($sql);
     $stmt->execute([$client_id]);

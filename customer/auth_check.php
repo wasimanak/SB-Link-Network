@@ -11,6 +11,14 @@ $sub_id = $_SESSION['customer_id'];
 $client_id = $_SESSION['customer_client_id'];
 
 // Security Guard: Check operator status
+try {
+    $cols = $pdo->query("SHOW COLUMNS FROM packages LIKE 'package_target'")->fetchAll();
+    if (empty($cols)) {
+        $pdo->exec("ALTER TABLE packages ADD COLUMN package_target VARCHAR(20) NOT NULL DEFAULT 'customer' AFTER price");
+        $pdo->exec("UPDATE packages SET package_target = 'dealer' WHERE LOWER(name) LIKE '%dealer%'");
+    }
+} catch (Exception $e) {}
+
 $stmt = $pdo->prepare("SELECT status FROM clients WHERE id = ?");
 $stmt->execute([$client_id]);
 $client_status = $stmt->fetchColumn();

@@ -20,10 +20,20 @@ $package_id    = (int)($_POST['package_id'] ?? 0);
 $amount        = (float)($_POST['amount'] ?? 0);
 
 if ($purpose === 'package_renew' && $package_id > 0 && $amount <= 0) {
-    // Look up package price
-    $pStmt = $pdo->prepare("SELECT price FROM packages WHERE id = ?");
-    $pStmt->execute([$package_id]);
-    $amount = (float)$pStmt->fetchColumn();
+    $dealer_id = (int)($current_user['dealer_id'] ?? 0);
+    if ($dealer_id > 0) {
+        $dpStmt = $pdo->prepare("SELECT dealer_price, dealer_profit FROM dealer_packages WHERE dealer_id = ? AND package_id = ?");
+        $dpStmt->execute([$dealer_id, $package_id]);
+        $dp = $dpStmt->fetch(PDO::FETCH_ASSOC);
+        if ($dp && ((float)$dp['dealer_price'] + (float)$dp['dealer_profit']) > 0) {
+            $amount = (float)$dp['dealer_price'] + (float)$dp['dealer_profit'];
+        }
+    }
+    if ($amount <= 0) {
+        $pStmt = $pdo->prepare("SELECT price FROM packages WHERE id = ?");
+        $pStmt->execute([$package_id]);
+        $amount = (float)$pStmt->fetchColumn();
+    }
 }
 
 if ($amount <= 0) {

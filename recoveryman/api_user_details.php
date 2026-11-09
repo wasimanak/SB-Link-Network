@@ -6,6 +6,14 @@ if (!isset($_SESSION['rm_id']) || !isset($_GET['username'])) exit;
 $username = $_GET['username'];
 $client_id = $_SESSION['client_id'];
 
+$chkSub = $pdo->prepare("SELECT dealer_id FROM subscribers WHERE username = ? AND client_id = ?");
+$chkSub->execute([$username, $client_id]);
+$subDId = $chkSub->fetchColumn();
+if (!empty($subDId)) {
+    echo "<div class='text-muted small'>No recent transactions found.</div>";
+    exit;
+}
+
 $stmt = $pdo->prepare("SELECT * FROM user_ledger WHERE username = ? AND client_id = ? ORDER BY id DESC");
 $stmt->execute([$username, $client_id]);
 $ledger = $stmt->fetchAll(PDO::FETCH_ASSOC);

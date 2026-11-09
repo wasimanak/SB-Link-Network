@@ -77,7 +77,7 @@ if (isset($_GET['search_username']) && !empty(trim($_GET['search_username']))) {
                (SELECT framedipaddress FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL ORDER BY radacctid DESC LIMIT 1) as live_ip
         FROM subscribers s
         LEFT JOIN packages p ON s.package_id = p.id
-        WHERE s.username = ? AND s.client_id = ?
+        WHERE s.username = ? AND s.client_id = ? AND (s.dealer_id IS NULL OR s.dealer_id = 0)
     ");
     $sStmt->execute([$search, $client_id]);
     $search_result = $sStmt->fetch(PDO::FETCH_ASSOC);

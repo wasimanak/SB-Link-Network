@@ -304,11 +304,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     if ($amount > 0) {
         $final_amount = ($trans_type === 'deduct') ? (-abs($amount)) : abs($amount);
 
-        $uStmt = $pdo->prepare("SELECT username FROM subscribers WHERE id = ? AND client_id = ?");
+        $uStmt = $pdo->prepare("SELECT username, dealer_id FROM subscribers WHERE id = ? AND client_id = ?");
         $uStmt->execute([$sub_id, $client_id]);
-        $sub_user = $uStmt->fetchColumn();
+        $sub_user_row = $uStmt->fetch(PDO::FETCH_ASSOC);
 
-        if ($sub_user) {
+        if ($sub_user_row) {
+            if (!empty($_SESSION['is_manager']) && !empty($sub_user_row['dealer_id'])) {
+                echo "<script>alert('Permission Denied: Managers cannot add payment for dealer subscribers.'); window.location='dashboard.php';</script>";
+                exit;
+            }
+            $sub_user = $sub_user_row['username'];
             try {
                 $pdo->beginTransaction();
                 $pdo->prepare("UPDATE subscribers SET balance = balance + ? WHERE id = ?")->execute([$final_amount, $sub_id]);
@@ -422,7 +427,7 @@ $metricsStmt = $pdo->prepare("
         SUM(CASE WHEN LOWER(service_type) = 'pppoe' THEN 1 ELSE 0 END) as pppoe_users,
         SUM(CASE WHEN LOWER(service_type) = 'hotspot' THEN 1 ELSE 0 END) as hotspot_users
     FROM subscribers 
-    WHERE client_id = ?
+    WHERE client_id = ? " . ($is_mgr ? " AND (dealer_id IS NULL OR dealer_id = 0)" : "") . "
 ");
 $metricsStmt->execute([$client_id]);
 $m = $metricsStmt->fetch(PDO::FETCH_ASSOC);
@@ -440,7 +445,8 @@ $pppoe_users       = (int)($m['pppoe_users'] ?? 0);
 $hotspot_users     = (int)($m['hotspot_users'] ?? 0);
 
 // 4. Fetch all subscribers for payment and modals (Searchable)
-$allPaymentUsers = $pdo->query("SELECT id, username, full_name, status, balance, expiry_date, package_id FROM subscribers WHERE client_id = $client_id ORDER BY username ASC")->fetchAll();
+$mgr_dash_filter = $is_mgr ? " AND (dealer_id IS NULL OR dealer_id = 0)" : "";
+$allPaymentUsers = $pdo->query("SELECT id, username, full_name, status, balance, expiry_date, package_id FROM subscribers WHERE client_id = $client_id $mgr_dash_filter ORDER BY username ASC")->fetchAll();
 
 // 5. In-Memory Calculation of Online and Expired-Online (Zero subqueries, instant 0ms)
 $online_users = 0;
@@ -473,7 +479,8 @@ $pct = function($val) use ($total_users) {
 
 // 6. Data Fetching for Reports Table (Clean query with 0 subqueries)
 $report_filter = $_GET['report'] ?? 'expired';
-$where = "s.client_id = $client_id";
+$mgr_s_dash_filter = $is_mgr ? " AND (s.dealer_id IS NULL OR s.dealer_id = 0)" : "";
+$where = "s.client_id = $client_id $mgr_s_dash_filter";
 if ($report_filter === 'expired') $where .= " AND s.expiry_date < NOW()";
 if ($report_filter === 'expiring_1') $where .= " AND s.expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 1 DAY)";
 if ($report_filter === 'expiring_3') $where .= " AND s.expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 3 DAY)";
@@ -499,7 +506,7 @@ $map_subscribers = $pdo->query("
            p.name as package_name
     FROM subscribers s 
     LEFT JOIN packages p ON s.package_id = p.id 
-    WHERE s.client_id = $client_id 
+    WHERE s.client_id = $client_id $mgr_s_dash_filter
       AND s.latitude IS NOT NULL AND s.latitude != ''
       AND s.longitude IS NOT NULL AND s.longitude != ''
 ")->fetchAll(PDO::FETCH_ASSOC);
@@ -849,19 +856,21 @@ unset($ms);
         <span class="quick-action-text">My Profile</span>
     </a>
 
-    <!-- 2. All Packages -->
-    <a href="packages" class="quick-action-card">
+   
+    <!-- <a href="packages" class="quick-action-card">
         <span class="quick-action-text">All Packages</span>
-    </a>
+    </a> -->
 
-    <!-- 3. Add Payment -->
-    <a href="#" class="quick-action-card" data-bs-toggle="modal" data-bs-target="#addBalanceModal">
-        <span class="quick-action-text">Add Payment</span>
-    </a>
+    
 
     <!-- 4. Add New User -->
     <a href="#" class="quick-action-card" data-bs-toggle="modal" data-bs-target="#addUserModal">
         <span class="quick-action-text">Add New User</span>
+    </a>
+    
+<!-- 3. Add Payment -->
+    <a href="#" class="quick-action-card" data-bs-toggle="modal" data-bs-target="#addBalanceModal">
+        <span class="quick-action-text">Add Payment</span>
     </a>
 
     <!-- 5. Activate/Renew -->
@@ -875,10 +884,10 @@ unset($ms);
         <span class="quick-action-text">SMS Reminders</span>
     </a>
 
-    <!-- 7. Financial Backups -->
-    <a href="backups" class="quick-action-card">
+   
+    <!-- <a href="backups" class="quick-action-card">
         <span class="quick-action-text">Financial Backups</span>
-    </a>
+    </a> -->
 
     <!-- 7. Backup Users (CSV) -->
     <a href="backup_users" class="quick-action-card">
@@ -890,16 +899,16 @@ unset($ms);
         <span class="quick-action-text">Restore CSV</span>
     </a>
 
-    <!-- 9. IP Pool -->
-    <a href="ip_pools" class="quick-action-card">
+   
+    <!-- <a href="ip_pools" class="quick-action-card">
         <span class="quick-action-text">IP Pool</span>
-    </a>
+    </a> -->
     <?php endif; ?>
 
-    <!-- 10. Net Worth -->
-    <a href="net_worth" class="quick-action-card">
+   
+    <!-- <a href="net_worth" class="quick-action-card">
         <span class="quick-action-text">Net Worth</span>
-    </a>
+    </a> -->
 
     <!-- 11. Expenses -->
     <a href="expenses" class="quick-action-card">
@@ -1871,7 +1880,8 @@ unset($ms);
 
 <?php
 // Fetch users and packages for the renew modal
-$renewUsers = $pdo->query("SELECT s.id, s.username, s.full_name, s.status, s.expiry_date, s.package_id, s.balance, p.price as pkg_price, p.validity_days as pkg_val FROM subscribers s LEFT JOIN packages p ON s.package_id = p.id WHERE s.client_id = $client_id ORDER BY s.username ASC")->fetchAll();
+$mgr_dash_renew = $is_mgr ? " AND (s.dealer_id IS NULL OR s.dealer_id = 0)" : "";
+$renewUsers = $pdo->query("SELECT s.id, s.username, s.full_name, s.status, s.expiry_date, s.package_id, s.balance, p.price as pkg_price, p.validity_days as pkg_val FROM subscribers s LEFT JOIN packages p ON s.package_id = p.id WHERE s.client_id = $client_id $mgr_dash_renew ORDER BY s.username ASC")->fetchAll();
 $renewPackages = $pdo->query("SELECT id, name, price, validity_days FROM packages WHERE client_id = $client_id OR client_id = 0 ORDER BY name ASC")->fetchAll();
 ?>
 <!-- Activate/Renew User Modal -->

@@ -22,6 +22,10 @@ try {
     if (!isset($pkg_col_map['routing_mark'])) {
         $pdo->exec("ALTER TABLE packages ADD COLUMN routing_mark VARCHAR(64) DEFAULT 'to-PTCL'");
     }
+    if (!isset($pkg_col_map['package_target'])) {
+        $pdo->exec("ALTER TABLE packages ADD COLUMN package_target VARCHAR(20) NOT NULL DEFAULT 'customer' AFTER price");
+        $pdo->exec("UPDATE packages SET package_target = 'dealer' WHERE LOWER(name) LIKE '%dealer%'");
+    }
 
     // Ensure router_wans table exists
     $pdo->exec("CREATE TABLE IF NOT EXISTS `router_wans` (
@@ -249,6 +253,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $id = (int)($_POST['package_id'] ?? 0);
         $name = trim($_POST['name'] ?? '');
         $price = (float)($_POST['price'] ?? 0);
+        $package_target = in_array($_POST['package_target'] ?? '', ['customer', 'dealer', 'both']) ? $_POST['package_target'] : 'customer';
         $validity_days = (int)($_POST['validity_days'] ?? 30);
         $data_limit_gb = (int)($_POST['data_limit_gb'] ?? 0);
         $pool_id = (int)($_POST['pool_id'] ?? 0);
@@ -311,9 +316,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $flash_msg = "Error: A package with the name '<strong>" . htmlspecialchars($name) . "</strong>' already exists!";
                             $flash_type = 'danger';
                         } else {
-                            $stmt = $pdo->prepare("INSERT INTO packages (client_id, name, rate_limit, validity_days, price, data_limit_gb, speed_scheduler, pool_id, wan_provider, wan_interface, routing_mark) 
-                                                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                            $stmt->execute([$client_id, $name, $rate_limit, $validity_days, $price, $data_limit_gb, $scheduler, $pool_id_val, $wan_provider, $wan_provider, $routing_mark]);
+                            $stmt = $pdo->prepare("INSERT INTO packages (client_id, name, rate_limit, validity_days, price, package_target, data_limit_gb, speed_scheduler, pool_id, wan_provider, wan_interface, routing_mark) 
+                                                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                            $stmt->execute([$client_id, $name, $rate_limit, $validity_days, $price, $package_target, $data_limit_gb, $scheduler, $pool_id_val, $wan_provider, $wan_provider, $routing_mark]);
 
                             $new_pkg_id = $pdo->lastInsertId();
 
@@ -340,8 +345,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $flash_msg = "Error: Another package with the name '<strong>" . htmlspecialchars($name) . "</strong>' already exists!";
                             $flash_type = 'danger';
                         } else {
-                            $stmt = $pdo->prepare("UPDATE packages SET name=?, rate_limit=?, validity_days=?, price=?, data_limit_gb=?, speed_scheduler=?, pool_id=?, wan_provider=?, wan_interface=?, routing_mark=? WHERE id=? AND client_id=?");
-                            $stmt->execute([$name, $rate_limit, $validity_days, $price, $data_limit_gb, $scheduler, $pool_id_val, $wan_provider, $wan_provider, $routing_mark, $id, $client_id]);
+                            $stmt = $pdo->prepare("UPDATE packages SET name=?, rate_limit=?, validity_days=?, price=?, package_target=?, data_limit_gb=?, speed_scheduler=?, pool_id=?, wan_provider=?, wan_interface=?, routing_mark=? WHERE id=? AND client_id=?");
+                            $stmt->execute([$name, $rate_limit, $validity_days, $price, $package_target, $data_limit_gb, $scheduler, $pool_id_val, $wan_provider, $wan_provider, $routing_mark, $id, $client_id]);
 
                             // Keep ip_pools table WAN status synchronized
                             if ($pool_id_val) {
@@ -735,9 +740,16 @@ try {
                         <tr>
                             <td class="fw-bold text-muted"><?= $idx + 1 ?></td>
                             <td>
-                                <div class="fw-bold text-dark fs-6">
+                                <div class="fw-bold text-dark fs-6 d-flex align-items-center gap-2">
                                     <i class="fa-solid fa-box text-primary me-1"></i>
-                                    <?= htmlspecialchars($p['name']) ?>
+                                    <span><?= htmlspecialchars($p['name']) ?></span>
+                                    <?php if (($p['package_target'] ?? 'customer') === 'dealer'): ?>
+                                        <span class="badge bg-warning bg-opacity-10 text-dark border border-warning px-2 py-0" style="font-size: 0.68rem;" title="Dealers Only (Wholesale)"><i class="fa-solid fa-user-tie me-1 text-warning"></i>Dealer Only</span>
+                                    <?php elseif (($p['package_target'] ?? 'customer') === 'both'): ?>
+                                        <span class="badge bg-secondary-subtle text-secondary border px-2 py-0" style="font-size: 0.68rem;">Both</span>
+                                    <?php else: ?>
+                                        <span class="badge bg-info-subtle text-info border border-info-subtle px-2 py-0" style="font-size: 0.68rem;"><i class="fa-solid fa-user me-1"></i>Customer Plan</span>
+                                    <?php endif; ?>
                                 </div>
                                 <?php if ($sched): ?>
                                     <div class="text-info mt-1" style="font-size: 0.72rem;">
@@ -915,6 +927,15 @@ try {
                     </div>
                     <small class="text-muted" style="font-size: 0.73rem;">Enter <strong class="text-success">0</strong> for Unlimited Data</small>
                 </div>
+                <div class="col-md-12">
+                    <label class="form-label fw-bold text-muted small text-uppercase mb-1" style="letter-spacing: 0.5px;">Package Availability / Target Audience <span class="text-danger">*</span></label>
+                    <select name="package_target" id="pkg_target" class="form-select px-3 py-2 fw-semibold">
+                        <option value="customer">Direct Customers (Customer Portal & Direct Users)</option>
+                        <option value="dealer">Dealers Only (Wholesale - Hidden from Direct Customers)</option>
+                        <option value="both">Both (Available to Direct Customers & Dealers)</option>
+                    </select>
+                    <small class="text-muted" style="font-size: 0.73rem;">Dealers Only packages will NEVER be shown to direct admin customers in customer portal.</small>
+                </div>
             </div>
 
             <!-- Section 2: Bandwidth Speed Caps -->
@@ -1032,6 +1053,9 @@ function openCreateModal() {
     document.getElementById('packageForm').reset();
     document.getElementById('pkg_validity').value = 30;
     document.getElementById('pkg_data').value = 0;
+    if (document.getElementById('pkg_target')) {
+        document.getElementById('pkg_target').value = 'customer';
+    }
     document.getElementById('modalBtn').innerHTML = '<i class="fa-solid fa-plus me-1"></i> Create Package';
 
     // Auto-select first pool if present
@@ -1051,6 +1075,9 @@ function openEditModal(pkg) {
     document.getElementById('pkg_price').value = pkg.price || '';
     document.getElementById('pkg_validity').value = pkg.validity_days || 30;
     document.getElementById('pkg_data').value = pkg.data_limit_gb || 0;
+    if (document.getElementById('pkg_target')) {
+        document.getElementById('pkg_target').value = pkg.package_target || 'customer';
+    }
     
     let rate = pkg.rate_limit || 'Unlimited';
     if (rate.toLowerCase() === 'unlimited' || !rate.includes('/')) {

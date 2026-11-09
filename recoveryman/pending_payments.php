@@ -35,6 +35,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 
     try {
+        $chkSub = $pdo->prepare("SELECT dealer_id FROM subscribers WHERE id = ? AND client_id = ?");
+        $chkSub->execute([$sub_id, $client_id]);
+        $subDId = $chkSub->fetchColumn();
+        if (!empty($subDId)) {
+            echo "<script>alert('Access Denied: Recovery agents cannot collect payment for dealer subscribers.'); window.location='pending_payments.php';</script>";
+            exit;
+        }
+
         $pdo->beginTransaction();
 
         if ($amount > 0) {
@@ -110,7 +118,7 @@ $statsStmt = $pdo->prepare("
         COUNT(*) as total_users, 
         COALESCE(SUM(ABS(balance)), 0) as total_pending_amount 
     FROM subscribers 
-    WHERE client_id = ? AND balance < 0
+    WHERE client_id = ? AND (dealer_id IS NULL OR dealer_id = 0) AND balance < 0
 ");
 $statsStmt->execute([$client_id]);
 $stats = $statsStmt->fetch(PDO::FETCH_ASSOC);
@@ -131,7 +139,7 @@ if ($search_query !== '') {
         SELECT s.*, p.name as package_name, p.price as package_price
         FROM subscribers s
         LEFT JOIN packages p ON s.package_id = p.id
-        WHERE s.client_id = ? AND s.balance < 0 
+        WHERE s.client_id = ? AND (s.dealer_id IS NULL OR s.dealer_id = 0) AND s.balance < 0 
           AND (s.username LIKE ? OR s.full_name LIKE ? OR s.mobile LIKE ? OR s.address LIKE ?)
         ORDER BY s.balance ASC
     ");
@@ -142,7 +150,7 @@ if ($search_query !== '') {
         SELECT s.*, p.name as package_name, p.price as package_price
         FROM subscribers s
         LEFT JOIN packages p ON s.package_id = p.id
-        WHERE s.client_id = ? AND s.balance < 0
+        WHERE s.client_id = ? AND (s.dealer_id IS NULL OR s.dealer_id = 0) AND s.balance < 0
         ORDER BY s.balance ASC
     ");
     $subStmt->execute([$client_id]);

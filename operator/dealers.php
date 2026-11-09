@@ -3,6 +3,11 @@ require_once 'header.php';
 
 $client_id = $_SESSION['operator_id'] ?? 0;
 
+if (!empty($_SESSION['is_manager'])) {
+    echo "<script>alert('Permission Denied: Managers cannot access Dealers Profile.'); window.location.href='dashboard.php';</script>";
+    exit;
+}
+
 // Handle Add Dealer
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_dealer') {
     if (!empty($_SESSION['is_manager'])) {

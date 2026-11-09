@@ -632,11 +632,13 @@ $userRoleLabel = !empty($_SESSION['is_manager']) ? 'MANAGER' : 'ADMIN';
 
 
 
+            <?php if (empty($_SESSION['is_manager'])): ?>
             <!-- 4. Dealers Profile -->
             <a href="dealers" class="nav-item-link <?= in_array($p, ['dealers.php', 'dealers', 'dealer_view.php', 'dealer_view']) ? 'active-parent' : '' ?>">
                 <i class="fa-solid fa-user-tie nav-icon"></i>
                 <span class="nav-text">Dealers Profile</span>
             </a>
+            <?php endif; ?>
 
             <!-- 5. Operators & Staff -->
             <a href="#recoveryMenu" data-bs-toggle="collapse" class="nav-item-link has-submenu <?= $isTeamMenu ? 'active-parent' : 'collapsed' ?>" aria-expanded="<?= $isTeamMenu ? 'true' : 'false' ?>">

@@ -79,6 +79,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             die("<script>alert('User not found!'); window.location='$redirect_url';</script>");
         }
         
+        if ($is_mgr && !empty($uData['dealer_id'])) {
+            die("<script>alert('Permission Denied: Managers cannot renew dealer subscribers.'); window.location='$redirect_url';</script>");
+        }
+        
         $cd = check_renewal_cooldown($pdo, $user_id, 600);
         if (!$cd['allowed']) {
             $rem_mins = $cd['remaining_minutes'];

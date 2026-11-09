@@ -191,6 +191,19 @@ if (!$sub) {
     exit;
 }
 
+// Dealers' users isolation: Recovery agents and Managers cannot view/print dealer receipts
+if ((!empty($_SESSION['rm_id']) || !empty($_SESSION['is_manager'])) && !empty($sub['dealer_id'])) {
+    echo "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Access Denied</title>";
+    echo "<link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css' rel='stylesheet'></head>";
+    echo "<body class='bg-light d-flex align-items-center justify-content-center' style='min-height:100vh;'>";
+    echo "<div class='card p-4 text-center rounded-4 shadow-sm' style='max-width:400px;'>";
+    echo "<h5 class='fw-bold text-danger mb-2'>Access Denied</h5>";
+    echo "<p class='text-muted small mb-3'>You are not authorized to view or print receipts for dealer subscribers.</p>";
+    echo "<a href='" . htmlspecialchars($return_url) . "' class='btn btn-secondary rounded-pill px-4'>Back</a>";
+    echo "</div></body></html>";
+    exit;
+}
+
 // 2. Fetch Recovery Agent Name if available
 if ($rm_id > 0) {
     try {
@@ -1460,9 +1473,9 @@ $wa_text_encoded = urlencode($wa_text);
             <!-- Footer Notes -->
             <div class="text-center" style="margin-top: 8px;">
                 <div class="fw-bold" style="font-size: 16px; margin-bottom: 2px;">Thank you for your business!</div>
-                <div style="font-size: 13.5px; color: #000000; font-weight: 500; line-height: 1.35;">
+                <!-- <div style="font-size: 13.5px; color: #000000; font-weight: 500; line-height: 1.35;">
                     This is a computer generated thermal receipt.<br>Valid without physical signature or stamp.
-                </div>
+                </div> -->
                 <div style="font-size: 14px; margin-top: 5px; color: #000000; font-weight: 600;">
                     Powered by <strong><?= defined('BRAND_POWERED_BY') ? BRAND_POWERED_BY : 'SB Link Network' ?></strong>
                 </div>

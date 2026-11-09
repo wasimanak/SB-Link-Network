@@ -45,6 +45,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 
     try {
+        $chkSub = $pdo->prepare("SELECT dealer_id FROM subscribers WHERE id = ? AND client_id = ?");
+        $chkSub->execute([$sub_id, $client_id]);
+        $subDId = $chkSub->fetchColumn();
+        if (!empty($subDId)) {
+            echo "<script>alert('Access Denied: Recovery agents cannot collect payment for dealer subscribers.'); window.location='dashboard.php';</script>";
+            exit;
+        }
+
         $pdo->beginTransaction();
 
         if ($amount > 0) {
@@ -169,9 +177,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $stmt->execute([$sub_id, $client_id]);
         $subData = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        if (!$subData) {
+        if (!$subData || !empty($subData['dealer_id'])) {
             $pdo->rollBack();
-            echo "<script>alert('Error: Subscriber not found.'); window.location='dashboard.php';</script>";
+            echo "<script>alert('Error: Subscriber not found or unauthorized.'); window.location='dashboard.php';</script>";
             exit;
         }
 
@@ -471,12 +479,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
     try {
         // Fetch existing subscriber
-        $subStmt = $pdo->prepare("SELECT id, username, password FROM subscribers WHERE id = ? AND client_id = ?");
+        $subStmt = $pdo->prepare("SELECT id, username, password, dealer_id FROM subscribers WHERE id = ? AND client_id = ?");
         $subStmt->execute([$sub_id, $client_id]);
         $sub = $subStmt->fetch(PDO::FETCH_ASSOC);
 
-        if (!$sub) {
-            echo "<script>alert('Error: Subscriber not found.'); window.history.back();</script>";
+        if (!$sub || !empty($sub['dealer_id'])) {
+            echo "<script>alert('Error: Subscriber not found or unauthorized.'); window.history.back();</script>";
             exit;
         }
 
@@ -546,7 +554,7 @@ if (isset($_GET['search_query']) && !empty(trim($_GET['search_query']))) {
                (SELECT framedipaddress FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL ORDER BY radacctid DESC LIMIT 1) as live_ip
         FROM subscribers s
         LEFT JOIN packages p ON s.package_id = p.id
-        WHERE (s.username LIKE ? OR s.full_name LIKE ? OR s.phone LIKE ? OR s.mobile LIKE ?) AND s.client_id = ?
+        WHERE (s.username LIKE ? OR s.full_name LIKE ? OR s.phone LIKE ? OR s.mobile LIKE ?) AND s.client_id = ? AND (s.dealer_id IS NULL OR s.dealer_id = 0)
         LIMIT 20
     ");
     $sStmt->execute(["%$search%", "%$search%", "%$search%", "%$search%", $client_id]);
@@ -555,11 +563,11 @@ if (isset($_GET['search_query']) && !empty(trim($_GET['search_query']))) {
 
 // Metric Queries
 $now = date('Y-m-d H:i:s');
-$count_expired = $pdo->prepare("SELECT COUNT(*) FROM subscribers WHERE client_id = ? AND (expiry_date < NOW() OR status = 'expired')"); $count_expired->execute([$client_id]); $c_expired = $count_expired->fetchColumn();
-$count_1d = $pdo->prepare("SELECT COUNT(*) FROM subscribers WHERE client_id = ? AND expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 1 DAY)"); $count_1d->execute([$client_id]); $c_1d = $count_1d->fetchColumn();
-$count_3d = $pdo->prepare("SELECT COUNT(*) FROM subscribers WHERE client_id = ? AND expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 3 DAY)"); $count_3d->execute([$client_id]); $c_3d = $count_3d->fetchColumn();
-$count_1w = $pdo->prepare("SELECT COUNT(*) FROM subscribers WHERE client_id = ? AND expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 7 DAY)"); $count_1w->execute([$client_id]); $c_1w = $count_1w->fetchColumn();
-$count_2w = $pdo->prepare("SELECT COUNT(*) FROM subscribers WHERE client_id = ? AND expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 14 DAY)"); $count_2w->execute([$client_id]); $c_2w = $count_2w->fetchColumn();
+$count_expired = $pdo->prepare("SELECT COUNT(*) FROM subscribers WHERE client_id = ? AND (dealer_id IS NULL OR dealer_id = 0) AND (expiry_date < NOW() OR status = 'expired')"); $count_expired->execute([$client_id]); $c_expired = $count_expired->fetchColumn();
+$count_1d = $pdo->prepare("SELECT COUNT(*) FROM subscribers WHERE client_id = ? AND (dealer_id IS NULL OR dealer_id = 0) AND expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 1 DAY)"); $count_1d->execute([$client_id]); $c_1d = $count_1d->fetchColumn();
+$count_3d = $pdo->prepare("SELECT COUNT(*) FROM subscribers WHERE client_id = ? AND (dealer_id IS NULL OR dealer_id = 0) AND expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 3 DAY)"); $count_3d->execute([$client_id]); $c_3d = $count_3d->fetchColumn();
+$count_1w = $pdo->prepare("SELECT COUNT(*) FROM subscribers WHERE client_id = ? AND (dealer_id IS NULL OR dealer_id = 0) AND expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 7 DAY)"); $count_1w->execute([$client_id]); $c_1w = $count_1w->fetchColumn();
+$count_2w = $pdo->prepare("SELECT COUNT(*) FROM subscribers WHERE client_id = ? AND (dealer_id IS NULL OR dealer_id = 0) AND expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 14 DAY)"); $count_2w->execute([$client_id]); $c_2w = $count_2w->fetchColumn();
 
 // Filter Logic for Main Table
 $filter = $_GET['filter'] ?? 'expired';
@@ -589,7 +597,7 @@ $filteredStmt = $pdo->prepare("
            (SELECT framedipaddress FROM radacct r WHERE r.username = s.username AND r.acctstoptime IS NULL ORDER BY radacctid DESC LIMIT 1) as live_ip
     FROM subscribers s
     LEFT JOIN packages p ON s.package_id = p.id
-    WHERE s.client_id = ? $filter_sql
+    WHERE s.client_id = ? AND (s.dealer_id IS NULL OR s.dealer_id = 0) $filter_sql
     ORDER BY s.expiry_date ASC
     LIMIT 100
 ");
@@ -610,7 +618,7 @@ $cashStmt->execute([$rm_id]);
 $rm_cash_in_hand = $cashStmt->fetchColumn() ?: 0;
 
 // Fetch Pending (Minus Balance) Users Count
-$pendingCountStmt = $pdo->prepare("SELECT COUNT(*) FROM subscribers WHERE client_id = ? AND balance < 0");
+$pendingCountStmt = $pdo->prepare("SELECT COUNT(*) FROM subscribers WHERE client_id = ? AND (dealer_id IS NULL OR dealer_id = 0) AND balance < 0");
 $pendingCountStmt->execute([$client_id]);
 $pending_count = (int)$pendingCountStmt->fetchColumn();
 
