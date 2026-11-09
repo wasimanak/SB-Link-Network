@@ -1555,7 +1555,6 @@ unset($ms);
             <thead>
                 <tr>
                     <th>#ID</th>
-                    <th>Photo</th>
                     <th>Username</th>
                     <th>Phone</th>
                     <th>Package</th>
@@ -1571,11 +1570,6 @@ unset($ms);
                 <?php foreach($subs as $s): ?>
                 <tr>
                     <td><span class="fw-bold text-muted font-monospace" style="font-size: 0.85rem;">#<?= $s['id'] ?></span></td>
-                    <td>
-                        <div class="avatar-circle-ui">
-                            <i class="fa-solid fa-user"></i>
-                        </div>
-                    </td>
                     <td data-search="<?= htmlspecialchars($s['username']) ?>" data-sort="<?= htmlspecialchars($s['username']) ?>">
                         <div class="d-inline-flex align-items-center gap-2">
                             <a href="subscriber_view.php?id=<?= $s['id'] ?>" class="text-decoration-none" title="View subscriber profile">
