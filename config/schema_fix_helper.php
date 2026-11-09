@@ -137,6 +137,7 @@ function fix_and_repair_schema($pdo) {
             `cash_in_hand` decimal(10,2) DEFAULT 0.00,
             `monthly_salary` int(11) NOT NULL DEFAULT 0,
             `can_create_user` enum('yes','no') DEFAULT 'yes',
+            `can_enable_disable` enum('yes','no') DEFAULT 'no',
             `status` enum('active','disabled') DEFAULT 'active',
             `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
             KEY `client_id` (`client_id`)
@@ -144,6 +145,7 @@ function fix_and_repair_schema($pdo) {
 
         add_column_if_missing($pdo, 'recovery_men', 'status', "ENUM('active','disabled') DEFAULT 'active'");
         add_column_if_missing($pdo, 'recovery_men', 'can_create_user', "ENUM('yes','no') DEFAULT 'yes'");
+        add_column_if_missing($pdo, 'recovery_men', 'can_enable_disable', "ENUM('yes','no') DEFAULT 'no'");
         add_column_if_missing($pdo, 'recovery_men', 'cash_in_hand', "DECIMAL(10,2) DEFAULT 0.00");
         add_column_if_missing($pdo, 'recovery_men', 'monthly_salary', "INT NOT NULL DEFAULT 0");
         add_column_if_missing($pdo, 'recovery_men', 'city', "VARCHAR(100) DEFAULT NULL");

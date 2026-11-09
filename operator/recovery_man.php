@@ -29,6 +29,9 @@ try {
 try {
     $pdo->exec("ALTER TABLE `recovery_men` ADD COLUMN `can_create_user` ENUM('yes', 'no') DEFAULT 'yes'");
 } catch (PDOException $e) {}
+try {
+    $pdo->exec("ALTER TABLE `recovery_men` ADD COLUMN `can_enable_disable` ENUM('yes', 'no') DEFAULT 'no'");
+} catch (PDOException $e) {}
 
 // Auto-create table if not exists to prevent insertion errors
 try {
@@ -69,11 +72,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         try {
             $status = $_POST['status'] ?? 'active';
-        $can_create_user = $_POST['can_create_user'] ?? 'yes';
             $can_create_user = $_POST['can_create_user'] ?? 'yes';
+            $can_enable_disable = $_POST['can_enable_disable'] ?? 'no';
             $monthly_salary = (int)($_POST['monthly_salary'] ?? 0);
-            $stmt = $pdo->prepare("INSERT INTO recovery_men (client_id, full_name, username, password, phone, address, city, status, can_create_user, monthly_salary) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$client_id, $full_name, $username, $password, $phone, $address, $city, $status, $can_create_user, $monthly_salary]);
+            $stmt = $pdo->prepare("INSERT INTO recovery_men (client_id, full_name, username, password, phone, address, city, status, can_create_user, can_enable_disable, monthly_salary) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$client_id, $full_name, $username, $password, $phone, $address, $city, $status, $can_create_user, $can_enable_disable, $monthly_salary]);
             echo "<script>alert('Recovery Man created successfully!'); window.location='$_SERVER[PHP_SELF]';</script>";
             exit;
         } catch (PDOException $e) {
@@ -92,17 +95,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $city = trim($_POST['city'] ?? '');
         $status = $_POST['status'] ?? 'active';
         $can_create_user = $_POST['can_create_user'] ?? 'yes';
+        $can_enable_disable = $_POST['can_enable_disable'] ?? 'no';
         $monthly_salary = (int)($_POST['monthly_salary'] ?? 0);
         
         try {
             if ($password !== '' && !str_starts_with($password, '$2y$')) {
                 // Operator entered a new readable password (e.g. 1234)
-                $stmt = $pdo->prepare("UPDATE recovery_men SET full_name=?, password=?, phone=?, address=?, city=?, status=?, can_create_user=?, monthly_salary=? WHERE id=? AND client_id=?");
-                $stmt->execute([$full_name, $password, $phone, $address, $city, $status, $can_create_user, $monthly_salary, $id, $client_id]);
+                $stmt = $pdo->prepare("UPDATE recovery_men SET full_name=?, password=?, phone=?, address=?, city=?, status=?, can_create_user=?, can_enable_disable=?, monthly_salary=? WHERE id=? AND client_id=?");
+                $stmt->execute([$full_name, $password, $phone, $address, $city, $status, $can_create_user, $can_enable_disable, $monthly_salary, $id, $client_id]);
             } else {
                 // Keep existing password
-                $stmt = $pdo->prepare("UPDATE recovery_men SET full_name=?, phone=?, address=?, city=?, status=?, can_create_user=?, monthly_salary=? WHERE id=? AND client_id=?");
-                $stmt->execute([$full_name, $phone, $address, $city, $status, $can_create_user, $monthly_salary, $id, $client_id]);
+                $stmt = $pdo->prepare("UPDATE recovery_men SET full_name=?, phone=?, address=?, city=?, status=?, can_create_user=?, can_enable_disable=?, monthly_salary=? WHERE id=? AND client_id=?");
+                $stmt->execute([$full_name, $phone, $address, $city, $status, $can_create_user, $can_enable_disable, $monthly_salary, $id, $client_id]);
             }
             echo "<script>alert('Recovery Man updated successfully!'); window.location='$_SERVER[PHP_SELF]';</script>";
             exit;
@@ -188,6 +192,11 @@ $members = $stmt->fetchAll();
                               <?php else: ?>
                                   <span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25">Disabled</span>
                               <?php endif; ?>
+                              <?php if(($m['can_enable_disable'] ?? 'no') === 'yes'): ?>
+                                  <div class="mt-1"><span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25" style="font-size: 0.72rem;"><i class="fa-solid fa-toggle-on me-1"></i>Toggle: Yes</span></div>
+                              <?php else: ?>
+                                  <div class="mt-1"><span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25" style="font-size: 0.72rem;"><i class="fa-solid fa-toggle-off me-1"></i>Toggle: No</span></div>
+                              <?php endif; ?>
                           </td>
                         <td>
                             <span class="fw-bold text-dark">Rs. <?= number_format($m['monthly_salary'] ?? 0, 0) ?></span>
@@ -225,7 +234,7 @@ $members = $stmt->fetchAll();
                                   data-phone="<?= htmlspecialchars($m['phone']) ?>"
                                   data-city="<?= htmlspecialchars($m['city']) ?>"
                                   data-address="<?= htmlspecialchars($m['address']) ?>"
-                                  data-status="<?= $m['status'] ?? 'active' ?>" data-can_create="<?= $m['can_create_user'] ?? 'yes' ?>" data-salary="<?= (int)($m['monthly_salary'] ?? 0) ?>">
+                                  data-status="<?= $m['status'] ?? 'active' ?>" data-can_create="<?= $m['can_create_user'] ?? 'yes' ?>" data-can_enable_disable="<?= $m['can_enable_disable'] ?? 'no' ?>" data-salary="<?= (int)($m['monthly_salary'] ?? 0) ?>">
                                   <i class="fa-solid fa-pen"></i>
                               </button>
                               <form method="POST" onsubmit="return confirm('Are you sure you want to delete this Operator?');" class="d-inline">
@@ -282,6 +291,20 @@ $members = $stmt->fetchAll();
                         <span class="input-group-text bg-light text-muted fw-bold">Rs</span>
                         <input type="number" step="1" min="0" name="monthly_salary" class="form-control" placeholder="e.g. 25000" value="0">
                     </div>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label small fw-bold text-secondary">Create User Permission</label>
+                    <select name="can_create_user" class="form-select">
+                        <option value="yes" selected>Allowed</option>
+                        <option value="no">Restricted</option>
+                    </select>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label small fw-bold text-secondary">Enable / Disable User Permission</label>
+                    <select name="can_enable_disable" class="form-select">
+                        <option value="yes">Allowed</option>
+                        <option value="no" selected>Restricted</option>
+                    </select>
                 </div>
                 <div class="col-md-12 mb-3">
                     <label class="form-label small fw-bold text-secondary">Complete Address</label>
@@ -370,16 +393,23 @@ $(document).ready(function() {
                 </div>
                 <div class="col-md-6 mb-3">
                     <label class="form-label fw-bold small text-muted">Status</label>
-                    <select name="status" class="form-select bg-light" required>
+                    <select name="status" id="edit_status" class="form-select bg-light" required>
                         <option value="active">Active</option>
                         <option value="disabled">Disabled</option>
                     </select>
                 </div>
                 <div class="col-md-6 mb-3">
                     <label class="form-label fw-bold small text-muted">Create User Permission</label>
-                    <select name="can_create_user" class="form-select bg-light" required>
-                        <option value="yes">Enabled</option>
-                        <option value="no">Disabled</option>
+                    <select name="can_create_user" id="edit_can_create_user" class="form-select bg-light" required>
+                        <option value="yes">Allowed</option>
+                        <option value="no">Restricted</option>
+                    </select>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label fw-bold small text-muted">Enable / Disable User Permission</label>
+                    <select name="can_enable_disable" id="edit_can_enable_disable" class="form-select bg-light" required>
+                        <option value="yes">Allowed</option>
+                        <option value="no">Restricted</option>
                     </select>
                 </div>
                 <div class="col-12 mb-3">
@@ -419,6 +449,7 @@ $(document).ready(function() {
         $("#edit_address").val($(this).attr("data-address"));
         $("#edit_status").val($(this).attr("data-status"));
         $("#edit_can_create_user").val($(this).attr("data-can_create"));
+        $("#edit_can_enable_disable").val($(this).attr("data-can_enable_disable") || "no");
         
         var m = new bootstrap.Modal(document.getElementById("editMemberModal"));
         m.show();

@@ -20,7 +20,7 @@ $pkgsStmt->execute([$client_id]);
 $all_packages = $pkgsStmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Check RM permissions
-$chkStmt = $pdo->prepare("SELECT status, can_create_user FROM recovery_men WHERE id = ?");
+$chkStmt = $pdo->prepare("SELECT status, can_create_user, can_enable_disable FROM recovery_men WHERE id = ?");
 $chkStmt->execute([$rm_id]);
 $rm_data = $chkStmt->fetch();
 if (!$rm_data || $rm_data['status'] === 'disabled') {
@@ -28,7 +28,77 @@ if (!$rm_data || $rm_data['status'] === 'disabled') {
     header("Location: login.php");
     exit;
 }
+$can_toggle_user = !empty($rm_data['can_enable_disable']) && $rm_data['can_enable_disable'] === 'yes';
 
+
+// Handle AJAX Toggle User Status (Enable / Disable)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'toggle_user_status') {
+    header('Content-Type: application/json; charset=utf-8');
+    
+    if (!$can_toggle_user) {
+        echo json_encode(['success' => false, 'message' => 'Permission Denied: You do not have permission to enable or disable users.']);
+        exit;
+    }
+    
+    $sub_id = (int)($_POST['subscriber_id'] ?? 0);
+    $target_status = trim($_POST['status'] ?? '');
+    
+    if (!$sub_id || !in_array($target_status, ['active', 'disabled'])) {
+        echo json_encode(['success' => false, 'message' => 'Invalid parameters.']);
+        exit;
+    }
+    
+    try {
+        $chkSub = $pdo->prepare("SELECT id, username, status, dealer_id FROM subscribers WHERE id = ? AND client_id = ?");
+        $chkSub->execute([$sub_id, $client_id]);
+        $sub = $chkSub->fetch(PDO::FETCH_ASSOC);
+        
+        if (!$sub || !empty($sub['dealer_id'])) {
+            echo json_encode(['success' => false, 'message' => 'Access Denied: Subscriber not found or belongs to a dealer.']);
+            exit;
+        }
+        
+        $u = $sub['username'];
+        $pdo->beginTransaction();
+        
+        if ($target_status === 'disabled') {
+            $pdo->prepare("UPDATE subscribers SET status = 'disabled' WHERE id = ?")->execute([$sub_id]);
+            $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute = 'Auth-Type'")->execute([$u]);
+            $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Auth-Type', ':=', 'Reject')")->execute([$u]);
+            
+            // Kick active user sessions from MikroTik
+            require_once __DIR__ . '/../config/radius_kick_helper.php';
+            try {
+                kick_subscriber_session($pdo, $u, $client_id);
+            } catch (Exception $ke) {}
+            
+            $act_msg = "User Profile Disabled & Kicked by RecoveryMan ({$rm_name})";
+            $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, 'RecoveryMan', ?, 'User', ?)")
+                ->execute([$client_id, $rm_name, $u, $act_msg]);
+                
+            $pdo->commit();
+            echo json_encode(['success' => true, 'new_status' => 'disabled', 'message' => "User {$u} disabled and disconnected successfully!"]);
+            exit;
+        } else {
+            $pdo->prepare("UPDATE subscribers SET status = 'active' WHERE id = ?")->execute([$sub_id]);
+            $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute = 'Auth-Type' AND value = 'Reject'")->execute([$u]);
+            
+            $act_msg = "User Profile Enabled by RecoveryMan ({$rm_name})";
+            $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, 'RecoveryMan', ?, 'User', ?)")
+                ->execute([$client_id, $rm_name, $u, $act_msg]);
+                
+            $pdo->commit();
+            echo json_encode(['success' => true, 'new_status' => 'active', 'message' => "User {$u} enabled successfully!"]);
+            exit;
+        }
+    } catch (Exception $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        echo json_encode(['success' => false, 'message' => 'Error: ' . $e->getMessage()]);
+        exit;
+    }
+}
 
 // Handle Renew & Receive Payment
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'collect_only') {
@@ -728,7 +798,7 @@ function formatBytes($bytes) {
                                                 </div>
                                             </div>
                                         </div>
-                                        <div class="flex-shrink-0 ms-2">
+                                        <div class="flex-shrink-0 ms-2 d-flex flex-wrap align-items-center justify-content-end gap-2">
                                             <?php if($u['live_ip']): ?>
                                                 <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill px-3 py-1 fw-bold" style="font-size: 0.78rem;">
                                                     <i class="fa-solid fa-circle text-success me-1 fa-beat-fade" style="font-size: 0.45rem;"></i> Online
@@ -736,6 +806,25 @@ function formatBytes($bytes) {
                                             <?php else: ?>
                                                 <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 rounded-pill px-3 py-1 fw-bold" style="font-size: 0.78rem;">
                                                     <i class="fa-regular fa-circle text-muted me-1" style="font-size: 0.45rem;"></i> Offline
+                                                </span>
+                                            <?php endif; ?>
+
+                                            <?php if ($can_toggle_user): 
+                                                $is_user_disabled = ($u['status'] ?? 'active') === 'disabled';
+                                            ?>
+                                                <div class="form-check form-switch m-0 d-inline-flex align-items-center gap-1 bg-white border rounded-pill px-2 py-1 shadow-sm" title="Click to Enable / Disable User">
+                                                    <input class="form-check-input m-0 cursor-pointer user-status-toggle user-toggle-<?= $u['id'] ?>" type="checkbox" role="switch" 
+                                                           id="toggle_user_search_<?= $u['id'] ?>" 
+                                                           <?= !$is_user_disabled ? 'checked' : '' ?> 
+                                                           onchange="handleUserToggle(<?= $u['id'] ?>, '<?= htmlspecialchars($u['username'], ENT_QUOTES) ?>', this)">
+                                                    <label class="form-check-label small fw-bold mb-0 cursor-pointer user-status-label-<?= $u['id'] ?> <?= $is_user_disabled ? 'text-danger' : 'text-success' ?>" 
+                                                           for="toggle_user_search_<?= $u['id'] ?>" style="font-size: 0.75rem;">
+                                                        <?= $is_user_disabled ? 'Disabled' : 'Enabled' ?>
+                                                    </label>
+                                                </div>
+                                            <?php elseif (($u['status'] ?? 'active') === 'disabled'): ?>
+                                                <span class="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-2 py-1" style="font-size: 0.75rem;">
+                                                    <i class="fa-solid fa-ban me-1"></i> Disabled
                                                 </span>
                                             <?php endif; ?>
                                         </div>
@@ -992,7 +1081,7 @@ function formatBytes($bytes) {
                                                 </div>
                                             </div>
                                         </div>
-                                        <div class="flex-shrink-0 ms-2">
+                                        <div class="flex-shrink-0 ms-2 d-flex flex-wrap align-items-center justify-content-end gap-2">
                                             <?php if($u['live_ip']): ?>
                                                 <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill px-3 py-1 fw-bold" style="font-size: 0.78rem;">
                                                     <i class="fa-solid fa-circle text-success me-1 fa-beat-fade" style="font-size: 0.45rem;"></i> Online
@@ -1000,6 +1089,25 @@ function formatBytes($bytes) {
                                             <?php else: ?>
                                                 <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 rounded-pill px-3 py-1 fw-bold" style="font-size: 0.78rem;">
                                                     <i class="fa-regular fa-circle text-muted me-1" style="font-size: 0.45rem;"></i> Offline
+                                                </span>
+                                            <?php endif; ?>
+
+                                            <?php if ($can_toggle_user): 
+                                                $is_user_disabled = ($u['status'] ?? 'active') === 'disabled';
+                                            ?>
+                                                <div class="form-check form-switch m-0 d-inline-flex align-items-center gap-1 bg-white border rounded-pill px-2 py-1 shadow-sm" title="Click to Enable / Disable User">
+                                                    <input class="form-check-input m-0 cursor-pointer user-status-toggle user-toggle-<?= $u['id'] ?>" type="checkbox" role="switch" 
+                                                           id="toggle_user_list_<?= $u['id'] ?>" 
+                                                           <?= !$is_user_disabled ? 'checked' : '' ?> 
+                                                           onchange="handleUserToggle(<?= $u['id'] ?>, '<?= htmlspecialchars($u['username'], ENT_QUOTES) ?>', this)">
+                                                    <label class="form-check-label small fw-bold mb-0 cursor-pointer user-status-label-<?= $u['id'] ?> <?= $is_user_disabled ? 'text-danger' : 'text-success' ?>" 
+                                                           for="toggle_user_list_<?= $u['id'] ?>" style="font-size: 0.75rem;">
+                                                        <?= $is_user_disabled ? 'Disabled' : 'Enabled' ?>
+                                                    </label>
+                                                </div>
+                                            <?php elseif (($u['status'] ?? 'active') === 'disabled'): ?>
+                                                <span class="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-2 py-1" style="font-size: 0.75rem;">
+                                                    <i class="fa-solid fa-ban me-1"></i> Disabled
                                                 </span>
                                             <?php endif; ?>
                                         </div>
@@ -2119,6 +2227,77 @@ function fallbackCopy(text, elem) {
         prompt("Copy username:", text);
     }
     document.body.removeChild(ta);
+}
+
+function handleUserToggle(subId, username, inputEl) {
+    const isChecked = inputEl.checked;
+    const newStatus = isChecked ? 'active' : 'disabled';
+    
+    // Temporarily disable the switch during AJAX
+    const allMatchingSwitches = document.querySelectorAll('.user-toggle-' + subId);
+    allMatchingSwitches.forEach(sw => sw.disabled = true);
+    
+    const formData = new FormData();
+    formData.append('action', 'toggle_user_status');
+    formData.append('subscriber_id', subId);
+    formData.append('status', newStatus);
+    
+    fetch('dashboard.php', {
+        method: 'POST',
+        body: formData
+    })
+    .then(res => res.json())
+    .then(data => {
+        allMatchingSwitches.forEach(sw => sw.disabled = false);
+        if (data.success) {
+            allMatchingSwitches.forEach(sw => sw.checked = isChecked);
+            const allLabels = document.querySelectorAll('.user-status-label-' + subId);
+            allLabels.forEach(lbl => {
+                if (newStatus === 'active') {
+                    lbl.textContent = 'Enabled';
+                    lbl.classList.remove('text-danger');
+                    lbl.classList.add('text-success');
+                } else {
+                    lbl.textContent = 'Disabled';
+                    lbl.classList.remove('text-success');
+                    lbl.classList.add('text-danger');
+                }
+            });
+            showStatusToast(data.message, true);
+        } else {
+            allMatchingSwitches.forEach(sw => sw.checked = !isChecked);
+            showStatusToast(data.message || 'Action failed', false);
+        }
+    })
+    .catch(err => {
+        allMatchingSwitches.forEach(sw => {
+            sw.disabled = false;
+            sw.checked = !isChecked;
+        });
+        showStatusToast('Network error: Unable to toggle user status.', false);
+    });
+}
+
+function showStatusToast(message, isSuccess) {
+    var toast = document.getElementById('userStatusToastNotification');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'userStatusToastNotification';
+        toast.style.cssText = 'position:fixed; top:25px; right:25px; transform:translateY(-100px); opacity:0; color:#fff; font-weight:700; font-size:14px; padding:12px 22px; border-radius:12px; box-shadow:0 12px 30px rgba(0,0,0,0.35); z-index:999999; display:flex; align-items:center; gap:10px; transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);';
+        document.body.appendChild(toast);
+    }
+    toast.style.background = isSuccess ? '#166534' : '#991b1b';
+    toast.style.border = isSuccess ? '1px solid #22c55e' : '1px solid #ef4444';
+    var icon = isSuccess ? '<i class="fa-solid fa-circle-check fs-5 text-success"></i>' : '<i class="fa-solid fa-triangle-exclamation fs-5 text-warning"></i>';
+    toast.innerHTML = icon + '<span>' + message + '</span>';
+    toast.style.transform = 'translateY(0)';
+    toast.style.opacity = '1';
+    
+    if (window._userStatusToastTimer) clearTimeout(window._userStatusToastTimer);
+    window._userStatusToastTimer = setTimeout(function() {
+        toast.style.transform = 'translateY(-100px)';
+        toast.style.opacity = '0';
+    }, 3000);
 }
 
 function showCopyFeedback(elem, text) {
