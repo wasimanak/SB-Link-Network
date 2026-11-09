@@ -428,6 +428,74 @@ $recent_sessions = $sessStmt->fetchAll(PDO::FETCH_ASSOC);
     </div>
 </div>
 
+<!-- Live Real-Time Bandwidth & Speed Graph Card -->
+<div class="card border-0 shadow-sm rounded-4 mb-4 overflow-hidden" style="border: 1px solid var(--card-border) !important; background: #ffffff;">
+    <div class="card-body p-4">
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
+            <div>
+                <div class="d-flex align-items-center gap-2 mb-1">
+                    <span class="rounded-circle d-inline-flex align-items-center justify-content-center text-white" style="width: 32px; height: 32px; background: linear-gradient(135deg, #06b6d4 0%, #2563eb 100%); font-size: 0.85rem; box-shadow: 0 4px 10px rgba(6, 182, 212, 0.3);">
+                        <i class="fa-solid fa-gauge-high"></i>
+                    </span>
+                    <h5 class="fw-bold mb-0 text-dark">Live Real-Time Speed Graph</h5>
+                </div>
+                <div class="text-muted small">Live internet throughput streamed in real-time from your gateway router</div>
+            </div>
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+                <span id="live_status_badge" class="badge bg-secondary bg-opacity-10 text-secondary border px-3 py-1.5 rounded-pill fs-7 d-inline-flex align-items-center gap-1.5">
+                    <i class="fa-solid fa-circle-notch fa-spin text-primary me-1" style="font-size:0.55rem;"></i> Connecting...
+                </span>
+                <span id="live_uptime_badge" class="badge bg-light text-secondary border px-3 py-1.5 rounded-pill fs-7 d-none">
+                    <i class="fa-solid fa-clock me-1 text-primary"></i> <span id="live_uptime_val">--</span>
+                </span>
+            </div>
+        </div>
+
+        <div class="row g-3 align-items-center">
+            <!-- Left: Stat Cards -->
+            <div class="col-lg-4 col-md-5">
+                <div class="row g-2">
+                    <div class="col-6 col-md-12">
+                        <div class="p-3 rounded-3 border" style="background: linear-gradient(135deg, rgba(6, 182, 212, 0.08) 0%, rgba(14, 165, 233, 0.03) 100%); border-color: rgba(6, 182, 212, 0.25) !important;">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <span class="fw-bold text-muted text-uppercase" style="font-size: 0.68rem; letter-spacing: 0.5px;">
+                                    <i class="fa-solid fa-circle-down text-info me-1"></i> Live Download
+                                </span>
+                                <span class="badge bg-info bg-opacity-10 text-info font-monospace px-1.5 py-0.5" id="peak_down_badge" style="font-size: 0.68rem;">Peak: 0.00</span>
+                            </div>
+                            <div class="d-flex align-items-baseline gap-1">
+                                <span id="live_down_val" class="font-monospace fw-bolder fs-2 text-info" style="line-height: 1.1;">0.00</span>
+                                <span id="live_down_unit" class="text-info fw-bold small">Mbps</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-12">
+                        <div class="p-3 rounded-3 border" style="background: linear-gradient(135deg, rgba(168, 85, 247, 0.08) 0%, rgba(217, 70, 239, 0.03) 100%); border-color: rgba(168, 85, 247, 0.25) !important;">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <span class="fw-bold text-muted text-uppercase" style="font-size: 0.68rem; letter-spacing: 0.5px;">
+                                    <i class="fa-solid fa-circle-up me-1" style="color: #a855f7;"></i> Live Upload
+                                </span>
+                                <span class="badge font-monospace px-1.5 py-0.5" id="peak_up_badge" style="font-size: 0.68rem; background: rgba(168, 85, 247, 0.12); color: #a855f7;">Peak: 0.00</span>
+                            </div>
+                            <div class="d-flex align-items-baseline gap-1">
+                                <span id="live_up_val" class="font-monospace fw-bolder fs-2" style="color: #a855f7; line-height: 1.1;">0.00</span>
+                                <span id="live_up_unit" class="fw-bold small" style="color: #a855f7;">Mbps</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right: Real-time Waveform Canvas -->
+            <div class="col-lg-8 col-md-7">
+                <div style="position: relative; height: 180px; width: 100%;">
+                    <canvas id="bwChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- 4 KPI Summary Cards (Peak Download, Peak Upload, Consumed Data, Connected Time) -->
 <div class="row g-3 mb-4">
     <!-- Peak Download Speed Card -->
@@ -851,6 +919,299 @@ function switchUsageView(viewKey, btnEl) {
 // Initial Render on page load
 document.addEventListener('DOMContentLoaded', function() {
     renderUsageChart('daily');
+    fetchLiveBandwidth();
+});
+
+// ==================== LIVE BANDWIDTH REAL-TIME MONITOR ====================
+let bwChart = null;
+const bwCanvas = document.getElementById('bwChart');
+if (bwCanvas) {
+    const ctxBw = bwCanvas.getContext('2d');
+    const downGrad = ctxBw.createLinearGradient(0, 0, 0, 180);
+    downGrad.addColorStop(0, 'rgba(6, 182, 212, 0.35)');
+    downGrad.addColorStop(1, 'rgba(6, 182, 212, 0.00)');
+
+    const upGrad = ctxBw.createLinearGradient(0, 0, 0, 180);
+    upGrad.addColorStop(0, 'rgba(168, 85, 247, 0.30)');
+    upGrad.addColorStop(1, 'rgba(168, 85, 247, 0.00)');
+
+    bwChart = new Chart(ctxBw, {
+        type: 'line',
+        data: {
+            labels: ['--', '--', '--', '--', '--', '--', '--', '--', '--', '--', '--', '--'],
+            datasets: [
+                { 
+                    label: 'Download', 
+                    data: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 
+                    borderColor: '#06b6d4', 
+                    backgroundColor: downGrad,
+                    borderWidth: 2.5,
+                    tension: 0.4, 
+                    fill: true,
+                    pointRadius: 0,
+                    pointHoverRadius: 6,
+                    pointHoverBackgroundColor: '#ffffff',
+                    pointHoverBorderColor: '#06b6d4',
+                    pointHoverBorderWidth: 2.5
+                },
+                { 
+                    label: 'Upload', 
+                    data: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 
+                    borderColor: '#a855f7', 
+                    backgroundColor: upGrad,
+                    borderWidth: 2.5,
+                    tension: 0.4, 
+                    fill: true,
+                    pointRadius: 0,
+                    pointHoverRadius: 6,
+                    pointHoverBackgroundColor: '#ffffff',
+                    pointHoverBorderColor: '#a855f7',
+                    pointHoverBorderWidth: 2.5
+                }
+            ]
+        },
+        options: { 
+            responsive: true, 
+            maintainAspectRatio: false,
+            plugins: { 
+                legend: { 
+                    position: 'top', 
+                    align: 'end',
+                    labels: { 
+                        boxWidth: 8, 
+                        boxHeight: 8,
+                        usePointStyle: true,
+                        pointStyle: 'circle',
+                        font: { size: 11, weight: 'bold' },
+                        padding: 8
+                    } 
+                },
+                tooltip: {
+                    mode: 'index',
+                    intersect: false,
+                    backgroundColor: 'rgba(15, 23, 42, 0.92)',
+                    titleFont: { size: 11 },
+                    bodyFont: { size: 12, weight: 'bold' },
+                    padding: 10,
+                    cornerRadius: 8,
+                    callbacks: {
+                        label: function(ctx) {
+                            return ' ' + ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(2) + ' Mbps';
+                        }
+                    }
+                }
+            }, 
+            scales: { 
+                x: {
+                    grid: { display: false },
+                    ticks: { font: { size: 9 }, maxRotation: 0 }
+                },
+                y: { 
+                    beginAtZero: true,
+                    suggestedMax: 2,
+                    grid: {
+                        color: 'rgba(0, 0, 0, 0.04)',
+                        borderDash: [4, 4]
+                    },
+                    ticks: { 
+                        font: { size: 10 },
+                        callback: function(v) { return v + ' M'; } 
+                    }
+                } 
+            }, 
+            animation: false 
+        }
+    });
+}
+
+let prevBytesIn = null;
+let prevBytesOut = null;
+let lastTime = null;
+let peakDown = 0;
+let peakUp = 0;
+let isFetchingBw = false;
+let bwPollTimer = null;
+let bwPollInterval = 5000;
+
+function splitSpeed(mbps) {
+    if (isNaN(mbps) || mbps <= 0) return { val: '0.00', unit: 'Mbps' };
+    if (mbps < 0.1) {
+        return { val: (mbps * 1024).toFixed(1), unit: 'Kbps' };
+    }
+    return { val: mbps.toFixed(2), unit: 'Mbps' };
+}
+
+function fetchLiveBandwidth() {
+    if (isFetchingBw) return;
+
+    // Pause polling when browser tab is hidden / minimized
+    if (document.hidden) {
+        bwPollTimer = setTimeout(fetchLiveBandwidth, 5000);
+        return;
+    }
+
+    isFetchingBw = true;
+
+    fetch(`api_bandwidth.php?_=${Date.now()}`, {
+        cache: 'no-store'
+    })
+        .then(res => res.json())
+        .then(data => {
+            let sBadge = document.getElementById('live_status_badge');
+            let uBadge = document.getElementById('live_uptime_badge');
+            let uVal = document.getElementById('live_uptime_val');
+
+            if (data.status !== 'online') {
+                // If offline, slow down poll interval to 15 seconds
+                bwPollInterval = 15000;
+
+                if (sBadge) {
+                    sBadge.className = 'badge bg-secondary bg-opacity-10 text-secondary border px-3 py-1.5 rounded-pill fs-7 d-inline-flex align-items-center gap-1.5';
+                    sBadge.innerHTML = '<i class="fa-solid fa-circle text-muted me-1" style="font-size:0.45rem;"></i> Offline';
+                }
+                if (uBadge) uBadge.classList.add('d-none');
+
+                // Strictly reset Live Download & Upload to 0.00 Mbps
+                let dValEl = document.getElementById('live_down_val');
+                let dUnitEl = document.getElementById('live_down_unit');
+                if (dValEl) dValEl.innerText = '0.00';
+                if (dUnitEl) dUnitEl.innerText = 'Mbps';
+
+                let uValEl = document.getElementById('live_up_val');
+                let uUnitEl = document.getElementById('live_up_unit');
+                if (uValEl) uValEl.innerText = '0.00';
+                if (uUnitEl) uUnitEl.innerText = 'Mbps';
+
+                // Push flat 0 to waveform canvas
+                if (bwChart && bwChart.data && bwChart.data.labels) {
+                    bwChart.data.labels.shift();
+                    bwChart.data.datasets[0].data.shift();
+                    bwChart.data.datasets[1].data.shift();
+
+                    let now = new Date();
+                    let timeStr = String(now.getHours()).padStart(2, '0') + ':' + 
+                                  String(now.getMinutes()).padStart(2, '0') + ':' + 
+                                  String(now.getSeconds()).padStart(2, '0');
+                    bwChart.data.labels.push(timeStr);
+                    bwChart.data.datasets[0].data.push(0);
+                    bwChart.data.datasets[1].data.push(0);
+                    bwChart.update();
+                }
+
+                prevBytesIn = null;
+                prevBytesOut = null;
+                lastTime = null;
+                return;
+            }
+
+            // User is online -> normal 5-second live speed polling
+            bwPollInterval = 5000;
+
+            if (data.uptime) {
+                if (uBadge) uBadge.classList.remove('d-none');
+                if (uVal) uVal.innerText = data.uptime;
+            } else {
+                if (uBadge) uBadge.classList.add('d-none');
+            }
+
+            if (sBadge) {
+                if (data.source === 'mikrotik') {
+                    sBadge.className = 'badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-3 py-1.5 rounded-pill fs-7 d-inline-flex align-items-center gap-1.5';
+                    sBadge.innerHTML = '<span class="spinner-grow spinner-grow-sm text-success" style="width:7px; height:7px;" role="status"></span> Active (Live MikroTik)';
+                } else {
+                    sBadge.className = 'badge bg-warning bg-opacity-15 text-dark border border-warning border-opacity-50 px-3 py-1.5 rounded-pill fs-7 d-inline-flex align-items-center gap-1.5';
+                    sBadge.innerHTML = '<i class="fa-solid fa-wifi text-warning me-1"></i> Connected';
+                }
+            }
+
+            let nowTime = Date.now();
+            let currentBytesIn = parseFloat(data.bytes_in) || 0;
+            let currentBytesOut = parseFloat(data.bytes_out) || 0;
+
+            let tx_mbps = 0; // Download (from router to subscriber)
+            let rx_mbps = 0; // Upload (from subscriber to router)
+
+            if (data.rx_bps !== undefined && data.tx_bps !== undefined && (parseFloat(data.rx_bps) > 0 || parseFloat(data.tx_bps) > 0)) {
+                rx_mbps = parseFloat(data.rx_bps) / 1048576;
+                tx_mbps = parseFloat(data.tx_bps) / 1048576;
+            } else if (data.source === 'mikrotik' && prevBytesIn !== null && prevBytesOut !== null && lastTime !== null) {
+                let timeDiffSecs = (nowTime - lastTime) / 1000;
+                if (timeDiffSecs > 0.5) {
+                    let bytesInDiff = currentBytesIn - prevBytesIn;
+                    let bytesOutDiff = currentBytesOut - prevBytesOut;
+                    if (bytesInDiff < 0) bytesInDiff = 0;
+                    if (bytesOutDiff < 0) bytesOutDiff = 0;
+                    rx_mbps = (bytesInDiff * 8 / timeDiffSecs) / 1048576;
+                    tx_mbps = (bytesOutDiff * 8 / timeDiffSecs) / 1048576;
+                }
+            } else {
+                rx_mbps = 0;
+                tx_mbps = 0;
+            }
+
+            if (isNaN(tx_mbps) || tx_mbps < 0) tx_mbps = 0;
+            if (isNaN(rx_mbps) || rx_mbps < 0) rx_mbps = 0;
+
+            prevBytesIn = currentBytesIn;
+            prevBytesOut = currentBytesOut;
+            lastTime = nowTime;
+
+            // Track Peak Speed
+            if (tx_mbps > peakDown) peakDown = tx_mbps;
+            if (rx_mbps > peakUp) peakUp = rx_mbps;
+
+            let sDown = splitSpeed(tx_mbps);
+            let sUp = splitSpeed(rx_mbps);
+
+            let dValEl = document.getElementById('live_down_val');
+            let dUnitEl = document.getElementById('live_down_unit');
+            if (dValEl) dValEl.innerText = sDown.val;
+            if (dUnitEl) dUnitEl.innerText = sDown.unit;
+
+            let uValEl = document.getElementById('live_up_val');
+            let uUnitEl = document.getElementById('live_up_unit');
+            if (uValEl) uValEl.innerText = sUp.val;
+            if (uUnitEl) uUnitEl.innerText = sUp.unit;
+
+            let pDown = document.getElementById('peak_down_badge');
+            let pUp = document.getElementById('peak_up_badge');
+            if (pDown && peakDown > 0) pDown.innerText = 'Peak: ' + peakDown.toFixed(2);
+            if (pUp && peakUp > 0) pUp.innerText = 'Peak: ' + peakUp.toFixed(2);
+
+            // Push to waveform graph
+            if (bwChart && bwChart.data && bwChart.data.labels) {
+                bwChart.data.labels.shift();
+                bwChart.data.datasets[0].data.shift();
+                bwChart.data.datasets[1].data.shift();
+
+                let now = new Date();
+                let timeStr = String(now.getHours()).padStart(2, '0') + ':' + 
+                              String(now.getMinutes()).padStart(2, '0') + ':' + 
+                              String(now.getSeconds()).padStart(2, '0');
+                bwChart.data.labels.push(timeStr);
+                bwChart.data.datasets[0].data.push(parseFloat(tx_mbps.toFixed(2)));
+                bwChart.data.datasets[1].data.push(parseFloat(rx_mbps.toFixed(2)));
+
+                let currentMax = Math.max(...bwChart.data.datasets[0].data, ...bwChart.data.datasets[1].data);
+                bwChart.options.scales.y.suggestedMax = Math.max(2, Math.ceil(currentMax * 1.2));
+                bwChart.update();
+            }
+        })
+        .catch(err => {
+            console.error('Error fetching bandwidth:', err);
+        })
+        .finally(() => {
+            isFetchingBw = false;
+            clearTimeout(bwPollTimer);
+            bwPollTimer = setTimeout(fetchLiveBandwidth, bwPollInterval);
+        });
+}
+
+document.addEventListener('visibilitychange', function() {
+    if (!document.hidden) {
+        clearTimeout(bwPollTimer);
+        fetchLiveBandwidth();
+    }
 });
 </script>
 
