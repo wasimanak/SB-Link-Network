@@ -186,6 +186,7 @@ function fix_and_repair_schema($pdo) {
         add_column_if_missing($pdo, 'subscribers', 'dealer_id', "INT DEFAULT NULL");
         add_column_if_missing($pdo, 'subscribers', 'lineman_id', "INT DEFAULT NULL");
         add_column_if_missing($pdo, 'subscribers', 'invoice_no', "VARCHAR(100) DEFAULT NULL");
+        add_column_if_missing($pdo, 'subscribers', 'created_by', "VARCHAR(100) DEFAULT NULL");
         $report[] = "Subscribers table columns verified";
     } catch (Exception $e) {}
 
@@ -296,6 +297,62 @@ function fix_and_repair_schema($pdo) {
         add_column_if_missing($pdo, 'subscribers', 'last_renewal_receipt', 'VARCHAR(255) DEFAULT NULL');
         add_column_if_missing($pdo, 'subscribers', 'last_renewal_receipt_at', 'DATETIME DEFAULT NULL');
         add_column_if_missing($pdo, 'subscribers', 'last_renewal_receipt_by', 'VARCHAR(100) DEFAULT NULL');
+        add_column_if_missing($pdo, 'subscribers', 'created_by', 'VARCHAR(100) DEFAULT NULL');
+        $report[] = "RADIUS performance indexes verified";
+    } catch (Exception $e) {}
+
+    // 13b. Ensure items & stock_transactions tables & columns
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS `items` (
+            `id` INT AUTO_INCREMENT PRIMARY KEY,
+            `client_id` INT NOT NULL DEFAULT 1,
+            `name` VARCHAR(255) NOT NULL,
+            `category` VARCHAR(100) NULL DEFAULT 'General',
+            `unit` VARCHAR(50) NOT NULL DEFAULT 'Nos.',
+            `model_code` VARCHAR(100) NULL,
+            `current_stock` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+            `unit_price` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+            `min_alert_qty` DECIMAL(12,2) NOT NULL DEFAULT 5.00,
+            `description` TEXT NULL,
+            `status` ENUM('active', 'inactive') DEFAULT 'active',
+            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX `idx_items_client` (`client_id`),
+            INDEX `idx_items_name` (`name`),
+            INDEX `idx_items_category` (`category`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+        add_column_if_missing($pdo, 'items', 'client_id', "INT NOT NULL DEFAULT 1");
+        add_column_if_missing($pdo, 'items', 'current_stock', "DECIMAL(12,2) NOT NULL DEFAULT 0.00");
+        add_column_if_missing($pdo, 'items', 'unit_price', "DECIMAL(12,2) NOT NULL DEFAULT 0.00");
+        add_column_if_missing($pdo, 'items', 'min_alert_qty', "DECIMAL(12,2) NOT NULL DEFAULT 5.00");
+
+        $pdo->exec("CREATE TABLE IF NOT EXISTS `stock_transactions` (
+            `id` INT AUTO_INCREMENT PRIMARY KEY,
+            `client_id` INT NOT NULL DEFAULT 1,
+            `item_id` INT NOT NULL,
+            `type` ENUM('IN', 'OUT') NOT NULL,
+            `quantity` DECIMAL(12,2) NOT NULL,
+            `unit_price` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+            `total_price` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+            `balance_before` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+            `balance_after` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+            `reference_no` VARCHAR(100) NULL,
+            `party_name` VARCHAR(255) NULL,
+            `issued_to_type` VARCHAR(50) DEFAULT 'general',
+            `issued_to_id` INT NULL,
+            `remarks` TEXT NULL,
+            `created_by` VARCHAR(100) NOT NULL DEFAULT 'Admin',
+            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX `idx_st_client` (`client_id`),
+            INDEX `idx_st_item` (`item_id`),
+            INDEX `idx_st_type` (`type`),
+            INDEX `idx_st_created` (`created_at`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+        add_column_if_missing($pdo, 'stock_transactions', 'issued_to_type', "VARCHAR(50) DEFAULT 'general'");
+        add_column_if_missing($pdo, 'stock_transactions', 'issued_to_id', "INT NULL");
+        $report[] = "Stock & Items tables verified";
         $report[] = "RADIUS performance indexes verified";
     } catch (Exception $e) {}
 

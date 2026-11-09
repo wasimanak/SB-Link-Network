@@ -436,8 +436,88 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $status = $is_expired_default ? 'expired' : 'active';
                     $actual_expiry = !empty($expiry_date) ? $expiry_date : date('Y-m-d H:i:s', time() - 60);
 
-                    $pdo->prepare("INSERT INTO subscribers (client_id, dealer_id, package_id, username, password, service_type, full_name, national_id, mobile, phone, email, address, subarea, latitude, longitude, expiry_date, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-                        ->execute([$client_id, $dealer_id > 0 ? $dealer_id : null, $package_id, $username, $password, $service_type, $full_name, $national_id, $mobile, $phone, $email, $address, $subarea, $latitude, $longitude, $actual_expiry, $status]);
+                    // Identify Staff Member / Creator
+                    $is_mgr = !empty($_SESSION['is_manager']);
+                    $mgr_id = $is_mgr ? (int)($_SESSION['manager_id'] ?? 0) : null;
+                    $actor_name = $is_mgr ? ($_SESSION['manager_name'] ?? ($_SESSION['manager_username'] ?? 'Manager')) : (!empty($_SESSION['operator_username']) ? $_SESSION['operator_username'] : (!empty($_SESSION['operator_name']) ? $_SESSION['operator_name'] : 'Admin'));
+                    $actor_role = $is_mgr ? 'Manager' : 'Admin';
+                    $created_by_val = $actor_name . ($actor_role !== 'Admin' && strpos($actor_name, $actor_role) === false ? " ($actor_role)" : "");
+
+                    // Ensure subscribers has created_by column
+                    try {
+                        $cChk = $pdo->query("SHOW COLUMNS FROM subscribers LIKE 'created_by'")->fetch();
+                        if (!$cChk) {
+                            $pdo->exec("ALTER TABLE subscribers ADD COLUMN created_by VARCHAR(100) DEFAULT NULL AFTER notes");
+                        }
+                    } catch (Exception $eC) {}
+
+                    $pdo->prepare("INSERT INTO subscribers (client_id, dealer_id, package_id, username, password, service_type, full_name, national_id, mobile, phone, email, address, subarea, latitude, longitude, expiry_date, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                        ->execute([$client_id, $dealer_id > 0 ? $dealer_id : null, $package_id, $username, $password, $service_type, $full_name, $national_id, $mobile, $phone, $email, $address, $subarea, $latitude, $longitude, $actual_expiry, $status, $created_by_val]);
+                    
+                    $new_subscriber_id = (int)$pdo->lastInsertId();
+                    if ($new_subscriber_id <= 0) {
+                        $getIdStmt = $pdo->prepare("SELECT id FROM subscribers WHERE username = ? AND client_id = ?");
+                        $getIdStmt->execute([$username, $client_id]);
+                        $new_subscriber_id = (int)$getIdStmt->fetchColumn();
+                    }
+
+                    // Process Optional Materials / Hardware assignment from Stock
+                    $materials = $_POST['materials'] ?? [];
+                    if (!empty($materials) && is_array($materials)) {
+                        foreach ($materials as $mat) {
+                            $itemId = (int)($mat['item_id'] ?? 0);
+                            $qty = max(0, (float)($mat['quantity'] ?? 0));
+                            $remarks = trim($mat['remarks'] ?? '');
+
+                            if ($itemId > 0 && $qty > 0) {
+                                $itStmt = $pdo->prepare("SELECT id, name, unit, current_stock, unit_price FROM items WHERE id = ? AND (client_id = ? OR client_id = 1 OR client_id = 0) FOR UPDATE");
+                                $itStmt->execute([$itemId, $client_id]);
+                                $item = $itStmt->fetch(PDO::FETCH_ASSOC);
+
+                                if ($item) {
+                                    $bal_before = (float)$item['current_stock'];
+                                    $bal_after = max(0, $bal_before - $qty);
+                                    $unit_price = (float)$item['unit_price'];
+                                    $tot_price = $qty * $unit_price;
+
+                                    $updItem = $pdo->prepare("UPDATE items SET current_stock = ? WHERE id = ?");
+                                    $updItem->execute([$bal_after, $itemId]);
+
+                                    $party = "Customer: " . ($full_name ?: $username) . " (" . $username . ")";
+                                    $tx_remarks = "Assigned during user creation: " . $username;
+                                    if (!empty($remarks)) {
+                                        $tx_remarks .= " | " . $remarks;
+                                    }
+                                    $tx_remarks .= " (Staff: " . $created_by_val . ")";
+
+                                    $stIns = $pdo->prepare("
+                                        INSERT INTO stock_transactions 
+                                        (client_id, item_id, type, quantity, unit_price, total_price, balance_before, balance_after, reference_no, party_name, issued_to_type, issued_to_id, remarks, created_by)
+                                        VALUES (?, ?, 'OUT', ?, ?, ?, ?, ?, ?, ?, 'subscriber', ?, ?, ?)
+                                    ");
+                                    $stIns->execute([
+                                        $client_id,
+                                        $itemId,
+                                        $qty,
+                                        $unit_price,
+                                        $tot_price,
+                                        $bal_before,
+                                        $bal_after,
+                                        "SUB-" . $username,
+                                        $party,
+                                        $new_subscriber_id,
+                                        $tx_remarks,
+                                        $created_by_val
+                                    ]);
+
+                                    try {
+                                        $logAct = $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, ?, ?, 'Stock', ?)");
+                                        $logAct->execute([$client_id, $created_by_val, $username, "Stock OUT: -{$qty} {$item['unit']} of {$item['name']} assigned to customer {$username} (by {$created_by_val})"]);
+                                    } catch (Exception $eAct) {}
+                                }
+                            }
+                        }
+                    }
                     
                     $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Cleartext-Password', ':=', ?)")
                         ->execute([$username, $password]);
@@ -470,10 +550,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         } catch (Exception $e) {}
                     }
                     
-                    $is_mgr = !empty($_SESSION['is_manager']);
-                    $mgr_id = $is_mgr ? (int)($_SESSION['manager_id'] ?? 0) : null;
-                    $actor_name = $is_mgr ? ($_SESSION['manager_name'] ?? ($_SESSION['manager_username'] ?? 'Manager')) : (!empty($_SESSION['operator_username']) ? $_SESSION['operator_username'] : 'Admin');
-                    $actor_role = $is_mgr ? 'Manager' : 'Admin';
                     $act_dealer_id = ($dealer_id > 0) ? $dealer_id : null;
                     $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, dealer_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, ?, ?, ?, ?, 'User', 'Created New User by $actor_role ($actor_name)')")
                         ->execute([$client_id, $mgr_id, $act_dealer_id, $actor_name, $actor_role, $username]);
@@ -499,6 +575,21 @@ $dealers = $dealerStmt->fetchAll();
 $pkgStmt = $pdo->prepare("SELECT * FROM packages WHERE client_id = ?");
 $pkgStmt->execute([$client_id]);
 $packages = $pkgStmt->fetchAll();
+
+// Fetch available stock items for Add User material assignment
+try {
+    $stockItemsStmt = $pdo->prepare("
+        SELECT id, name, category, unit, current_stock, unit_price, model_code 
+        FROM items 
+        WHERE (client_id = ? OR client_id = 1 OR client_id = 0) 
+          AND status = 'active' 
+        ORDER BY name ASC
+    ");
+    $stockItemsStmt->execute([$client_id]);
+    $availableStockItems = $stockItemsStmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) {
+    $availableStockItems = [];
+}
 
 // 1. Pre-fetch currently active RADIUS sessions in 1 ultra-fast query (< 0.002s)
 $active_sessions = [];
@@ -1320,6 +1411,32 @@ $count_offline = max(0, $count_all - $count_online);
                                 </div>
                             </div>
                         </div>
+
+            <!-- Material / Equipment Assignment Section (Optional) -->
+            <div class="mb-3 p-3 rounded-3 border bg-white shadow-sm" style="border-left: 4px solid #8726d1 !important;">
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <div>
+                        <span class="fw-bold text-dark fs-6"><i class="fa-solid fa-boxes-stacked text-primary me-2"></i> Material / Equipment Usage</span>
+                        <span class="badge bg-light text-secondary border fw-normal ms-2">Optional</span>
+                        <div class="text-muted small mt-1">Naye customer ke installation par use hone wala material (ONU, Patch cord, Wire etc.) assign karein.</div>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-primary fw-bold rounded-pill px-3 py-1.5 shadow-sm" id="btnToggleMaterialSection" onclick="toggleMaterialSection()">
+                        <i class="fa-solid fa-boxes-stacked me-1"></i> Material
+                    </button>
+                </div>
+
+                <div id="materialSectionContainer" class="mt-3 pt-3 border-top" style="display: none;">
+                    <div class="alert alert-info border-0 rounded-3 py-2 px-3 small mb-3">
+                        <i class="fa-solid fa-circle-info me-1"></i> Yahan se select kiya gaya material stock me se automatically <strong>OUT</strong> ho jayega aur jis staff member ne user create kiya uska name stock transaction aur customer profile me mention hoga.
+                    </div>
+                    <div id="materialRowsContainer" class="d-flex flex-column gap-2 mb-3">
+                        <!-- Dynamic Material Rows injected via JS -->
+                    </div>
+                    <button type="button" class="btn btn-sm btn-light border text-primary fw-bold rounded-pill px-3 shadow-sm" onclick="addMaterialRow()">
+                        <i class="fa-solid fa-circle-plus me-1"></i> Add Another Material
+                    </button>
+                </div>
+            </div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -1921,6 +2038,111 @@ function captureUserLocation() {
         btn.innerHTML = '<i class="fa-solid fa-crosshairs me-1 text-danger"></i> Get Current GPS (10m)';
         if (statusEl) statusEl.innerHTML = `<span class="badge bg-danger">GPS Error</span>`;
     }
+}
+
+// Material Management for Add User Modal
+const availableStockItems = <?= json_encode($availableStockItems ?? [], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
+let materialRowCounter = 0;
+
+function toggleMaterialSection() {
+    const container = document.getElementById('materialSectionContainer');
+    const btn = document.getElementById('btnToggleMaterialSection');
+    if (!container) return;
+    if (container.style.display === 'none' || container.style.display === '') {
+        container.style.display = 'block';
+        if (btn) {
+            btn.innerHTML = '<i class="fa-solid fa-minus me-1"></i> Hide Material';
+            btn.classList.replace('btn-outline-primary', 'btn-outline-secondary');
+        }
+        const rowsContainer = document.getElementById('materialRowsContainer');
+        if (rowsContainer && rowsContainer.children.length === 0) {
+            addMaterialRow();
+        }
+    } else {
+        container.style.display = 'none';
+        if (btn) {
+            btn.innerHTML = '<i class="fa-solid fa-boxes-stacked me-1"></i> Material';
+            btn.classList.replace('btn-outline-secondary', 'btn-outline-primary');
+        }
+    }
+}
+
+function addMaterialRow() {
+    const rowsContainer = document.getElementById('materialRowsContainer');
+    if (!rowsContainer) return;
+    const idx = materialRowCounter++;
+    
+    let optionsHtml = '';
+    if (availableStockItems && availableStockItems.length > 0) {
+        availableStockItems.forEach(item => {
+            const stock = parseFloat(item.current_stock) || 0;
+            const unit = item.unit || 'Nos.';
+            const isOutOfStock = stock <= 0;
+            const disabledAttr = isOutOfStock ? 'disabled' : '';
+            const stockLabel = isOutOfStock ? ' (Out of Stock)' : ` (Available: ${stock} ${unit})`;
+            optionsHtml += `<option value="${item.id}" data-unit="${escapeHtml(unit)}" data-stock="${stock}" ${disabledAttr}>${escapeHtml(item.name)}${stockLabel}</option>`;
+        });
+    } else {
+        optionsHtml = '<option value="" disabled>No active stock items found in inventory</option>';
+    }
+
+    const rowDiv = document.createElement('div');
+    rowDiv.className = 'material-row p-2 rounded-3 bg-light border';
+    rowDiv.innerHTML = `
+        <div class="row g-2 align-items-center">
+            <div class="col-md-5">
+                <label class="form-label text-muted small fw-bold mb-1">Select Material / Stock Item <span class="text-danger">*</span></label>
+                <select name="materials[${idx}][item_id]" class="form-select form-select-sm material-item-select" onchange="onMaterialItemChange(this)" required>
+                    <option value="">-- Choose Stock Item --</option>
+                    ${optionsHtml}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label text-muted small fw-bold mb-1 d-flex justify-content-between">
+                    <span>Quantity <span class="text-danger">*</span></span>
+                    <span class="badge bg-secondary-subtle text-secondary border item-unit-badge" style="font-size:0.68rem;">Nos.</span>
+                </label>
+                <input type="number" step="any" min="0.01" name="materials[${idx}][quantity]" value="1" class="form-control form-control-sm material-qty-input" required>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label text-muted small fw-bold mb-1">Serial / MAC / Remarks</label>
+                <input type="text" name="materials[${idx}][remarks]" class="form-control form-control-sm" placeholder="e.g. PON MAC / Serial / Note">
+            </div>
+            <div class="col-md-1 text-end pt-md-3">
+                <button type="button" class="btn btn-sm btn-outline-danger w-100" onclick="removeMaterialRow(this)" title="Remove Item"><i class="fa-solid fa-trash-can"></i></button>
+            </div>
+        </div>
+    `;
+    rowsContainer.appendChild(rowDiv);
+}
+
+function removeMaterialRow(btn) {
+    const row = btn.closest('.material-row');
+    if (row) {
+        row.remove();
+    }
+}
+
+function onMaterialItemChange(selectElem) {
+    const selectedOption = selectElem.options[selectElem.selectedIndex];
+    const unit = selectedOption.getAttribute('data-unit') || 'Nos.';
+    const stock = parseFloat(selectedOption.getAttribute('data-stock')) || 0;
+    const row = selectElem.closest('.material-row');
+    if (row) {
+        const badge = row.querySelector('.item-unit-badge');
+        if (badge) badge.textContent = unit;
+        const qtyInput = row.querySelector('.material-qty-input');
+        if (qtyInput && stock > 0) {
+            qtyInput.max = stock;
+        }
+    }
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    var div = document.createElement('div');
+    div.innerText = text;
+    return div.innerHTML;
 }
 </script>
 

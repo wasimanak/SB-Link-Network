@@ -64,7 +64,7 @@ try {
             try {
                 $verStmt = $pdo->query("SELECT setting_value FROM global_settings WHERE setting_key = 'sys_schema_ver'");
                 $ver = $verStmt ? $verStmt->fetchColumn() : null;
-                if ($ver !== '9') {
+                if ($ver !== '10') {
                     if (file_exists(__DIR__ . '/schema_fix_helper.php')) {
                         require_once __DIR__ . '/schema_fix_helper.php';
                         if (function_exists('fix_and_repair_schema')) {
@@ -72,7 +72,7 @@ try {
                         }
                     }
                     try {
-                        $pdo->exec("INSERT INTO global_settings (setting_key, setting_value) VALUES ('sys_schema_ver', '9') ON DUPLICATE KEY UPDATE setting_value = '9'");
+                        $pdo->exec("INSERT INTO global_settings (setting_key, setting_value) VALUES ('sys_schema_ver', '10') ON DUPLICATE KEY UPDATE setting_value = '10'");
                     } catch (Exception $e) {}
                 }
             } catch (Exception $e) {}

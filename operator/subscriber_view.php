@@ -1036,6 +1036,90 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 }
+    // Handle Issue Subscriber Material from Profile
+    if (isset($_POST['action']) && $_POST['action'] === 'issue_subscriber_material') {
+        $itemId = (int)($_POST['item_id'] ?? 0);
+        $qty = max(0.01, (float)($_POST['quantity'] ?? 0));
+        $remarks = trim($_POST['remarks'] ?? '');
+
+        if ($itemId <= 0 || $qty <= 0) {
+            echo "<script>alert('Please select a valid material and quantity.'); window.location='subscriber_view.php?id=$id';</script>";
+            exit;
+        }
+
+        try {
+            $pdo->beginTransaction();
+            $q = $pdo->prepare("SELECT name, current_stock, unit_price, unit FROM items WHERE id = ? AND (client_id = ? OR client_id = 1 OR client_id = 0) FOR UPDATE");
+            $q->execute([$itemId, $client_id]);
+            $item = $q->fetch(PDO::FETCH_ASSOC);
+
+            if (!$item) {
+                throw new Exception("Stock item not found.");
+            }
+
+            $bal_before = (float)$item['current_stock'];
+            if ($qty > $bal_before) {
+                throw new Exception("Insufficient stock! Available balance is only {$bal_before} {$item['unit']}.");
+            }
+
+            $bal_after = $bal_before - $qty;
+            $unit_price = (float)$item['unit_price'];
+            $tot_price = $qty * $unit_price;
+
+            // Update stock
+            $pdo->prepare("UPDATE items SET current_stock = ? WHERE id = ?")->execute([$bal_after, $itemId]);
+
+            $actor_name = !empty($_SESSION['is_manager']) ? ($_SESSION['manager_name'] ?? 'Manager') : (!empty($_SESSION['operator_username']) ? $_SESSION['operator_username'] : 'Admin');
+            $actor_role = !empty($_SESSION['is_manager']) ? 'Manager' : 'Admin';
+            $staff_display = $actor_name . ($actor_role !== 'Admin' && strpos($actor_name, $actor_role) === false ? " ($actor_role)" : "");
+
+            $subInfoStmt = $pdo->prepare("SELECT username, full_name FROM subscribers WHERE id = ? AND client_id = ?");
+            $subInfoStmt->execute([$id, $client_id]);
+            $subRow = $subInfoStmt->fetch(PDO::FETCH_ASSOC);
+            $subU = $subRow['username'] ?? '';
+            $subFN = $subRow['full_name'] ?? '';
+
+            $party = "Customer: " . ($subFN ?: $subU) . " (" . $subU . ")";
+            $tx_remarks = "Issued to customer: " . $subU;
+            if (!empty($remarks)) {
+                $tx_remarks .= " | " . $remarks;
+            }
+            $tx_remarks .= " (Staff: " . $staff_display . ")";
+
+            $stIns = $pdo->prepare("
+                INSERT INTO stock_transactions 
+                (client_id, item_id, type, quantity, unit_price, total_price, balance_before, balance_after, reference_no, party_name, issued_to_type, issued_to_id, remarks, created_by)
+                VALUES (?, ?, 'OUT', ?, ?, ?, ?, ?, ?, ?, 'subscriber', ?, ?, ?)
+            ");
+            $stIns->execute([
+                $client_id,
+                $itemId,
+                $qty,
+                $unit_price,
+                $tot_price,
+                $bal_before,
+                $bal_after,
+                "SUB-" . $subU,
+                $party,
+                $id,
+                $tx_remarks,
+                $staff_display
+            ]);
+
+            try {
+                $logAct = $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, ?, ?, 'Stock', ?)");
+                $logAct->execute([$client_id, $staff_display, $subU, "Stock OUT: -{$qty} {$item['unit']} of {$item['name']} issued to subscriber {$subU} (by {$staff_display})"]);
+            } catch (Exception $eAct) {}
+
+            $pdo->commit();
+            echo "<script>alert('Material issued successfully to {$subU}!'); window.location='subscriber_view.php?id=$id';</script>";
+            exit;
+        } catch (Exception $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            echo "<script>alert('Error issuing material: " . addslashes($e->getMessage()) . "'); window.location='subscriber_view.php?id=$id';</script>";
+            exit;
+        }
+    }
 // --- END ACTIONS ---
 
 // Fetch user data
@@ -1055,6 +1139,55 @@ if (!$user) {
 
 if (!empty($_SESSION['is_manager']) && !empty($user['dealer_id'])) {
     echo "<script>alert('Permission Denied: Managers cannot view dealer subscribers.'); window.location='subscribers.php';</script>";
+    exit;
+}
+
+// Determine Creator / Staff member who created this user
+$creator_display = !empty($user['created_by']) ? $user['created_by'] : null;
+if (empty($creator_display)) {
+    try {
+        $chkLog = $pdo->prepare("SELECT by_user, by_role, activity FROM activity_logs WHERE client_id = ? AND against_to = ? AND (activity LIKE '%Created New User%' OR activity LIKE '%Created Subscriber%') ORDER BY id ASC LIMIT 1");
+        $chkLog->execute([$client_id, $user['username']]);
+        $logRow = $chkLog->fetch(PDO::FETCH_ASSOC);
+        if ($logRow) {
+            $creator_display = $logRow['by_user'] . (!empty($logRow['by_role']) && $logRow['by_role'] !== 'Admin' && strpos($logRow['by_user'], $logRow['by_role']) === false ? " ({$logRow['by_role']})" : "");
+        }
+    } catch (Exception $e) {}
+}
+if (empty($creator_display)) {
+    $creator_display = 'Admin';
+}
+
+// Fetch all stock materials assigned/issued to this subscriber
+try {
+    $matStmt = $pdo->prepare("
+        SELECT st.*, i.name as item_name, i.unit, i.category, i.model_code
+        FROM stock_transactions st
+        LEFT JOIN items i ON st.item_id = i.id
+        WHERE st.client_id = ? 
+          AND st.issued_to_type = 'subscriber' 
+          AND (st.issued_to_id = ? OR st.reference_no = ? OR st.party_name LIKE ?)
+        ORDER BY st.id DESC
+    ");
+    $matStmt->execute([$client_id, $id, "SUB-" . $user['username'], "%(" . $user['username'] . ")%"]);
+    $subscriber_materials = $matStmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) {
+    $subscriber_materials = [];
+}
+
+// Fetch available stock items for issuing additional material modal
+try {
+    $stockItemsStmt = $pdo->prepare("
+        SELECT id, name, category, unit, current_stock, unit_price, model_code 
+        FROM items 
+        WHERE (client_id = ? OR client_id = 1 OR client_id = 0) 
+          AND status = 'active' 
+        ORDER BY name ASC
+    ");
+    $stockItemsStmt->execute([$client_id]);
+    $availableStockItems = $stockItemsStmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) {
+    $availableStockItems = [];
     exit;
 }
 
@@ -1570,6 +1703,11 @@ if ($last_debit) {
             <ul class="profile-list">
                 <li><i class="fa-solid fa-building"></i> <?= htmlspecialchars($user['company_name']) ?></li>
                 <li><i class="fa-solid fa-user-shield"></i> Admin</li>
+                <li>
+                    <i class="fa-solid fa-user-check text-primary"></i> 
+                    <span class="text-muted small me-1">Created By:</span> 
+                    <span class="fw-bold text-dark"><?= htmlspecialchars($creator_display) ?></span>
+                </li>
                 <li><i class="fa-solid fa-id-card"></i> <?= htmlspecialchars($user['national_id'] ?: 'N/A') ?></li>
                 <li><i class="fa-solid fa-phone"></i> <?= htmlspecialchars($user['mobile'] ?: ($user['phone'] ?: 'N/A')) ?></li>
                 <li><i class="fa-solid fa-location-dot"></i> <?= htmlspecialchars($user['address'] ?: 'N/A') ?>
@@ -1875,6 +2013,14 @@ if ($last_debit) {
                                     </td>
                                 </tr>
                                 <tr><td class="fw-bold">Package Duration</td><td><?= $user['validity_days'] ? $user['validity_days'] . ' Days' : 'N/A' ?></td></tr>
+                                <tr>
+                                    <td class="fw-bold">Created By (Staff Member)</td>
+                                    <td>
+                                        <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 px-2.5 py-1.5 fw-bold">
+                                            <i class="fa-solid fa-user-check me-1"></i> <?= htmlspecialchars($creator_display) ?>
+                                        </span>
+                                    </td>
+                                </tr>
                                 <tr><td class="fw-bold">Created / Registered Date</td><td><?= safe_date('d M Y H:i:s', $user['created_at'] ?? null, 'N/A') ?></td></tr>
                                 <tr><td class="fw-bold">Last Expiration Date</td><td><?= safe_date('d M Y H:i:s', $user['expiry_date'] ?? null, 'N/A') ?></td></tr>
                                 <tr>
@@ -2001,11 +2147,155 @@ $last_login_display = ($latest_login_ts && $latest_login_ts > 86400) ? date('d M
                     </div>
                 </div>
             </div>
+            <!-- Installed Materials & Equipment (Stock) -->
+            <div class="accordion-item">
+                <h2 class="accordion-header d-flex align-items-center position-relative">
+                    <button class="accordion-button collapsed flex-grow-1" type="button" data-bs-toggle="collapse" data-bs-target="#accMaterials">
+                        <i class="fa-solid fa-boxes-stacked me-2 text-primary"></i> Installed Materials &amp; Equipment (Stock)
+                        <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 ms-2 px-2 py-1" style="font-size: 0.75rem;">
+                            <?= count($subscriber_materials) ?> Item<?= count($subscriber_materials) === 1 ? '' : 's' ?>
+                        </span>
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-primary fw-bold rounded-pill position-absolute px-3 py-1 shadow-sm" style="right: 50px; z-index: 5; font-size: 0.75rem;" data-bs-toggle="modal" data-bs-target="#issueMaterialModal">
+                        <i class="fa-solid fa-plus me-1"></i> Issue Material
+                    </button>
+                </h2>
+                <div id="accMaterials" class="accordion-collapse collapse" data-bs-parent="#userDetailsAccordion">
+                    <div class="accordion-body text-secondary p-3">
+                        <?php if (empty($subscriber_materials)): ?>
+                            <div class="text-center py-4 text-muted">
+                                <i class="fa-solid fa-boxes-stacked fs-1 d-block mb-2 text-secondary opacity-50"></i>
+                                <p class="mb-2">No hardware or stock materials recorded for this subscriber yet.</p>
+                                <button type="button" class="btn btn-sm btn-primary rounded-pill px-3 fw-bold shadow-sm" data-bs-toggle="modal" data-bs-target="#issueMaterialModal">
+                                    <i class="fa-solid fa-plus me-1"></i> Issue Material / Equipment Now
+                                </button>
+                            </div>
+                        <?php else: ?>
+                            <div class="table-responsive">
+                                <table class="table table-sm table-hover align-middle mb-0" style="font-size: 0.88rem;">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>#</th>
+                                            <th>Material / Equipment</th>
+                                            <th>Category</th>
+                                            <th>Quantity</th>
+                                            <th>Valuation</th>
+                                            <th>Date Issued</th>
+                                            <th>Issued By</th>
+                                            <th>Serial / Remarks</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php 
+                                        $matTotalVal = 0;
+                                        foreach ($subscriber_materials as $mIdx => $m): 
+                                            $matTotalVal += (float)$m['total_price'];
+                                        ?>
+                                            <tr>
+                                                <td class="text-muted fw-bold"><?= $mIdx + 1 ?></td>
+                                                <td>
+                                                    <div class="fw-bold text-dark"><?= htmlspecialchars($m['item_name'] ?: 'Item #' . $m['item_id']) ?></div>
+                                                    <?php if (!empty($m['model_code'])): ?>
+                                                        <small class="text-muted font-monospace"><?= htmlspecialchars($m['model_code']) ?></small>
+                                                    <?php endif; ?>
+                                                </td>
+                                                <td><span class="badge bg-light text-secondary border"><?= htmlspecialchars($m['category'] ?: 'General') ?></span></td>
+                                                <td>
+                                                    <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 px-2 py-1 fw-bold">
+                                                        <?= (float)$m['quantity'] ?> <?= htmlspecialchars($m['unit'] ?: 'Nos.') ?>
+                                                    </span>
+                                                </td>
+                                                <td class="fw-semibold text-dark">Rs. <?= number_format($m['total_price'], 2) ?></td>
+                                                <td><span class="small text-muted"><?= date('d M Y, h:i A', strtotime($m['created_at'])) ?></span></td>
+                                                <td>
+                                                    <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle px-2 py-1">
+                                                        <i class="fa-solid fa-user-tag me-1"></i><?= htmlspecialchars($m['created_by'] ?: 'Admin') ?>
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    <div class="small text-muted" style="max-width: 250px;"><?= htmlspecialchars($m['remarks'] ?: '-') ?></div>
+                                                </td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                    <tfoot class="table-light">
+                                        <tr>
+                                            <td colspan="4" class="fw-bold text-end">Total Installed Equipment Valuation:</td>
+                                            <td colspan="4" class="fw-bold text-primary">Rs. <?= number_format($matTotalVal, 2) ?></td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 </div>
 
 <!-- ================= MODALS ================= -->
+<!-- Issue Material Modal -->
+<div class="modal fade" id="issueMaterialModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content light-modal">
+      <div class="modal-header">
+        <h5 class="modal-title fw-bold"><i class="fa-solid fa-boxes-stacked text-primary me-2"></i> Issue Material / Equipment</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST">
+        <input type="hidden" name="action" value="issue_subscriber_material">
+        <div class="modal-body p-4">
+            <p class="small text-muted mb-3">
+                Is customer (<strong><?= htmlspecialchars($user['username']) ?></strong>) ko stock me se material issue karein. Material automatically stock me se <strong>OUT</strong> ho jayega.
+            </p>
+            <div class="mb-3">
+                <label class="form-label text-dark small fw-bold">Select Stock Item <span class="text-danger">*</span></label>
+                <select name="item_id" class="form-select form-select-sm" required onchange="updateIssueModalUnit(this)">
+                    <option value="">-- Choose Stock Item --</option>
+                    <?php foreach ($availableStockItems as $it): 
+                        $stk = (float)$it['current_stock'];
+                        $un = $it['unit'] ?: 'Nos.';
+                        $out = ($stk <= 0);
+                    ?>
+                        <option value="<?= $it['id'] ?>" data-unit="<?= htmlspecialchars($un) ?>" data-stock="<?= $stk ?>" <?= $out ? 'disabled' : '' ?>>
+                            <?= htmlspecialchars($it['name']) ?> <?= $out ? '(Out of Stock)' : "(Available: {$stk} {$un})" ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="mb-3">
+                <label class="form-label text-dark small fw-bold d-flex justify-content-between">
+                    <span>Quantity <span class="text-danger">*</span></span>
+                    <span class="badge bg-secondary-subtle text-secondary border" id="issueModalUnitBadge">Nos.</span>
+                </label>
+                <input type="number" step="any" min="0.01" name="quantity" id="issueModalQty" value="1" class="form-control form-control-sm" required>
+            </div>
+            <div class="mb-3">
+                <label class="form-label text-dark small fw-bold">Serial / MAC / Remarks</label>
+                <input type="text" name="remarks" class="form-control form-control-sm" placeholder="e.g. PON MAC / Serial / Note">
+            </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary fw-bold px-4"><i class="fa-solid fa-check me-1"></i> Issue Material</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+<script>
+function updateIssueModalUnit(sel) {
+    const opt = sel.options[sel.selectedIndex];
+    const unit = opt.getAttribute('data-unit') || 'Nos.';
+    const stock = parseFloat(opt.getAttribute('data-stock')) || 0;
+    const badge = document.getElementById('issueModalUnitBadge');
+    if (badge) badge.textContent = unit;
+    const qty = document.getElementById('issueModalQty');
+    if (qty && stock > 0) qty.max = stock;
+}
+</script>
+
 
 <!-- Payment Modal -->
 <div class="modal fade" id="paymentModal" tabindex="-1">

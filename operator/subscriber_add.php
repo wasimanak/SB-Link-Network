@@ -37,8 +37,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $now_expiry = date('Y-m-d H:i:s', time() - 60);
                 $status = 'expired';
 
-                $pdo->prepare("INSERT INTO subscribers (client_id, package_id, username, password, service_type, status, expiry_date) VALUES (?, ?, ?, ?, ?, ?, ?)")
-                    ->execute([$client_id, $package_id, $username, $password, $service, $status, $now_expiry]);
+                $is_mgr = !empty($_SESSION['is_manager']);
+                $mgr_id = $is_mgr ? (int)($_SESSION['manager_id'] ?? 0) : null;
+                $creator_user = $is_mgr ? ($_SESSION['manager_name'] ?? 'Manager') : (!empty($_SESSION['operator_username']) ? $_SESSION['operator_username'] : 'Admin');
+                $creator_role = $is_mgr ? 'Manager' : 'Admin';
+                $created_by_val = $creator_user . ($creator_role !== 'Admin' ? " ($creator_role)" : "");
+
+                $pdo->prepare("INSERT INTO subscribers (client_id, package_id, username, password, service_type, status, expiry_date, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+                    ->execute([$client_id, $package_id, $username, $password, $service, $status, $now_expiry, $created_by_val]);
+
                 
                 $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Cleartext-Password', ':=', ?)")
                     ->execute([$username, $password]);
