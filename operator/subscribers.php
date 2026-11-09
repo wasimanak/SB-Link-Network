@@ -904,6 +904,14 @@ $count_offline = max(0, $count_all - $count_online);
         background: linear-gradient(135deg, #eff6ff, #dbeafe);
         color: #2563eb;
         box-shadow: 0 2px 6px rgba(37,99,235,0.08);
+        overflow: hidden;
+        flex-shrink: 0;
+    }
+    .avatar-pro img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
     }
 
     /* Badges */
@@ -1109,9 +1117,35 @@ $count_offline = max(0, $count_all - $count_online);
                     <td><input type="checkbox" class="row-checkbox form-check-input" value="<?= $s['id'] ?>"></td>
                     <td class="fw-semibold text-secondary">#<?= $s['id'] ?></td>
                     <td>
-                        <div class="avatar-pro">
-                            <i class="fa-solid fa-user"></i>
-                        </div>
+                        <?php 
+                        $has_pic = false;
+                        $pic_url = '';
+                        if (!empty($s['photo'])) {
+                            $raw_p = trim($s['photo']);
+                            if (str_starts_with($raw_p, 'http://') || str_starts_with($raw_p, 'https://')) {
+                                $pic_url = $raw_p;
+                                $has_pic = true;
+                            } elseif (file_exists(__DIR__ . '/../uploads/profiles/' . $raw_p)) {
+                                $pic_url = '../uploads/profiles/' . htmlspecialchars($raw_p);
+                                $has_pic = true;
+                            } elseif (file_exists(__DIR__ . '/../' . ltrim($raw_p, '/'))) {
+                                $pic_url = '../' . htmlspecialchars(ltrim($raw_p, '/'));
+                                $has_pic = true;
+                            } elseif (!in_array(strtolower($raw_p), ['null', 'none', 'default.png', 'default.jpg'])) {
+                                $pic_url = '../uploads/profiles/' . htmlspecialchars(ltrim($raw_p, '/'));
+                                $has_pic = true;
+                            }
+                        }
+                        ?>
+                        <?php if ($has_pic): ?>
+                            <a href="subscriber_view.php?id=<?= $s['id'] ?>" class="avatar-pro text-decoration-none shadow-xs border" title="Click to view <?= htmlspecialchars($s['full_name'] ?: $s['username']) ?>">
+                                <img src="<?= $pic_url ?>" alt="User Photo" onerror="this.onerror=null; this.parentElement.innerHTML='<i class=\'fa-solid fa-user\'></i>';">
+                            </a>
+                        <?php else: ?>
+                            <div class="avatar-pro">
+                                <i class="fa-solid fa-user"></i>
+                            </div>
+                        <?php endif; ?>
                     </td>
                     <td data-search="<?= htmlspecialchars($s['username']) ?>" data-sort="<?= htmlspecialchars($s['username']) ?>">
                         <div class="d-inline-flex align-items-center gap-1">
