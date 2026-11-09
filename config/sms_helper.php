@@ -313,6 +313,23 @@ if (!function_exists('queue_sms_message')) {
             return false;
         }
 
+        // Anti-Duplicate Resubmission Guard (Prevents double SMS on page refresh or double submit)
+        try {
+            $dupStmt = $pdo->prepare("
+                SELECT id FROM sms_queue_logs 
+                WHERE client_id = ? 
+                  AND recipient_mobile = ? 
+                  AND message_text = ? 
+                  AND created_at >= NOW() - INTERVAL 30 SECOND 
+                LIMIT 1
+            ");
+            $dupStmt->execute([(int)$client_id, $cleanMobile, $message]);
+            $existing_id = $dupStmt->fetchColumn();
+            if ($existing_id) {
+                return (int)$existing_id; // Already queued within 30 seconds, safely ignore duplicate
+            }
+        } catch (Exception $e) {}
+
         $sched = $scheduled_at ? $scheduled_at : date('Y-m-d H:i:s');
 
         $stmt = $pdo->prepare("

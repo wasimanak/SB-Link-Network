@@ -53,6 +53,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             exit;
         }
 
+        // Anti-Duplicate Resubmission Guard:
+        // Check if identical payment was already recorded within last 20 seconds
+        $dupCheck = $pdo->prepare("
+            SELECT id FROM user_ledger 
+            WHERE client_id = ? AND username = ? AND type = 'credit' AND amount = ? 
+              AND created_at >= NOW() - INTERVAL 20 SECOND
+            LIMIT 1
+        ");
+        $dupCheck->execute([$client_id, $sub_username, $amount]);
+        $existing_ledger = $dupCheck->fetchColumn();
+        if ($existing_ledger) {
+            $sq = urlencode($_GET['search_query'] ?? '');
+            $ret = urlencode('dashboard.php' . ($sq ? "?search_query=$sq" : ''));
+            header("Location: print_receipt.php?sub_id={$sub_id}&ledger_id={$existing_ledger}&paid={$amount}&type=collect&return={$ret}");
+            exit;
+        }
+
         $pdo->beginTransaction();
 
         if ($amount > 0) {
@@ -83,32 +100,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $sq = urlencode($_GET['search_query'] ?? '');
             $ret = urlencode('dashboard.php' . ($sq ? "?search_query=$sq" : ''));
             $target_url = "print_receipt.php?sub_id={$sub_id}&ledger_id={$new_ledger_id}&paid={$amount}&type=collect&return={$ret}";
-            $json_alert = json_encode("Payment Collected Successfully!");
-            echo "<!DOCTYPE html>
-<html>
-<head>
-    <meta charset='UTF-8'>
-    <meta name='viewport' content='width=device-width, initial-scale=1.0'>
-    <title>Payment Collected</title>
-    <link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css' rel='stylesheet'>
-    <link rel='stylesheet' href='https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css'>
-</head>
-<body class='bg-light d-flex align-items-center justify-content-center' style='min-height: 100vh;'>
-    <div class='card border-0 shadow-sm rounded-4 p-4 text-center' style='max-width: 440px; width: 92%;'>
-        <div class='spinner-border text-success mb-3' style='width: 3rem; height: 3rem;' role='status'></div>
-        <h4 class='fw-bold text-dark mb-1'><i class='fa-solid fa-circle-check text-success me-2'></i> Payment Collected!</h4>
-        <p class='text-muted small mb-3'>Opening 80mm Print Receipt...</p>
-        <a href='{$target_url}' class='btn btn-success fw-bold px-4 py-2 rounded-pill shadow-sm'>
-            <i class='fa-solid fa-print me-1'></i> Open 80mm Receipt Now
-        </a>
-    </div>
-    <script>
-        var alertMsg = {$json_alert};
-        if (alertMsg) alert(alertMsg);
-        window.location.href = '{$target_url}';
-    </script>
-</body>
-</html>";
+            header("Location: " . $target_url);
             exit;
         } else {
             $pdo->rollBack();

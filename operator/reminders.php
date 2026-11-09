@@ -25,6 +25,11 @@ ensure_sms_tables_exist($pdo);
 
 $flash_msg = '';
 $flash_type = 'success';
+if (!empty($_SESSION['sms_flash_msg'])) {
+    $flash_msg = $_SESSION['sms_flash_msg'];
+    $flash_type = $_SESSION['sms_flash_type'] ?? 'success';
+    unset($_SESSION['sms_flash_msg'], $_SESSION['sms_flash_type']);
+}
 
 // -------------------------------------------------------------------------
 // Handle POST Actions
@@ -218,6 +223,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $flash_msg = "Cleared sent & cancelled history logs.";
         $flash_type = "info";
     }
+
+    // PRG (Post-Redirect-Get) Pattern: Redirect to avoid duplicate SMS/requests on page refresh
+    $_SESSION['sms_flash_msg'] = $flash_msg;
+    $_SESSION['sms_flash_type'] = $flash_type;
+    $curr_tab = $_POST['tab'] ?? ($_GET['tab'] ?? '');
+    $redirect_url = 'reminders.php' . (!empty($curr_tab) ? '?tab=' . urlencode($curr_tab) : '');
+    header("Location: " . $redirect_url);
+    exit;
 }
 
 // -------------------------------------------------------------------------
