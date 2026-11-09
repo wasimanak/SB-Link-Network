@@ -13,20 +13,28 @@ if (!isset($_SESSION['customer_logged_in']) || $_SESSION['customer_logged_in'] !
     exit;
 }
 
-$sub_id = (int)($_SESSION['customer_id'] ?? 0);
-$client_id = (int)($_SESSION['customer_client_id'] ?? 0);
-
-if (!$sub_id || !$client_id) {
+$session_sub_id = (int)($_SESSION['customer_id'] ?? 0);
+if (!$session_sub_id) {
     echo json_encode(['bytes_in' => 0, 'bytes_out' => 0, 'status' => 'offline', 'error' => 'Unauthorized']);
     exit;
 }
 
-$uStmt = $pdo->prepare("SELECT username FROM subscribers WHERE id = ? AND client_id = ?");
-$uStmt->execute([$sub_id, $client_id]);
-$username = $uStmt->fetchColumn() ?: '';
+// Strictly fetch subscriber by customer's verified session ID
+$subStmt = $pdo->prepare("SELECT id, username, client_id, status, expiry_date, last_renewed_at, created_at FROM subscribers WHERE id = ? LIMIT 1");
+$subStmt->execute([$session_sub_id]);
+$sub_row = $subStmt->fetch(PDO::FETCH_ASSOC);
+
+if (!$sub_row) {
+    echo json_encode(['bytes_in' => 0, 'bytes_out' => 0, 'status' => 'offline', 'error' => 'Subscriber not found']);
+    exit;
+}
+
+$username = trim($sub_row['username'] ?? '');
+$sub_id = (int)$sub_row['id'];
+$client_id = isset($sub_row['client_id']) ? (int)$sub_row['client_id'] : (int)($_SESSION['customer_client_id'] ?? 0);
 
 if (empty($username)) {
-    echo json_encode(['bytes_in' => 0, 'bytes_out' => 0, 'status' => 'offline', 'error' => 'Subscriber not found']);
+    echo json_encode(['bytes_in' => 0, 'bytes_out' => 0, 'status' => 'offline', 'error' => 'Missing username']);
     exit;
 }
 
@@ -42,6 +50,7 @@ $found = false;
 $source = 'none';
 $diag = [
     'username' => $username,
+    'client_id' => $client_id,
     'rad_nasip' => null,
     'framed_ip' => null,
     'attempts' => []
@@ -49,10 +58,6 @@ $diag = [
 
 try {
     // 1. Fetch subscriber cycle reset timestamp & status
-    $subStmt = $pdo->prepare("SELECT id, username, status, expiry_date, last_renewed_at, created_at FROM subscribers WHERE id = ? AND client_id = ? LIMIT 1");
-    $subStmt->execute([$sub_id, $client_id]);
-    $sub_row = $subStmt->fetch(PDO::FETCH_ASSOC);
-
     $is_expired_sub = false;
     if ($sub_row) {
         $has_exp = (!empty($sub_row['expiry_date']) && $sub_row['expiry_date'] !== '0000-00-00 00:00:00');
@@ -82,7 +87,7 @@ try {
     // IMMEDIATE SHORT-CIRCUIT:
     // If subscriber is expired OR has no active session and status != 'active',
     // DO NOT connect to MikroTik API!
-    if ($is_expired_sub || (!$rad_active && strtolower($sub_row['status'] ?? '') !== 'active')) {
+    if ($is_expired_sub || (empty($rad_active) && strtolower($sub_row['status'] ?? '') !== 'active')) {
         echo json_encode([
             'status'        => 'offline',
             'source'        => 'none',
@@ -92,74 +97,81 @@ try {
             'tx_bps'        => 0,
             'uptime'        => null,
             'is_prev_cycle' => false,
-            'diag'          => $diag,
+            'diag'          => ['status' => 'offline_or_expired', 'skipped_api' => true],
             'ts'            => microtime(true)
         ]);
         exit;
     }
 
-    // 2. MikroTik Credentials & Router Discovery
+    // 2. Build candidate router list (Identical to operator/api_bandwidth.php)
+    $target_routers = [];
     $default_api_user = 'admin';
     $default_api_pass = '';
     $default_api_port = 8728;
 
-    $cStmt = $pdo->prepare("SELECT mikrotik_ip, mikrotik_user, mikrotik_password, mikrotik_port FROM clients WHERE id = ?");
-    $cStmt->execute([$client_id]);
-    $client_conf = $cStmt->fetch(PDO::FETCH_ASSOC);
+    // Fetch operator's configured NAS routers from DB (including global client_id = 0 or NULL)
+    $allNasStmt = $pdo->prepare("SELECT * FROM nas 
+        WHERE (client_id = ? OR client_id = 0 OR client_id IS NULL) 
+        AND nasname NOT LIKE '%/%' 
+        AND nasname != '0.0.0.0' 
+        AND nasname != '127.0.0.1' 
+        ORDER BY id ASC");
+    $allNasStmt->execute([$client_id]);
+    $all_nas = $allNasStmt->fetchAll(PDO::FETCH_ASSOC);
 
-    if ($client_conf) {
-        if (!empty($client_conf['mikrotik_user'])) $default_api_user = trim($client_conf['mikrotik_user']);
-        if (isset($client_conf['mikrotik_password'])) $default_api_pass = (string)$client_conf['mikrotik_password'];
-        if (!empty($client_conf['mikrotik_port'])) $default_api_port = (int)$client_conf['mikrotik_port'];
+    if (!empty($all_nas[0])) {
+        $default_api_user = !empty($all_nas[0]['api_user']) ? trim($all_nas[0]['api_user']) : 'admin';
+        $default_api_pass = (string)($all_nas[0]['api_password'] ?? '');
+        $default_api_port = !empty($all_nas[0]['api_port']) ? (int)$all_nas[0]['api_port'] : 8728;
     }
 
-    $routers_to_try = [];
-    $seen_ips = [];
+    // A. If radacct has active nasipaddress, prioritize it
+    if (!empty($rad_active['nasipaddress'])) {
+        $diag['rad_nasip'] = $rad_active['nasipaddress'];
+        $rStmt = $pdo->prepare("SELECT * FROM nas WHERE (client_id = ? OR client_id = 0 OR client_id IS NULL) AND nasname = ? LIMIT 1");
+        $rStmt->execute([$client_id, $rad_active['nasipaddress']]);
+        $matched_nas = $rStmt->fetch(PDO::FETCH_ASSOC);
 
-    // Prioritize NAS IP from active radacct
-    if ($rad_active && !empty($rad_active['nasipaddress'])) {
-        $nas_ip_rad = trim($rad_active['nasipaddress']);
-        $diag['rad_nasip'] = $nas_ip_rad;
-        $nasLookup = $pdo->prepare("SELECT nasname, api_user, api_password, api_port FROM nas WHERE nasname = ? AND client_id = ? LIMIT 1");
-        $nasLookup->execute([$nas_ip_rad, $client_id]);
-        $matched_nas = $nasLookup->fetch(PDO::FETCH_ASSOC);
         if ($matched_nas) {
-            $routers_to_try[] = $matched_nas;
-            $seen_ips[$matched_nas['nasname']] = true;
+            $target_routers[] = $matched_nas;
         } else {
-            $routers_to_try[] = [
-                'nasname'      => $nas_ip_rad,
-                'api_user'     => $default_api_user,
+            $target_routers[] = [
+                'id' => 0,
+                'nasname' => $rad_active['nasipaddress'],
+                'shortname' => 'RADIUS Router (' . $rad_active['nasipaddress'] . ')',
+                'api_user' => $default_api_user,
                 'api_password' => $default_api_pass,
-                'api_port'     => $default_api_port
+                'api_port' => $default_api_port
             ];
-            $seen_ips[$nas_ip_rad] = true;
         }
     }
 
-    // Add remaining NAS devices
-    $nasStmt = $pdo->prepare("SELECT nasname, api_user, api_password, api_port FROM nas WHERE client_id = ? ORDER BY id ASC");
-    $nasStmt->execute([$client_id]);
-    while ($n = $nasStmt->fetch(PDO::FETCH_ASSOC)) {
-        if (!empty($n['nasname']) && !isset($seen_ips[$n['nasname']])) {
-            $routers_to_try[] = $n;
-            $seen_ips[$n['nasname']] = true;
+    // B. Only append other NAS routers if no specific NAS router was matched from radacct
+    if (empty($target_routers)) {
+        $target_routers = $all_nas;
+    }
+
+    // Fallback: clients table if still empty
+    if (empty($target_routers) && $client_id > 0) {
+        $cStmt = $pdo->prepare("SELECT mikrotik_ip, mikrotik_user, mikrotik_password, mikrotik_port FROM clients WHERE id = ?");
+        $cStmt->execute([$client_id]);
+        $client_conf = $cStmt->fetch(PDO::FETCH_ASSOC);
+        if (!empty($client_conf['mikrotik_ip'])) {
+            $target_routers[] = [
+                'id' => 0,
+                'nasname' => trim($client_conf['mikrotik_ip']),
+                'shortname' => 'Client Router',
+                'api_user' => !empty($client_conf['mikrotik_user']) ? trim($client_conf['mikrotik_user']) : $default_api_user,
+                'api_password' => isset($client_conf['mikrotik_password']) ? (string)$client_conf['mikrotik_password'] : $default_api_pass,
+                'api_port' => !empty($client_conf['mikrotik_port']) ? (int)$client_conf['mikrotik_port'] : $default_api_port
+            ];
         }
     }
 
-    // Fallback: clients table mikrotik_ip
-    if (!empty($client_conf['mikrotik_ip']) && !isset($seen_ips[$client_conf['mikrotik_ip']])) {
-        $routers_to_try[] = [
-            'nasname'      => trim($client_conf['mikrotik_ip']),
-            'api_user'     => $default_api_user,
-            'api_password' => $default_api_pass,
-            'api_port'     => $default_api_port
-        ];
-    }
-
+    // 3. Connect to candidate routers (Identical to operator/api_bandwidth.php)
     $any_router_logged_in = false;
 
-    foreach ($routers_to_try as $nas) {
+    foreach ($target_routers as $nas) {
         $nas_ip = trim($nas['nasname'] ?? '');
         $api_user = !empty($nas['api_user']) ? trim($nas['api_user']) : $default_api_user;
         $api_pass = isset($nas['api_password']) ? (string)$nas['api_password'] : $default_api_pass;
@@ -170,17 +182,17 @@ try {
         }
 
         $attempt_info = [
-            'ip'          => $nas_ip,
-            'port'        => $api_port,
-            'user'        => $api_user,
-            'sock_ok'     => false,
-            'sock_err'    => null,
-            'login_ok'    => false,
-            'user_found'  => false,
+            'ip' => $nas_ip,
+            'port' => $api_port,
+            'user' => $api_user,
+            'sock_ok' => false,
+            'sock_err' => null,
+            'login_ok' => false,
+            'user_found' => false,
             'speed_found' => false
         ];
 
-        // 1.2s socket probe
+        // 1.2s timeout socket check
         $errno = 0;
         $errstr = '';
         $sock = @fsockopen($nas_ip, $api_port, $errno, $errstr, 1.2);
@@ -207,160 +219,108 @@ try {
         $exact_mikrotik_username = null;
         $matched_ip = null;
 
-        // Method A: Check /ppp/active
-        $active_ppp = $api->comm('/ppp/active/print');
-        if (is_array($active_ppp)) {
-            foreach ($active_ppp as $session) {
-                $sess_name = strtolower($session['name'] ?? '');
-                $sess_ip = trim($session['address'] ?? '');
-
-                $is_match = ($sess_name === $username_lower);
-                if (!$is_match && $framed_ip && !empty($sess_ip) && $sess_ip === $framed_ip) {
-                    $is_match = true;
-                }
-
-                if ($is_match) {
-                    $found = true;
-                    $attempt_info['user_found'] = true;
-                    $exact_mikrotik_username = $session['name'] ?? $username;
-                    $matched_ip = $sess_ip ?: $framed_ip;
-                    $source = 'mikrotik';
-                    $uptime_str = $session['uptime'] ?? null;
-
-                    // Fallback bytes if present
-                    if (isset($session['bytes-in']) && isset($session['bytes-out'])) {
-                        $bytes_in = (float)$session['bytes-in'];
-                        $bytes_out = (float)$session['bytes-out'];
-                    }
-
-                    // A1. Query Simple Queue
-                    $q_names_to_try = array_unique(array_filter([
-                        '<pppoe-' . $exact_mikrotik_username . '>',
-                        '<pppoe-' . $username . '>',
-                        $exact_mikrotik_username,
-                        $username
-                    ]));
-
-                    $queue_found = false;
-                    foreach ($q_names_to_try as $qn) {
-                        $queue_res = $api->comm('/queue/simple/print', [
-                            '?name' => $qn
-                        ]);
-                        if (is_array($queue_res) && !empty($queue_res)) {
-                            $q_item = $queue_res[0];
-                            if (isset($q_item['bytes'])) {
-                                $b_parts = explode('/', $q_item['bytes']);
-                                if (count($b_parts) >= 2) {
-                                    $bytes_in = (float)trim($b_parts[0]);
-                                    $bytes_out = (float)trim($b_parts[1]);
-                                }
-                            }
-                            if (isset($q_item['rate'])) {
-                                $r_parts = explode('/', $q_item['rate']);
-                                if (count($r_parts) >= 2) {
-                                    $rx_bps = (float)trim($r_parts[0]);
-                                    $tx_bps = (float)trim($r_parts[1]);
-                                    $queue_found = true;
-                                    $attempt_info['speed_found'] = true;
-                                }
-                            }
-                            break;
-                        }
-                    }
-
-                    // A2. Fallback to /interface/monitor-traffic
-                    if (!$queue_found) {
-                        $if_names_to_try = array_unique(array_filter([
-                            '<pppoe-' . $exact_mikrotik_username . '>',
-                            '<pppoe-' . $username . '>'
-                        ]));
-
-                        foreach ($if_names_to_try as $if_name) {
-                            $mon = $api->comm('/interface/monitor-traffic', [
-                                'interface' => $if_name,
-                                'once'      => ''
-                            ]);
-                            if (is_array($mon) && !empty($mon)) {
-                                $mon_item = isset($mon[0]) ? $mon[0] : $mon;
-                                if (isset($mon_item['rx-bits-per-second']) || isset($mon_item['tx-bits-per-second'])) {
-                                    $rx_bps = (float)($mon_item['rx-bits-per-second'] ?? 0);
-                                    $tx_bps = (float)($mon_item['tx-bits-per-second'] ?? 0);
-                                    $attempt_info['speed_found'] = true;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    break;
-                }
-            }
+        // A. Check PPPoE Active - STRICT EXACT USERNAME MATCH ONLY
+        // 1. Direct query by username
+        $pRes = $api->comm('/ppp/active/print', ['?name' => $username]);
+        if (empty($pRes) && $username_lower !== $username) {
+            $pRes = $api->comm('/ppp/active/print', ['?name' => $username_lower]);
+        }
+        if (!empty($pRes) && isset($pRes[0]['name']) && strcasecmp(trim($pRes[0]['name']), $username) === 0) {
+            $exact_mikrotik_username = trim($pRes[0]['name']);
+            $matched_ip = trim($pRes[0]['address'] ?? '');
+            $uptime_str = $pRes[0]['uptime'] ?? null;
+            $attempt_info['user_found'] = true;
+            $found = true;
         }
 
-        // Method B: Check /ip/hotspot/active if not found
-        if (!$found) {
-            $active_hotspot = $api->comm('/ip/hotspot/active/print');
-            if (is_array($active_hotspot)) {
-                foreach ($active_hotspot as $session) {
-                    $sess_user = strtolower($session['user'] ?? '');
-                    $sess_ip = trim($session['address'] ?? '');
-
-                    $is_match = ($sess_user === $username_lower);
-                    if (!$is_match && $framed_ip && !empty($sess_ip) && $sess_ip === $framed_ip) {
-                        $is_match = true;
-                    }
-
-                    if ($is_match) {
-                        $found = true;
+        // 2. Full scan of PPPoE active if direct query didn't match (STRICT case-insensitive exact match ONLY)
+        if (!$exact_mikrotik_username) {
+            $all_ppp = $api->comm('/ppp/active/print');
+            if (is_array($all_ppp)) {
+                foreach ($all_ppp as $conn) {
+                    $cname = trim($conn['name'] ?? '');
+                    if (strcasecmp($cname, $username) === 0) {
+                        $exact_mikrotik_username = $cname;
+                        $matched_ip = trim($conn['address'] ?? '');
+                        $uptime_str = $conn['uptime'] ?? null;
                         $attempt_info['user_found'] = true;
-                        $exact_mikrotik_username = $session['user'] ?? $username;
-                        $source = 'mikrotik';
-                        $uptime_str = $session['uptime'] ?? null;
-                        if (isset($session['bytes-in'])) $bytes_in = (float)$session['bytes-in'];
-                        if (isset($session['bytes-out'])) $bytes_out = (float)$session['bytes-out'];
-
-                        $queue_res = $api->comm('/queue/simple/print', [
-                            '?name' => $exact_mikrotik_username
-                        ]);
-                        if (is_array($queue_res) && !empty($queue_res)) {
-                            $q_item = $queue_res[0];
-                            if (isset($q_item['rate'])) {
-                                $r_parts = explode('/', $q_item['rate']);
-                                if (count($r_parts) >= 2) {
-                                    $rx_bps = (float)trim($r_parts[0]);
-                                    $tx_bps = (float)trim($r_parts[1]);
-                                    $attempt_info['speed_found'] = true;
-                                }
-                            }
-                        }
+                        $found = true;
                         break;
                     }
                 }
             }
         }
 
-        // Method C: Direct Simple Queue check if still not found
+        // B. Check Hotspot active if not found in PPPoE - STRICT EXACT USERNAME MATCH ONLY
         if (!$found) {
-            $q_match = $api->comm('/queue/simple/print', [
-                '?name' => $username
-            ]);
-            if (is_array($q_match) && !empty($q_match)) {
+            $hs = $api->comm('/ip/hotspot/active/print', ['?user' => $username]);
+            if (empty($hs) && $username_lower !== $username) {
+                $hs = $api->comm('/ip/hotspot/active/print', ['?user' => $username_lower]);
+            }
+            if (!empty($hs) && isset($hs[0]['user']) && strcasecmp(trim($hs[0]['user']), $username) === 0) {
+                $bytes_in = (float)($hs[0]['bytes-in'] ?? 0);
+                $bytes_out = (float)($hs[0]['bytes-out'] ?? 0);
+                $uptime_str = $hs[0]['uptime'] ?? null;
+                $matched_ip = trim($hs[0]['address'] ?? '');
+                $exact_mikrotik_username = trim($hs[0]['user']);
                 $found = true;
                 $attempt_info['user_found'] = true;
-                $source = 'mikrotik';
-                $q_item = $q_match[0];
-                if (isset($q_item['bytes'])) {
-                    $b_parts = explode('/', $q_item['bytes']);
-                    if (count($b_parts) >= 2) {
-                        $bytes_in = (float)trim($b_parts[0]);
-                        $bytes_out = (float)trim($b_parts[1]);
+            }
+        }
+
+        // C. ONLY IF the subscriber is confirmed active on this router, query Simple Queue or Interface Monitor
+        if ($found && !empty($exact_mikrotik_username)) {
+            $u_target = $exact_mikrotik_username;
+
+            // Simple Queues for this exact user
+            $cand_queues = [
+                '<pppoe-' . $u_target . '>',
+                $u_target,
+                '<' . $u_target . '>'
+            ];
+            $found_queue = null;
+            foreach ($cand_queues as $cq) {
+                $qres = $api->comm('/queue/simple/print', ['?name' => $cq]);
+                if (!empty($qres) && is_array($qres) && isset($qres[0]['name'])) {
+                    $found_queue = $qres[0];
+                    break;
+                }
+            }
+
+            if ($found_queue) {
+                if (!empty($found_queue['rate'])) {
+                    $rparts = explode('/', (string)$found_queue['rate']);
+                    $rx_bps = (float)($rparts[0] ?? 0); // Upload
+                    $tx_bps = (float)($rparts[1] ?? 0); // Download
+                    if ($rx_bps > 0 || $tx_bps > 0) {
+                        $attempt_info['speed_found'] = true;
                     }
                 }
-                if (isset($q_item['rate'])) {
-                    $r_parts = explode('/', $q_item['rate']);
-                    if (count($r_parts) >= 2) {
-                        $rx_bps = (float)trim($r_parts[0]);
-                        $tx_bps = (float)trim($r_parts[1]);
+                if ($bytes_in == 0 && $bytes_out == 0 && !empty($found_queue['bytes'])) {
+                    $bparts = explode('/', (string)$found_queue['bytes']);
+                    $bytes_in = (float)($bparts[0] ?? 0);
+                    $bytes_out = (float)($bparts[1] ?? 0);
+                }
+            }
+
+            // Interface monitor-traffic if rates still 0 (PPPoE interface only, NEVER generic physical ports)
+            if ($rx_bps == 0 && $tx_bps == 0) {
+                $cand_ifaces = [
+                    '<pppoe-' . $u_target . '>',
+                    'pppoe-' . $u_target,
+                    '<sstp-' . $u_target . '>',
+                    '<l2tp-' . $u_target . '>'
+                ];
+                foreach ($cand_ifaces as $cif) {
+                    $traffic = $api->comm('/interface/monitor-traffic', [
+                        'interface' => $cif,
+                        'once'      => ''
+                    ]);
+                    if (!empty($traffic) && is_array($traffic) && isset($traffic[0]['rx-bits-per-second'])) {
+                        $rx_bps = (float)$traffic[0]['rx-bits-per-second'];
+                        $tx_bps = (float)$traffic[0]['tx-bits-per-second'];
                         $attempt_info['speed_found'] = true;
+                        break;
                     }
                 }
             }
@@ -370,20 +330,45 @@ try {
         $diag['attempts'][] = $attempt_info;
 
         if ($found) {
+            $source = 'mikrotik';
             break;
         }
     }
 
-    // 3. Fallback to RADIUS Accounting if MikroTik API was unavailable or did not report
-    if (!$found && !empty($rad_active)) {
-        $found = true;
-        $source = 'radius';
+    // 4. Authoritative check: If routers were reached and confirmed subscriber is NOT active on any router:
+    if (!$found && $any_router_logged_in) {
+        if (!empty($rad_active)) {
+            try {
+                $pdo->prepare("UPDATE radacct SET acctstoptime = NOW(), acctterminatecause = 'Lost-Carrier' WHERE username = ? AND acctstoptime IS NULL")->execute([$username]);
+            } catch (Exception $e) {}
+            $rad_active = null;
+        }
+
+        echo json_encode([
+            'status'        => 'offline',
+            'source'        => 'none',
+            'bytes_in'      => 0,
+            'bytes_out'     => 0,
+            'rx_bps'        => 0,
+            'tx_bps'        => 0,
+            'uptime'        => null,
+            'is_prev_cycle' => false,
+            'diag'          => $diag,
+            'ts'            => microtime(true)
+        ]);
+        exit;
+    }
+
+    // 5. Fallback to FreeRADIUS radacct ONLY if NO router API could be reached AND user is not expired
+    if (!$found && !empty($rad_active) && !$is_expired_sub && !$any_router_logged_in) {
         $bytes_in = (float)($rad_active['acctinputoctets'] ?? 0);
         $bytes_out = (float)($rad_active['acctoutputoctets'] ?? 0);
-        $uptime_sec = (int)($rad_active['acctsessiontime'] ?? 0);
-        $u_hours = floor($uptime_sec / 3600);
-        $u_mins = floor(($uptime_sec % 3600) / 60);
-        $uptime_str = ($u_hours > 0 ? "{$u_hours}h " : "") . "{$u_mins}m";
+        $secs = (int)($rad_active['acctsessiontime'] ?? 0);
+        $hours = floor($secs / 3600);
+        $mins = floor(($secs % 3600) / 60);
+        $uptime_str = "{$hours}h {$mins}m";
+        $found = true;
+        $source = 'radius';
         $rx_bps = 0;
         $tx_bps = 0;
     } elseif ($found && $bytes_in == 0 && $bytes_out == 0 && !empty($rad_active)) {

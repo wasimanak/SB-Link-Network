@@ -1052,7 +1052,7 @@ function fetchLiveBandwidth() {
 
     isFetchingBw = true;
 
-    fetch(`api_bandwidth.php?_=${Date.now()}`, {
+    fetch(`api_bandwidth.php?username=<?= urlencode($username) ?>&sub_id=<?= (int)($current_user['id'] ?? 0) ?>&_=${Date.now()}`, {
         cache: 'no-store'
     })
         .then(res => res.json())
