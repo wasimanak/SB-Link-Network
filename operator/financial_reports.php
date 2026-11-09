@@ -33,7 +33,6 @@ if (!$is_mgr) {
 }
 
 // 3. Fetch Subscribers with Assigned Packages and Dynamic Dealer Pricing
-// Note: Direct admin customers pay package price; Dealer customers pay dealer wholesale + profit
 $query = "
     SELECT s.id, s.username, s.full_name, s.mobile, s.phone, s.address, s.subarea,
            s.status, s.expiry_date, s.balance, s.dealer_id, s.package_id,
@@ -53,7 +52,7 @@ $query = "
     LEFT JOIN dealer_packages dp ON (s.dealer_id = dp.dealer_id AND s.package_id = dp.package_id)
     LEFT JOIN dealers d ON s.dealer_id = d.id
     WHERE s.client_id = ? $mgr_sub_filter $dealer_filter_sql
-    ORDER BY s.username ASC
+    ORDER BY s.full_name ASC, s.username ASC
 ";
 $stmt = $pdo->prepare($query);
 $stmt->execute([$client_id]);
@@ -240,8 +239,8 @@ $initial_tab = isset($_GET['tab']) && in_array($_GET['tab'], ['total', 'collecte
 
     /* Copy Button */
     .copy-user-btn {
-        width: 28px;
-        height: 28px;
+        width: 26px;
+        height: 26px;
         border-radius: 6px;
         color: #64748b;
         background: #f8fafc;
@@ -349,7 +348,7 @@ $initial_tab = isset($_GET['tab']) && in_array($_GET['tab'], ['total', 'collecte
 
         <!-- Card 1: Total Expected Monthly Recovery -->
         <div class="col-12 col-sm-6 col-xl-3">
-            <div class="metric-selection-card <?= ($initial_tab === 'total') ? 'active-card' : '' ?>" data-tab="total" onclick="selectReportCard('total')">
+            <div class="metric-selection-card <?= ($initial_tab === 'total') ? 'active-card' : '' ?>" data-tab="total" onclick="selectReportCard('total', event)">
                 <span class="active-pill-badge bg-primary text-white">Selected</span>
                 <div class="d-flex justify-content-between align-items-start">
                     <div class="metric-icon-wrap" style="background: rgba(135, 38, 209, 0.12); color: #8726d1;">
@@ -367,14 +366,16 @@ $initial_tab = isset($_GET['tab']) && in_array($_GET['tab'], ['total', 'collecte
                 </h3>
                 <div class="d-flex align-items-center justify-content-between text-muted small mt-2 pt-2 border-top">
                     <span>Full Month Target</span>
-                    <span class="fw-bold text-primary" style="font-size: 0.75rem;"><i class="fa-solid fa-arrow-pointer me-1"></i> View All</span>
+                    <a href="javascript:void(0)" onclick="selectReportCard('total', event)" class="btn btn-sm btn-outline-primary rounded-pill px-3 py-1 fw-bold shadow-sm" style="font-size: 0.75rem;">
+                        <i class="fa-solid fa-arrow-pointer me-1"></i> View All Users
+                    </a>
                 </div>
             </div>
         </div>
 
         <!-- Card 2: Collected Recovery -->
         <div class="col-12 col-sm-6 col-xl-3">
-            <div class="metric-selection-card <?= ($initial_tab === 'collected') ? 'active-card' : '' ?>" data-tab="collected" onclick="selectReportCard('collected')">
+            <div class="metric-selection-card <?= ($initial_tab === 'collected') ? 'active-card' : '' ?>" data-tab="collected" onclick="selectReportCard('collected', event)">
                 <span class="active-pill-badge bg-success text-white">Selected</span>
                 <div class="d-flex justify-content-between align-items-start">
                     <div class="metric-icon-wrap" style="background: rgba(16, 185, 129, 0.12); color: #10b981;">
@@ -392,14 +393,16 @@ $initial_tab = isset($_GET['tab']) && in_array($_GET['tab'], ['total', 'collecte
                 </h3>
                 <div class="d-flex align-items-center justify-content-between text-muted small mt-2 pt-2 border-top">
                     <span><?= $collected_percent ?>% of Target Paid</span>
-                    <span class="fw-bold text-success" style="font-size: 0.75rem;"><i class="fa-solid fa-arrow-pointer me-1"></i> View Paid</span>
+                    <a href="javascript:void(0)" onclick="selectReportCard('collected', event)" class="btn btn-sm btn-outline-success rounded-pill px-3 py-1 fw-bold shadow-sm" style="font-size: 0.75rem;">
+                        <i class="fa-solid fa-arrow-pointer me-1"></i> View Paid Users
+                    </a>
                 </div>
             </div>
         </div>
 
         <!-- Card 3: Remaining Recovery -->
         <div class="col-12 col-sm-6 col-xl-3">
-            <div class="metric-selection-card <?= ($initial_tab === 'remaining') ? 'active-card' : '' ?>" data-tab="remaining" onclick="selectReportCard('remaining')">
+            <div class="metric-selection-card <?= ($initial_tab === 'remaining') ? 'active-card' : '' ?>" data-tab="remaining" onclick="selectReportCard('remaining', event)">
                 <span class="active-pill-badge bg-warning text-dark">Selected</span>
                 <div class="d-flex justify-content-between align-items-start">
                     <div class="metric-icon-wrap" style="background: rgba(245, 158, 11, 0.12); color: #f59e0b;">
@@ -417,14 +420,16 @@ $initial_tab = isset($_GET['tab']) && in_array($_GET['tab'], ['total', 'collecte
                 </h3>
                 <div class="d-flex align-items-center justify-content-between text-muted small mt-2 pt-2 border-top">
                     <span>Yet to be Collected</span>
-                    <span class="fw-bold text-warning" style="font-size: 0.75rem;"><i class="fa-solid fa-arrow-pointer me-1"></i> View Unpaid</span>
+                    <a href="javascript:void(0)" onclick="selectReportCard('remaining', event)" class="btn btn-sm btn-outline-warning rounded-pill px-3 py-1 fw-bold text-dark shadow-sm" style="font-size: 0.75rem;">
+                        <i class="fa-solid fa-arrow-pointer me-1"></i> View Unpaid Users
+                    </a>
                 </div>
             </div>
         </div>
 
         <!-- Card 4: Pending Users (Package Renewed but Money Not Submitted / Minus Balance) -->
         <div class="col-12 col-sm-6 col-xl-3">
-            <div class="metric-selection-card <?= ($initial_tab === 'pending') ? 'active-card' : '' ?>" data-tab="pending" onclick="selectReportCard('pending')">
+            <div class="metric-selection-card <?= ($initial_tab === 'pending') ? 'active-card' : '' ?>" data-tab="pending" onclick="selectReportCard('pending', event)">
                 <span class="active-pill-badge bg-danger text-white">Selected</span>
                 <div class="d-flex justify-content-between align-items-start">
                     <div class="metric-icon-wrap" style="background: rgba(239, 68, 68, 0.12); color: #ef4444;">
@@ -442,7 +447,9 @@ $initial_tab = isset($_GET['tab']) && in_array($_GET['tab'], ['total', 'collecte
                 </h3>
                 <div class="d-flex align-items-center justify-content-between text-muted small mt-2 pt-2 border-top">
                     <span>Renewed on Udhaar</span>
-                    <span class="fw-bold text-danger" style="font-size: 0.75rem;"><i class="fa-solid fa-arrow-pointer me-1"></i> View Pending</span>
+                    <a href="javascript:void(0)" onclick="selectReportCard('pending', event)" class="btn btn-sm btn-outline-danger rounded-pill px-3 py-1 fw-bold shadow-sm" style="font-size: 0.75rem;">
+                        <i class="fa-solid fa-arrow-pointer me-1"></i> View Pending Users
+                    </a>
                 </div>
             </div>
         </div>
@@ -457,7 +464,7 @@ $initial_tab = isset($_GET['tab']) && in_array($_GET['tab'], ['total', 'collecte
             <div>
                 <div class="d-flex align-items-center gap-2">
                     <h5 class="fw-bold mb-0 text-dark" id="selectedSectionTitle">
-                        <i class="fa-solid fa-list-check text-primary me-2"></i> All Users: Expected Monthly Recovery
+                        <i class="fa-solid fa-coins text-primary me-2"></i> All Users: Expected Monthly Recovery
                     </h5>
                     <span class="badge rounded-pill bg-dark text-white px-2 py-1 small" id="selectedSectionCount">
                         <?= number_format($count_total) ?> Users
@@ -470,16 +477,16 @@ $initial_tab = isset($_GET['tab']) && in_array($_GET['tab'], ['total', 'collecte
 
             <!-- Category Fast Pills -->
             <div class="d-flex align-items-center gap-1 bg-light p-1 rounded-pill border">
-                <button type="button" class="btn btn-sm rounded-pill fw-semibold px-3 py-1 tab-pill-btn active" data-tab="total" onclick="selectReportCard('total')">
+                <button type="button" class="btn btn-sm rounded-pill fw-semibold px-3 py-1 tab-pill-btn active btn-primary text-white" data-tab="total" onclick="selectReportCard('total', event)">
                     All (<?= $count_total ?>)
                 </button>
-                <button type="button" class="btn btn-sm rounded-pill fw-semibold px-3 py-1 tab-pill-btn text-success" data-tab="collected" onclick="selectReportCard('collected')">
+                <button type="button" class="btn btn-sm rounded-pill fw-semibold px-3 py-1 tab-pill-btn text-success" data-tab="collected" onclick="selectReportCard('collected', event)">
                     Collected (<?= $count_collected ?>)
                 </button>
-                <button type="button" class="btn btn-sm rounded-pill fw-semibold px-3 py-1 tab-pill-btn text-warning" data-tab="remaining" onclick="selectReportCard('remaining')">
+                <button type="button" class="btn btn-sm rounded-pill fw-semibold px-3 py-1 tab-pill-btn text-warning" data-tab="remaining" onclick="selectReportCard('remaining', event)">
                     Remaining (<?= $count_remaining ?>)
                 </button>
-                <button type="button" class="btn btn-sm rounded-pill fw-semibold px-3 py-1 tab-pill-btn text-danger" data-tab="pending" onclick="selectReportCard('pending')">
+                <button type="button" class="btn btn-sm rounded-pill fw-semibold px-3 py-1 tab-pill-btn text-danger" data-tab="pending" onclick="selectReportCard('pending', event)">
                     Pending / Udhaar (<?= $count_pending ?>)
                 </button>
             </div>
@@ -491,15 +498,14 @@ $initial_tab = isset($_GET['tab']) && in_array($_GET['tab'], ['total', 'collecte
                 <thead>
                     <tr>
                         <th style="width: 45px;">#</th>
-                        <th>Subscriber / Username</th>
-                        <th>Customer Name</th>
+                        <th>Customer Name & Username</th>
                         <th>Contact / Phone</th>
                         <th>Package Plan</th>
                         <th class="text-end">Package Price</th>
                         <th class="text-end">Month Paid</th>
                         <th class="text-end">Current Balance</th>
                         <th>Expiry Status</th>
-                        <th class="text-center" style="width: 90px;">Action</th>
+                        <th class="text-center" style="width: 80px;">Action</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -517,37 +523,33 @@ $initial_tab = isset($_GET['tab']) && in_array($_GET['tab'], ['total', 'collecte
                         $bal = (float)$s['balance'];
                         $is_expired = (!empty($s['expiry_date']) && strtotime($s['expiry_date']) < time());
                     ?>
-                    <tr data-categories="<?= $s['categories'] ?>" data-username="<?= htmlspecialchars($s['username']) ?>">
+                    <tr data-categories="<?= $s['categories'] ?>" data-username="<?= htmlspecialchars($s['username']) ?>" data-fullname="<?= htmlspecialchars($s['full_name'] ?: '') ?>">
                         <!-- Sr -->
                         <td class="text-muted fw-bold"><?= $idx ?></td>
 
-                        <!-- Username with Profile Link & Copy Button -->
+                        <!-- Combined 1st Column: Full Name (Larger) + Username (Smaller) below it with copy button -->
                         <td>
-                            <div class="d-inline-flex align-items-center gap-1">
-                                <a href="subscriber_view.php?id=<?= $s['id'] ?>" class="text-decoration-none" title="Open Subscriber Profile">
-                                    <span class="badge rounded-pill badge-soft-primary px-3 py-2 fw-bold" style="font-size: 0.88rem;">
-                                        <i class="fa-solid fa-user me-1"></i> <?= htmlspecialchars($s['username']) ?>
+                            <div class="fw-bold text-dark fs-6" style="letter-spacing: -0.2px;">
+                                <?= htmlspecialchars($s['full_name'] ?: 'N/A') ?>
+                            </div>
+                            <div class="d-inline-flex align-items-center gap-1 mt-1">
+                                <a href="subscriber_view.php?id=<?= $s['id'] ?>" class="text-decoration-none fw-semibold" title="Open Profile">
+                                    <span class="badge rounded-pill badge-soft-primary px-2 py-1 fw-bold" style="font-size: 0.78rem;">
+                                        <i class="fa-solid fa-user me-1"></i><?= htmlspecialchars($s['username']) ?>
                                     </span>
                                 </a>
                                 <button type="button" 
                                         class="copy-user-btn" 
                                         onclick="copyToClipboard(event, '<?= addslashes(htmlspecialchars($s['username'])) ?>', this)" 
-                                        title="Copy Username to Clipboard">
-                                    <i class="fa-regular fa-copy" style="font-size: 0.8rem;"></i>
+                                        title="Copy Username">
+                                    <i class="fa-regular fa-copy" style="font-size: 0.72rem;"></i>
                                 </button>
+                                <?php if (!empty($s['dealer_name'])): ?>
+                                    <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary-subtle px-2 py-0 ms-1" style="font-size: 0.68rem;" title="Dealers Customer">
+                                        <i class="fa-solid fa-user-tie me-1"></i> <?= htmlspecialchars($s['dealer_name']) ?>
+                                    </span>
+                                <?php endif; ?>
                             </div>
-                        </td>
-
-                        <!-- Customer Name & Dealer Tag -->
-                        <td>
-                            <div class="fw-bold text-dark"><?= htmlspecialchars($s['full_name'] ?: 'N/A') ?></div>
-                            <?php if (!empty($s['dealer_name'])): ?>
-                                <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary-subtle px-2 py-0" style="font-size: 0.68rem;" title="Dealers Customer">
-                                    <i class="fa-solid fa-user-tie me-1"></i> <?= htmlspecialchars($s['dealer_name']) ?>
-                                </span>
-                            <?php else: ?>
-                                <span class="badge bg-light text-muted border px-1 py-0" style="font-size: 0.66rem;">Direct User</span>
-                            <?php endif; ?>
                         </td>
 
                         <!-- Contact / WhatsApp -->
@@ -646,6 +648,9 @@ $initial_tab = isset($_GET['tab']) && in_array($_GET['tab'], ['total', 'collecte
 
 </div>
 
+<!-- jQuery (Required before DataTables) -->
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+
 <!-- DataTables Scripts -->
 <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
 <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
@@ -682,68 +687,82 @@ const sectionInfo = {
     }
 };
 
-$(document).ready(function() {
-    // Custom filter for category matching
-    $.fn.dataTable.ext.search.push(function(settings, data, dataIndex) {
-        if (currentCategory === 'total') return true;
-        let rowNode = settings.aoData[dataIndex].nTr;
-        if (!rowNode) return true;
-        let cats = $(rowNode).attr('data-categories') || '';
-        return cats.includes(currentCategory);
-    });
+// Register custom filter with DataTables
+$.fn.dataTable.ext.search.push(function(settings, data, dataIndex) {
+    if (!currentCategory || currentCategory === 'total') return true;
+    let rowNode = settings.aoData[dataIndex] ? settings.aoData[dataIndex].nTr : null;
+    if (!rowNode) return true;
+    let cats = $(rowNode).attr('data-categories') || '';
+    let catArray = cats.trim().split(/\s+/);
+    return catArray.includes(currentCategory);
+});
 
+$(document).ready(function() {
     dataTableInstance = $('#financialTable').DataTable({
-        pageLength: 25,
-        lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
-        order: [[0, 'asc']],
-        dom: "<'row'<'col-sm-12 col-md-6 d-flex align-items-center gap-2'B><'col-sm-12 col-md-6'f>>" +
-             "<'row'<'col-sm-12'tr>>" +
-             "<'row'<'col-sm-12 col-md-5'i><'col-sm-12 col-md-7'p>>",
+        pageLength: 50,
+        lengthMenu: [[25, 50, 100, 200, -1], [25, 50, 100, 200, "All"]],
+        order: [[1, 'asc']],
+        dom: '<"row align-items-center mb-3"<"col-md-3"l><"col-md-5 dt-buttons"B><"col-md-4"f>>rt<"row align-items-center mt-3"<"col-md-6"i><"col-md-6"p>>',
         buttons: [
             {
                 extend: 'excelHtml5',
-                text: '<i class="fa-solid fa-file-excel me-1"></i> Excel Export',
+                text: '<i class="fa-solid fa-file-excel me-1 text-success"></i> Excel Export',
                 className: 'btn btn-sm btn-outline-success',
                 title: 'Financial Recovery Report - <?= $month_label ?>'
             },
             {
                 extend: 'csvHtml5',
-                text: '<i class="fa-solid fa-file-csv me-1"></i> CSV',
+                text: '<i class="fa-solid fa-file-csv me-1 text-secondary"></i> CSV',
                 className: 'btn btn-sm btn-outline-secondary'
             },
             {
                 extend: 'print',
-                text: '<i class="fa-solid fa-print me-1"></i> Print',
+                text: '<i class="fa-solid fa-print me-1 text-dark"></i> Print',
                 className: 'btn btn-sm btn-outline-dark'
             }
         ],
         language: {
+            lengthMenu: "Show _MENU_ users per page",
+            info: "Showing _START_ to _END_ of _TOTAL_ subscribers",
+            infoEmpty: "Showing 0 to 0 of 0 subscribers",
+            infoFiltered: "(filtered from _MAX_ total subscribers)",
             search: "_INPUT_",
-            searchPlaceholder: "Search user, phone, package..."
+            searchPlaceholder: "Search by Name, Username, Phone, Package...",
+            paginate: {
+                first: '<i class="fa-solid fa-angles-left"></i>',
+                last: '<i class="fa-solid fa-angles-right"></i>',
+                next: '<i class="fa-solid fa-chevron-right"></i>',
+                previous: '<i class="fa-solid fa-chevron-left"></i>'
+            }
         }
     });
 
-    // Apply initial tab
-    selectReportCard(currentCategory, false);
+    // Apply initial tab filter
+    selectReportCard(currentCategory, null, false);
 });
 
-function selectReportCard(tab, updateUrl = true) {
+function selectReportCard(tab, event, updateUrl = true) {
+    if (event) {
+        if (typeof event.preventDefault === 'function') event.preventDefault();
+        if (typeof event.stopPropagation === 'function') event.stopPropagation();
+    }
+
     currentCategory = tab;
 
     // Update Card Active Classes
     $('.metric-selection-card').removeClass('active-card');
     $(`.metric-selection-card[data-tab="${tab}"]`).addClass('active-card');
 
-    // Update Pill Buttons
-    $('.tab-pill-btn').removeClass('active btn-primary btn-success btn-warning btn-danger');
+    // Update Fast Pill Buttons
+    $('.tab-pill-btn').removeClass('active btn-primary btn-success btn-warning btn-danger text-white');
     let activePill = $(`.tab-pill-btn[data-tab="${tab}"]`);
-    activePill.addClass('active');
+    activePill.addClass('active text-white');
     if (tab === 'total') activePill.addClass('btn-primary');
     else if (tab === 'collected') activePill.addClass('btn-success');
     else if (tab === 'remaining') activePill.addClass('btn-warning');
     else if (tab === 'pending') activePill.addClass('btn-danger');
 
-    // Update Section Title & Description
+    // Update Section Title, Count & Description
     if (sectionInfo[tab]) {
         $('#selectedSectionTitle').html(sectionInfo[tab].title);
         $('#selectedSectionCount').text(sectionInfo[tab].count);
