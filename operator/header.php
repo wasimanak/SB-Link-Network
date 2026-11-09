@@ -83,7 +83,7 @@ $filter = $_GET['filter'] ?? '';
 $isUserMenu = in_array($p, ['subscribers.php', 'subscribers', 'live_sessions.php', 'live_sessions', 'subscriber_add.php', 'subscriber_edit.php', 'subscriber_view.php']);
 $isTeamMenu = in_array($p, ['recovery_man.php', 'recovery_man', 'recoveryman_profile.php', 'recoveryman_profile', 'line_man.php', 'line_man', 'lineman_profile.php', 'lineman_profile', 'managers.php', 'managers', 'manager_view.php']);
 $isDealerMenu = in_array($p, ['dealers.php', 'dealers', 'dealer_view.php', 'dealer_view']);
-$isAccMenu = in_array($p, ['invoices.php', 'invoices', 'expenses.php', 'expenses', 'net_worth.php', 'net_worth', 'fund_requests.php', 'fund_requests']);
+$isAccMenu = in_array($p, ['invoices.php', 'invoices', 'expenses.php', 'expenses', 'net_worth.php', 'net_worth', 'fund_requests.php', 'fund_requests', 'financial_reports.php', 'financial_reports']);
 $isTicketMenu = in_array($p, ['support_tickets.php', 'support_tickets', 'view_ticket.php', 'view_ticket', 'requests.php', 'requests']);
 $isRechargeMenu = in_array($p, ['packages.php', 'packages', 'payment_gateways.php', 'payment_gateways', 'package_users.php', 'package_users']);
 $isLogsMenu = in_array($p, ['activity_logs.php', 'activity_logs', 'package_logs.php', 'package_logs', 'session_logs.php', 'session_logs', 'ip_pools.php', 'ip_pools', 'auth_logs.php', 'auth_logs']);
@@ -664,12 +664,19 @@ $userRoleLabel = !empty($_SESSION['is_manager']) ? 'MANAGER' : 'ADMIN';
             </a>
             <div class="collapse <?= $isAccMenu ? 'show' : '' ?>" id="transMenu">
                 <ul class="submenu-tree">
+                    <li class="submenu-tree-item"><a href="financial_reports" class="<?= in_array($p, ['financial_reports.php', 'financial_reports']) ? 'active' : '' ?>"><i class="fa-solid fa-chart-line me-1 text-primary"></i> Financial Reports</a></li>
                     <li class="submenu-tree-item"><a href="invoices" class="<?= in_array($p, ['invoices.php', 'invoices']) ? 'active' : '' ?>">Invoices / Receipts</a></li>
                     <li class="submenu-tree-item"><a href="fund_requests" class="<?= in_array($p, ['fund_requests.php', 'fund_requests']) ? 'active' : '' ?>">Payments / Fund Requests</a></li>
                     <li class="submenu-tree-item"><a href="expenses" class="<?= in_array($p, ['expenses.php', 'expenses']) ? 'active' : '' ?>">Daily Expenses</a></li>
                     <li class="submenu-tree-item"><a href="net_worth" class="<?= in_array($p, ['net_worth.php', 'net_worth']) ? 'active' : '' ?>">Business Net Worth</a></li>
                 </ul>
             </div>
+
+            <!-- 6b. Financial Reports (Direct Button) -->
+            <a href="financial_reports" class="nav-item-link <?= in_array($p, ['financial_reports.php', 'financial_reports']) ? 'active-parent' : '' ?>">
+                <i class="fa-solid fa-chart-pie nav-icon" style="color: #8726d1;"></i>
+                <span class="nav-text">Financial Reports</span>
+            </a>
 
             <!-- 7. Complain -->
             <a href="#complainMenu" data-bs-toggle="collapse" class="nav-item-link has-submenu <?= $isTicketMenu ? 'active-parent' : 'collapsed' ?>" aria-expanded="<?= $isTicketMenu ? 'true' : 'false' ?>">

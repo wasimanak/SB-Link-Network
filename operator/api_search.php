@@ -22,6 +22,7 @@ $results = [];
 // 1. Static Pages & Functions
 $pages = [
     ['title' => 'Dashboard / Home', 'url' => 'dashboard', 'icon' => 'fa-house'],
+    ['title' => 'Financial Reports (Monthly Recovery)', 'url' => 'financial_reports', 'icon' => 'fa-chart-pie'],
     ['title' => 'All Users / Subscribers', 'url' => 'subscribers', 'icon' => 'fa-users'],
     ['title' => 'Add New User', 'url' => 'subscribers', 'icon' => 'fa-user-plus'],
     ['title' => 'Online Users / Live Sessions', 'url' => 'live_sessions', 'icon' => 'fa-wifi'],
