@@ -28,6 +28,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         exit;
     }
     $amount = (float)$_POST['amount'];
+    $reference = trim($_POST['reference'] ?? '');
     
     if ($amount > 0 && $amount <= $rm['cash_in_hand']) {
         try {
@@ -49,13 +50,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 } catch (Exception $e) {}
             }
 
-            // Log the activity
-            $log_msg = "Collected Cash Rs. " . number_format($amount, 0) . " from Operator";
+            // Log the activity with Reference if provided
+            $ref_clean = mb_substr($reference, 0, 120);
+            $ref_part = !empty($ref_clean) ? " [Ref: " . $ref_clean . "]" : "";
+            $log_msg = "Collected Cash Rs. " . number_format($amount, 0) . " from Operator" . $ref_part;
             $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, ?, ?, ?, 'RecoveryMan', ?)")
                 ->execute([$client_id, $mgr_id, $collector_name, $collector_role, $rm['full_name'], $log_msg]);
                 
             $pdo->commit();
-            echo "<script>alert('Cash collected successfully!'); window.location='recoveryman_profile.php?id=$rm_id';</script>";
+            $ret_tab = !empty($_POST['return_tab']) ? trim($_POST['return_tab']) : 'statement';
+            echo "<script>alert('Cash collected successfully!'); window.location='recoveryman_profile.php?id=$rm_id&tab=$ret_tab#$ret_tab';</script>";
             exit;
         } catch (Exception $e) {
             $pdo->rollBack();
@@ -434,6 +438,14 @@ foreach ($raw_stmt_submissions as $sub) {
     if (preg_match('/Rs\.\s*([\d,.]+)/i', $sub['activity'], $m)) {
         $sub_amt = (float)str_replace(',', '', $m[1]);
     }
+
+    $sub_ref = '';
+    if (preg_match('/\[Ref:\s*([^\]]+)\]/i', $sub['activity'], $rmMatch)) {
+        $sub_ref = trim($rmMatch[1]);
+    } elseif (preg_match('/-\s*Ref:\s*(.+)$/i', $sub['activity'], $rmMatch)) {
+        $sub_ref = trim($rmMatch[1]);
+    }
+
     if ($sub_amt > 0) {
         $statement_entries[] = [
             'id' => 'sub_' . $sub['id'],
@@ -446,6 +458,7 @@ foreach ($raw_stmt_submissions as $sub) {
             'party_role' => !empty($sub['by_role']) ? $sub['by_role'] : 'Admin',
             'sub_id' => null,
             'sub_mobile' => '',
+            'reference' => $sub_ref,
             'remarks' => $sub['activity'] ?? '',
             'credit' => 0.0,
             'debit' => $sub_amt,
@@ -921,6 +934,7 @@ function applyRmDatePreset(preset) {
                                 <th>Date & Time</th>
                                 <th>Collected By</th>
                                 <th>Amount Submitted</th>
+                                <th>Reference / Purpose</th>
                                 <th>Activity Details</th>
                             </tr>
                         </thead>
@@ -931,11 +945,26 @@ function applyRmDatePreset(preset) {
                                 if (preg_match('/Rs\.\s*([\d,.]+)/', $sub['activity'], $m)) {
                                     $amount_text = $m[1];
                                 }
+                                $sub_ref_disp = '';
+                                if (preg_match('/\[Ref:\s*([^\]]+)\]/i', $sub['activity'], $rmMatch)) {
+                                    $sub_ref_disp = trim($rmMatch[1]);
+                                } elseif (preg_match('/-\s*Ref:\s*(.+)$/i', $sub['activity'], $rmMatch)) {
+                                    $sub_ref_disp = trim($rmMatch[1]);
+                                }
                             ?>
                             <tr>
                                 <td data-order="<?= strtotime($sub['created_at']) ?>" class="text-secondary small fw-bold" style="white-space: nowrap;"><?= date('d M Y, h:i A', strtotime($sub['created_at'])) ?></td>
-                                <td><span class="badge bg-dark"><?= htmlspecialchars($sub['by_user']) ?> (Operator)</span></td>
+                                <td><span class="badge bg-dark"><?= htmlspecialchars($sub['by_user']) ?> (<?= !empty($sub['by_role']) ? htmlspecialchars($sub['by_role']) : 'Admin' ?>)</span></td>
                                 <td class="text-danger fw-bold fs-6">Rs. <?= $amount_text ?></td>
+                                <td>
+                                    <?php if (!empty($sub_ref_disp)): ?>
+                                        <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 rounded-pill px-2.5 py-1 fw-bold">
+                                            <i class="fa-solid fa-tag me-1 text-primary"></i> <?= htmlspecialchars($sub_ref_disp) ?>
+                                        </span>
+                                    <?php else: ?>
+                                        <span class="text-muted small fst-italic">No reference</span>
+                                    <?php endif; ?>
+                                </td>
                                 <td class="small text-muted"><?= htmlspecialchars($sub['activity']) ?></td>
                             </tr>
                             <?php endforeach; ?>
@@ -1077,12 +1106,17 @@ function applyRmDatePreset(preset) {
                                         </div>
                                     <?php else: ?>
                                         <div>
-                                            <div class="fw-bold text-dark">
+                                            <div class="fw-bold text-dark d-flex align-items-center gap-1.5 flex-wrap">
                                                 <i class="fa-solid fa-building-columns me-1 text-danger small"></i>
-                                                Submitted to <?= htmlspecialchars($st['party_role']) ?>:
+                                                <span>Submitted to <?= htmlspecialchars($st['party_role']) ?>:</span>
                                                 <span class="badge bg-dark"><?= htmlspecialchars($st['party_username']) ?></span>
+                                                <?php if (!empty($st['reference'])): ?>
+                                                    <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 rounded-pill px-2.5 py-1 fw-bold" style="font-size: 0.78rem;">
+                                                        <i class="fa-solid fa-tag me-1 text-primary"></i>Ref: <?= htmlspecialchars($st['reference']) ?>
+                                                    </span>
+                                                <?php endif; ?>
                                             </div>
-                                            <div class="small text-muted" style="font-size: 0.78rem;">
+                                            <div class="small text-muted mt-1" style="font-size: 0.78rem;">
                                                 <?= htmlspecialchars($st['remarks']) ?>
                                             </div>
                                         </div>
@@ -1253,16 +1287,26 @@ function applyRmDatePreset(preset) {
       </div>
       <form method="POST" onsubmit="return confirm('Confirm cash collection?');">
         <input type="hidden" name="action" value="collect_cash">
+        <input type="hidden" name="return_tab" id="rmCollectCashReturnTab" value="<?= htmlspecialchars($active_tab) ?>">
         <div class="modal-body p-4 text-center">
             <h6 class="text-muted mb-1">Max Available to Collect</h6>
             <h3 class="fw-bold text-success mb-4">Rs. <?= number_format($rm['cash_in_hand'], 0) ?></h3>
             
             <div class="mb-3 text-start">
-                <label class="form-label fw-bold small text-muted">Amount Received (Rs)</label>
-                <input type="number" step="1" max="<?= $rm['cash_in_hand'] ?>" name="amount" class="form-control form-control-lg bg-light fw-bold" placeholder="e.g. 5000" required>
+                <label class="form-label fw-bold small text-muted">Amount Received (Rs) <span class="text-danger">*</span></label>
+                <input type="number" step="1" max="<?= $rm['cash_in_hand'] ?>" name="amount" class="form-control form-control-lg bg-light fw-bold text-dark" placeholder="e.g. 5000" value="<?= (float)$rm['cash_in_hand'] ?>" required>
+            </div>
+
+            <div class="mb-3 text-start">
+                <label class="form-label fw-bold small text-secondary">Reference / Purpose <span class="text-muted fw-normal">(Optional)</span></label>
+                <div class="input-group">
+                    <span class="input-group-text bg-light text-secondary"><i class="fa-solid fa-note-sticky"></i></span>
+                    <input type="text" name="reference" class="form-control bg-light text-dark" placeholder="e.g. Bank Deposit, Office Expense, Cash Handover, etc.">
+                </div>
+                <div class="form-text small text-muted">Ye reference statement me show hoga takay pata chal saky kis purpose k liye cash liya tha.</div>
             </div>
         </div>
-        <div class="modal-footer border-top p-3 bg-light">
+        <div class="modal-footer border-top p-3 bg-light d-flex justify-content-between">
           <button type="button" class="btn btn-outline-secondary rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
           <button type="submit" class="btn btn-success rounded-pill px-4 fw-bold shadow-sm"><i class="fa-solid fa-check me-1"></i> Confirm Received</button>
         </div>
@@ -1321,6 +1365,10 @@ function switchRmProfileTab(tabId) {
     var filterTabInput = document.getElementById('rm_filter_active_tab');
     if (filterTabInput) {
         filterTabInput.value = tabId;
+    }
+    var collectTabInput = document.getElementById('rmCollectCashReturnTab');
+    if (collectTabInput) {
+        collectTabInput.value = tabId;
     }
 
     // Update browser URL hash without jump
