@@ -58,6 +58,22 @@ try {
     }
 } catch (Exception $e) {}
 
+// Auto-upgrade expenses table schema for manager expenses tracking
+try {
+    $expCols = $pdo->query("SHOW COLUMNS FROM expenses")->fetchAll(PDO::FETCH_COLUMN);
+    if (!empty($expCols)) {
+        if (!in_array('created_by_type', $expCols)) {
+            $pdo->exec("ALTER TABLE expenses ADD COLUMN created_by_type ENUM('operator', 'manager') DEFAULT 'operator'");
+        }
+        if (!in_array('created_by_id', $expCols)) {
+            $pdo->exec("ALTER TABLE expenses ADD COLUMN created_by_id INT NULL");
+        }
+        if (!in_array('manager_id', $expCols)) {
+            $pdo->exec("ALTER TABLE expenses ADD COLUMN manager_id INT NULL");
+        }
+    }
+} catch (Exception $e) {}
+
 // One-time data cleanup: isolate manager logs and restore role on any mis-stamped activity logs
 $adminIdentifiers = ['Admin', 'admin', 'Operator', 'operator', 'System'];
 try {
@@ -610,24 +626,29 @@ if (!empty($to_sql)) {
     $sub_params[] = $to_sql;
 }
 
-$submissionStmt = $pdo->prepare("
-    SELECT * FROM activity_logs 
-    WHERE client_id = ? 
-      AND against_role = 'Manager' 
-      AND (against_to = ? OR against_to = ? OR against_to = ?) 
-      AND activity LIKE 'Collected Cash Rs.%'
-      {$sub_date_clause}
-    ORDER BY created_at DESC 
-    LIMIT 200
-");
-$submissionStmt->execute($sub_params);
-$submissions = $submissionStmt->fetchAll(PDO::FETCH_ASSOC);
-
+$submissions = [];
 $total_submitted_to_admin = 0;
-foreach ($submissions as $sub) {
-    if (preg_match('/Collected Cash Rs\.\s*([\d,.]+)/i', $sub['activity'], $m)) {
-        $total_submitted_to_admin += (float)str_replace(',', '', $m[1]);
+try {
+    $submissionStmt = $pdo->prepare("
+        SELECT * FROM activity_logs 
+        WHERE client_id = ? 
+          AND against_role = 'Manager' 
+          AND (against_to = ? OR against_to = ? OR against_to = ?) 
+          AND activity LIKE 'Collected Cash Rs.%'
+          {$sub_date_clause}
+        ORDER BY created_at DESC 
+        LIMIT 200
+    ");
+    $submissionStmt->execute($sub_params);
+    $submissions = $submissionStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    foreach ($submissions as $sub) {
+        if (preg_match('/Collected Cash Rs\.\s*([\d,.]+)/i', $sub['activity'], $m)) {
+            $total_submitted_to_admin += (float)str_replace(',', '', $m[1]);
+        }
     }
+} catch (Exception $eSub) {
+    $submissions = [];
 }
 
 // Fetch Cash Collections from Operators / RecoveryMen by this Manager
@@ -647,25 +668,30 @@ if (!empty($to_sql)) {
     $rm_col_params[] = $to_sql;
 }
 
-$rmColStmt = $pdo->prepare("
-    SELECT * FROM activity_logs 
-    WHERE client_id = ? 
-      AND by_role = 'Manager' 
-      AND (manager_id = ? OR by_user = ? OR by_user = ?) 
-      AND against_role = 'RecoveryMan' 
-      AND activity LIKE 'Collected Cash Rs.%'
-      {$rm_col_date_clause}
-    ORDER BY created_at DESC 
-    LIMIT 200
-");
-$rmColStmt->execute($rm_col_params);
-$rm_collections = $rmColStmt->fetchAll(PDO::FETCH_ASSOC);
-
+$rm_collections = [];
 $total_collected_from_rm = 0.0;
-foreach ($rm_collections as $rmc) {
-    if (preg_match('/Rs\.\s*([\d,.]+)/i', $rmc['activity'], $m)) {
-        $total_collected_from_rm += (float)str_replace(',', '', $m[1]);
+try {
+    $rmColStmt = $pdo->prepare("
+        SELECT * FROM activity_logs 
+        WHERE client_id = ? 
+          AND by_role = 'Manager' 
+          AND (manager_id = ? OR by_user = ? OR by_user = ?) 
+          AND against_role = 'RecoveryMan' 
+          AND activity LIKE 'Collected Cash Rs.%'
+          {$rm_col_date_clause}
+        ORDER BY created_at DESC 
+        LIMIT 200
+    ");
+    $rmColStmt->execute($rm_col_params);
+    $rm_collections = $rmColStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    foreach ($rm_collections as $rmc) {
+        if (preg_match('/Rs\.\s*([\d,.]+)/i', $rmc['activity'], $m)) {
+            $total_collected_from_rm += (float)str_replace(',', '', $m[1]);
+        }
     }
+} catch (Exception $eRM) {
+    $rm_collections = [];
 }
 $total_recovered_amount += $total_collected_from_rm;
 
@@ -687,32 +713,63 @@ if (!empty($to_sql)) {
     $exp_params[] = substr($to_sql, 0, 10);
 }
 
-$mgrExpStmt = $pdo->prepare("
-    SELECT * FROM expenses 
-    WHERE client_id = ? 
-      AND (
-          (created_by_type = 'manager' AND (created_by_id = ? OR manager_id = ?))
-          OR created_by = ? 
-          OR created_by = ?
-      )
-      {$exp_date_clause}
-    ORDER BY expense_date DESC, id DESC 
-    LIMIT 200
-");
-$mgrExpStmt->execute($exp_params);
-$mgr_expenses = $mgrExpStmt->fetchAll(PDO::FETCH_ASSOC);
-
+$mgr_expenses = [];
 $total_mgr_expenses = 0.0;
+try {
+    $mgrExpStmt = $pdo->prepare("
+        SELECT * FROM expenses 
+        WHERE client_id = ? 
+          AND (
+              (created_by_type = 'manager' AND (created_by_id = ? OR manager_id = ?))
+              OR created_by = ? 
+              OR created_by = ?
+          )
+          {$exp_date_clause}
+        ORDER BY expense_date DESC, id DESC 
+        LIMIT 200
+    ");
+    $mgrExpStmt->execute($exp_params);
+    $mgr_expenses = $mgrExpStmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $eExp) {
+    // Fallback if created_by_type or manager_id column does not exist
+    try {
+        $legacy_exp_params = [$client_id, $mgr_user_safe, $mgr_full_safe];
+        $legacy_clause = "";
+        if (!empty($from_sql)) {
+            $legacy_clause .= " AND expense_date >= ? ";
+            $legacy_exp_params[] = substr($from_sql, 0, 10);
+        }
+        if (!empty($to_sql)) {
+            $legacy_clause .= " AND expense_date <= ? ";
+            $legacy_exp_params[] = substr($to_sql, 0, 10);
+        }
+        $legacyStmt = $pdo->prepare("
+            SELECT * FROM expenses 
+            WHERE client_id = ? 
+              AND (created_by = ? OR created_by = ?)
+              {$legacy_clause}
+            ORDER BY expense_date DESC, id DESC 
+            LIMIT 200
+        ");
+        $legacyStmt->execute($legacy_exp_params);
+        $mgr_expenses = $legacyStmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Exception $eExp2) {
+        $mgr_expenses = [];
+    }
+}
+
 foreach ($mgr_expenses as $me) {
-    $total_mgr_expenses += (float)$me['amount'];
+    $total_mgr_expenses += (float)($me['amount'] ?? 0);
 }
 
 // Auto-sync verified cash_in_hand for this manager (only when not filtering by specific date range)
 // Cash in Hand = Total Recovered (Subscribers + Operators) - Submissions to Admin - Expenses Paid
 $pending_difference = max(0, $total_recovered_amount - $total_submitted_to_admin - $total_mgr_expenses);
 if (!$has_date_filter) {
-    $pdo->prepare("UPDATE managers SET cash_in_hand = ? WHERE id = ? AND client_id = ?")->execute([$pending_difference, $manager_id, $client_id]);
-    $mgr['cash_in_hand'] = $pending_difference;
+    try {
+        $pdo->prepare("UPDATE managers SET cash_in_hand = ? WHERE id = ? AND client_id = ?")->execute([$pending_difference, $manager_id, $client_id]);
+        $mgr['cash_in_hand'] = $pending_difference;
+    } catch (Exception $eUpd) {}
 }
 
 // ==========================================
