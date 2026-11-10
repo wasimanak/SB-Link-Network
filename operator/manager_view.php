@@ -669,8 +669,47 @@ foreach ($rm_collections as $rmc) {
 }
 $total_recovered_amount += $total_collected_from_rm;
 
+// Fetch Expenses recorded by this Manager
+$exp_date_clause = "";
+$exp_params = [
+    $client_id,
+    $manager_id,
+    $manager_id,
+    $mgr_user_safe,
+    $mgr_full_safe
+];
+if (!empty($from_sql)) {
+    $exp_date_clause .= " AND expense_date >= ? ";
+    $exp_params[] = substr($from_sql, 0, 10);
+}
+if (!empty($to_sql)) {
+    $exp_date_clause .= " AND expense_date <= ? ";
+    $exp_params[] = substr($to_sql, 0, 10);
+}
+
+$mgrExpStmt = $pdo->prepare("
+    SELECT * FROM expenses 
+    WHERE client_id = ? 
+      AND (
+          (created_by_type = 'manager' AND (created_by_id = ? OR manager_id = ?))
+          OR created_by = ? 
+          OR created_by = ?
+      )
+      {$exp_date_clause}
+    ORDER BY expense_date DESC, id DESC 
+    LIMIT 200
+");
+$mgrExpStmt->execute($exp_params);
+$mgr_expenses = $mgrExpStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$total_mgr_expenses = 0.0;
+foreach ($mgr_expenses as $me) {
+    $total_mgr_expenses += (float)$me['amount'];
+}
+
 // Auto-sync verified cash_in_hand for this manager (only when not filtering by specific date range)
-$pending_difference = max(0, $total_recovered_amount - $total_submitted_to_admin);
+// Cash in Hand = Total Recovered (Subscribers + Operators) - Submissions to Admin - Expenses Paid
+$pending_difference = max(0, $total_recovered_amount - $total_submitted_to_admin - $total_mgr_expenses);
 if (!$has_date_filter) {
     $pdo->prepare("UPDATE managers SET cash_in_hand = ? WHERE id = ? AND client_id = ?")->execute([$pending_difference, $manager_id, $client_id]);
     $mgr['cash_in_hand'] = $pending_difference;
@@ -792,6 +831,30 @@ if ($has_date_filter && !empty($from_sql)) {
         }
     } catch (Exception $ePRM) {}
 
+    try {
+        $pExpStmt = $pdo->prepare("
+            SELECT amount FROM expenses
+            WHERE client_id = ?
+              AND (
+                  (created_by_type = 'manager' AND (created_by_id = ? OR manager_id = ?))
+                  OR created_by = ? 
+                  OR created_by = ?
+              )
+              AND expense_date < ?
+        ");
+        $pExpStmt->execute([
+            $client_id,
+            $manager_id,
+            $manager_id,
+            $mgr_user_safe,
+            $mgr_full_safe,
+            substr($from_sql, 0, 10)
+        ]);
+        foreach ($pExpStmt->fetchAll(PDO::FETCH_ASSOC) as $pex) {
+            $prior_sub_amt += (float)$pex['amount']; // Expense is an outflow (debit)
+        }
+    } catch (Exception $ePExp) {}
+
     $opening_balance = round($prior_col_amt - $prior_sub_amt, 2);
 }
 
@@ -885,6 +948,30 @@ foreach ($submissions as $sub) {
             'remarks'        => $sub['activity'],
             'credit'         => 0.0,
             'debit'          => $sub_amt,
+        ];
+    }
+}
+
+// 2b. Add Expenses (Debits) paid by this Manager
+foreach ($mgr_expenses as $me) {
+    $exp_amt = (float)$me['amount'];
+    if ($exp_amt > 0) {
+        $exp_datetime = !empty($me['created_at']) ? $me['created_at'] : ($me['expense_date'] . ' 12:00:00');
+        $statement_entries[] = [
+            'id'             => 'exp_' . $me['id'],
+            'created_at'     => $exp_datetime,
+            'timestamp'      => strtotime($exp_datetime),
+            'type'           => 'debit',
+            'type_label'     => 'Expense',
+            'party_username' => $me['payee'] ?: ($me['category'] ?: 'Expense'),
+            'party_name'     => $me['title'],
+            'party_role'     => 'Expense',
+            'sub_id'         => null,
+            'sub_mobile'     => '',
+            'reference'      => $me['reference_no'] ?? '',
+            'remarks'        => 'Expense: ' . $me['title'] . ' [' . ($me['category'] ?? 'General') . ']',
+            'credit'         => 0.0,
+            'debit'          => $exp_amt,
         ];
     }
 }
@@ -1712,6 +1799,10 @@ function applyMgrDatePreset(preset) {
                                         <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1">
                                             <i class="fa-solid fa-hand-holding-dollar me-1"></i> Operator Col.
                                         </span>
+                                    <?php elseif ($st['party_role'] === 'Expense'): ?>
+                                        <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-2 py-1">
+                                            <i class="fa-solid fa-receipt me-1"></i> Expense
+                                        </span>
                                     <?php elseif ($st['type'] === 'credit'): ?>
                                         <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1">
                                             <i class="fa-solid fa-arrow-down-left me-1"></i> Collection
@@ -1729,6 +1820,24 @@ function applyMgrDatePreset(preset) {
                                                 <i class="fa-solid fa-hand-holding-dollar me-1 text-success small"></i>
                                                 <span>Collected from Operator:</span>
                                                 <span class="badge bg-dark"><?= htmlspecialchars($st['party_username']) ?></span>
+                                                <?php if (!empty($st['reference'])): ?>
+                                                    <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 rounded-pill px-2.5 py-1 fw-bold" style="font-size: 0.78rem;">
+                                                        <i class="fa-solid fa-tag me-1 text-primary"></i>Ref: <?= htmlspecialchars($st['reference']) ?>
+                                                    </span>
+                                                <?php endif; ?>
+                                            </div>
+                                            <div class="small text-muted mt-1" style="font-size: 0.78rem;">
+                                                <?= htmlspecialchars($st['remarks']) ?>
+                                            </div>
+                                        </div>
+                                    <?php elseif ($st['party_role'] === 'Expense'): ?>
+                                        <div>
+                                            <div class="fw-bold text-dark d-flex align-items-center gap-1.5 flex-wrap">
+                                                <i class="fa-solid fa-receipt me-1 text-danger small"></i>
+                                                <span>Expense: <?= htmlspecialchars($st['party_name']) ?></span>
+                                                <?php if (!empty($st['party_username']) && $st['party_username'] !== 'Expense'): ?>
+                                                    <span class="badge bg-light text-secondary border"><?= htmlspecialchars($st['party_username']) ?></span>
+                                                <?php endif; ?>
                                                 <?php if (!empty($st['reference'])): ?>
                                                     <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 rounded-pill px-2.5 py-1 fw-bold" style="font-size: 0.78rem;">
                                                         <i class="fa-solid fa-tag me-1 text-primary"></i>Ref: <?= htmlspecialchars($st['reference']) ?>
@@ -1898,6 +2007,11 @@ function applyMgrDatePreset(preset) {
                 <td style="padding: 6px 8px; border: 1px solid #e2e8f0;">
                     <?php if ($pEntry['party_role'] === 'RecoveryMan'): ?>
                         <strong>Operator: <?= htmlspecialchars($pEntry['party_name'] ?: $pEntry['party_username']) ?></strong>
+                    <?php elseif ($pEntry['party_role'] === 'Expense'): ?>
+                        <strong style="color: #dc2626;">Expense: <?= htmlspecialchars($pEntry['party_name']) ?></strong>
+                        <?php if (!empty($pEntry['party_username']) && $pEntry['party_username'] !== 'Expense'): ?>
+                            (<?= htmlspecialchars($pEntry['party_username']) ?>)
+                        <?php endif; ?>
                     <?php elseif ($pEntry['type'] === 'debit'): ?>
                         <strong>Admin: <?= htmlspecialchars($pEntry['party_username']) ?></strong>
                     <?php else: ?>

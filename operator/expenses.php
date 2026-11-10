@@ -37,13 +37,39 @@ try {
         `created_by` VARCHAR(150) NULL,
         `created_by_type` ENUM('operator', 'manager') DEFAULT 'operator',
         `created_by_id` INT NULL,
+        `manager_id` INT NULL,
         `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX `idx_client_date` (`client_id`, `expense_date`),
-        INDEX `idx_client_category` (`client_id`, `category`)
+        INDEX `idx_client_category` (`client_id`, `category`),
+        INDEX `idx_client_manager` (`client_id`, `manager_id`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
 } catch (Exception $e) {
     // Graceful fallback
+}
+
+// Self-healing schema migrations for expenses table
+try {
+    $expCols = $pdo->query("SHOW COLUMNS FROM expenses")->fetchAll(PDO::FETCH_COLUMN);
+    if (!in_array('created_by_type', $expCols)) {
+        $pdo->exec("ALTER TABLE expenses ADD COLUMN created_by_type ENUM('operator', 'manager') DEFAULT 'operator'");
+    }
+    if (!in_array('created_by_id', $expCols)) {
+        $pdo->exec("ALTER TABLE expenses ADD COLUMN created_by_id INT NULL");
+    }
+    if (!in_array('manager_id', $expCols)) {
+        $pdo->exec("ALTER TABLE expenses ADD COLUMN manager_id INT NULL");
+    }
+} catch (Exception $e) {}
+
+// If current user is a manager, fetch their current cash_in_hand
+$mgr_cash_in_hand = 0.0;
+if (!empty($_SESSION['is_manager']) && !empty($_SESSION['manager_id'])) {
+    try {
+        $mStmt = $pdo->prepare("SELECT cash_in_hand FROM managers WHERE id = ? AND client_id = ?");
+        $mStmt->execute([$_SESSION['manager_id'], $client_id]);
+        $mgr_cash_in_hand = (float)$mStmt->fetchColumn();
+    } catch (Exception $e) {}
 }
 
 // Uploads directory for receipts
@@ -120,21 +146,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             try {
                 $ins = $pdo->prepare("INSERT INTO expenses 
-                    (client_id, category, title, amount, expense_date, payment_method, reference_no, payee, notes, receipt_image, created_by, created_by_type, created_by_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                    (client_id, category, title, amount, expense_date, payment_method, reference_no, payee, notes, receipt_image, created_by, created_by_type, created_by_id, manager_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
                 $ins->execute([
                     $client_id, $category, $title, $amount, $expense_date, $payment_method, $reference_no, $payee, $notes,
-                    $receipt_filename, $actor_name, $actor_type, $actor_id
+                    $receipt_filename, $actor_name, $actor_type, $actor_id, ($actor_type === 'manager' ? $actor_id : null)
                 ]);
 
-                // Activity log
+                // If recorded by a Manager, automatically deduct from Manager's cash_in_hand
+                if ($actor_type === 'manager' && $actor_id > 0) {
+                    try {
+                        $pdo->prepare("UPDATE managers SET cash_in_hand = cash_in_hand - ? WHERE id = ? AND client_id = ?")
+                            ->execute([$amount, $actor_id, $client_id]);
+                    } catch (Exception $eM) {}
+                }
+
+                // Activity log with Reference if provided
                 try {
-                    $act = "Added expense: {$title} (Rs. " . number_format($amount, 0) . ") in category '{$category}'";
-                    $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, ?, 'Expense', 'Accounting', ?)")
-                        ->execute([$client_id, $actor_name, $act]);
+                    $ref_part = !empty($reference_no) ? " [Ref: {$reference_no}]" : "";
+                    $act = "Paid Expense: {$title} (Rs. " . number_format($amount, 0) . ") in category '{$category}'{$ref_part}";
+                    $by_role = ($actor_type === 'manager') ? 'Manager' : 'Admin';
+                    $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, ?, ?, 'Expense', 'Accounting', ?)")
+                        ->execute([$client_id, ($actor_type === 'manager' ? $actor_id : null), $actor_name, $by_role, $act]);
                 } catch (Exception $e) {}
 
-                $_SESSION['expense_flash'] = ['type' => 'success', 'msg' => 'Expense added successfully!'];
+                $_SESSION['expense_flash'] = [
+                    'type' => 'success', 
+                    'msg' => 'Expense added successfully!' . ($actor_type === 'manager' ? ' (Rs. ' . number_format($amount, 0) . ' deducted from your Cash in Hand)' : '')
+                ];
             } catch (Exception $e) {
                 $_SESSION['expense_flash'] = ['type' => 'danger', 'msg' => 'Failed to save expense: ' . $e->getMessage()];
             }
@@ -159,7 +198,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $remove_receipt = !empty($_POST['remove_receipt']);
 
         // Check ownership
-        $chk = $pdo->prepare("SELECT receipt_image FROM expenses WHERE id = ? AND client_id = ?");
+        $chk = $pdo->prepare("SELECT * FROM expenses WHERE id = ? AND client_id = ?");
         $chk->execute([$exp_id, $client_id]);
         $existing = $chk->fetch(PDO::FETCH_ASSOC);
 
@@ -200,11 +239,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $exp_id, $client_id
                 ]);
 
+                // Sync cash_in_hand adjustment if this expense belongs to a manager
+                $exp_mgr_id = 0;
+                if (!empty($existing['manager_id'])) {
+                    $exp_mgr_id = (int)$existing['manager_id'];
+                } elseif (!empty($existing['created_by_type']) && $existing['created_by_type'] === 'manager' && !empty($existing['created_by_id'])) {
+                    $exp_mgr_id = (int)$existing['created_by_id'];
+                }
+
+                if ($exp_mgr_id > 0) {
+                    $old_amount = (float)$existing['amount'];
+                    $diff = $amount - $old_amount; // positive: spent more (deduct), negative: spent less (refund)
+                    if ($diff != 0) {
+                        try {
+                            $pdo->prepare("UPDATE managers SET cash_in_hand = cash_in_hand - ? WHERE id = ? AND client_id = ?")
+                                ->execute([$diff, $exp_mgr_id, $client_id]);
+                        } catch (Exception $eM) {}
+                    }
+                }
+
                 // Activity log
                 try {
-                    $act = "Updated expense #{$exp_id}: {$title} (Rs. " . number_format($amount, 0) . ")";
-                    $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, ?, 'Expense', 'Accounting', ?)")
-                        ->execute([$client_id, $actor_name, $act]);
+                    $ref_part = !empty($reference_no) ? " [Ref: {$reference_no}]" : "";
+                    $act = "Updated expense #{$exp_id}: {$title} (Rs. " . number_format($amount, 0) . "){$ref_part}";
+                    $by_role = ($actor_type === 'manager') ? 'Manager' : 'Admin';
+                    $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, ?, ?, 'Expense', 'Accounting', ?)")
+                        ->execute([$client_id, ($actor_type === 'manager' ? $actor_id : null), $actor_name, $by_role, $act]);
                 } catch (Exception $e) {}
 
                 $_SESSION['expense_flash'] = ['type' => 'success', 'msg' => 'Expense updated successfully!'];
@@ -219,7 +279,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // 3. DELETE EXPENSE
     if ($action === 'delete_expense') {
         $exp_id = (int)($_POST['expense_id'] ?? 0);
-        $chk = $pdo->prepare("SELECT title, amount, receipt_image FROM expenses WHERE id = ? AND client_id = ?");
+        $chk = $pdo->prepare("SELECT * FROM expenses WHERE id = ? AND client_id = ?");
         $chk->execute([$exp_id, $client_id]);
         $existing = $chk->fetch(PDO::FETCH_ASSOC);
 
@@ -229,13 +289,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $pdo->prepare("DELETE FROM expenses WHERE id = ? AND client_id = ?")->execute([$exp_id, $client_id]);
 
+            // If this expense belonged to a manager, refund the cash back to manager's cash_in_hand
+            $exp_mgr_id = 0;
+            if (!empty($existing['manager_id'])) {
+                $exp_mgr_id = (int)$existing['manager_id'];
+            } elseif (!empty($existing['created_by_type']) && $existing['created_by_type'] === 'manager' && !empty($existing['created_by_id'])) {
+                $exp_mgr_id = (int)$existing['created_by_id'];
+            }
+
+            if ($exp_mgr_id > 0) {
+                try {
+                    $pdo->prepare("UPDATE managers SET cash_in_hand = cash_in_hand + ? WHERE id = ? AND client_id = ?")
+                        ->execute([(float)$existing['amount'], $exp_mgr_id, $client_id]);
+                } catch (Exception $eM) {}
+            }
+
             try {
                 $act = "Deleted expense #{$exp_id}: {$existing['title']} (Rs. " . number_format((float)$existing['amount'], 0) . ")";
-                $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, against_to, against_role, activity) VALUES (?, ?, 'Expense', 'Accounting', ?)")
-                    ->execute([$client_id, $actor_name, $act]);
+                $by_role = ($actor_type === 'manager') ? 'Manager' : 'Admin';
+                $pdo->prepare("INSERT INTO activity_logs (client_id, manager_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, ?, ?, 'Expense', 'Accounting', ?)")
+                    ->execute([$client_id, ($actor_type === 'manager' ? $actor_id : null), $actor_name, $by_role, $act]);
             } catch (Exception $e) {}
 
-            $_SESSION['expense_flash'] = ['type' => 'success', 'msg' => 'Expense deleted successfully.'];
+            $_SESSION['expense_flash'] = [
+                'type' => 'success', 
+                'msg' => 'Expense deleted successfully.' . ($exp_mgr_id > 0 ? ' (Rs. ' . number_format((float)$existing['amount'], 0) . ' refunded back to Manager Cash in Hand)' : '')
+            ];
         } else {
             $_SESSION['expense_flash'] = ['type' => 'danger', 'msg' => 'Expense not found.'];
         }
@@ -936,6 +1015,17 @@ require_once 'header.php';
                 <input type="hidden" name="action" value="add_expense">
                 
                 <div class="modal-body p-4">
+                    <?php if (!empty($_SESSION['is_manager'])): ?>
+                        <div class="alert alert-warning border-0 rounded-3 p-3 mb-3 d-flex align-items-center gap-3 shadow-sm">
+                            <div class="rounded-circle bg-warning bg-opacity-25 text-warning-emphasis d-flex align-items-center justify-content-center p-2" style="width: 42px; height: 42px; flex-shrink: 0;">
+                                <i class="fa-solid fa-wallet fs-5"></i>
+                            </div>
+                            <div class="small">
+                                <div class="fw-bold text-dark">Current Cash in Hand: Rs. <?= number_format($mgr_cash_in_hand, 0) ?></div>
+                                <span class="text-secondary">Ye expense save hone par aapke Cash in Hand se automatically deduct ho jayega aur aapki statement me record ho jayega.</span>
+                            </div>
+                        </div>
+                    <?php endif; ?>
                     <div class="row g-3">
                         <!-- Expense Date -->
                         <div class="col-md-6">
