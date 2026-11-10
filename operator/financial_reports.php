@@ -1,8 +1,14 @@
 <?php
 require_once 'header.php';
 
+// Access Control: Financial Reports are STRICTLY restricted to Admin only (no managers / staff / dealers)
+if (!empty($_SESSION['is_manager'])) {
+    echo "<script>alert('Permission Denied: Financial Reports can only be accessed by Admin.'); window.location.href='dashboard.php';</script>";
+    exit;
+}
+
 $client_id = (int)$_SESSION['operator_id'];
-$is_mgr = !empty($_SESSION['is_manager']);
+$is_mgr = false;
 
 // 1. Month Filter Handling (Defaults to Current Month)
 $selected_month = isset($_GET['month']) && preg_match('/^\d{4}-\d{2}$/', $_GET['month']) ? $_GET['month'] : date('Y-m');

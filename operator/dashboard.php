@@ -1078,12 +1078,12 @@ unset($ms);
         <span class="quick-action-text">Activate/Renew</span>
     </a>
 
+    <?php if (empty($_SESSION['is_manager'])): ?>
     <!-- Financial Reports (Monthly Recovery) -->
     <a href="financial_reports" class="quick-action-card">
         <span class="quick-action-text">Financial Reports</span>
     </a>
 
-    <?php if (empty($_SESSION['is_manager'])): ?>
     <!-- 6. SMS Reminders Gateway -->
     <a href="reminders" class="quick-action-card">
         <span class="quick-action-text">SMS Reminders</span>
