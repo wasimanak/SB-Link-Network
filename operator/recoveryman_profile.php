@@ -1198,6 +1198,9 @@ function applyRmDatePreset(preset) {
                         <div style="font-size: 10px; color: #64748b;"><?= htmlspecialchars($pEntry['remarks']) ?></div>
                     <?php else: ?>
                         <strong>Handover to <?= htmlspecialchars($pEntry['party_role']) ?>: <?= htmlspecialchars($pEntry['party_username']) ?></strong>
+                        <?php if (!empty($pEntry['reference'])): ?>
+                            <span style="display: inline-block; background: #e0f2fe; color: #0284c7; padding: 1px 6px; border-radius: 4px; font-weight: 700; font-size: 10px; margin-left: 4px;">Ref: <?= htmlspecialchars($pEntry['reference']) ?></span>
+                        <?php endif; ?>
                         <div style="font-size: 10px; color: #64748b;"><?= htmlspecialchars($pEntry['remarks']) ?></div>
                     <?php endif; ?>
                 </td>

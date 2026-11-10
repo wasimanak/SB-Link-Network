@@ -125,6 +125,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $amount = (float)($_POST['amount'] ?? 0);
         $current_cash = (float)($mgr['cash_in_hand'] ?? 0);
+        $reference = trim($_POST['reference'] ?? '');
 
         if ($amount > 0 && $amount <= $current_cash) {
             try {
@@ -133,16 +134,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->prepare("UPDATE managers SET cash_in_hand = cash_in_hand - ? WHERE id = ? AND client_id = ?")
                     ->execute([$amount, $manager_id, $client_id]);
 
-                // Log the activity
-                $log_msg = "Collected Cash Rs. " . number_format($amount, 0) . " from Manager";
+                // Log the activity with Reference if provided
+                $ref_clean = mb_substr($reference, 0, 120);
+                $ref_part = !empty($ref_clean) ? " [Ref: " . $ref_clean . "]" : "";
+                $log_msg = "Collected Cash Rs. " . number_format($amount, 0) . " from Manager" . $ref_part;
                 $admin_user = $_SESSION['operator_username'] ?? ($_SESSION['operator_name'] ?? 'Admin');
                 $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, 'Admin', ?, 'Manager', ?)")
                     ->execute([$client_id, $admin_user, $mgr['full_name'], $log_msg]);
 
                 $pdo->commit();
-                $flash_msg = "Successfully collected Rs. " . number_format($amount, 0) . " from Manager {$mgr['full_name']}!";
+                $flash_msg = "Successfully collected Rs. " . number_format($amount, 0) . " from Manager {$mgr['full_name']}!" . (!empty($ref_clean) ? " (Reference: {$ref_clean})" : "");
                 $flash_type = "success";
-                $activeTabToOpen = 'submissions';
+                $activeTabToOpen = !empty($_POST['return_tab']) ? trim($_POST['return_tab']) : 'statement';
 
                 // Re-fetch manager record
                 $stmt = $pdo->prepare("SELECT * FROM managers WHERE id = ? AND client_id = ?");
@@ -758,6 +761,15 @@ foreach ($submissions as $sub) {
     if (preg_match('/Collected Cash Rs\.\s*([\d,.]+)/i', $sub['activity'], $m)) {
         $sub_amt = (float)str_replace(',', '', $m[1]);
     }
+    
+    // Extract Reference if present (e.g. [Ref: XYZ] or - Ref: XYZ)
+    $sub_ref = '';
+    if (preg_match('/\[Ref:\s*([^\]]+)\]/i', $sub['activity'], $rm)) {
+        $sub_ref = trim($rm[1]);
+    } elseif (preg_match('/-\s*Ref:\s*(.+)$/i', $sub['activity'], $rm)) {
+        $sub_ref = trim($rm[1]);
+    }
+
     if ($sub_amt > 0) {
         $statement_entries[] = [
             'id'             => 'sub_' . $sub['id'],
@@ -770,6 +782,7 @@ foreach ($submissions as $sub) {
             'party_role'     => 'Admin',
             'sub_id'         => null,
             'sub_mobile'     => '',
+            'reference'      => $sub_ref,
             'remarks'        => $sub['activity'],
             'credit'         => 0.0,
             'debit'          => $sub_amt,
@@ -1441,6 +1454,7 @@ function applyMgrDatePreset(preset) {
                                 <th>Date &amp; Time</th>
                                 <th>Collected By</th>
                                 <th>Amount Collected</th>
+                                <th>Reference / Purpose</th>
                                 <th>Audit Details</th>
                             </tr>
                         </thead>
@@ -1450,6 +1464,12 @@ function applyMgrDatePreset(preset) {
                                 $amt = "N/A";
                                 if (preg_match('/Rs\.\s*([\d,.]+)/', $sub['activity'], $m)) {
                                     $amt = $m[1];
+                                }
+                                $s_ref = '';
+                                if (preg_match('/\[Ref:\s*([^\]]+)\]/i', $sub['activity'], $rm)) {
+                                    $s_ref = trim($rm[1]);
+                                } elseif (preg_match('/-\s*Ref:\s*(.+)$/i', $sub['activity'], $rm)) {
+                                    $s_ref = trim($rm[1]);
                                 }
                             ?>
                             <tr>
@@ -1464,6 +1484,15 @@ function applyMgrDatePreset(preset) {
                                 </td>
                                 <td>
                                     <span class="text-danger fw-bold fs-6">Rs. <?= $amt ?></span>
+                                </td>
+                                <td>
+                                    <?php if (!empty($s_ref)): ?>
+                                        <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 rounded-pill px-2.5 py-1 fw-bold">
+                                            <i class="fa-solid fa-tag me-1 text-primary"></i> <?= htmlspecialchars($s_ref) ?>
+                                        </span>
+                                    <?php else: ?>
+                                        <span class="text-muted small fst-italic">No reference</span>
+                                    <?php endif; ?>
                                 </td>
                                 <td class="small text-muted">
                                     <?= htmlspecialchars($sub['activity']) ?>
@@ -1613,12 +1642,17 @@ function applyMgrDatePreset(preset) {
                                         </div>
                                     <?php else: ?>
                                         <div>
-                                            <div class="fw-bold text-dark">
+                                            <div class="fw-bold text-dark d-flex align-items-center gap-1.5 flex-wrap">
                                                 <i class="fa-solid fa-building-columns me-1 text-danger small"></i>
-                                                Submitted to Admin:
+                                                <span>Submitted to Admin:</span>
                                                 <span class="badge bg-dark"><?= htmlspecialchars($st['party_username']) ?></span>
+                                                <?php if (!empty($st['reference'])): ?>
+                                                    <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 rounded-pill px-2.5 py-1 fw-bold" style="font-size: 0.78rem;">
+                                                        <i class="fa-solid fa-tag me-1 text-primary"></i>Ref: <?= htmlspecialchars($st['reference']) ?>
+                                                    </span>
+                                                <?php endif; ?>
                                             </div>
-                                            <div class="small text-muted" style="font-size: 0.78rem;">
+                                            <div class="small text-muted mt-1" style="font-size: 0.78rem;">
                                                 <?= htmlspecialchars($st['remarks']) ?>
                                             </div>
                                         </div>
@@ -1742,6 +1776,9 @@ function applyMgrDatePreset(preset) {
                     <?php if (!empty($pEntry['party_name']) && $pEntry['party_name'] !== $pEntry['party_username']): ?>
                         (<?= htmlspecialchars($pEntry['party_name']) ?>)
                     <?php endif; ?>
+                    <?php if (!empty($pEntry['reference'])): ?>
+                        <span style="display: inline-block; background: #e0f2fe; color: #0284c7; padding: 1px 6px; border-radius: 4px; font-weight: 700; font-size: 10px; margin-left: 4px;">Ref: <?= htmlspecialchars($pEntry['reference']) ?></span>
+                    <?php endif; ?>
                     <span style="color: #64748b; font-size: 10px;"> - <?= htmlspecialchars($pEntry['remarks']) ?></span>
                 </td>
                 <td style="padding: 6px 8px; border: 1px solid #e2e8f0; text-align: right; color: #16a34a; font-weight: 600;">
@@ -1784,6 +1821,7 @@ function applyMgrDatePreset(preset) {
     <div class="modal-content border-0 shadow rounded-4 overflow-hidden">
       <form method="POST">
         <input type="hidden" name="action" value="collect_cash">
+        <input type="hidden" name="return_tab" id="collectCashReturnTab" value="<?= htmlspecialchars($active_tab) ?>">
         <div class="modal-header bg-success text-white p-3 px-4">
           <h5 class="modal-title fw-bold" id="collectManagerCashModalLabel">
             <i class="fa-solid fa-hand-holding-dollar me-2"></i> Collect Cash from Manager
@@ -1802,6 +1840,15 @@ function applyMgrDatePreset(preset) {
                     <input type="number" step="1" min="1" max="<?= (float)$mgr['cash_in_hand'] ?>" name="amount" class="form-control bg-light fw-bold text-dark" placeholder="Enter amount..." value="<?= (float)$mgr['cash_in_hand'] ?>" required>
                 </div>
                 <div class="form-text small">Maximum available: Rs. <?= number_format($mgr['cash_in_hand'], 0) ?></div>
+            </div>
+
+            <div class="mb-3 text-start">
+                <label class="form-label fw-bold small text-secondary">Reference / Purpose (Reason for Cash Collection) <span class="text-muted fw-normal">(Optional)</span></label>
+                <div class="input-group">
+                    <span class="input-group-text bg-light text-secondary"><i class="fa-solid fa-note-sticky"></i></span>
+                    <input type="text" name="reference" class="form-control bg-light text-dark" placeholder="e.g. Bank Deposit, Office Expense, Cash Handover, etc.">
+                </div>
+                <div class="form-text small text-muted">Ye reference statement me show hoga takay pata chal saky kis purpose k liye cash collect kiya gaya.</div>
             </div>
         </div>
         <div class="modal-footer border-top p-3 bg-light d-flex justify-content-between">
@@ -1962,6 +2009,10 @@ function switchMgrProfileTab(tabId) {
     var filterTabInput = document.getElementById('mgr_filter_active_tab');
     if (filterTabInput) {
         filterTabInput.value = tabId;
+    }
+    var collectTabInput = document.getElementById('collectCashReturnTab');
+    if (collectTabInput) {
+        collectTabInput.value = tabId;
     }
 
     // Update browser URL hash without jump
