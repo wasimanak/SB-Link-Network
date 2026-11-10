@@ -630,6 +630,45 @@ foreach ($submissions as $sub) {
     }
 }
 
+// Fetch Cash Collections from Operators / RecoveryMen by this Manager
+$rm_col_date_clause = "";
+$rm_col_params = [
+    $client_id,
+    $manager_id,
+    $mgr_user_safe,
+    $mgr_full_safe
+];
+if (!empty($from_sql)) {
+    $rm_col_date_clause .= " AND created_at >= ? ";
+    $rm_col_params[] = $from_sql;
+}
+if (!empty($to_sql)) {
+    $rm_col_date_clause .= " AND created_at <= ? ";
+    $rm_col_params[] = $to_sql;
+}
+
+$rmColStmt = $pdo->prepare("
+    SELECT * FROM activity_logs 
+    WHERE client_id = ? 
+      AND by_role = 'Manager' 
+      AND (manager_id = ? OR by_user = ? OR by_user = ?) 
+      AND against_role = 'RecoveryMan' 
+      AND activity LIKE 'Collected Cash Rs.%'
+      {$rm_col_date_clause}
+    ORDER BY created_at DESC 
+    LIMIT 200
+");
+$rmColStmt->execute($rm_col_params);
+$rm_collections = $rmColStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$total_collected_from_rm = 0.0;
+foreach ($rm_collections as $rmc) {
+    if (preg_match('/Rs\.\s*([\d,.]+)/i', $rmc['activity'], $m)) {
+        $total_collected_from_rm += (float)str_replace(',', '', $m[1]);
+    }
+}
+$total_recovered_amount += $total_collected_from_rm;
+
 // Auto-sync verified cash_in_hand for this manager (only when not filtering by specific date range)
 $pending_difference = max(0, $total_recovered_amount - $total_submitted_to_admin);
 if (!$has_date_filter) {
@@ -728,6 +767,31 @@ if ($has_date_filter && !empty($from_sql)) {
         }
     } catch (Exception $ePS) {}
 
+    try {
+        $pRmStmt = $pdo->prepare("
+            SELECT activity FROM activity_logs
+            WHERE client_id = ?
+              AND by_role = 'Manager'
+              AND (manager_id = ? OR by_user = ? OR by_user = ?)
+              AND against_role = 'RecoveryMan'
+              AND activity LIKE 'Collected Cash Rs.%'
+              AND created_at < ?
+        ");
+        $pRmStmt->execute([
+            $client_id,
+            $manager_id,
+            $mgr_user_safe,
+            $mgr_full_safe,
+            $from_sql
+        ]);
+        $pRmRows = $pRmStmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($pRmRows as $prm) {
+            if (preg_match('/Rs\.\s*([\d,.]+)/i', $prm['activity'], $prm_m)) {
+                $prior_col_amt += (float)str_replace(',', '', $prm_m[1]);
+            }
+        }
+    } catch (Exception $ePRM) {}
+
     $opening_balance = round($prior_col_amt - $prior_sub_amt, 2);
 }
 
@@ -750,6 +814,41 @@ foreach ($all_recoveries as $rec) {
             'sub_mobile'     => $rec['mobile'] ?? '',
             'remarks'        => $rec['activity_text'],
             'credit'         => (float)$rec['collected_amount'],
+            'debit'          => 0.0,
+        ];
+    }
+}
+
+// 1b. Add Cash Collections (Credits) from Operators / RecoveryMen
+foreach ($rm_collections as $rmc) {
+    $c_amt = 0.0;
+    if (preg_match('/Rs\.\s*([\d,.]+)/i', $rmc['activity'], $m)) {
+        $c_amt = (float)str_replace(',', '', $m[1]);
+    }
+    
+    // Extract Reference if present (e.g. [Ref: XYZ] or - Ref: XYZ)
+    $rmc_ref = '';
+    if (preg_match('/\[Ref:\s*([^\]]+)\]/i', $rmc['activity'], $rmMatch)) {
+        $rmc_ref = trim($rmMatch[1]);
+    } elseif (preg_match('/-\s*Ref:\s*(.+)$/i', $rmc['activity'], $rmMatch)) {
+        $rmc_ref = trim($rmMatch[1]);
+    }
+
+    if ($c_amt > 0) {
+        $statement_entries[] = [
+            'id'             => 'rmc_' . $rmc['id'],
+            'created_at'     => $rmc['created_at'],
+            'timestamp'      => strtotime($rmc['created_at']),
+            'type'           => 'credit',
+            'type_label'     => 'Collection (Operator)',
+            'party_username' => $rmc['against_to'] ?: 'Operator',
+            'party_name'     => $rmc['against_to'] ?: 'Operator',
+            'party_role'     => 'RecoveryMan',
+            'sub_id'         => null,
+            'sub_mobile'     => '',
+            'reference'      => $rmc_ref,
+            'remarks'        => $rmc['activity'],
+            'credit'         => $c_amt,
             'debit'          => 0.0,
         ];
     }
@@ -1609,7 +1708,11 @@ function applyMgrDatePreset(preset) {
                                     <div class="text-muted small font-monospace"><?= date('h:i:s A', strtotime($st['created_at'])) ?></div>
                                 </td>
                                 <td>
-                                    <?php if ($st['type'] === 'credit'): ?>
+                                    <?php if ($st['party_role'] === 'RecoveryMan'): ?>
+                                        <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1">
+                                            <i class="fa-solid fa-hand-holding-dollar me-1"></i> Operator Col.
+                                        </span>
+                                    <?php elseif ($st['type'] === 'credit'): ?>
                                         <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1">
                                             <i class="fa-solid fa-arrow-down-left me-1"></i> Collection
                                         </span>
@@ -1620,10 +1723,26 @@ function applyMgrDatePreset(preset) {
                                     <?php endif; ?>
                                 </td>
                                 <td>
-                                    <?php if ($st['type'] === 'credit'): ?>
+                                    <?php if ($st['party_role'] === 'RecoveryMan'): ?>
+                                        <div>
+                                            <div class="fw-bold text-dark d-flex align-items-center gap-1.5 flex-wrap">
+                                                <i class="fa-solid fa-hand-holding-dollar me-1 text-success small"></i>
+                                                <span>Collected from Operator:</span>
+                                                <span class="badge bg-dark"><?= htmlspecialchars($st['party_username']) ?></span>
+                                                <?php if (!empty($st['reference'])): ?>
+                                                    <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 rounded-pill px-2.5 py-1 fw-bold" style="font-size: 0.78rem;">
+                                                        <i class="fa-solid fa-tag me-1 text-primary"></i>Ref: <?= htmlspecialchars($st['reference']) ?>
+                                                    </span>
+                                                <?php endif; ?>
+                                            </div>
+                                            <div class="small text-muted mt-1" style="font-size: 0.78rem;">
+                                                <?= htmlspecialchars($st['remarks']) ?>
+                                            </div>
+                                        </div>
+                                    <?php elseif ($st['type'] === 'credit'): ?>
                                         <div class="d-flex align-items-center">
                                             <div>
-                                                <div class="fw-bold text-primary">
+                                                <div class="fw-bold text-primary d-flex align-items-center gap-1.5 flex-wrap">
                                                     <?php if (!empty($st['sub_id'])): ?>
                                                         <a href="subscriber_view.php?id=<?= $st['sub_id'] ?>" class="text-decoration-none text-primary">
                                                             <i class="fa-solid fa-user me-1 small"></i> <?= htmlspecialchars($st['party_username']) ?>
@@ -1633,6 +1752,11 @@ function applyMgrDatePreset(preset) {
                                                     <?php endif; ?>
                                                     <?php if (!empty($st['party_name']) && $st['party_name'] !== $st['party_username']): ?>
                                                         <span class="text-dark small fw-normal ms-1">(<?= htmlspecialchars($st['party_name']) ?>)</span>
+                                                    <?php endif; ?>
+                                                    <?php if (!empty($st['reference'])): ?>
+                                                        <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 rounded-pill px-2.5 py-1 fw-bold" style="font-size: 0.78rem;">
+                                                            <i class="fa-solid fa-tag me-1 text-primary"></i>Ref: <?= htmlspecialchars($st['reference']) ?>
+                                                        </span>
                                                     <?php endif; ?>
                                                 </div>
                                                 <div class="small text-muted" style="font-size: 0.78rem;">
@@ -1772,9 +1896,15 @@ function applyMgrDatePreset(preset) {
                     <?= strtoupper($pEntry['type']) ?>
                 </td>
                 <td style="padding: 6px 8px; border: 1px solid #e2e8f0;">
-                    <strong><?= htmlspecialchars($pEntry['party_username']) ?></strong>
-                    <?php if (!empty($pEntry['party_name']) && $pEntry['party_name'] !== $pEntry['party_username']): ?>
-                        (<?= htmlspecialchars($pEntry['party_name']) ?>)
+                    <?php if ($pEntry['party_role'] === 'RecoveryMan'): ?>
+                        <strong>Operator: <?= htmlspecialchars($pEntry['party_name'] ?: $pEntry['party_username']) ?></strong>
+                    <?php elseif ($pEntry['type'] === 'debit'): ?>
+                        <strong>Admin: <?= htmlspecialchars($pEntry['party_username']) ?></strong>
+                    <?php else: ?>
+                        <strong><?= htmlspecialchars($pEntry['party_username']) ?></strong>
+                        <?php if (!empty($pEntry['party_name']) && $pEntry['party_name'] !== $pEntry['party_username']): ?>
+                            (<?= htmlspecialchars($pEntry['party_name']) ?>)
+                        <?php endif; ?>
                     <?php endif; ?>
                     <?php if (!empty($pEntry['reference'])): ?>
                         <span style="display: inline-block; background: #e0f2fe; color: #0284c7; padding: 1px 6px; border-radius: 4px; font-weight: 700; font-size: 10px; margin-left: 4px;">Ref: <?= htmlspecialchars($pEntry['reference']) ?></span>

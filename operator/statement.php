@@ -50,6 +50,66 @@ foreach ($pending_users as $pu) {
 $total_balance = 0;
 $total_all_credit = 0;
 $total_all_debit = 0;
+
+// Fetch all Cash Collections / Handover activities (from Managers & RecoveryMen)
+$cashStmt = $pdo->prepare("
+    SELECT * FROM activity_logs 
+    WHERE client_id = ? 
+      AND activity LIKE 'Collected Cash Rs.%'
+      AND against_role IN ('Manager', 'RecoveryMan')
+    ORDER BY created_at DESC 
+    LIMIT 1000
+");
+$cashStmt->execute([$client_id]);
+$all_cash_logs = $cashStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$total_all_cash_collected = 0.0;
+$total_cash_from_managers = 0.0;
+$total_cash_from_operators = 0.0;
+$cash_entries = [];
+
+foreach ($all_cash_logs as $cl) {
+    $c_amt = 0.0;
+    if (preg_match('/Rs\.\s*([\d,.]+)/i', $cl['activity'], $m)) {
+        $c_amt = (float)str_replace(',', '', $m[1]);
+    }
+
+    $c_ref = '';
+    if (preg_match('/\[Ref:\s*([^\]]+)\]/i', $cl['activity'], $mRef)) {
+        $c_ref = trim($mRef[1]);
+    } elseif (preg_match('/-\s*Ref:\s*(.+)$/i', $cl['activity'], $mRef)) {
+        $c_ref = trim($mRef[1]);
+    }
+
+    $from_role = $cl['against_role']; // 'Manager' or 'RecoveryMan'
+    $from_name = $cl['against_to'] ?: 'Staff';
+    $collector = $cl['by_user'] ?: 'Admin';
+    $collector_role = $cl['by_role'] ?: 'Admin';
+
+    $total_all_cash_collected += $c_amt;
+    if ($from_role === 'Manager') {
+        $total_cash_from_managers += $c_amt;
+    } else {
+        $total_cash_from_operators += $c_amt;
+    }
+
+    $cash_entries[] = [
+        'id'             => $cl['id'],
+        'created_at'     => $cl['created_at'],
+        'from_name'      => $from_name,
+        'from_role'      => $from_role,
+        'amount'         => $c_amt,
+        'reference'      => $c_ref,
+        'collector'      => $collector,
+        'collector_role' => $collector_role,
+        'activity'       => $cl['activity']
+    ];
+}
+
+$active_tab = isset($_GET['tab']) ? trim($_GET['tab']) : 'recharge';
+if (!in_array($active_tab, ['recharge', 'pending', 'cash'])) {
+    $active_tab = 'recharge';
+}
 ?>
 
 <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
@@ -81,6 +141,11 @@ $total_all_debit = 0;
         color: #fff !important;
         box-shadow: 0 4px 10px rgba(220, 38, 38, 0.25);
     }
+    .custom-pill-nav .nav-link.active#cash-tab {
+        background: #16a34a !important;
+        color: #fff !important;
+        box-shadow: 0 4px 10px rgba(22, 163, 74, 0.25);
+    }
     .custom-pill-nav .nav-link.active .badge {
         background: rgba(255, 255, 255, 0.25) !important;
         color: #fff !important;
@@ -99,22 +164,28 @@ $total_all_debit = 0;
     <!-- Navigation Tabs -->
     <ul class="nav nav-pills custom-pill-nav mb-4 gap-2" id="statementTab" role="tablist">
         <li class="nav-item" role="presentation">
-            <button class="nav-link active fw-bold px-4 py-2" id="recharge-tab" data-bs-toggle="pill" data-bs-target="#recharge-pane" type="button" role="tab" aria-controls="recharge-pane" aria-selected="true">
+            <button class="nav-link <?= ($active_tab === 'recharge') ? 'active' : '' ?> fw-bold px-4 py-2" id="recharge-tab" data-bs-toggle="pill" data-bs-target="#recharge-pane" type="button" role="tab" aria-controls="recharge-pane" aria-selected="<?= ($active_tab === 'recharge') ? 'true' : 'false' ?>">
                 <i class="fa-solid fa-clock-rotate-left me-2"></i> Recharge Statement
                 <span class="badge bg-secondary ms-2"><?= count($users) ?></span>
             </button>
         </li>
         <li class="nav-item" role="presentation">
-            <button class="nav-link fw-bold px-4 py-2" id="pending-tab" data-bs-toggle="pill" data-bs-target="#pending-pane" type="button" role="tab" aria-controls="pending-pane" aria-selected="false">
+            <button class="nav-link <?= ($active_tab === 'pending') ? 'active' : '' ?> fw-bold px-4 py-2" id="pending-tab" data-bs-toggle="pill" data-bs-target="#pending-pane" type="button" role="tab" aria-controls="pending-pane" aria-selected="<?= ($active_tab === 'pending') ? 'true' : 'false' ?>">
                 <i class="fa-solid fa-file-circle-exclamation me-2"></i> Pending Payments (Minus Balance)
                 <span class="badge bg-danger text-white ms-2"><?= $total_pending_count ?></span>
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link <?= ($active_tab === 'cash') ? 'active' : '' ?> fw-bold px-4 py-2" id="cash-tab" data-bs-toggle="pill" data-bs-target="#cash-pane" type="button" role="tab" aria-controls="cash-pane" aria-selected="<?= ($active_tab === 'cash') ? 'true' : 'false' ?>">
+                <i class="fa-solid fa-hand-holding-dollar me-2"></i> Cash Received Statement
+                <span class="badge bg-success text-white ms-2"><?= count($cash_entries) ?></span>
             </button>
         </li>
     </ul>
 
     <div class="tab-content" id="statementTabContent">
         <!-- Tab 1: Recharge Statement -->
-        <div class="tab-pane fade show active" id="recharge-pane" role="tabpanel" aria-labelledby="recharge-tab" tabindex="0">
+        <div class="tab-pane fade <?= ($active_tab === 'recharge') ? 'show active' : '' ?>" id="recharge-pane" role="tabpanel" aria-labelledby="recharge-tab" tabindex="0">
             <div class="card-ui p-4">
                 <div class="table-responsive">
                     <table id="statementTable" class="table table-hover table-custom-ui table-borderless w-100 align-middle">
@@ -173,7 +244,7 @@ $total_all_debit = 0;
         </div>
 
         <!-- Tab 2: Pending Payments -->
-        <div class="tab-pane fade" id="pending-pane" role="tabpanel" aria-labelledby="pending-tab" tabindex="0">
+        <div class="tab-pane fade <?= ($active_tab === 'pending') ? 'show active' : '' ?>" id="pending-pane" role="tabpanel" aria-labelledby="pending-tab" tabindex="0">
             <!-- Pending Summary Row -->
             <div class="row g-3 mb-4">
                 <div class="col-md-6">
@@ -293,6 +364,126 @@ $total_all_debit = 0;
                 </div>
             </div>
         </div>
+
+        <!-- Tab 3: Cash Received Statement -->
+        <div class="tab-pane fade <?= ($active_tab === 'cash') ? 'show active' : '' ?>" id="cash-pane" role="tabpanel" aria-labelledby="cash-tab" tabindex="0">
+            <!-- Cash Summary Row -->
+            <div class="row g-3 mb-4">
+                <div class="col-md-3">
+                    <div class="card-ui p-3 bg-success bg-opacity-10 border-success border-opacity-25 d-flex flex-row align-items-center">
+                        <div class="rounded-circle bg-success text-white d-flex align-items-center justify-content-center me-3" style="width: 52px; height: 52px; font-size: 1.4rem;">
+                            <i class="fa-solid fa-money-bill-trend-up"></i>
+                        </div>
+                        <div>
+                            <div class="text-secondary small fw-bold text-uppercase">Total Cash Received</div>
+                            <h4 class="fw-bold text-success mb-0">Rs. <?= number_format($total_all_cash_collected, 0) ?></h4>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card-ui p-3 bg-primary bg-opacity-10 border-primary border-opacity-25 d-flex flex-row align-items-center">
+                        <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center me-3" style="width: 52px; height: 52px; font-size: 1.4rem;">
+                            <i class="fa-solid fa-user-tie"></i>
+                        </div>
+                        <div>
+                            <div class="text-secondary small fw-bold text-uppercase">From Managers</div>
+                            <h4 class="fw-bold text-primary mb-0">Rs. <?= number_format($total_cash_from_managers, 0) ?></h4>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card-ui p-3 bg-info bg-opacity-10 border-info border-opacity-25 d-flex flex-row align-items-center">
+                        <div class="rounded-circle bg-info text-white d-flex align-items-center justify-content-center me-3" style="width: 52px; height: 52px; font-size: 1.4rem;">
+                            <i class="fa-solid fa-motorcycle"></i>
+                        </div>
+                        <div>
+                            <div class="text-secondary small fw-bold text-uppercase">From Operators (RM)</div>
+                            <h4 class="fw-bold text-info mb-0">Rs. <?= number_format($total_cash_from_operators, 0) ?></h4>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card-ui p-3 bg-dark text-white d-flex flex-row align-items-center">
+                        <div class="rounded-circle bg-warning text-dark d-flex align-items-center justify-content-center me-3" style="width: 52px; height: 52px; font-size: 1.4rem;">
+                            <i class="fa-solid fa-receipt"></i>
+                        </div>
+                        <div>
+                            <div class="text-white-50 small fw-bold text-uppercase">Total Handover Entries</div>
+                            <h4 class="fw-bold text-warning mb-0"><?= count($cash_entries) ?></h4>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card-ui p-4">
+                <div class="table-responsive">
+                    <table id="cashTable" class="table table-hover table-custom-ui table-borderless w-100 align-middle">
+                        <thead>
+                            <tr>
+                                <th>Date &amp; Time</th>
+                                <th>Handed Over By</th>
+                                <th>Role</th>
+                                <th>Collected By</th>
+                                <th class="text-end">Amount Received</th>
+                                <th>Reference / Purpose</th>
+                                <th>Activity Details</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach($cash_entries as $ce): ?>
+                            <tr>
+                                <td data-order="<?= strtotime($ce['created_at']) ?>" class="text-secondary small fw-bold" style="white-space: nowrap;">
+                                    <div class="text-dark"><?= date('d M Y', strtotime($ce['created_at'])) ?></div>
+                                    <div class="text-muted small font-monospace"><?= date('h:i A', strtotime($ce['created_at'])) ?></div>
+                                </td>
+                                <td>
+                                    <div class="fw-bold text-dark fs-6"><?= htmlspecialchars($ce['from_name']) ?></div>
+                                </td>
+                                <td>
+                                    <?php if ($ce['from_role'] === 'Manager'): ?>
+                                        <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 px-2.5 py-1 fw-bold">
+                                            <i class="fa-solid fa-user-tie me-1"></i> Manager
+                                        </span>
+                                    <?php else: ?>
+                                        <span class="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25 px-2.5 py-1 fw-bold">
+                                            <i class="fa-solid fa-motorcycle me-1"></i> Operator
+                                        </span>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <span class="badge bg-dark px-2.5 py-1">
+                                        <?= htmlspecialchars($ce['collector']) ?> (<?= htmlspecialchars($ce['collector_role']) ?>)
+                                    </span>
+                                </td>
+                                <td class="text-end text-success fw-bold fs-6">
+                                    + Rs. <?= number_format($ce['amount'], 0) ?>
+                                </td>
+                                <td>
+                                    <?php if (!empty($ce['reference'])): ?>
+                                        <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 rounded-pill px-2.5 py-1 fw-bold">
+                                            <i class="fa-solid fa-tag me-1 text-primary"></i> <?= htmlspecialchars($ce['reference']) ?>
+                                        </span>
+                                    <?php else: ?>
+                                        <span class="text-muted small fst-italic">No reference</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td class="small text-muted" style="max-width: 280px;">
+                                    <?= htmlspecialchars($ce['activity']) ?>
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                        <tfoot>
+                            <tr class="totals-row" style="border-top: 2px solid #e2e8f0;">
+                                <td colspan="4" class="text-end text-dark fs-6 pt-3">TOTAL CASH RECEIVED:</td>
+                                <td class="text-success fs-4 fw-bold text-end pt-3">+ Rs. <?= number_format($total_all_cash_collected, 0) ?></td>
+                                <td colspan="2"></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -343,10 +534,45 @@ $(document).ready(function() {
         }
     });
 
+    $('#cashTable').DataTable({
+        "order": [[ 0, "desc" ]],
+        "pageLength": 50,
+        "dom": '<"d-flex justify-content-between align-items-center mb-3"Bf>rt<"d-flex justify-content-between align-items-center mt-3"ip>',
+        "buttons": [
+            { extend: 'copy', className: 'btn btn-light border text-secondary shadow-sm' },
+            { extend: 'csv', className: 'btn btn-light border text-secondary shadow-sm', text: '<i class="fa-solid fa-file-csv"></i> Download CSV' },
+            { extend: 'excel', className: 'btn btn-light border text-success shadow-sm', text: '<i class="fa-solid fa-file-excel"></i> Excel' },
+            { extend: 'pdfHtml5', className: 'btn btn-danger shadow-sm text-white', text: '<i class="fa-solid fa-file-pdf"></i> Download PDF (A4)', orientation: 'portrait', pageSize: 'A4' },
+            { extend: 'print', className: 'btn btn-primary shadow-sm text-white', text: '<i class="fa-solid fa-print"></i> Print' }
+        ],
+        "language": {
+            "search": "",
+            "searchPlaceholder": "Search Cash Statement..."
+        }
+    });
+
     // Auto adjust table layout when switching tabs
     $('button[data-bs-toggle="pill"]').on('shown.bs.tab', function (e) {
         $.fn.dataTable.tables({ visible: true, api: true }).columns.adjust();
+        var targetId = $(e.target).attr('id');
+        var tabKey = 'recharge';
+        if (targetId === 'pending-tab') tabKey = 'pending';
+        else if (targetId === 'cash-tab') tabKey = 'cash';
+        if (window.history && window.history.replaceState) {
+            window.history.replaceState(null, null, 'statement.php?tab=' + tabKey);
+        }
     });
+
+    // Hash or query-param based tab activation on page load
+    var hash = window.location.hash;
+    var search = window.location.search;
+    if (hash === '#cash-pane' || search.indexOf('tab=cash') !== -1) {
+        var cashBtn = document.getElementById('cash-tab');
+        if (cashBtn) bootstrap.Tab.getOrCreateInstance(cashBtn).show();
+    } else if (hash === '#pending-pane' || search.indexOf('tab=pending') !== -1) {
+        var pendBtn = document.getElementById('pending-tab');
+        if (pendBtn) bootstrap.Tab.getOrCreateInstance(pendBtn).show();
+    }
 });
 </script>
 

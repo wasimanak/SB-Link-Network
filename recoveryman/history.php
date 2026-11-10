@@ -138,8 +138,17 @@ $created_users = $createdUsersStmt->fetchAll(PDO::FETCH_ASSOC);
             <?php if(!empty($submissions)): ?>
                 <div class="mx-auto" style="max-width: 600px;">
                 <?php foreach($submissions as $sub): 
-                    preg_match('/Rs\. (\d+)/', $sub['activity'], $matches);
-                    $amount_text = isset($matches[1]) ? number_format($matches[1]) : '0';
+                    $amount_text = '0';
+                    if (preg_match('/Rs\.\s*([\d,.]+)/i', $sub['activity'], $matches)) {
+                        $amount_text = $matches[1];
+                    }
+                    $sub_ref = '';
+                    if (preg_match('/\[Ref:\s*([^\]]+)\]/i', $sub['activity'], $rmRef)) {
+                        $sub_ref = trim($rmRef[1]);
+                    } elseif (preg_match('/-\s*Ref:\s*(.+)$/i', $sub['activity'], $rmRef)) {
+                        $sub_ref = trim($rmRef[1]);
+                    }
+                    $received_by_role = !empty($sub['by_role']) ? $sub['by_role'] : 'Admin';
                 ?>
                     <div class="card tx-card border-start border-4 border-danger">
                         <div class="card-body p-3 d-flex align-items-center">
@@ -150,7 +159,16 @@ $created_users = $createdUsersStmt->fetchAll(PDO::FETCH_ASSOC);
                                 <h6 class="fw-bold text-dark mb-1 text-truncate">
                                     <i class="fa-solid fa-building-columns text-muted small me-1"></i> Cash Submitted
                                 </h6>
-                                <div class="text-muted small text-truncate mb-1"><i class="fa-solid fa-user-shield me-1"></i> Received by <?= htmlspecialchars($sub['by_user']) ?></div>
+                                <div class="text-muted small text-truncate mb-1">
+                                    <i class="fa-solid fa-user-shield me-1"></i> Received by <?= htmlspecialchars($sub['by_user']) ?> (<?= htmlspecialchars($received_by_role) ?>)
+                                </div>
+                                <?php if (!empty($sub_ref)): ?>
+                                    <div class="mb-1">
+                                        <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 rounded-pill px-2.5 py-1 fw-bold" style="font-size: 0.72rem;">
+                                            <i class="fa-solid fa-tag me-1"></i> Ref: <?= htmlspecialchars($sub_ref) ?>
+                                        </span>
+                                    </div>
+                                <?php endif; ?>
                                 <div class="text-secondary small fw-bold" style="font-size: 0.75rem;"><i class="fa-regular fa-clock me-1"></i> <?= date('d M Y, h:i A', strtotime($sub['created_at'])) ?></div>
                             </div>
                             <div class="text-end ms-2">
