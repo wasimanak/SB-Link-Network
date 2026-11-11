@@ -424,9 +424,10 @@ if (!empty($mgr_full_safe) || !empty($mgr_user_safe)) {
           AND a.by_user NOT LIKE 'Admin%'
           AND a.by_user NOT LIKE 'Operator%'
           AND a.created_at >= NOW() - INTERVAL 730 DAY
-          AND (a.against_role IS NULL OR a.against_role = '' OR a.against_role = 'User' OR a.against_role NOT IN ('RecoveryMan', 'Manager', 'Lineman', 'Staff', 'Accounting', 'Stock', 'Payroll'))
+          AND (a.against_role IS NULL OR a.against_role = '' OR a.against_role = 'User' OR a.against_role NOT IN ('RecoveryMan', 'Operator', 'Manager', 'Lineman', 'Staff', 'Accounting', 'Stock', 'Payroll'))
           AND a.activity NOT LIKE 'Collected Cash Rs.% from Operator%'
           AND a.activity NOT LIKE 'Collected Cash Rs.% from RecoveryMan%'
+          AND a.activity NOT LIKE 'Collected Cash Rs.% from Lineman%'
           AND a.activity NOT LIKE 'Collected Cash Rs.% from Manager%'
           AND (
               (a.activity LIKE '%Renew%' AND a.activity NOT LIKE '%Ready for renewal%')
@@ -491,6 +492,8 @@ if (!empty($mgr_full_safe) || !empty($mgr_user_safe)) {
           AND l.description NOT LIKE '%RM:%'
           AND l.description NOT LIKE '%Lineman%'
           AND l.description NOT LIKE '%Dealer%'
+          AND l.description NOT LIKE '%Operator%'
+          AND l.description NOT LIKE 'Collected Cash%'
           AND (
               l.description LIKE ? 
               OR l.description LIKE ? 
@@ -514,10 +517,10 @@ foreach ($raw_recoveries as $rec) {
     $act_text = $rec['activity'];
 
     // Safety check: Skip non-subscriber or operator cash collection entries
-    if (!empty($rec['against_role']) && in_array($rec['against_role'], ['RecoveryMan', 'Manager', 'Lineman', 'Staff', 'Accounting', 'Stock', 'Payroll'])) {
+    if (!empty($rec['against_role']) && in_array($rec['against_role'], ['RecoveryMan', 'Operator', 'Manager', 'Lineman', 'Staff', 'Accounting', 'Stock', 'Payroll'])) {
         continue;
     }
-    if (preg_match('/Collected Cash Rs\..+from (Operator|RecoveryMan|Manager)/i', $act_text)) {
+    if (preg_match('/Collected Cash Rs\..+from (Operator|RecoveryMan|Lineman|Manager)/i', $act_text)) {
         continue;
     }
 
@@ -576,6 +579,9 @@ foreach ($raw_recoveries as $rec) {
 }
 
 foreach ($raw_ledgers as $led) {
+    if (stripos($led['description'], 'from Operator') !== false || stripos($led['description'], 'from RecoveryMan') !== false || stripos($led['description'], 'Collected Cash Rs.') !== false) {
+        continue;
+    }
     $led_time = strtotime($led['created_at']);
     $already = false;
     foreach ($raw_recoveries as $rec) {
@@ -664,13 +670,16 @@ try {
     $submissions = [];
 }
 
-// Fetch Cash Collections from Operators / RecoveryMen by this Manager
+// Fetch Cash Collections from Operators / RecoveryMen / Staff by this Manager
 $rm_col_date_clause = "";
 $rm_col_params = [
     $client_id,
     $manager_id,
     $mgr_user_safe,
-    $mgr_full_safe
+    $mgr_full_safe,
+    'Manager: ' . $mgr_user_safe,
+    'Manager: ' . $mgr_full_safe,
+    "Manager #{$manager_id}"
 ];
 if (!empty($from_sql)) {
     $rm_col_date_clause .= " AND created_at >= ? ";
@@ -687,13 +696,27 @@ try {
     $rmColStmt = $pdo->prepare("
         SELECT * FROM activity_logs 
         WHERE client_id = ? 
-          AND by_role = 'Manager' 
-          AND (manager_id = ? OR by_user = ? OR by_user = ?) 
-          AND against_role = 'RecoveryMan' 
+          AND (
+              manager_id = ? 
+              OR by_user = ? 
+              OR by_user = ? 
+              OR by_user = ?
+              OR by_user = ?
+              OR by_user = ?
+          )
+          AND (
+              against_role IN ('RecoveryMan', 'Operator', 'Lineman', 'Staff')
+              OR activity LIKE 'Collected Cash Rs.% from Operator%'
+              OR activity LIKE 'Collected Cash Rs.% from RecoveryMan%'
+              OR activity LIKE 'Collected Cash Rs.% from Lineman%'
+              OR (activity LIKE 'Collected Cash Rs.%' AND activity NOT LIKE 'Collected Cash Rs.% from Manager%')
+          )
           AND activity LIKE 'Collected Cash Rs.%'
+          AND activity NOT LIKE 'Collected Cash Rs.% from Manager%'
+          AND (against_role != 'Manager' OR against_role IS NULL)
           {$rm_col_date_clause}
         ORDER BY created_at DESC 
-        LIMIT 200
+        LIMIT 1000
     ");
     $rmColStmt->execute($rm_col_params);
     $rm_collections = $rmColStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -780,8 +803,10 @@ foreach ($mgr_expenses as $me) {
 $pending_difference = max(0, $total_recovered_amount - $total_submitted_to_admin - $total_mgr_expenses);
 if (!$has_date_filter) {
     try {
-        $pdo->prepare("UPDATE managers SET cash_in_hand = ? WHERE id = ? AND client_id = ?")->execute([$pending_difference, $manager_id, $client_id]);
-        $mgr['cash_in_hand'] = $pending_difference;
+        if ($total_recovered_amount > 0 || $total_submitted_to_admin > 0 || $total_mgr_expenses > 0) {
+            $pdo->prepare("UPDATE managers SET cash_in_hand = ? WHERE id = ? AND client_id = ?")->execute([$pending_difference, $manager_id, $client_id]);
+            $mgr['cash_in_hand'] = $pending_difference;
+        }
     } catch (Exception $eUpd) {}
 }
 
@@ -813,9 +838,10 @@ if ($has_date_filter && !empty($from_sql)) {
               AND a.by_user NOT IN ('Admin', 'Operator', 'System', ?)
               AND a.by_user NOT LIKE 'Admin%'
               AND a.by_user NOT LIKE 'Operator%'
-              AND (a.against_role IS NULL OR a.against_role = '' OR a.against_role = 'User' OR a.against_role NOT IN ('RecoveryMan', 'Manager', 'Lineman', 'Staff', 'Accounting', 'Stock', 'Payroll'))
+              AND (a.against_role IS NULL OR a.against_role = '' OR a.against_role = 'User' OR a.against_role NOT IN ('RecoveryMan', 'Operator', 'Manager', 'Lineman', 'Staff', 'Accounting', 'Stock', 'Payroll'))
               AND a.activity NOT LIKE 'Collected Cash Rs.% from Operator%'
               AND a.activity NOT LIKE 'Collected Cash Rs.% from RecoveryMan%'
+              AND a.activity NOT LIKE 'Collected Cash Rs.% from Lineman%'
               AND a.activity NOT LIKE 'Collected Cash Rs.% from Manager%'
               AND (
                   (a.activity LIKE '%Renew%' AND a.activity NOT LIKE '%Ready for renewal%')
@@ -884,10 +910,24 @@ if ($has_date_filter && !empty($from_sql)) {
         $pRmStmt = $pdo->prepare("
             SELECT activity FROM activity_logs
             WHERE client_id = ?
-              AND by_role = 'Manager'
-              AND (manager_id = ? OR by_user = ? OR by_user = ?)
-              AND against_role = 'RecoveryMan'
+              AND (
+                  manager_id = ? 
+                  OR by_user = ? 
+                  OR by_user = ? 
+                  OR by_user = ?
+                  OR by_user = ?
+                  OR by_user = ?
+              )
+              AND (
+                  against_role IN ('RecoveryMan', 'Operator', 'Lineman', 'Staff')
+                  OR activity LIKE 'Collected Cash Rs.% from Operator%'
+                  OR activity LIKE 'Collected Cash Rs.% from RecoveryMan%'
+                  OR activity LIKE 'Collected Cash Rs.% from Lineman%'
+                  OR (activity LIKE 'Collected Cash Rs.%' AND activity NOT LIKE 'Collected Cash Rs.% from Manager%')
+              )
               AND activity LIKE 'Collected Cash Rs.%'
+              AND activity NOT LIKE 'Collected Cash Rs.% from Manager%'
+              AND (against_role != 'Manager' OR against_role IS NULL)
               AND created_at < ?
         ");
         $pRmStmt->execute([
@@ -895,6 +935,9 @@ if ($has_date_filter && !empty($from_sql)) {
             $manager_id,
             $mgr_user_safe,
             $mgr_full_safe,
+            'Manager: ' . $mgr_user_safe,
+            'Manager: ' . $mgr_full_safe,
+            "Manager #{$manager_id}",
             $from_sql
         ]);
         $pRmRows = $pRmStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -939,6 +982,9 @@ $seen_statement_keys = [];
 // 1. Add Collections (Credits) from $all_recoveries
 foreach ($all_recoveries as $rec) {
     if ($rec['collected_amount'] > 0) {
+        if (stripos($rec['activity_text'], 'from Operator') !== false || stripos($rec['activity_text'], 'from RecoveryMan') !== false || stripos($rec['activity_text'], 'from Lineman') !== false) {
+            continue;
+        }
         $entry_key = 'act_' . $rec['id'];
         if (isset($seen_statement_keys[$entry_key])) continue;
         $seen_statement_keys[$entry_key] = true;
@@ -1886,7 +1932,7 @@ function applyMgrDatePreset(preset) {
                                     <div class="text-muted small font-monospace"><?= date('h:i:s A', strtotime($st['created_at'])) ?></div>
                                 </td>
                                 <td>
-                                    <?php if ($st['party_role'] === 'RecoveryMan'): ?>
+                                    <?php if ($st['party_role'] === 'RecoveryMan' || $st['party_role'] === 'Operator' || stripos($st['remarks'], 'from Operator') !== false || stripos($st['remarks'], 'from RecoveryMan') !== false || stripos($st['type_label'], 'Operator') !== false): ?>
                                         <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1">
                                             <i class="fa-solid fa-hand-holding-dollar me-1"></i> Operator Col.
                                         </span>
@@ -1905,7 +1951,7 @@ function applyMgrDatePreset(preset) {
                                     <?php endif; ?>
                                 </td>
                                 <td>
-                                    <?php if ($st['party_role'] === 'RecoveryMan'): ?>
+                                    <?php if ($st['party_role'] === 'RecoveryMan' || $st['party_role'] === 'Operator' || stripos($st['remarks'], 'from Operator') !== false || stripos($st['remarks'], 'from RecoveryMan') !== false || stripos($st['type_label'], 'Operator') !== false): ?>
                                         <div>
                                             <div class="fw-bold text-dark d-flex align-items-center gap-1.5 flex-wrap">
                                                 <i class="fa-solid fa-hand-holding-dollar me-1 text-success small"></i>
@@ -2096,7 +2142,7 @@ function applyMgrDatePreset(preset) {
                     <?= strtoupper($pEntry['type']) ?>
                 </td>
                 <td style="padding: 6px 8px; border: 1px solid #e2e8f0;">
-                    <?php if ($pEntry['party_role'] === 'RecoveryMan'): ?>
+                    <?php if ($pEntry['party_role'] === 'RecoveryMan' || $pEntry['party_role'] === 'Operator' || stripos($pEntry['remarks'], 'from Operator') !== false || stripos($pEntry['remarks'], 'from RecoveryMan') !== false || stripos($pEntry['type_label'], 'Operator') !== false): ?>
                         <strong>Operator: <?= htmlspecialchars($pEntry['party_name'] ?: $pEntry['party_username']) ?></strong>
                     <?php elseif ($pEntry['party_role'] === 'Expense'): ?>
                         <strong style="color: #dc2626;">Expense: <?= htmlspecialchars($pEntry['party_name']) ?></strong>
