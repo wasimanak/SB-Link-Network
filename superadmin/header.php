@@ -518,19 +518,27 @@ $isRouterMenu = strpos($page, 'router') !== false || in_array($page, ['live_rout
                 <span class="nav-text">Global Settings</span>
             </a>
 
+            <!-- 11. Profile & 2FA Settings -->
+            <a href="/superadmin/profile" class="nav-item-link <?= in_array($page, ['profile.php', 'profile']) ? 'active-parent' : '' ?>">
+                <i class="fa-solid fa-user-shield nav-icon text-primary"></i>
+                <span class="nav-text">Profile &amp; 2FA</span>
+            </a>
+
         </div>
 
         <!-- Bottom User Profile Strip (UrAsool Design) -->
         <div class="sidebar-footer-user">
-            <div class="user-avatar">
-                <?= $avatarInitial ?>
-            </div>
-            <div class="user-info">
-                <div class="user-name" title="<?= htmlspecialchars($superadminUsername) ?>">
-                    <?= htmlspecialchars(strtoupper($superadminUsername)) ?>
+            <a href="/superadmin/profile" class="d-flex align-items-center gap-2 flex-grow-1 overflow-hidden text-decoration-none" title="Profile Settings & 2FA">
+                <div class="user-avatar">
+                    <?= $avatarInitial ?>
                 </div>
-                <div class="user-role">SUPER ADMIN</div>
-            </div>
+                <div class="user-info">
+                    <div class="user-name text-dark" title="<?= htmlspecialchars($superadminUsername) ?>">
+                        <?= htmlspecialchars(strtoupper($superadminUsername)) ?>
+                    </div>
+                    <div class="user-role">SUPER ADMIN</div>
+                </div>
+            </a>
             <a href="/superadmin/logout" class="logout-btn" title="Logout">
                 <i class="fa-solid fa-arrow-right-from-bracket"></i>
             </a>
@@ -664,10 +672,33 @@ $isRouterMenu = strpos($page, 'router') !== false || in_array($page, ['live_rout
                 </div>
             </div>
             <div class="d-flex align-items-center gap-3">
-                <span class="badge border rounded-pill px-3 py-2 bg-primary-subtle text-primary border-primary-subtle fw-semibold d-flex align-items-center gap-2">
-                    <i class="fa-solid fa-crown text-warning"></i>
-                    <span><?= htmlspecialchars($superadminName) ?></span>
-                </span>
+                <div class="dropdown">
+                    <button class="btn btn-light border rounded-pill px-3 py-1.5 d-flex align-items-center gap-2 dropdown-toggle shadow-sm" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center fw-bold" style="width: 26px; height: 26px; font-size: 0.8rem;">
+                            <?= $avatarInitial ?>
+                        </div>
+                        <span class="fw-semibold text-dark small"><?= htmlspecialchars($superadminName) ?></span>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end shadow-lg border-0 rounded-4 mt-2 py-2" style="min-width: 220px;">
+                        <li><h6 class="dropdown-header text-uppercase text-muted fw-bold" style="font-size: 0.7rem; letter-spacing: 0.5px;">Super Admin</h6></li>
+                        <li>
+                            <a class="dropdown-item d-flex align-items-center gap-2 py-2 fw-semibold text-dark" href="/superadmin/profile">
+                                <i class="fa-solid fa-user-shield text-primary"></i> Profile &amp; 2FA Settings
+                            </a>
+                        </li>
+                        <li>
+                            <a class="dropdown-item d-flex align-items-center gap-2 py-2 fw-semibold text-dark" href="/superadmin/settings">
+                                <i class="fa-solid fa-sliders text-secondary"></i> Global Settings
+                            </a>
+                        </li>
+                        <li><hr class="dropdown-divider my-1"></li>
+                        <li>
+                            <a class="dropdown-item d-flex align-items-center gap-2 py-2 fw-semibold text-danger" href="/superadmin/logout">
+                                <i class="fa-solid fa-arrow-right-from-bracket"></i> Logout
+                            </a>
+                        </li>
+                    </ul>
+                </div>
             </div>
         </div>
         

@@ -643,16 +643,17 @@ $userRoleLabel = !empty($_SESSION['is_manager']) ? 'MANAGER' : 'ADMIN';
             <!-- 5. Operators & Staff -->
             <a href="#recoveryMenu" data-bs-toggle="collapse" class="nav-item-link has-submenu <?= $isTeamMenu ? 'active-parent' : 'collapsed' ?>" aria-expanded="<?= $isTeamMenu ? 'true' : 'false' ?>">
                 <i class="fa-solid fa-user-shield nav-icon"></i>
-                <span class="nav-text">Operators</span>
+                <span class="nav-text">Staff</span>
                 <i class="fa-solid fa-chevron-down nav-chevron"></i>
             </a>
             <div class="collapse <?= $isTeamMenu ? 'show' : '' ?>" id="recoveryMenu">
                 <ul class="submenu-tree">
-                    <li class="submenu-tree-item"><a href="recovery_man" class="<?= in_array($p, ['recovery_man.php', 'recovery_man', 'recoveryman_profile.php', 'recoveryman_profile']) ? 'active' : '' ?>">Operators</a></li>
-                    <li class="submenu-tree-item"><a href="line_man" class="<?= in_array($p, ['line_man.php', 'line_man', 'lineman_profile.php', 'lineman_profile']) ? 'active' : '' ?>">Line Man (Staff)</a></li>
-                    <?php if (empty($_SESSION['is_manager'])): ?>
+                     <?php if (empty($_SESSION['is_manager'])): ?>
                     <li class="submenu-tree-item"><a href="managers" class="<?= in_array($p, ['managers.php', 'managers', 'manager_view.php', 'manager_view']) ? 'active' : '' ?>">Managers</a></li>
                     <?php endif; ?>
+                    <li class="submenu-tree-item"><a href="recovery_man" class="<?= in_array($p, ['recovery_man.php', 'recovery_man', 'recoveryman_profile.php', 'recoveryman_profile']) ? 'active' : '' ?>">Operators</a></li>
+                    <li class="submenu-tree-item"><a href="line_man" class="<?= in_array($p, ['line_man.php', 'line_man', 'lineman_profile.php', 'lineman_profile']) ? 'active' : '' ?>">Line Man (Staff)</a></li>
+                   
                 </ul>
             </div>
 
@@ -664,9 +665,7 @@ $userRoleLabel = !empty($_SESSION['is_manager']) ? 'MANAGER' : 'ADMIN';
             </a>
             <div class="collapse <?= $isAccMenu ? 'show' : '' ?>" id="transMenu">
                 <ul class="submenu-tree">
-                    <?php if (empty($_SESSION['is_manager'])): ?>
-                    <li class="submenu-tree-item"><a href="financial_reports" class="<?= in_array($p, ['financial_reports.php', 'financial_reports']) ? 'active' : '' ?>"><i class="fa-solid fa-chart-line me-1 text-primary"></i> Financial Reports</a></li>
-                    <?php endif; ?>
+                    
                     <li class="submenu-tree-item"><a href="invoices" class="<?= in_array($p, ['invoices.php', 'invoices']) ? 'active' : '' ?>">Invoices / Receipts</a></li>
                     <li class="submenu-tree-item"><a href="fund_requests" class="<?= in_array($p, ['fund_requests.php', 'fund_requests']) ? 'active' : '' ?>">Payments / Fund Requests</a></li>
                     <li class="submenu-tree-item"><a href="expenses" class="<?= in_array($p, ['expenses.php', 'expenses']) ? 'active' : '' ?>">Daily Expenses</a></li>
@@ -677,7 +676,7 @@ $userRoleLabel = !empty($_SESSION['is_manager']) ? 'MANAGER' : 'ADMIN';
             <?php if (empty($_SESSION['is_manager'])): ?>
             <!-- 6b. Financial Reports (Direct Button) -->
             <a href="financial_reports" class="nav-item-link <?= in_array($p, ['financial_reports.php', 'financial_reports']) ? 'active-parent' : '' ?>">
-                <i class="fa-solid fa-chart-pie nav-icon" style="color: #8726d1;"></i>
+                <i class="fa-solid fa-chart-pie nav-icon" ></i>
                 <span class="nav-text">Financial Reports</span>
             </a>
             <?php endif; ?>

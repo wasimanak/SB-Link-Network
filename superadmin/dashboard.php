@@ -17,6 +17,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['restart_radius'])) {
     }
 }
 
+$is2FAActive = false;
+try {
+    require_once '../config/two_factor_helper.php';
+    init_two_factor_schema($pdo);
+    $sa2faStmt = $pdo->prepare("SELECT two_factor_enabled FROM super_admins WHERE id = ? LIMIT 1");
+    $sa2faStmt->execute([$_SESSION['superadmin_id'] ?? 0]);
+    $is2FAActive = (bool)$sa2faStmt->fetchColumn();
+} catch (Exception $e) {}
+
 try {
     // 1. Total Registered Operators Count
     $opStmt = $pdo->query("SELECT COUNT(*) FROM clients");
@@ -237,7 +246,16 @@ try {
                 <h3 class="fw-bold text-dark mb-1">System Overview & Tenants</h3>
                 <p class="text-muted small mb-0">High-level telemetry, multi-tenant ISP metrics, and core server infrastructure status.</p>
             </div>
-            <div class="d-flex gap-2">
+            <div class="d-flex flex-wrap gap-2">
+                <a href="profile.php" class="btn <?= $is2FAActive ? 'btn-outline-primary' : 'btn-outline-warning' ?> rounded-pill px-3 py-2 fw-semibold d-inline-flex align-items-center gap-1.5 shadow-sm">
+                    <i class="fa-solid fa-user-shield"></i>
+                    <span>Profile &amp; 2FA</span>
+                    <?php if ($is2FAActive): ?>
+                        <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2 py-0.5 ms-1" style="font-size: 0.68rem;">2FA On</span>
+                    <?php else: ?>
+                        <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle rounded-pill px-2 py-0.5 ms-1" style="font-size: 0.68rem;">Setup 2FA</span>
+                    <?php endif; ?>
+                </a>
                 <a href="admins.php" class="btn btn-outline-secondary rounded-pill px-3 py-2 fw-semibold">
                     <i class="fa-solid fa-users me-1"></i> View Admins
                 </a>
@@ -247,6 +265,26 @@ try {
             </div>
         </div>
     </div>
+
+    <?php if (!$is2FAActive): ?>
+    <!-- 2FA Setup Security Notice Banner -->
+    <div class="alert alert-warning border-0 shadow-sm rounded-4 p-3 mb-4 d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3" style="background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);">
+        <div class="d-flex align-items-center gap-3">
+            <div class="rounded-circle bg-warning text-dark d-flex align-items-center justify-content-center shadow-sm" style="width: 42px; height: 42px; flex-shrink: 0;">
+                <i class="fa-solid fa-shield-halved fs-5"></i>
+            </div>
+            <div>
+                <div class="fw-bold text-dark mb-0.5">Recommended: Enable Two-Factor Authentication (Google Authenticator)</div>
+                <div class="text-secondary small">Apne Super Admin account ko secure karein. QR code scan kar ke 2FA activate karein aur trusted device add karein.</div>
+            </div>
+        </div>
+        <div>
+            <a href="profile.php" class="btn btn-warning rounded-pill px-4 py-2 fw-bold text-dark shadow-sm text-nowrap">
+                <i class="fa-solid fa-qrcode me-1"></i> Setup 2FA Now
+            </a>
+        </div>
+    </div>
+    <?php endif; ?>
 
     <!-- FreeRADIUS Sync Alert Card -->
     <div class="radius-sync-card mb-4">
@@ -355,6 +393,24 @@ try {
                     <span class="badge bg-light text-muted border rounded-pill">Shortcuts</span>
                 </div>
                 <div class="d-flex flex-column gap-2">
+                    <a href="profile.php" class="quick-action-btn">
+                        <div class="quick-action-icon" style="background: <?= $is2FAActive ? '#f0fdf4' : '#fffbeb' ?>; color: <?= $is2FAActive ? '#16a34a' : '#d97706' ?>;">
+                            <i class="fa-solid fa-user-shield"></i>
+                        </div>
+                        <div class="flex-grow-1">
+                            <div class="d-flex align-items-center gap-1.5">
+                                <span>Profile &amp; 2FA Security</span>
+                                <?php if ($is2FAActive): ?>
+                                    <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2 py-0" style="font-size: 0.65rem;">Active</span>
+                                <?php else: ?>
+                                    <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle rounded-pill px-2 py-0" style="font-size: 0.65rem;">Action Needed</span>
+                                <?php endif; ?>
+                            </div>
+                            <div class="text-muted small fw-normal" style="font-size: 0.74rem;">Google Authenticator &amp; trusted devices</div>
+                        </div>
+                        <i class="fa-solid fa-chevron-right text-muted fs-6"></i>
+                    </a>
+
                     <a href="admin_add.php" class="quick-action-btn">
                         <div class="quick-action-icon" style="background: #eff6ff; color: #2563eb;">
                             <i class="fa-solid fa-user-plus"></i>

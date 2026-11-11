@@ -2,6 +2,23 @@
 session_start();
 require_once '../config/db.php';
 require_once '../config/security.php';
+require_once '../config/two_factor_helper.php';
+
+init_two_factor_schema($pdo);
+
+if (isset($_GET['logout'])) {
+    unset(
+        $_SESSION['2fa_pending_admin_id'],
+        $_SESSION['2fa_pending_admin_name'],
+        $_SESSION['2fa_pending_admin_user'],
+        $_SESSION['2fa_is_trusted_device'],
+        $_SESSION['2fa_device_token'],
+        $_SESSION['superadmin_logged_in'],
+        $_SESSION['superadmin_id'],
+        $_SESSION['superadmin_name'],
+        $_SESSION['superadmin_username']
+    );
+}
 
 $error = '';
 
@@ -30,11 +47,31 @@ if ($is_blocked) {
                     $pdo->prepare("UPDATE super_admins SET password = ? WHERE id = ?")->execute([$new_hash, $admin['id']]);
                 }
 
+                // Two-Factor Authentication Check
+                if (!empty($admin['two_factor_enabled']) && !empty($admin['two_factor_secret'])) {
+                    // Check if current browser is already a trusted device verified in the last 24 hours
+                    $trustCheck = totp_check_trusted_device($pdo, (int)$admin['id']);
+
+                    if (!$trustCheck['is_trusted'] || $trustCheck['requires_daily_2fa']) {
+                        // Requires 2FA verification code
+                        session_regenerate_id(true);
+                        $_SESSION['2fa_pending_admin_id'] = (int)$admin['id'];
+                        $_SESSION['2fa_pending_admin_name'] = $admin['name'];
+                        $_SESSION['2fa_pending_admin_user'] = $admin['username'];
+                        $_SESSION['2fa_is_trusted_device'] = $trustCheck['is_trusted'];
+                        $_SESSION['2fa_device_token'] = $trustCheck['raw_token'] ?? null;
+
+                        header("Location: 2fa_verify");
+                        exit;
+                    }
+                }
+
                 clear_failed_attempts($pdo, 'superadmin');
                 session_regenerate_id(true); // Prevent session fixation
                 $_SESSION['superadmin_logged_in'] = true;
                 $_SESSION['superadmin_id'] = $admin['id'];
                 $_SESSION['superadmin_name'] = $admin['name'];
+                $_SESSION['superadmin_username'] = $admin['username'];
                 
                 header("Location: dashboard");
                 exit;
