@@ -424,6 +424,10 @@ if (!empty($mgr_full_safe) || !empty($mgr_user_safe)) {
           AND a.by_user NOT LIKE 'Admin%'
           AND a.by_user NOT LIKE 'Operator%'
           AND a.created_at >= NOW() - INTERVAL 730 DAY
+          AND (a.against_role IS NULL OR a.against_role = '' OR a.against_role = 'User' OR a.against_role NOT IN ('RecoveryMan', 'Manager', 'Lineman', 'Staff', 'Accounting', 'Stock', 'Payroll'))
+          AND a.activity NOT LIKE 'Collected Cash Rs.% from Operator%'
+          AND a.activity NOT LIKE 'Collected Cash Rs.% from RecoveryMan%'
+          AND a.activity NOT LIKE 'Collected Cash Rs.% from Manager%'
           AND (
               (a.activity LIKE '%Renew%' AND a.activity NOT LIKE '%Ready for renewal%')
               OR a.activity LIKE '%Collected%'
@@ -508,6 +512,15 @@ $unique_subs = [];
 
 foreach ($raw_recoveries as $rec) {
     $act_text = $rec['activity'];
+
+    // Safety check: Skip non-subscriber or operator cash collection entries
+    if (!empty($rec['against_role']) && in_array($rec['against_role'], ['RecoveryMan', 'Manager', 'Lineman', 'Staff', 'Accounting', 'Stock', 'Payroll'])) {
+        continue;
+    }
+    if (preg_match('/Collected Cash Rs\..+from (Operator|RecoveryMan|Manager)/i', $act_text)) {
+        continue;
+    }
+
     $sub_username = $rec['username'] ?: 'N/A';
     if ($sub_username !== 'N/A') {
         $unique_subs[$sub_username] = true;
@@ -800,6 +813,10 @@ if ($has_date_filter && !empty($from_sql)) {
               AND a.by_user NOT IN ('Admin', 'Operator', 'System', ?)
               AND a.by_user NOT LIKE 'Admin%'
               AND a.by_user NOT LIKE 'Operator%'
+              AND (a.against_role IS NULL OR a.against_role = '' OR a.against_role = 'User' OR a.against_role NOT IN ('RecoveryMan', 'Manager', 'Lineman', 'Staff', 'Accounting', 'Stock', 'Payroll'))
+              AND a.activity NOT LIKE 'Collected Cash Rs.% from Operator%'
+              AND a.activity NOT LIKE 'Collected Cash Rs.% from RecoveryMan%'
+              AND a.activity NOT LIKE 'Collected Cash Rs.% from Manager%'
               AND (
                   (a.activity LIKE '%Renew%' AND a.activity NOT LIKE '%Ready for renewal%')
                   OR a.activity LIKE '%Collected%'
@@ -917,10 +934,15 @@ if ($has_date_filter && !empty($from_sql)) {
 
 // Combine into unified Statement Timeline
 $statement_entries = [];
+$seen_statement_keys = [];
 
 // 1. Add Collections (Credits) from $all_recoveries
 foreach ($all_recoveries as $rec) {
     if ($rec['collected_amount'] > 0) {
+        $entry_key = 'act_' . $rec['id'];
+        if (isset($seen_statement_keys[$entry_key])) continue;
+        $seen_statement_keys[$entry_key] = true;
+
         $statement_entries[] = [
             'id'             => 'rec_' . $rec['id'],
             'created_at'     => $rec['created_at'],
@@ -955,6 +977,10 @@ foreach ($rm_collections as $rmc) {
     }
 
     if ($c_amt > 0) {
+        $entry_key = 'act_' . $rmc['id'];
+        if (isset($seen_statement_keys[$entry_key])) continue;
+        $seen_statement_keys[$entry_key] = true;
+
         $statement_entries[] = [
             'id'             => 'rmc_' . $rmc['id'],
             'created_at'     => $rmc['created_at'],
@@ -990,6 +1016,10 @@ foreach ($submissions as $sub) {
     }
 
     if ($sub_amt > 0) {
+        $entry_key = 'sub_' . $sub['id'];
+        if (isset($seen_statement_keys[$entry_key])) continue;
+        $seen_statement_keys[$entry_key] = true;
+
         $statement_entries[] = [
             'id'             => 'sub_' . $sub['id'],
             'created_at'     => $sub['created_at'],
@@ -1013,6 +1043,10 @@ foreach ($submissions as $sub) {
 foreach ($mgr_expenses as $me) {
     $exp_amt = (float)$me['amount'];
     if ($exp_amt > 0) {
+        $entry_key = 'exp_' . $me['id'];
+        if (isset($seen_statement_keys[$entry_key])) continue;
+        $seen_statement_keys[$entry_key] = true;
+
         $exp_datetime = !empty($me['created_at']) ? $me['created_at'] : ($me['expense_date'] . ' 12:00:00');
         $statement_entries[] = [
             'id'             => 'exp_' . $me['id'],
