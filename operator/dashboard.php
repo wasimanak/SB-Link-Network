@@ -404,20 +404,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             }
             $sub_user = $sub_user_row['username'];
 
-            // Anti-Duplicate Resubmission Guard:
-            // Check if identical payment was already recorded within last 20 seconds
+            // 10-Minute Anti-Duplicate Financial Protection Guard (600 seconds)
             if ($final_amount > 0) {
-                $dupCheck = $pdo->prepare("
-                    SELECT id FROM user_ledger 
-                    WHERE client_id = ? AND username = ? AND type = 'credit' AND amount = ? 
-                      AND created_at >= NOW() - INTERVAL 20 SECOND
-                    LIMIT 1
-                ");
-                $dupCheck->execute([$client_id, $sub_user, abs($final_amount)]);
-                $existing_ledger = $dupCheck->fetchColumn();
-                if ($existing_ledger) {
-                    $ret = urlencode("dashboard.php");
-                    header("Location: print_receipt.php?sub_id={$sub_id}&ledger_id={$existing_ledger}&paid=" . abs($final_amount) . "&type=collect&return={$ret}");
+                $dupCheck = check_financial_duplicate_cooldown($pdo, $client_id, 'subscriber_payment', $sub_user, $final_amount, 600);
+                if (!$dupCheck['allowed']) {
+                    $rem_mins = $dupCheck['remaining_minutes'];
+                    echo "<script>alert('Duplicate Payment Blocked!\n\nIs user k account me Rs. " . number_format(abs($final_amount), 0) . " ki payment abhi record ho chuki hai.\nDubara same amount add karne k liye {$rem_mins} minute intezar karein.'); window.location.replace('dashboard.php');</script>";
                     exit;
                 }
             }
@@ -452,6 +444,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
                 $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, description, balance_after) VALUES (?, ?, ?, ?, ?, ?)")
                     ->execute([$client_id, $sub_user, $type, $absAmount, $desc, $finalBal]);
+                $new_ledger_id = (int)$pdo->lastInsertId();
                 
                 $actStr = $final_amount > 0 
                     ? "Added Balance: Rs. " . number_format($absAmount, 2) . " by $actor_role ($actor_name)" 
@@ -462,14 +455,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 $pdo->commit();
                 if ($final_amount > 0) {
                     $ret = urlencode("dashboard.php");
-                    $target_url = "print_receipt.php?sub_id={$sub_id}&paid={$absAmount}&type=collect&return={$ret}";
-                    header("Location: " . $target_url);
-                    exit;
+                    $target_url = "print_receipt.php?sub_id={$sub_id}&ledger_id={$new_ledger_id}&paid={$absAmount}&type=collect&return={$ret}";
+                    safe_redirect($target_url);
                 } else {
-                    header("Location: dashboard.php");
-                    exit;
+                    safe_redirect("dashboard.php");
                 }
-                exit;
             } catch (Exception $e) {
                 $pdo->rollBack();
                 echo "<script>alert('Error updating balance: " . addslashes($e->getMessage()) . "');</script>";
@@ -1818,6 +1808,10 @@ unset($ms);
                 <div class="input-group input-group-lg">
                   <span class="input-group-text bg-light fw-bold text-dark" id="amount_currency_tag">Rs.</span>
                   <input type="number" step="1" min="1" name="amount" id="payment_amount_input" class="form-control fw-bold" placeholder="0" required oninput="calculateProjectedBalance()">
+                </div>
+                <div class="d-flex align-items-center gap-1 text-muted mt-1" style="font-size: 0.76rem;">
+                  <i class="fa-solid fa-shield-halved text-success"></i> 
+                  <span>10-minute duplicate payment protection active.</span>
                 </div>
                 
                 <!-- Quick Amount Chips -->
@@ -3331,7 +3325,15 @@ function validatePaymentForm() {
     var isDeduct = document.getElementById('trans_deduct').checked;
     var username = userSelect.options[userSelect.selectedIndex].getAttribute('data-username') || 'user';
     var actionWord = isDeduct ? 'DEDUCT' : 'ADD';
-    return confirm('Are you sure you want to ' + actionWord + ' Rs. ' + amt.toLocaleString() + ' for ' + username + '?');
+    if (!confirm('Are you sure you want to ' + actionWord + ' Rs. ' + amt.toLocaleString() + ' for ' + username + '?')) {
+        return false;
+    }
+    var btn = document.getElementById('payment_submit_btn');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i> Processing...';
+    }
+    return true;
 }
 
 function openPaymentModal(userId, username) {

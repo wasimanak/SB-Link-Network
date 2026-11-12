@@ -1,4 +1,5 @@
 <?php
+ob_start();
 require_once 'header.php';
 $client_id = $_SESSION['operator_id'];
 
@@ -700,22 +701,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
         elseif ($action === 'add_balance') {
-            $amount = (float)$_POST['amount'];
+            $amount = (float)($_POST['amount'] ?? 0);
             if ($amount != 0) {
-                // Anti-Duplicate Resubmission Guard:
-                // Check if identical payment was already recorded within last 20 seconds
+                // 10-Minute Anti-Duplicate Financial Protection Guard (600 seconds)
                 if ($amount > 0) {
-                    $dupCheck = $pdo->prepare("
-                        SELECT id FROM user_ledger 
-                        WHERE client_id = ? AND username = ? AND type = 'credit' AND amount = ? 
-                          AND created_at >= NOW() - INTERVAL 20 SECOND
-                        LIMIT 1
-                    ");
-                    $dupCheck->execute([$client_id, $u, abs($amount)]);
-                    $existing_ledger = $dupCheck->fetchColumn();
-                    if ($existing_ledger) {
-                        $ret = urlencode("subscriber_view.php?id=$id");
-                        header("Location: print_receipt.php?sub_id={$id}&ledger_id={$existing_ledger}&paid=" . abs($amount) . "&type=collect&return={$ret}");
+                    $dupCheck = check_financial_duplicate_cooldown($pdo, $client_id, 'subscriber_payment', $u, $amount, 600);
+                    if (!$dupCheck['allowed']) {
+                        $rem_mins = $dupCheck['remaining_minutes'];
+                        echo "<script>alert('Duplicate Payment Blocked!\n\nIs user k account me Rs. " . number_format(abs($amount), 0) . " ki payment abhi record ho chuki hai.\nDubara same amount add karne k liye {$rem_mins} minute intezar karein.'); window.location.replace('subscriber_view.php?id=$id');</script>";
                         exit;
                     }
                 }
@@ -724,7 +717,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $bStmt = $pdo->prepare("SELECT balance FROM subscribers WHERE id=?");
                 $bStmt->execute([$id]);
                 $current_bal = (float)$bStmt->fetchColumn();
-                $new_bal = $current_bal + $amount;
+                $new_bal = round($current_bal + $amount, 2);
                 
                 $pdo->prepare("UPDATE subscribers SET balance = ? WHERE id=?")->execute([$new_bal, $id]);
                 
@@ -757,17 +750,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Insert into ledger
                 $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, ?, ?, ?, ?)")
                     ->execute([$client_id, $u, $type, $absAmount, $new_bal, $desc]);
+                $new_ledger_id = (int)$pdo->lastInsertId();
 
+                // Safe PRG Redirect (Prevents white screen & eliminates duplicate submission on page refresh)
                 if ($amount > 0) {
                     $ret = urlencode("subscriber_view.php?id=$id");
-                    $target_url = "print_receipt.php?sub_id={$id}&paid={$absAmount}&type=collect&return={$ret}";
-                    header("Location: " . $target_url);
-                    exit;
+                    $target_url = "print_receipt.php?sub_id={$id}&ledger_id={$new_ledger_id}&paid={$absAmount}&type=collect&return={$ret}";
+                    safe_redirect($target_url);
                 } else {
-                    header("Location: subscriber_view.php?id=$id");
-                    exit;
+                    safe_redirect("subscriber_view.php?id=$id");
                 }
-                exit;
             }
         }
         elseif ($action === 'renew_user') {
@@ -2333,16 +2325,23 @@ function updateIssueModalUnit(sel) {
         <h5 class="modal-title"><i class="fa-brands fa-paypal"></i> Add Payment</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
-      <form method="POST">
+      <form method="POST" onsubmit="var b=this.querySelector('button[type=submit]'); b.disabled=true; b.innerHTML='<i class=\'fa-solid fa-spinner fa-spin me-1\'></i> Processing...';">
         <input type="hidden" name="action" value="add_balance">
         <div class="modal-body">
             <div class="mb-3">
-                <label class="form-label">Amount</label>
-                <input type="number" step="1" name="amount" class="form-control" required>
+                <label class="form-label fw-bold">Amount (Rs.) <span class="text-danger">*</span></label>
+                <input type="number" step="1" name="amount" class="form-control form-control-lg fw-bold text-success font-monospace" placeholder="e.g. 1500" required autofocus>
+                <div class="d-flex align-items-center gap-1 text-muted mt-2" style="font-size: 0.76rem;">
+                    <i class="fa-solid fa-shield-halved text-success"></i> 
+                    <span>10-minute duplicate payment protection active.</span>
+                </div>
             </div>
         </div>
         <div class="modal-footer">
-          <button type="submit" class="btn btn-primary">Add Balance</button>
+          <button type="button" class="btn btn-light rounded-pill px-3" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary rounded-pill px-4 fw-bold shadow-sm">
+              <i class="fa-solid fa-circle-check me-1"></i> Add Balance
+          </button>
         </div>
       </form>
     </div>

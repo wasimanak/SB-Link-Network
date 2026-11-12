@@ -133,6 +133,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (empty($title) || $amount <= 0 || empty($expense_date)) {
             $_SESSION['expense_flash'] = ['type' => 'danger', 'msg' => 'Expense Title, Amount and Date are required.'];
         } else {
+            // 10-Minute Anti-Duplicate Financial Protection Guard (600 seconds)
+            $dupCheck = check_financial_duplicate_cooldown($pdo, $client_id, 'expense', $title, $amount, 600);
+            if (!$dupCheck['allowed']) {
+                $rem_mins = $dupCheck['remaining_minutes'];
+                $_SESSION['expense_flash'] = [
+                    'type' => 'warning', 
+                    'msg' => "Duplicate Expense Blocked! Ye expense ('" . htmlspecialchars($title) . "' - Rs. " . number_format($amount, 0) . ") abhi record ho chuka hai. Dubara same expense add karne k liye {$rem_mins} minute intezar karein."
+                ];
+                safe_redirect_expenses();
+            }
+
             // Handle optional receipt upload
             $receipt_filename = null;
             if (!empty($_FILES['receipt_file']['name']) && $_FILES['receipt_file']['error'] === UPLOAD_ERR_OK) {
@@ -178,8 +189,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['expense_flash'] = ['type' => 'danger', 'msg' => 'Failed to save expense: ' . $e->getMessage()];
             }
         }
-        header("Location: expenses" . (!empty($_SERVER['QUERY_STRING']) ? '?' . $_SERVER['QUERY_STRING'] : ''));
-        exit;
+        safe_redirect_expenses();
     }
 
     // 2. EDIT EXPENSE
@@ -272,8 +282,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['expense_flash'] = ['type' => 'danger', 'msg' => 'Failed to update expense: ' . $e->getMessage()];
             }
         }
-        header("Location: expenses" . (!empty($_SERVER['QUERY_STRING']) ? '?' . $_SERVER['QUERY_STRING'] : ''));
-        exit;
+        safe_redirect_expenses();
     }
 
     // 3. DELETE EXPENSE
@@ -318,8 +327,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $_SESSION['expense_flash'] = ['type' => 'danger', 'msg' => 'Expense not found.'];
         }
-        header("Location: expenses" . (!empty($_SERVER['QUERY_STRING']) ? '?' . $_SERVER['QUERY_STRING'] : ''));
-        exit;
+        safe_redirect_expenses();
     }
 }
 
@@ -1011,7 +1019,7 @@ require_once 'header.php';
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             
-            <form method="POST" enctype="multipart/form-data">
+            <form method="POST" enctype="multipart/form-data" onsubmit="var b=this.querySelector('button[type=submit]'); b.disabled=true; b.innerHTML='<i class=\'fa-solid fa-spinner fa-spin me-1\'></i> Saving...';">
                 <input type="hidden" name="action" value="add_expense">
                 
                 <div class="modal-body p-4">
@@ -1043,6 +1051,10 @@ require_once 'header.php';
                             <div class="input-group">
                                 <span class="input-group-text bg-light text-muted fw-bold">Rs</span>
                                 <input type="number" step="1" min="1" name="amount" class="form-control rounded-end-3" placeholder="0" required>
+                            </div>
+                            <div class="d-flex align-items-center gap-1 text-muted mt-1" style="font-size: 0.72rem;">
+                                <i class="fa-solid fa-shield-halved text-success"></i> 
+                                <span>10-minute duplicate protection active.</span>
                             </div>
                         </div>
 

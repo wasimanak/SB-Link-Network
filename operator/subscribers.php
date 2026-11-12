@@ -90,20 +90,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 $sub_user = $subRow['username'];
 
-                // Anti-Duplicate Resubmission Guard:
-                // Check if identical payment was already recorded within last 20 seconds
+                // 10-Minute Anti-Duplicate Financial Protection Guard (600 seconds)
                 if ($amount > 0) {
-                    $dupCheck = $pdo->prepare("
-                        SELECT id FROM user_ledger 
-                        WHERE client_id = ? AND username = ? AND type = 'credit' AND amount = ? 
-                          AND created_at >= NOW() - INTERVAL 20 SECOND
-                        LIMIT 1
-                    ");
-                    $dupCheck->execute([$client_id, $sub_user, abs($amount)]);
-                    $existing_ledger = $dupCheck->fetchColumn();
-                    if ($existing_ledger) {
-                        $ret = urlencode("subscribers.php");
-                        header("Location: print_receipt.php?sub_id={$id}&ledger_id={$existing_ledger}&paid=" . abs($amount) . "&type=collect&return={$ret}");
+                    $dupCheck = check_financial_duplicate_cooldown($pdo, $client_id, 'subscriber_payment', $sub_user, $amount, 600);
+                    if (!$dupCheck['allowed']) {
+                        $rem_mins = $dupCheck['remaining_minutes'];
+                        echo "<script>alert('Duplicate Payment Blocked!\n\nIs user k account me Rs. " . number_format(abs($amount), 0) . " ki payment abhi record ho chuki hai.\nDubara same amount add karne k liye {$rem_mins} minute intezar karein.'); window.location.replace('subscribers.php');</script>";
                         exit;
                     }
                 }
@@ -138,17 +130,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description) VALUES (?, ?, ?, ?, ?, ?)")
                     ->execute([$client_id, $sub_user, $type, $absAmount, $new_bal, $desc]);
+                $new_ledger_id = (int)$pdo->lastInsertId();
 
                 if ($amount > 0) {
                     $ret = urlencode("subscribers.php");
-                    $target_url = "print_receipt.php?sub_id={$id}&paid={$absAmount}&type=collect&return={$ret}";
-                    header("Location: " . $target_url);
-                    exit;
+                    $target_url = "print_receipt.php?sub_id={$id}&ledger_id={$new_ledger_id}&paid={$absAmount}&type=collect&return={$ret}";
+                    safe_redirect($target_url);
                 } else {
-                    header("Location: subscribers.php");
-                    exit;
+                    safe_redirect("subscribers.php");
                 }
-                exit;
             }
         }
     }
@@ -2352,7 +2342,7 @@ $(document).ready(function() {
         <h5 class="modal-title text-dark fw-bold"><i class="fa-brands fa-paypal text-primary me-2"></i> Add Payment</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
-      <form method="POST">
+      <form method="POST" onsubmit="var b=this.querySelector('button[type=submit]'); b.disabled=true; b.innerHTML='<i class=\'fa-solid fa-spinner fa-spin me-1\'></i> Processing...';">
         <input type="hidden" name="action" value="single_payment">
         <input type="hidden" name="id" id="pay_user_id" value="">
         <div class="modal-body p-4">
@@ -2366,7 +2356,11 @@ $(document).ready(function() {
                     <span class="input-group-text bg-light border-0 text-muted px-3 fw-bold">Rs</span>
                     <input type="number" step="1" name="amount" class="form-control bg-light border-0 px-3 py-2 text-dark fs-5 fw-bold" placeholder="e.g. 500" required>
                 </div>
-                <small class="text-muted mt-2 d-block"><i class="fa-solid fa-circle-info me-1"></i>Use negative amount to deduct balance.</small>
+                <div class="d-flex align-items-center gap-1 text-muted mt-2" style="font-size: 0.76rem;">
+                    <i class="fa-solid fa-shield-halved text-success"></i> 
+                    <span>10-minute duplicate payment protection active.</span>
+                </div>
+                <small class="text-muted mt-1 d-block"><i class="fa-solid fa-circle-info me-1"></i>Use negative amount to deduct balance.</small>
             </div>
         </div>
         <div class="modal-footer border-top p-3" style="background-color: #f8fafc; border-color: #e2e8f0 !important;">

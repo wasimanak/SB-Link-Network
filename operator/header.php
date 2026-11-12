@@ -1,5 +1,6 @@
 <?php
-session_start();
+if (ob_get_level() === 0) ob_start();
+if (session_status() === PHP_SESSION_NONE) session_start();
 require_once '../config/db.php';
 require_once '../config/manager_helper.php';
 
