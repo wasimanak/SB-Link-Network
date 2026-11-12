@@ -7,6 +7,11 @@ $pkgStmt = $pdo->prepare("SELECT * FROM packages WHERE client_id = ?");
 $pkgStmt->execute([$client_id]);
 $packages = $pkgStmt->fetchAll();
 
+// Fetch Operator's NAS Routers
+$opRoutersStmt = $pdo->prepare("SELECT id, nasname, shortname FROM nas WHERE client_id = ? ORDER BY id ASC");
+$opRoutersStmt->execute([$client_id]);
+$operator_routers = $opRoutersStmt->fetchAll(PDO::FETCH_ASSOC);
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = trim($_POST['username']);
     $password = trim($_POST['password']);
@@ -43,12 +48,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $creator_role = $is_mgr ? 'Manager' : 'Admin';
                 $created_by_val = $creator_user . ($creator_role !== 'Admin' ? " ($creator_role)" : "");
 
-                $pdo->prepare("INSERT INTO subscribers (client_id, package_id, username, password, service_type, status, expiry_date, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-                    ->execute([$client_id, $package_id, $username, $password, $service, $status, $now_expiry, $created_by_val]);
+                $router_nasname = trim($_POST['router_nasname'] ?? '');
+                if (empty($router_nasname) && !empty($operator_routers)) {
+                    $router_nasname = $operator_routers[0]['nasname'];
+                }
+
+                $pdo->prepare("INSERT INTO subscribers (client_id, package_id, username, password, service_type, status, expiry_date, created_by, nasname) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                    ->execute([$client_id, $package_id, $username, $password, $service, $status, $now_expiry, $created_by_val, $router_nasname]);
 
                 
                 $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Cleartext-Password', ':=', ?)")
                     ->execute([$username, $password]);
+
+                // Enforce NAS Router Lock in FreeRADIUS radcheck
+                $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute = 'NAS-IP-Address'")->execute([$username]);
+                if (!empty($router_nasname)) {
+                    $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'NAS-IP-Address', '==', ?)")->execute([$username, $router_nasname]);
+                }
                 
                 // Walled Garden with 10k/10k rate limit for newly created user (Default: Expired awaiting renewal)
                 $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute IN ('Expiration', 'Auth-Type')")->execute([$username]);
@@ -113,6 +129,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <option value="pppoe">PPPoE</option>
                         <option value="hotspot">Hotspot</option>
                     </select>
+                </div>
+            </div>
+            <div class="row mb-3">
+                <div class="col-md-6">
+                    <label>MikroTik Router (NAS) <span class="text-danger">*</span></label>
+                    <select name="router_nasname" class="form-select" required>
+                        <?php if (empty($operator_routers)): ?>
+                            <option value="">No Routers Configured (Add in Profile)</option>
+                        <?php else: ?>
+                            <?php foreach($operator_routers as $r): ?>
+                                <option value="<?= htmlspecialchars($r['nasname']) ?>"><?= htmlspecialchars($r['shortname'] ?: 'Router') ?> (<?= htmlspecialchars($r['nasname']) ?>)</option>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </select>
+                    <small class="text-muted" style="font-size: 0.75rem;">User will ONLY authenticate on this MikroTik router.</small>
                 </div>
             </div>
             <button class="btn btn-primary"><i class="fa-solid fa-save"></i> Save Subscriber</button>

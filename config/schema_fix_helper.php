@@ -300,7 +300,11 @@ function fix_and_repair_schema($pdo) {
         add_column_if_missing($pdo, 'subscribers', 'last_renewal_receipt_at', 'DATETIME DEFAULT NULL');
         add_column_if_missing($pdo, 'subscribers', 'last_renewal_receipt_by', 'VARCHAR(100) DEFAULT NULL');
         add_column_if_missing($pdo, 'subscribers', 'created_by', 'VARCHAR(100) DEFAULT NULL');
-        $report[] = "RADIUS performance indexes verified";
+        add_column_if_missing($pdo, 'subscribers', 'nasname', 'VARCHAR(128) DEFAULT NULL');
+        add_column_if_missing($pdo, 'subscribers', 'router_id', 'INT DEFAULT NULL');
+        add_index_if_missing($pdo, 'subscribers', 'idx_sub_nasname', '`nasname`');
+        add_index_if_missing($pdo, 'radcheck', 'idx_radcheck_attr_user', '`username`, `attribute`');
+        $report[] = "RADIUS performance indexes & subscriber NAS columns verified";
     } catch (Exception $e) {}
 
     // 13b. Ensure items & stock_transactions tables & columns
@@ -423,5 +427,143 @@ function fix_and_repair_schema($pdo) {
         $report[] = "FreeRADIUS auxiliary tables verified (radusergroup, radgroupreply, radgroupcheck, radpostauth)";
     } catch (Exception $e) {}
 
+    // 16. Install Multi-Tenant NAS Isolation Triggers and Synchronize Subscribers
+    try {
+        $nas_res = sync_all_subscribers_nas($pdo);
+        $report[] = "Multi-Tenant NAS Security: Synced {$nas_res['locked']} subscribers across {$nas_res['operators']} operators to their assigned MikroTik routers";
+    } catch (Exception $e) {
+        $report[] = "Multi-Tenant NAS Security Warning: " . $e->getMessage();
+    }
+
     return $report;
+}
+
+/**
+ * Ensures database triggers exist to automatically enforce NAS router binding
+ * and synchronizes all existing subscribers to their operator's MikroTik router.
+ */
+function sync_all_subscribers_nas($pdo) {
+    // 1. Ensure columns exist
+    add_column_if_missing($pdo, 'subscribers', 'nasname', 'VARCHAR(128) DEFAULT NULL');
+    add_column_if_missing($pdo, 'subscribers', 'router_id', 'INT DEFAULT NULL');
+    add_index_if_missing($pdo, 'subscribers', 'idx_sub_nasname', '`nasname`');
+
+    // 2. Install / Refresh Triggers
+    try {
+        // Trigger 1: Before Insert - automatically assign operator's default router if not specified
+        $pdo->exec("DROP TRIGGER IF EXISTS ensure_subscriber_nas_before_insert");
+        $pdo->exec("CREATE TRIGGER ensure_subscriber_nas_before_insert 
+            BEFORE INSERT ON subscribers FOR EACH ROW 
+            BEGIN 
+                IF NEW.nasname IS NULL OR NEW.nasname = '' THEN 
+                    SET NEW.nasname = (SELECT nasname FROM nas WHERE client_id = NEW.client_id ORDER BY id ASC LIMIT 1); 
+                END IF; 
+            END");
+
+        // Trigger 2: After Insert - insert NAS-IP-Address check into radcheck
+        $pdo->exec("DROP TRIGGER IF EXISTS restrict_nas_ip_insert");
+        $pdo->exec("CREATE TRIGGER restrict_nas_ip_insert 
+            AFTER INSERT ON subscribers FOR EACH ROW 
+            BEGIN 
+                IF NEW.nasname IS NOT NULL AND NEW.nasname != '' THEN 
+                    DELETE FROM radcheck WHERE username = NEW.username AND attribute = 'NAS-IP-Address'; 
+                    INSERT INTO radcheck (username, attribute, op, value) VALUES (NEW.username, 'NAS-IP-Address', '==', NEW.nasname); 
+                END IF; 
+            END");
+
+        // Trigger 3: After Update - update NAS-IP-Address check in radcheck
+        $pdo->exec("DROP TRIGGER IF EXISTS restrict_nas_ip_update");
+        $pdo->exec("CREATE TRIGGER restrict_nas_ip_update 
+            AFTER UPDATE ON subscribers FOR EACH ROW 
+            BEGIN 
+                IF NEW.nasname IS NOT NULL AND NEW.nasname != '' AND (OLD.nasname IS NULL OR OLD.nasname != NEW.nasname OR OLD.username != NEW.username) THEN 
+                    DELETE FROM radcheck WHERE username = OLD.username AND attribute = 'NAS-IP-Address'; 
+                    DELETE FROM radcheck WHERE username = NEW.username AND attribute = 'NAS-IP-Address'; 
+                    INSERT INTO radcheck (username, attribute, op, value) VALUES (NEW.username, 'NAS-IP-Address', '==', NEW.nasname); 
+                END IF; 
+            END");
+
+        // Trigger 4: After Delete - cleanup radcheck
+        $pdo->exec("DROP TRIGGER IF EXISTS cleanup_nas_ip_delete");
+        $pdo->exec("CREATE TRIGGER cleanup_nas_ip_delete 
+            AFTER DELETE ON subscribers FOR EACH ROW 
+            BEGIN 
+                DELETE FROM radcheck WHERE username = OLD.username; 
+            END");
+    } catch (Exception $eTrig) {
+        // Triggers might fail if MySQL user lacks TRIGGER privilege; PHP manual sync will still protect
+    }
+
+    // 3. Map all routers by client_id
+    $nasRows = $pdo->query("SELECT id, client_id, nasname, shortname FROM nas ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC);
+    $client_routers = [];
+    foreach ($nasRows as $nr) {
+        $cid = (int)$nr['client_id'];
+        $client_routers[$cid][] = $nr;
+    }
+
+    // 4. Fetch all subscribers
+    $subsStmt = $pdo->query("SELECT id, client_id, username, nasname FROM subscribers");
+    $subs = $subsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $locked_count = 0;
+    $updated_sub_count = 0;
+
+    foreach ($subs as $s) {
+        $cid = (int)$s['client_id'];
+        $u = trim($s['username']);
+        $nasname = trim($s['nasname'] ?? '');
+
+        // If nasname is empty, try to resolve it
+        if (empty($nasname)) {
+            // Check recent session in radacct
+            try {
+                $acctStmt = $pdo->prepare("SELECT nasipaddress FROM radacct WHERE username = ? ORDER BY radacctid DESC LIMIT 1");
+                $acctStmt->execute([$u]);
+                $recent_nas = trim($acctStmt->fetchColumn() ?: '');
+
+                // Verify if recent_nas belongs to this client
+                if (!empty($recent_nas) && !empty($client_routers[$cid])) {
+                    foreach ($client_routers[$cid] as $cr) {
+                        if ($cr['nasname'] === $recent_nas) {
+                            $nasname = $recent_nas;
+                            break;
+                        }
+                    }
+                }
+            } catch (Exception $eA) {}
+
+            // Fallback to client's primary router
+            if (empty($nasname) && !empty($client_routers[$cid])) {
+                $nasname = $client_routers[$cid][0]['nasname'];
+            }
+
+            if (!empty($nasname)) {
+                $pdo->prepare("UPDATE subscribers SET nasname = ? WHERE id = ?")->execute([$nasname, $s['id']]);
+                $updated_sub_count++;
+            }
+        }
+
+        // If we have a nasname, enforce it in radcheck
+        if (!empty($nasname)) {
+            // Check if already correctly present
+            $chk = $pdo->prepare("SELECT id, value FROM radcheck WHERE username = ? AND attribute = 'NAS-IP-Address'");
+            $chk->execute([$u]);
+            $existing_rc = $chk->fetch(PDO::FETCH_ASSOC);
+
+            if (!$existing_rc) {
+                $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'NAS-IP-Address', '==', ?)")->execute([$u, $nasname]);
+                $locked_count++;
+            } elseif ($existing_rc['value'] !== $nasname) {
+                $pdo->prepare("UPDATE radcheck SET value = ?, op = '==' WHERE id = ?")->execute([$nasname, $existing_rc['id']]);
+                $locked_count++;
+            }
+        }
+    }
+
+    return [
+        'operators' => count($client_routers),
+        'subscribers_updated' => $updated_sub_count,
+        'locked' => $locked_count
+    ];
 }

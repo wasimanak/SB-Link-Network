@@ -521,13 +521,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $formatted_expiry_db = !empty($expiry) ? date('Y-m-d H:i:s', $new_exp_ts) : null;
 
             // Update subscriber
+            $router_nasname = trim($_POST['router_nasname'] ?? '');
+
             $pdo->prepare("UPDATE subscribers SET 
                 full_name=?, national_id=?, username=?, password=?, service_type=?, 
                 package_id=?, dealer_id=?, expiry_date=?, status=?, balance=?, mobile=?, phone=?, email=?, 
-                address=?, subarea=?, city=?, latitude=?, longitude=?, gps_lat=?, gps_lng=? WHERE id=?")
+                address=?, subarea=?, city=?, latitude=?, longitude=?, gps_lat=?, gps_lng=?, nasname=? WHERE id=?")
                 ->execute([$full_name, $national_id, $new_username, $password, $service_type, 
                            $package_id, $dealer_id, $formatted_expiry_db, $new_status, $new_bal, $mobile, $phone, $email, 
-                           $address, $subarea, $city, $latitude, $longitude, $latitude, $longitude, $id]);
+                           $address, $subarea, $city, $latitude, $longitude, $latitude, $longitude, $router_nasname, $id]);
+
+            // Enforce Router Lock in FreeRADIUS radcheck
+            if (!empty($router_nasname)) {
+                $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute = 'NAS-IP-Address'")->execute([$new_username]);
+                $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'NAS-IP-Address', '==', ?)")->execute([$new_username, $router_nasname]);
+            }
             
             // Update RADIUS Cleartext-Password & Username
             if ($new_username !== $u) {
@@ -1137,6 +1145,15 @@ if (!$user) {
     exit;
 }
 
+// Fetch Operator Routers for NAS Router Lock
+$opRoutersStmt = $pdo->prepare("SELECT id, nasname, shortname FROM nas WHERE client_id = ? ORDER BY id ASC");
+$opRoutersStmt->execute([$client_id]);
+$operator_routers = $opRoutersStmt->fetchAll(PDO::FETCH_ASSOC);
+$router_names_map = [];
+foreach ($operator_routers as $r) {
+    $router_names_map[$r['nasname']] = $r['shortname'] ?: 'Router';
+}
+
 if (!empty($_SESSION['is_manager']) && !empty($user['dealer_id'])) {
     echo "<script>alert('Permission Denied: Managers cannot view dealer subscribers.'); window.location='subscribers.php';</script>";
     exit;
@@ -1707,6 +1724,17 @@ if ($last_debit) {
                     <i class="fa-solid fa-user-check text-primary"></i> 
                     <span class="text-muted small me-1">Created By:</span> 
                     <span class="fw-bold text-dark"><?= htmlspecialchars($creator_display) ?></span>
+                </li>
+                <li>
+                    <i class="fa-solid fa-server text-primary"></i> 
+                    <span class="text-muted small me-1">MikroTik Router:</span> 
+                    <?php if (!empty($user['nasname'])): ?>
+                        <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 font-monospace">
+                            <i class="fa-solid fa-shield-halved me-1"></i> <?= htmlspecialchars($router_names_map[$user['nasname']] ?? 'Router') ?> (<?= htmlspecialchars($user['nasname']) ?>)
+                        </span>
+                    <?php else: ?>
+                        <span class="text-muted small">Not Locked</span>
+                    <?php endif; ?>
                 </li>
                 <li><i class="fa-solid fa-id-card"></i> <?= htmlspecialchars($user['national_id'] ?: 'N/A') ?></li>
                 <li><i class="fa-solid fa-phone"></i> <?= htmlspecialchars($user['mobile'] ?: ($user['phone'] ?: 'N/A')) ?></li>
@@ -2674,6 +2702,21 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <option value="<?= $d['id'] ?>" <?= $d['id']==$user['dealer_id']?'selected':'' ?>><?= htmlspecialchars($d['full_name']) ?></option>
                                 <?php endforeach; ?>
                             </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="col-form-label">MikroTik Router (NAS) <span class="text-danger">*</span></label>
+                            <select name="router_nasname" class="form-select" required>
+                                <?php if (empty($operator_routers)): ?>
+                                    <option value="">No Routers Configured</option>
+                                <?php else: ?>
+                                    <?php foreach($operator_routers as $r): ?>
+                                        <option value="<?= htmlspecialchars($r['nasname']) ?>" <?= (($user['nasname'] ?? '') === $r['nasname']) ? 'selected' : '' ?>>
+                                            <?= htmlspecialchars($r['shortname'] ?: 'Router') ?> (<?= htmlspecialchars($r['nasname']) ?>)
+                                        </option>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
+                            </select>
+                            <small class="text-muted" style="font-size: 0.72rem;">User will ONLY authenticate on this MikroTik router.</small>
                         </div>
                         <?php if (!$is_manager): ?>
                         <div class="col-md-6 mb-3">

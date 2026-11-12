@@ -255,8 +255,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 $now_expiry = date('Y-m-d H:i:s', time() - 60);
                 $status = 'expired';
 
-                $pdo->prepare("INSERT INTO subscribers (client_id, package_id, username, password, service_type, full_name, national_id, mobile, phone, email, address, subarea, latitude, longitude, status, expiry_date, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-                    ->execute([$client_id, $package_id, $username, $password, $service_type, $full_name, $national_id, $mobile, $phone, $email, $address, $subarea, $latitude, $longitude, $status, $now_expiry, $created_by_val]);
+                $router_nasname = trim($_POST['router_nasname'] ?? '');
+                if (empty($router_nasname)) {
+                    $fNasStmt = $pdo->prepare("SELECT nasname FROM nas WHERE client_id = ? ORDER BY id ASC LIMIT 1");
+                    $fNasStmt->execute([$client_id]);
+                    $router_nasname = $fNasStmt->fetchColumn() ?: '';
+                }
+
+                $pdo->prepare("INSERT INTO subscribers (client_id, package_id, username, password, service_type, full_name, national_id, mobile, phone, email, address, subarea, latitude, longitude, status, expiry_date, created_by, nasname) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                    ->execute([$client_id, $package_id, $username, $password, $service_type, $full_name, $national_id, $mobile, $phone, $email, $address, $subarea, $latitude, $longitude, $status, $now_expiry, $created_by_val, $router_nasname]);
                 
                 $new_subscriber_id = (int)$pdo->lastInsertId();
                 if ($new_subscriber_id <= 0) {
@@ -325,6 +332,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 
                 $pdo->prepare("INSERT IGNORE INTO radcheck (username, attribute, op, value) VALUES (?, 'Cleartext-Password', ':=', ?)")
                     ->execute([$username, $password]);
+
+                // Enforce NAS Router Lock in FreeRADIUS radcheck
+                $pdo->prepare("DELETE FROM radcheck WHERE username = ? AND attribute = 'NAS-IP-Address'")->execute([$username]);
+                if (!empty($router_nasname)) {
+                    $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'NAS-IP-Address', '==', ?)")->execute([$username, $router_nasname]);
+                }
                 
                 // Set FreeRADIUS Expiration to past date and Auth-Type := Reject so unrenewed user cannot surf without paying
                 $formatted_past_expiry = date('d M Y H:i:s', time() - 60);
@@ -481,6 +494,11 @@ try {
 
 // 2. Fetch packages for the dropdown
 $packages = $pdo->query("SELECT id, name, rate_limit FROM packages WHERE client_id = $client_id")->fetchAll();
+
+// Fetch Operator's NAS Routers
+$opRoutersStmt = $pdo->prepare("SELECT id, nasname, shortname FROM nas WHERE client_id = ? ORDER BY id ASC");
+$opRoutersStmt->execute([$client_id]);
+$operator_routers = $opRoutersStmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Fetch available stock items for Add User material assignment
 try {
@@ -1967,6 +1985,19 @@ unset($ms);
                                             <option value="<?= $p['id'] ?>"><?= htmlspecialchars($p['name']) ?> (<?= htmlspecialchars($p['rate_limit']) ?>)</option>
                                         <?php endforeach; ?>
                                     </select>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="col-form-label text-secondary small fw-bold">MikroTik Router (NAS) <span class="text-danger">*</span></label>
+                                    <select name="router_nasname" class="form-select form-select-sm" required>
+                                        <?php if (empty($operator_routers)): ?>
+                                            <option value="">No Routers Configured (Add in Profile)</option>
+                                        <?php else: ?>
+                                            <?php foreach($operator_routers as $r): ?>
+                                                <option value="<?= htmlspecialchars($r['nasname']) ?>"><?= htmlspecialchars($r['shortname'] ?: 'Router') ?> (<?= htmlspecialchars($r['nasname']) ?>)</option>
+                                            <?php endforeach; ?>
+                                        <?php endif; ?>
+                                    </select>
+                                    <small class="text-muted" style="font-size: 0.72rem;">User will ONLY authenticate on this router.</small>
                                 </div>
                             </div>
                         </div>

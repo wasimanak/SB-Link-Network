@@ -17,6 +17,10 @@ $pkgStmt = $pdo->prepare("SELECT * FROM packages WHERE client_id = ?");
 $pkgStmt->execute([$client_id]);
 $packages = $pkgStmt->fetchAll();
 
+$opRoutersStmt = $pdo->prepare("SELECT id, nasname, shortname FROM nas WHERE client_id = ? ORDER BY id ASC");
+$opRoutersStmt->execute([$client_id]);
+$operator_routers = $opRoutersStmt->fetchAll(PDO::FETCH_ASSOC);
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $password = trim($_POST['password']);
     $package_id = (int)$_POST['package_id'];
@@ -49,8 +53,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $status = 'expired';
         }
         
-        $pdo->prepare("UPDATE subscribers SET password=?, package_id=?, expiry_date=?, status=? WHERE id=?")->execute([$password, $package_id, $expiry, $status, $id]);
+        $router_nasname = trim($_POST['router_nasname'] ?? '');
+
+        $pdo->prepare("UPDATE subscribers SET password=?, package_id=?, expiry_date=?, status=?, nasname=? WHERE id=?")->execute([$password, $package_id, $expiry, $status, $router_nasname, $id]);
         $pdo->prepare("UPDATE radcheck SET value=? WHERE username=? AND attribute='Cleartext-Password'")->execute([$password, $u]);
+
+        if (!empty($router_nasname)) {
+            $pdo->prepare("DELETE FROM radcheck WHERE username=? AND attribute='NAS-IP-Address'")->execute([$u]);
+            $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'NAS-IP-Address', '==', ?)")->execute([$u, $router_nasname]);
+        }
         
         $is_user_expired = ($status === 'expired') || (!empty($expiry) && strtotime($expiry) <= time());
 
@@ -122,6 +133,17 @@ $sub = $stmt->fetch();
             <?php else: ?>
             <div class="mb-3"><label>Expiry Date</label><input type="text" class="form-control bg-light text-muted" value="<?= !empty($sub['expiry_date']) ? date('d M Y, h:i A', strtotime($sub['expiry_date'])) : 'N/A' ?>" readonly disabled><small class="text-muted"><i class="fa-solid fa-lock text-secondary me-1"></i> Custom Expiry locked for Manager.</small></div>
             <?php endif; ?>
+            <div class="mb-3">
+                <label>MikroTik Router (NAS) <span class="text-danger">*</span></label>
+                <select name="router_nasname" class="form-select" required>
+                    <?php foreach($operator_routers as $r): ?>
+                        <option value="<?= htmlspecialchars($r['nasname']) ?>" <?= (($sub['nasname'] ?? '') === $r['nasname']) ? 'selected' : '' ?>>
+                            <?= htmlspecialchars($r['shortname'] ?: 'Router') ?> (<?= htmlspecialchars($r['nasname']) ?>)
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+                <small class="text-muted" style="font-size: 0.75rem;">User will ONLY authenticate on this MikroTik router.</small>
+            </div>
             <button class="btn btn-primary">Save Changes</button>
         </form>
     </div>

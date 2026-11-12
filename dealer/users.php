@@ -453,8 +453,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $actual_expiry = date('Y-m-d H:i:s', time() - 60);
                 }
 
-                $pdo->prepare("INSERT INTO subscribers (client_id, dealer_id, package_id, username, password, service_type, full_name, national_id, mobile, phone, email, address, subarea, latitude, longitude, expiry_date, status) VALUES (?, ?, ?, ?, ?, 'pppoe', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-                    ->execute([$client_id, $dealer_id, $package_id, $username, $password, $full_name, $national_id, $mobile, $phone, $email, $address, $subarea, $latitude, $longitude, $actual_expiry, $status]);
+                $pdo->prepare("INSERT INTO subscribers (client_id, dealer_id, package_id, username, password, service_type, full_name, national_id, mobile, phone, email, address, subarea, latitude, longitude, expiry_date, status, nasname) VALUES (?, ?, ?, ?, ?, 'pppoe', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                    ->execute([$client_id, $dealer_id, $package_id, $username, $password, $full_name, $national_id, $mobile, $phone, $email, $address, $subarea, $latitude, $longitude, $actual_expiry, $status, $router_nasname]);
                 
                 $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Cleartext-Password', ':=', ?)")->execute([$username, $password]);
                 $pdo->prepare("INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'NAS-IP-Address', '==', ?)")->execute([$username, $router_nasname]);

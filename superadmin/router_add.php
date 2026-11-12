@@ -39,7 +39,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 sync_operator_mikrotik_pools($pdo, $client_id);
             }
 
-            $success = "Router successfully mapped to Admin! Pools and WANs auto-synchronized.";
+            // Sync subscriber router locks
+            if (file_exists('../config/schema_fix_helper.php')) {
+                require_once '../config/schema_fix_helper.php';
+                @sync_all_subscribers_nas($pdo);
+            }
+
+            $success = "Router successfully mapped to Admin! Pools, WANs & Subscriber Router Locks auto-synchronized.";
         } catch (PDOException $e) {
             $error = "Database Error: " . $e->getMessage();
         }

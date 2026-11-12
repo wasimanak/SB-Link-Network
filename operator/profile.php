@@ -92,6 +92,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 } catch (Throwable $t) {}
             }
 
+            if (file_exists('../config/schema_fix_helper.php')) {
+                require_once '../config/schema_fix_helper.php';
+                @sync_all_subscribers_nas($pdo);
+            }
+
             // Silently restart FreeRADIUS so the new router is active immediately
             @exec("sudo systemctl restart freeradius 2>&1");
             @exec("systemctl restart freeradius 2>&1");
@@ -129,6 +134,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             @exec("sudo systemctl restart freeradius 2>&1");
+            if (file_exists('../config/schema_fix_helper.php')) {
+                require_once '../config/schema_fix_helper.php';
+                @sync_all_subscribers_nas($pdo);
+            }
             echo "<script>alert('Router updated successfully!'); window.location='profile';</script>";
         } catch(Throwable $e) {
             echo "<script>alert('Error updating router: " . addslashes($e->getMessage()) . "'); window.location='profile';</script>";

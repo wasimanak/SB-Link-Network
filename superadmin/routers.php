@@ -2,6 +2,16 @@
 require_once 'header.php';
 
 $flashMsg = '';
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'sync_nas_security') {
+    require_once '../config/schema_fix_helper.php';
+    try {
+        $synced = sync_all_subscribers_nas($pdo);
+        $flashMsg = "<div class='alert alert-success border-0 shadow-sm rounded-4 mb-4 d-flex align-items-center gap-2'><i class='fa-solid fa-circle-check fs-5'></i> <div><strong>Multi-Tenant Router Lock Enforced!</strong> Successfully verified & locked <strong>{$synced['locked']}</strong> subscribers to their assigned operator routers in FreeRADIUS.</div></div>";
+    } catch (Exception $e) {
+        $flashMsg = "<div class='alert alert-danger border-0 shadow-sm rounded-4 mb-4 d-flex align-items-center gap-2'><i class='fa-solid fa-circle-exclamation fs-5'></i> <div>Error syncing router lock: " . htmlspecialchars($e->getMessage()) . "</div></div>";
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_id'])) {
     $delId = (int)$_POST['delete_id'];
     try {
