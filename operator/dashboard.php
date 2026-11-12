@@ -404,12 +404,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             }
             $sub_user = $sub_user_row['username'];
 
-            // 10-Minute Anti-Duplicate Financial Protection Guard (600 seconds)
+            // 10-Minute Financial Cooldown Guard (600 seconds) - Restricts ANY payment addition within 10 mins
             if ($final_amount > 0) {
-                $dupCheck = check_financial_duplicate_cooldown($pdo, $client_id, 'subscriber_payment', $sub_user, $final_amount, 600);
-                if (!$dupCheck['allowed']) {
-                    $rem_mins = $dupCheck['remaining_minutes'];
-                    echo "<script>alert('Duplicate Payment Blocked!\n\nIs user k account me Rs. " . number_format(abs($final_amount), 0) . " ki payment abhi record ho chuki hai.\nDubara same amount add karne k liye {$rem_mins} minute intezar karein.'); window.location.replace('dashboard.php');</script>";
+                $cooldownCheck = check_financial_duplicate_cooldown($pdo, $client_id, 'subscriber_payment', $sub_user, $final_amount, 600);
+                if (!$cooldownCheck['allowed']) {
+                    $rem_mins = $cooldownCheck['remaining_minutes'];
+                    $prev_amt = number_format((float)($cooldownCheck['prev_amount'] ?? 0), 0);
+                    echo "<script>alert('Payment Cooldown Active (10 Minutes Restriction)!\n\nIs user k account me abhi Rs. {$prev_amt} add kiye ja chukay hain.\n\nKisi bhi mazeed payment k liye {$rem_mins} minute intezar karein.'); window.location.replace('dashboard.php');</script>";
                     exit;
                 }
             }
@@ -1811,7 +1812,7 @@ unset($ms);
                 </div>
                 <div class="d-flex align-items-center gap-1 text-muted mt-1" style="font-size: 0.76rem;">
                   <i class="fa-solid fa-shield-halved text-success"></i> 
-                  <span>10-minute duplicate payment protection active.</span>
+                  <span>10-minute payment cooldown active: 1 payment add hone k baad mazeed payment 10 minute tak restrict hoti hai.</span>
                 </div>
                 
                 <!-- Quick Amount Chips -->

@@ -703,12 +703,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         elseif ($action === 'add_balance') {
             $amount = (float)($_POST['amount'] ?? 0);
             if ($amount != 0) {
-                // 10-Minute Anti-Duplicate Financial Protection Guard (600 seconds)
+                // 10-Minute Financial Cooldown Guard (600 seconds) - Restricts ANY payment addition within 10 mins
                 if ($amount > 0) {
-                    $dupCheck = check_financial_duplicate_cooldown($pdo, $client_id, 'subscriber_payment', $u, $amount, 600);
-                    if (!$dupCheck['allowed']) {
-                        $rem_mins = $dupCheck['remaining_minutes'];
-                        echo "<script>alert('Duplicate Payment Blocked!\n\nIs user k account me Rs. " . number_format(abs($amount), 0) . " ki payment abhi record ho chuki hai.\nDubara same amount add karne k liye {$rem_mins} minute intezar karein.'); window.location.replace('subscriber_view.php?id=$id');</script>";
+                    $cooldownCheck = check_financial_duplicate_cooldown($pdo, $client_id, 'subscriber_payment', $u, $amount, 600);
+                    if (!$cooldownCheck['allowed']) {
+                        $rem_mins = $cooldownCheck['remaining_minutes'];
+                        $prev_amt = number_format((float)($cooldownCheck['prev_amount'] ?? 0), 0);
+                        echo "<script>alert('Payment Cooldown Active (10 Minutes Restriction)!\n\nIs user k account me abhi Rs. {$prev_amt} add kiye ja chukay hain.\n\nKisi bhi mazeed payment k liye {$rem_mins} minute intezar karein.'); window.location.replace('subscriber_view.php?id=$id');</script>";
                         exit;
                     }
                 }
@@ -1136,6 +1137,13 @@ if (!$user) {
     echo "<script>alert('User not found!'); window.location='subscribers.php';</script>";
     exit;
 }
+
+// Check 10-Minute Financial Cooldown for Payment additions (600 seconds)
+$payment_cooldown = check_financial_duplicate_cooldown($pdo, $client_id, 'subscriber_payment', $user['username'], 0, 600);
+$is_payment_locked = !$payment_cooldown['allowed'];
+$pay_rem_mins = $payment_cooldown['remaining_minutes'] ?? 0;
+$pay_prev_amt = number_format((float)($payment_cooldown['prev_amount'] ?? 0), 0);
+$pay_prev_time = !empty($payment_cooldown['created_at']) ? date('h:i:s A', strtotime($payment_cooldown['created_at'])) : '';
 
 // Fetch Operator Routers for NAS Router Lock
 $opRoutersStmt = $pdo->prepare("SELECT id, nasname, shortname FROM nas WHERE client_id = ? ORDER BY id ASC");
@@ -1794,7 +1802,7 @@ if ($last_debit) {
             <?php endif; ?>
             <div class="action-grid">
                 <!-- Modals Triggers -->
-                <button type="button" class="btn-pill" data-bs-toggle="modal" data-bs-target="#paymentModal"><i class="fa-brands fa-paypal"></i> Payment</button>
+                <button type="button" class="btn-pill <?= $is_payment_locked ? 'border-warning text-warning fw-bold' : '' ?>" data-bs-toggle="modal" data-bs-target="#paymentModal"><i class="fa-brands fa-paypal"></i> Payment<?= $is_payment_locked ? " <span class='badge bg-warning text-dark ms-1' style='font-size:0.65rem;'><i class='fa-solid fa-clock me-1'></i>{$pay_rem_mins}m wait</span>" : '' ?></button>
                 <button type="button" class="btn-pill" data-bs-toggle="modal" data-bs-target="#renewUserModal" onclick="openRenewModal(<?= $id ?>)"><i class="fa-solid fa-rotate"></i> Renew</button>
                 <a href="print_receipt.php?sub_id=<?= $id ?>&return=<?= urlencode('subscriber_view.php?id=' . $id) ?>" target="_blank" class="btn-pill text-primary fw-bold"><i class="fa-solid fa-receipt text-primary"></i> Print Receipt</a>
                 <button type="button" class="btn-pill <?= !empty($user['last_renewal_receipt']) ? 'text-primary fw-bold' : '' ?>" data-bs-toggle="modal" data-bs-target="#renewalReceiptModal"><i class="fa-solid fa-file-invoice-dollar <?= !empty($user['last_renewal_receipt']) ? 'text-success' : 'text-primary' ?>"></i> View Renewal Receipt <?= !empty($user['last_renewal_receipt']) ? '<span class="badge bg-success ms-1" style="font-size: 0.62rem;">Attached</span>' : '' ?></button>
@@ -2319,29 +2327,47 @@ function updateIssueModalUnit(sel) {
 
 <!-- Payment Modal -->
 <div class="modal fade" id="paymentModal" tabindex="-1">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title"><i class="fa-brands fa-paypal"></i> Add Payment</h5>
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content shadow-lg border-0" style="border-radius: 16px; overflow: hidden;">
+      <div class="modal-header border-bottom p-4" style="background-color: #f8fafc;">
+        <h5 class="modal-title fw-bold text-dark"><i class="fa-brands fa-paypal text-primary me-2"></i> Add Payment</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
-      <form method="POST" onsubmit="var b=this.querySelector('button[type=submit]'); b.disabled=true; b.innerHTML='<i class=\'fa-solid fa-spinner fa-spin me-1\'></i> Processing...';">
+      <form method="POST" onsubmit="var b=this.querySelector('button[type=submit]'); if(b){b.disabled=true; b.innerHTML='<i class=\'fa-solid fa-spinner fa-spin me-1\'></i> Processing...';}">
         <input type="hidden" name="action" value="add_balance">
-        <div class="modal-body">
+        <div class="modal-body p-4">
+            <?php if ($is_payment_locked): ?>
+                <div class="alert alert-warning border-0 rounded-3 p-3 mb-3 d-flex align-items-center gap-3 shadow-sm">
+                    <div class="rounded-circle bg-warning bg-opacity-25 text-warning-emphasis d-flex align-items-center justify-content-center p-2" style="width: 42px; height: 42px; flex-shrink: 0;">
+                        <i class="fa-solid fa-clock-rotate-left fs-5"></i>
+                    </div>
+                    <div class="small">
+                        <div class="fw-bold text-dark">10-Minute Payment Cooldown Active!</div>
+                        <span class="text-secondary">Is user k account me abhi <strong>(<?= $pay_prev_time ?>)</strong> par <strong>Rs. <?= $pay_prev_amt ?></strong> add kiye ja chukay hain. Kisi bhi mazeed payment k liye <strong><?= $pay_rem_mins ?> minute</strong> intezar karein.</span>
+                    </div>
+                </div>
+            <?php endif; ?>
+
             <div class="mb-3">
                 <label class="form-label fw-bold">Amount (Rs.) <span class="text-danger">*</span></label>
-                <input type="number" step="1" name="amount" class="form-control form-control-lg fw-bold text-success font-monospace" placeholder="e.g. 1500" required autofocus>
+                <input type="number" step="1" name="amount" class="form-control form-control-lg fw-bold text-success font-monospace" placeholder="e.g. 1500" required <?= $is_payment_locked ? 'disabled' : 'autofocus' ?>>
                 <div class="d-flex align-items-center gap-1 text-muted mt-2" style="font-size: 0.76rem;">
                     <i class="fa-solid fa-shield-halved text-success"></i> 
-                    <span>10-minute duplicate payment protection active.</span>
+                    <span>10-minute payment cooldown active: 1 payment add hone k baad mazeed payment 10 minute tak restrict hoti hai.</span>
                 </div>
             </div>
         </div>
-        <div class="modal-footer">
+        <div class="modal-footer border-top p-3" style="background-color: #f8fafc;">
           <button type="button" class="btn btn-light rounded-pill px-3" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-primary rounded-pill px-4 fw-bold shadow-sm">
-              <i class="fa-solid fa-circle-check me-1"></i> Add Balance
-          </button>
+          <?php if ($is_payment_locked): ?>
+              <button type="button" class="btn btn-secondary rounded-pill px-4 fw-bold" disabled>
+                  <i class="fa-solid fa-lock me-1"></i> Locked (<?= $pay_rem_mins ?>m wait)
+              </button>
+          <?php else: ?>
+              <button type="submit" class="btn btn-primary rounded-pill px-4 fw-bold shadow-sm">
+                  <i class="fa-solid fa-circle-check me-1"></i> Add Balance
+              </button>
+          <?php endif; ?>
         </div>
       </form>
     </div>

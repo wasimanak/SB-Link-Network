@@ -148,34 +148,34 @@ function safe_redirect($url) {
 
 /**
  * Global Helper: Check Financial Activity Cooldown (Anti-Duplicate / Anti-Replay Guard)
- * Restricts duplicate/double financial transactions (identical payment amount for the same subscriber
+ * Restricts duplicate/double financial transactions (any payment addition for the same subscriber
  * or identical expense title and amount) within a specified cooldown window (Default: 600 seconds = 10 minutes).
  * 
  * @param PDO $pdo
  * @param int $client_id
  * @param string $type ('subscriber_payment', 'user_payment', 'expense')
  * @param string|int $identifier (username for subscriber, title for expense)
- * @param float $amount
+ * @param float $amount (Optional for subscriber_payment, required for expense)
  * @param int $cooldown_seconds (Default 600 = 10 minutes)
- * @return array ['allowed' => bool, 'remaining_seconds' => int, 'remaining_minutes' => int, 'existing_id' => int|null, 'message' => string]
+ * @return array ['allowed' => bool, 'remaining_seconds' => int, 'remaining_minutes' => int, 'existing_id' => int|null, 'prev_amount' => float, 'created_at' => string, 'message' => string]
  */
 if (!function_exists('check_financial_duplicate_cooldown')) {
-function check_financial_duplicate_cooldown($pdo, $client_id, $type, $identifier, $amount, $cooldown_seconds = 600) {
-    if (!$pdo || empty($client_id) || empty($identifier) || (float)$amount <= 0) {
+function check_financial_duplicate_cooldown($pdo, $client_id, $type, $identifier, $amount = 0, $cooldown_seconds = 600) {
+    if (!$pdo || empty($client_id) || empty($identifier)) {
         return ['allowed' => true, 'remaining_seconds' => 0, 'remaining_minutes' => 0, 'existing_id' => null, 'message' => ''];
     }
 
     try {
         if ($type === 'subscriber_payment' || $type === 'user_payment') {
-            // Check user_ledger for identical credit transaction within cooldown window
+            // Check user_ledger for ANY positive credit/payment transaction for this subscriber within cooldown window
             $stmt = $pdo->prepare("
-                SELECT id, amount, created_at 
+                SELECT id, amount, created_at, description 
                 FROM user_ledger 
-                WHERE client_id = ? AND username = ? AND type = 'credit' AND amount = ? 
+                WHERE client_id = ? AND username = ? AND type = 'credit' AND amount > 0 
                   AND created_at >= NOW() - INTERVAL ? SECOND 
                 ORDER BY id DESC LIMIT 1
             ");
-            $stmt->execute([(int)$client_id, trim($identifier), abs((float)$amount), (int)$cooldown_seconds]);
+            $stmt->execute([(int)$client_id, trim($identifier), (int)$cooldown_seconds]);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if ($row) {
@@ -184,6 +184,7 @@ function check_financial_duplicate_cooldown($pdo, $client_id, $type, $identifier
                 $rem_sec = max(1, $cooldown_seconds - $diff);
                 $rem_min = ceil($rem_sec / 60);
                 $formatted_time = date('h:i:s A', $last_ts);
+                $prev_amount = number_format((float)$row['amount'], 0);
 
                 return [
                     'allowed' => false,
@@ -191,11 +192,15 @@ function check_financial_duplicate_cooldown($pdo, $client_id, $type, $identifier
                     'remaining_minutes' => $rem_min,
                     'existing_id' => (int)$row['id'],
                     'created_at' => $row['created_at'],
-                    'message' => "Duplicate Payment Blocked!\n\nIs user k account me Rs. " . number_format(abs((float)$amount), 0) . " ki payment abhi (" . $formatted_time . ") add ho chuki hai.\n\nDubara same amount add karne k liye {$rem_min} minute intezar karein."
+                    'prev_amount' => (float)$row['amount'],
+                    'message' => "Payment Cooldown Active (10 Minutes Restriction)!\n\nIs user k account me abhi ({$formatted_time}) par Rs. {$prev_amount} add kiye ja chukay hain.\n\nKisi bhi mazeed payment k liye baraye meharbani {$rem_min} minute intezar karein."
                 ];
             }
         } elseif ($type === 'expense') {
             // Check expenses table for identical title & amount within cooldown window
+            if ((float)$amount <= 0) {
+                return ['allowed' => true, 'remaining_seconds' => 0, 'remaining_minutes' => 0, 'existing_id' => null, 'message' => ''];
+            }
             $stmt = $pdo->prepare("
                 SELECT id, amount, created_at 
                 FROM expenses 
@@ -218,6 +223,7 @@ function check_financial_duplicate_cooldown($pdo, $client_id, $type, $identifier
                     'remaining_minutes' => $rem_min,
                     'existing_id' => (int)$row['id'],
                     'created_at' => $row['created_at'],
+                    'prev_amount' => (float)$row['amount'],
                     'message' => "Duplicate Expense Blocked!\n\nYe expense (Rs. " . number_format(abs((float)$amount), 0) . ") abhi record ho chuka hai.\n\nDubara add karne k liye {$rem_min} minute intezar karein."
                 ];
             }
