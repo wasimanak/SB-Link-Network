@@ -43,6 +43,9 @@ if ($total_bytes >= 1073741824) {
 // Expiry logic
 $expiry_badge = "<span class='badge bg-secondary-subtle text-secondary border border-secondary-subtle rounded-pill px-3 py-1'>N/A</span>";
 $expiry_text = "No Expiry Set";
+$expiry_date_only = "No Expiry Set";
+$expiry_time_only = "";
+$expiry_full_text = "No Expiry Set";
 $is_expired = false;
 $days_left = 0;
 if (is_valid_date($current_user['expiry_date'] ?? '')) {
@@ -50,24 +53,30 @@ if (is_valid_date($current_user['expiry_date'] ?? '')) {
     $now = time();
     $diff = $exp_time - $now;
     
+    $expiry_date_only = safe_date('d M Y', $exp_time);
+    $expiry_time_only = safe_date('h:i A', $exp_time);
+    $expiry_full_text = safe_date('d M Y, h:i A', $exp_time);
+    
     if ($diff > 0) {
         $days_left = floor($diff / 86400);
         $hours = floor(($diff % 86400) / 3600);
-        $expiry_badge = "<span class='badge bg-success-subtle text-success border border-success-subtle rounded-pill px-3 py-1 fw-bold'><i class='fa-regular fa-clock me-1'></i>{$days_left}d {$hours}h Left</span>";
-        $expiry_text = safe_date('d M Y, h:i A', $exp_time);
+        $expiry_badge = "<span class='badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2.5 py-1 fw-bold'><i class='fa-regular fa-clock me-1'></i>{$days_left}d {$hours}h Left</span>";
+        $expiry_text = $expiry_full_text;
     } else {
         $is_expired = true;
-        $expiry_badge = "<span class='badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-3 py-1 fw-bold'><i class='fa-solid fa-triangle-exclamation me-1'></i>Expired</span>";
-        $expiry_text = "Expired on " . safe_date('d M Y', $exp_time);
+        $expiry_badge = "<span class='badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-2.5 py-1 fw-bold'><i class='fa-solid fa-triangle-exclamation me-1'></i>Expired</span>";
+        $expiry_text = "Expired on " . $expiry_full_text;
     }
 } else {
     if (($current_user['status'] ?? '') === 'expired') {
         $is_expired = true;
         $expiry_badge = "<span class='badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-3 py-1 fw-bold'><i class='fa-solid fa-triangle-exclamation me-1'></i>Expired</span>";
         $expiry_text = "Package Expired";
+        $expiry_date_only = "Package Expired";
     } else {
         $expiry_badge = "<span class='badge bg-secondary-subtle text-secondary border border-secondary-subtle rounded-pill px-3 py-1 fw-bold'>No Expiry Set</span>";
         $expiry_text = "No Expiry Set";
+        $expiry_date_only = "No Expiry Set";
     }
 }
 if (($current_user['status'] ?? '') === 'expired') {
@@ -448,7 +457,11 @@ if (empty($gateway_display_name)) {
             <div>
                 <h5 class="fw-bold mb-1 text-danger" style="letter-spacing: -0.3px;">Aap Ka Internet Package Expire Ho Chuka Hai!</h5>
                 <div class="small text-secondary">
-                    Barah-e-Karam apna bill ada karein ya wallet balance recharge karein taake aap ka internet foran bahaal (activate) ho sakay.
+                    <?php if (!empty($expiry_time_only) && $expiry_date_only !== 'Package Expired' && $expiry_date_only !== 'No Expiry Set'): ?>
+                        Aap ka package <strong><?= $expiry_date_only ?></strong> ko <strong><?= $expiry_time_only ?></strong> par expire ho chuka hai. Barah-e-Karam apna bill ada karein ya wallet recharge karein taake internet foran activate ho sakay.
+                    <?php else: ?>
+                        Barah-e-Karam apna bill ada karein ya wallet balance recharge karein taake aap ka internet foran bahaal (activate) ho sakay.
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
@@ -602,12 +615,22 @@ if (empty($gateway_display_name)) {
             </div>
             <div class="flex-grow-1 overflow-hidden">
                 <div class="d-flex justify-content-between align-items-center">
-                    <div class="stat-pill-lbl">Expiry Date</div>
+                    <div class="stat-pill-lbl">Expiry Date &amp; Time</div>
                 </div>
-                <div class="stat-pill-val text-truncate" style="font-size: 1.05rem;" title="<?= $expiry_text ?>">
-                    <?= $expiry_text ?>
+                <div class="stat-pill-val" title="<?= htmlspecialchars($expiry_full_text) ?>">
+                    <?php if (!empty($expiry_time_only)): ?>
+                        <div class="d-flex flex-column">
+                            <span class="text-dark fw-bold text-truncate" style="font-size: 1.1rem; line-height: 1.25;"><?= $expiry_date_only ?></span>
+                            <div class="small fw-bold text-danger d-flex align-items-center gap-1 mt-1 text-truncate" style="font-size: 0.8rem;">
+                                <i class="fa-regular fa-clock"></i>
+                                <span><?= $expiry_time_only ?></span>
+                            </div>
+                        </div>
+                    <?php else: ?>
+                        <span class="text-dark fw-bold" style="font-size: 1.05rem;"><?= $expiry_date_only ?></span>
+                    <?php endif; ?>
                 </div>
-                <div class="mt-1">
+                <div class="mt-2">
                     <?= $expiry_badge ?>
                 </div>
             </div>
