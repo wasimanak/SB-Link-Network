@@ -1,5 +1,6 @@
 <?php
-session_start();
+if (ob_get_level() === 0) ob_start();
+if (session_status() === PHP_SESSION_NONE) session_start();
 if (!isset($_SESSION['rm_id'])) { header("Location: login.php"); exit; }
 require_once '../config/db.php';
 
@@ -129,7 +130,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             if (!$cooldownCheck['allowed']) {
                 $rem_mins = $cooldownCheck['remaining_minutes'];
                 $prev_amt = number_format((float)($cooldownCheck['prev_amount'] ?? 0), 0);
-                echo "<script>alert('Payment Cooldown Shield Active (10 Minutes Restriction)!\n\nIs user k account me abhi Rs. {$prev_amt} ki payment add/collect ki ja chuki hai.\n\nKisi bhi mazeed payment k liye baraye meharbani {$rem_mins} minute intezar karein.'); window.location.replace('dashboard.php');</script>";
+                $sq = !empty($_GET['search_query']) ? ('?search_query=' . urlencode($_GET['search_query'])) : '';
+                $target_back = "dashboard.php" . $sq;
+                echo "<!DOCTYPE html><html><head><meta charset='UTF-8'></head><body><script>alert('Payment Cooldown Shield Active (10 Minutes Restriction)!\n\nIs user k account me abhi Rs. {$prev_amt} ki payment add/collect ki ja chuki hai.\n\nKisi bhi mazeed payment k liye baraye meharbani {$rem_mins} minute intezar karein.'); window.location.replace('" . addslashes($target_back) . "');</script></body></html>";
                 exit;
             }
         }
@@ -799,7 +802,13 @@ function formatBytes($bytes) {
                 </div>
                 <?php if($search_results): ?>
                     <div class="row g-3 mb-4">
-                        <?php foreach($search_results as $u): ?>
+                        <?php foreach($search_results as $u): 
+                            $uCooldown = check_financial_duplicate_cooldown($pdo, $client_id, 'subscriber_payment', $u['username'], 0, 600);
+                            $isULocked = !$uCooldown['allowed'];
+                            $uRemMins = $uCooldown['remaining_minutes'] ?? 0;
+                            $uPrevAmt = number_format((float)($uCooldown['prev_amount'] ?? 0), 0);
+                            $uPrevTime = !empty($uCooldown['created_at']) ? date('h:i:s A', strtotime($uCooldown['created_at'])) : '';
+                        ?>
                             <div class="col-12">
                             <div class="card sub-card w-100 border-0 shadow-sm rounded-4 mb-3 overflow-hidden bg-white d-flex flex-column <?= $u['live_ip'] ? 'border-start border-4 border-success' : (($u['balance'] < 0) ? 'border-start border-4 border-danger' : 'border-start border-4 border-primary') ?>">
                                 <!-- Card Header: User Identity & Status -->
@@ -955,10 +964,10 @@ function formatBytes($bytes) {
                                             </button>
                                         </div>
                                         <div class="col-3">
-                                            <button class="btn btn-success btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column flex-sm-row align-items-center justify-content-center gap-1 gap-sm-2 btn-touch" 
+                                            <button class="btn <?= $isULocked ? 'btn-warning text-dark' : 'btn-success' ?> btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column flex-sm-row align-items-center justify-content-center gap-1 gap-sm-2 btn-touch" 
                                                 data-bs-toggle="modal" data-bs-target="#collectModal<?= $u['id'] ?>">
-                                                <i class="fa-solid fa-hand-holding-dollar fs-6 mb-1 mb-sm-0"></i>
-                                                <span>Collect</span>
+                                                <i class="fa-solid <?= $isULocked ? 'fa-clock' : 'fa-hand-holding-dollar' ?> fs-6 mb-1 mb-sm-0"></i>
+                                                <span><?= $isULocked ? "Locked ({$uRemMins}m)" : "Collect" ?></span>
                                             </button>
                                         </div>
                                         <div class="col-3">
@@ -999,12 +1008,24 @@ function formatBytes($bytes) {
                                             <h5 class="modal-title fw-bold text-success"><i class="fa-solid fa-hand-holding-dollar me-2"></i> Collect Payment</h5>
                                             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                                         </div>
-                                        <form method="POST">
+                                        <form method="POST" onsubmit="var b=this.querySelector('button[type=submit]'); if(b){b.disabled=true; b.innerHTML='<i class=\'fa-solid fa-spinner fa-spin me-1\'></i> Saving...';}">
                                             <input type="hidden" name="action" value="collect_only">
                                             <input type="hidden" name="subscriber_id" value="<?= $u['id'] ?>">
                                             <input type="hidden" name="subscriber_username" value="<?= htmlspecialchars($u['username']) ?>">
                                             
                                             <div class="modal-body p-4 text-start">
+                                                <?php if ($isULocked): ?>
+                                                    <div class="alert alert-warning border-0 rounded-3 p-3 mb-3 d-flex align-items-center gap-3 shadow-sm">
+                                                        <div class="rounded-circle bg-warning bg-opacity-25 text-warning-emphasis d-flex align-items-center justify-content-center p-2" style="width: 42px; height: 42px; flex-shrink: 0;">
+                                                            <i class="fa-solid fa-clock-rotate-left fs-5"></i>
+                                                        </div>
+                                                        <div class="small">
+                                                            <div class="fw-bold text-dark">10-Minute Payment Cooldown Active!</div>
+                                                            <span class="text-secondary">Is user k account me abhi <strong>(<?= $uPrevTime ?>)</strong> par <strong>Rs. <?= $uPrevAmt ?></strong> collect/add kiye ja chukay hain. Kisi bhi mazeed payment k liye <strong><?= $uRemMins ?> minute</strong> intezar karein.</span>
+                                                        </div>
+                                                    </div>
+                                                <?php endif; ?>
+
                                                 <div class="alert alert-success bg-opacity-10 text-success border-success border-opacity-25 py-2 mb-3">
                                                     <strong>User:</strong> <span class="badge bg-dark text-warning font-monospace px-2 py-1 rounded-pill copy-username-badge ms-1" title="Click to copy username" onclick="copyUsername('<?= htmlspecialchars($u['username'], ENT_QUOTES) ?>', this)"><i class="fa-solid fa-at text-warning me-1"></i><?= htmlspecialchars($u['username']) ?><i class="fa-regular fa-copy ms-1 text-white-50" style="font-size: 0.75rem;"></i></span><br>
                                                     <strong>Current Balance:</strong> Rs. <?= number_format($u['balance'], 0) ?>
@@ -1012,22 +1033,32 @@ function formatBytes($bytes) {
                                                 
                                                 <div class="mb-3">
                                                     <label class="form-label fw-bold small text-muted text-uppercase">Payment Date & Time</label>
-                                                    <input type="datetime-local" name="payment_date" class="form-control" value="<?= date('Y-m-d\TH:i') ?>" required>
+                                                    <input type="datetime-local" name="payment_date" class="form-control" value="<?= date('Y-m-d\TH:i') ?>" required <?= $isULocked ? 'disabled' : '' ?>>
                                                 </div>
 
                                                 <div class="mb-3">
                                                     <label class="form-label fw-bold small text-muted text-uppercase">Collected Amount (Rs) <span class="text-danger">*</span></label>
-                                                    <input type="number" step="1" name="amount" class="form-control form-control-lg fw-bold text-success" placeholder="e.g. 1500" required>
+                                                    <input type="number" step="1" name="amount" class="form-control form-control-lg fw-bold text-success font-monospace" placeholder="e.g. 1500" required <?= $isULocked ? 'disabled' : '' ?>>
+                                                    <div class="d-flex align-items-center gap-1 text-muted mt-2" style="font-size: 0.76rem;">
+                                                        <i class="fa-solid fa-shield-halved text-success"></i> 
+                                                        <span>10-minute duplicate payment shield active.</span>
+                                                    </div>
                                                 </div>
 
                                                 <div class="mb-3">
                                                     <label class="form-label fw-bold small text-muted text-uppercase">Note (Optional)</label>
-                                                    <input type="text" name="note" class="form-control" placeholder="e.g. Previous month pending">
+                                                    <input type="text" name="note" class="form-control" placeholder="e.g. Previous month pending" <?= $isULocked ? 'disabled' : '' ?>>
                                                 </div>
                                             </div>
                                             <div class="modal-footer border-top p-3">
                                                 <button type="button" class="btn btn-outline-secondary rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
-                                                <button type="submit" class="btn btn-success rounded-pill px-4 fw-bold shadow-sm">Save Payment</button>
+                                                <?php if ($isULocked): ?>
+                                                    <button type="button" class="btn btn-secondary rounded-pill px-4 fw-bold" disabled>
+                                                        <i class="fa-solid fa-lock me-1"></i> Locked (<?= $uRemMins ?>m wait)
+                                                    </button>
+                                                <?php else: ?>
+                                                    <button type="submit" class="btn btn-success rounded-pill px-4 fw-bold shadow-sm">Save Payment</button>
+                                                <?php endif; ?>
                                             </div>
                                         </form>
                                     </div>
@@ -1085,7 +1116,13 @@ function formatBytes($bytes) {
 <h5 class="fw-bold mt-5 border-bottom pb-2 mb-3 <?= ($filter==='expired')?'text-danger':'text-primary' ?>"><i class="fa-solid <?= ($filter==='expired')?'fa-triangle-exclamation':'fa-clock-rotate-left' ?> me-2"></i> <?= htmlspecialchars($filter_title) ?></h5>
                 <?php if($expired_users): ?>
                     <div class="row g-3 mb-4">
-                        <?php foreach($expired_users as $u): ?>
+                        <?php foreach($expired_users as $u): 
+                            $uCooldown = check_financial_duplicate_cooldown($pdo, $client_id, 'subscriber_payment', $u['username'], 0, 600);
+                            $isULocked = !$uCooldown['allowed'];
+                            $uRemMins = $uCooldown['remaining_minutes'] ?? 0;
+                            $uPrevAmt = number_format((float)($uCooldown['prev_amount'] ?? 0), 0);
+                            $uPrevTime = !empty($uCooldown['created_at']) ? date('h:i:s A', strtotime($uCooldown['created_at'])) : '';
+                        ?>
                             <div class="col-12">
                             <div class="card sub-card w-100 border-0 shadow-sm rounded-4 mb-3 overflow-hidden bg-white d-flex flex-column <?= $u['live_ip'] ? 'border-start border-4 border-success' : (($u['balance'] < 0) ? 'border-start border-4 border-danger' : 'border-start border-4 border-primary') ?>">
                                 <!-- Card Header: User Identity & Status -->
@@ -1241,10 +1278,10 @@ function formatBytes($bytes) {
                                             </button>
                                         </div>
                                         <div class="col-3">
-                                            <button class="btn btn-success btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column flex-sm-row align-items-center justify-content-center gap-1 gap-sm-2 btn-touch" 
+                                            <button class="btn <?= $isULocked ? 'btn-warning text-dark' : 'btn-success' ?> btn-sm w-100 fw-bold py-2 shadow-sm rounded-3 d-flex flex-column flex-sm-row align-items-center justify-content-center gap-1 gap-sm-2 btn-touch" 
                                                 data-bs-toggle="modal" data-bs-target="#collectModal<?= $u['id'] ?>">
-                                                <i class="fa-solid fa-hand-holding-dollar fs-6 mb-1 mb-sm-0"></i>
-                                                <span>Collect</span>
+                                                <i class="fa-solid <?= $isULocked ? 'fa-clock' : 'fa-hand-holding-dollar' ?> fs-6 mb-1 mb-sm-0"></i>
+                                                <span><?= $isULocked ? "Locked ({$uRemMins}m)" : "Collect" ?></span>
                                             </button>
                                         </div>
                                         <div class="col-3">
@@ -1285,12 +1322,24 @@ function formatBytes($bytes) {
                                             <h5 class="modal-title fw-bold text-success"><i class="fa-solid fa-hand-holding-dollar me-2"></i> Collect Payment</h5>
                                             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                                         </div>
-                                        <form method="POST">
+                                        <form method="POST" onsubmit="var b=this.querySelector('button[type=submit]'); if(b){b.disabled=true; b.innerHTML='<i class=\'fa-solid fa-spinner fa-spin me-1\'></i> Saving...';}">
                                             <input type="hidden" name="action" value="collect_only">
                                             <input type="hidden" name="subscriber_id" value="<?= $u['id'] ?>">
                                             <input type="hidden" name="subscriber_username" value="<?= htmlspecialchars($u['username']) ?>">
                                             
                                             <div class="modal-body p-4 text-start">
+                                                <?php if ($isULocked): ?>
+                                                    <div class="alert alert-warning border-0 rounded-3 p-3 mb-3 d-flex align-items-center gap-3 shadow-sm">
+                                                        <div class="rounded-circle bg-warning bg-opacity-25 text-warning-emphasis d-flex align-items-center justify-content-center p-2" style="width: 42px; height: 42px; flex-shrink: 0;">
+                                                            <i class="fa-solid fa-clock-rotate-left fs-5"></i>
+                                                        </div>
+                                                        <div class="small">
+                                                            <div class="fw-bold text-dark">10-Minute Payment Cooldown Active!</div>
+                                                            <span class="text-secondary">Is user k account me abhi <strong>(<?= $uPrevTime ?>)</strong> par <strong>Rs. <?= $uPrevAmt ?></strong> collect/add kiye ja chukay hain. Kisi bhi mazeed payment k liye <strong><?= $uRemMins ?> minute</strong> intezar karein.</span>
+                                                        </div>
+                                                    </div>
+                                                <?php endif; ?>
+
                                                 <div class="alert alert-success bg-opacity-10 text-success border-success border-opacity-25 py-2 mb-3">
                                                     <strong>User:</strong> <span class="badge bg-dark text-warning font-monospace px-2 py-1 rounded-pill copy-username-badge ms-1" title="Click to copy username" onclick="copyUsername('<?= htmlspecialchars($u['username'], ENT_QUOTES) ?>', this)"><i class="fa-solid fa-at text-warning me-1"></i><?= htmlspecialchars($u['username']) ?><i class="fa-regular fa-copy ms-1 text-white-50" style="font-size: 0.75rem;"></i></span><br>
                                                     <strong>Current Balance:</strong> Rs. <?= number_format($u['balance'], 0) ?>
@@ -1298,22 +1347,32 @@ function formatBytes($bytes) {
                                                 
                                                 <div class="mb-3">
                                                     <label class="form-label fw-bold small text-muted text-uppercase">Payment Date & Time</label>
-                                                    <input type="datetime-local" name="payment_date" class="form-control" value="<?= date('Y-m-d\TH:i') ?>" required>
+                                                    <input type="datetime-local" name="payment_date" class="form-control" value="<?= date('Y-m-d\TH:i') ?>" required <?= $isULocked ? 'disabled' : '' ?>>
                                                 </div>
 
                                                 <div class="mb-3">
                                                     <label class="form-label fw-bold small text-muted text-uppercase">Collected Amount (Rs) <span class="text-danger">*</span></label>
-                                                    <input type="number" step="1" name="amount" class="form-control form-control-lg fw-bold text-success" placeholder="e.g. 1500" required>
+                                                    <input type="number" step="1" name="amount" class="form-control form-control-lg fw-bold text-success font-monospace" placeholder="e.g. 1500" required <?= $isULocked ? 'disabled' : '' ?>>
+                                                    <div class="d-flex align-items-center gap-1 text-muted mt-2" style="font-size: 0.76rem;">
+                                                        <i class="fa-solid fa-shield-halved text-success"></i> 
+                                                        <span>10-minute duplicate payment shield active.</span>
+                                                    </div>
                                                 </div>
 
                                                 <div class="mb-3">
                                                     <label class="form-label fw-bold small text-muted text-uppercase">Note (Optional)</label>
-                                                    <input type="text" name="note" class="form-control" placeholder="e.g. Previous month pending">
+                                                    <input type="text" name="note" class="form-control" placeholder="e.g. Previous month pending" <?= $isULocked ? 'disabled' : '' ?>>
                                                 </div>
                                             </div>
                                             <div class="modal-footer border-top p-3">
                                                 <button type="button" class="btn btn-outline-secondary rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
-                                                <button type="submit" class="btn btn-success rounded-pill px-4 fw-bold shadow-sm">Save Payment</button>
+                                                <?php if ($isULocked): ?>
+                                                    <button type="button" class="btn btn-secondary rounded-pill px-4 fw-bold" disabled>
+                                                        <i class="fa-solid fa-lock me-1"></i> Locked (<?= $uRemMins ?>m wait)
+                                                    </button>
+                                                <?php else: ?>
+                                                    <button type="submit" class="btn btn-success rounded-pill px-4 fw-bold shadow-sm">Save Payment</button>
+                                                <?php endif; ?>
                                             </div>
                                         </form>
                                     </div>
