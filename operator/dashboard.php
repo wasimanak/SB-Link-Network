@@ -542,6 +542,38 @@ $hotspot_users     = (int)($m['hotspot_users'] ?? 0);
 $mgr_dash_filter = $is_mgr ? " AND (dealer_id IS NULL OR dealer_id = 0)" : "";
 $allPaymentUsers = $pdo->query("SELECT id, username, full_name, status, balance, expiry_date, package_id FROM subscribers WHERE client_id = $client_id $mgr_dash_filter ORDER BY username ASC")->fetchAll();
 
+// 4b. Fetch Staff Directory for Staff Quick Shortcut Modal
+$staff_managers = [];
+if (empty($is_mgr)) {
+    try {
+        $stmtM = $pdo->prepare("SELECT id, full_name, username, phone, status, cash_in_hand FROM managers WHERE client_id = ? ORDER BY (CASE WHEN status='active' THEN 0 ELSE 1 END), full_name ASC");
+        $stmtM->execute([$client_id]);
+        $staff_managers = $stmtM->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Exception $e) {}
+} else {
+    try {
+        $stmtM = $pdo->prepare("SELECT id, full_name, username, phone, status, cash_in_hand FROM managers WHERE id = ? AND client_id = ?");
+        $stmtM->execute([(int)$_SESSION['manager_id'], $client_id]);
+        $staff_managers = $stmtM->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Exception $e) {}
+}
+
+$staff_recovery = [];
+try {
+    $stmtRM = $pdo->prepare("SELECT id, full_name, username, phone, status, cash_in_hand FROM recovery_men WHERE client_id = ? ORDER BY (CASE WHEN status='active' THEN 0 ELSE 1 END), full_name ASC");
+    $stmtRM->execute([$client_id]);
+    $staff_recovery = $stmtRM->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) {}
+
+$staff_linemen = [];
+try {
+    $stmtLM = $pdo->prepare("SELECT id, full_name, username, phone, status, city FROM linemen WHERE client_id = ? ORDER BY (CASE WHEN status='active' THEN 0 ELSE 1 END), full_name ASC");
+    $stmtLM->execute([$client_id]);
+    $staff_linemen = $stmtLM->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) {}
+
+$total_staff_count = count($staff_managers) + count($staff_recovery) + count($staff_linemen);
+
 // 5. In-Memory Calculation of Online and Expired-Online (Zero subqueries, instant 0ms)
 $online_users = 0;
 $expired_online_users = 0;
@@ -1049,6 +1081,31 @@ unset($ms);
     .custom-network-marker { background: transparent !important; border: none !important; }
     .leaflet-popup-content-wrapper { border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.18); }
     .leaflet-popup-content { margin: 14px 16px; line-height: 1.4; }
+    
+    /* Staff Quick Modal Card Styles */
+    .staff-hover-card {
+        transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+        background: #ffffff;
+        cursor: pointer;
+    }
+    .staff-hover-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 18px rgba(0, 0, 0, 0.08) !important;
+        border-color: #8726d1 !important;
+    }
+    #staffRoleTabs .nav-link {
+        color: #475569;
+        transition: all 0.2s ease;
+    }
+    #staffRoleTabs .nav-link.active {
+        background-color: #8726d1 !important;
+        color: #ffffff !important;
+        box-shadow: 0 2px 8px rgba(135, 38, 209, 0.28);
+    }
+    #staffRoleTabs .nav-link.active .badge {
+        background-color: rgba(255, 255, 255, 0.25) !important;
+        color: #ffffff !important;
+    }
 </style>
 
 
@@ -1063,6 +1120,11 @@ unset($ms);
     ?>
     <a href="<?= $dashProfileLink ?>" class="quick-action-card">
         <span class="quick-action-text">My Profile</span>
+    </a>
+
+    <!-- 2. Staff Profiles Shortcut -->
+    <a href="#" class="quick-action-card" data-bs-toggle="modal" data-bs-target="#staffSelectModal">
+        <span class="quick-action-text">Staff</span>
     </a>
 
    
@@ -2246,6 +2308,444 @@ $renewPackages = $pdo->query("SELECT id, name, price, validity_days FROM package
     </div>
   </div>
 </div>
+
+<!-- ========================================== -->
+<!-- STAFF DIRECTORY & PROFILE SELECTOR MODAL -->
+<!-- ========================================== -->
+<div class="modal fade" id="staffSelectModal" tabindex="-1" aria-labelledby="staffSelectModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable modal-dialog-centered">
+    <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+      
+      <!-- Modal Header -->
+      <div class="modal-header border-bottom py-3 px-4" style="background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%); color: #fff;">
+        <div class="d-flex align-items-center">
+          <div class="rounded-circle d-flex align-items-center justify-content-center me-3 shadow-sm" style="width: 44px; height: 44px; background: rgba(255, 255, 255, 0.15);">
+            <i class="fa-solid fa-users-gear text-white fs-5"></i>
+          </div>
+          <div>
+            <h5 class="modal-title fw-bold mb-0 text-white" id="staffSelectModalLabel">Staff Directory</h5>
+            <small class="text-white-50">Select a team member to open their complete profile</small>
+          </div>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          <span class="badge rounded-pill bg-light text-dark fw-bold px-3 py-2" style="font-size: 0.8rem;">
+            <i class="fa-solid fa-user-group me-1 text-primary"></i> <?= $total_staff_count ?> Staff
+          </span>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+      </div>
+
+      <!-- Modal Body -->
+      <div class="modal-body p-4 bg-light">
+        
+        <!-- Search and Quick Jump Row -->
+        <div class="row g-2 mb-3">
+          <div class="col-md-7">
+            <div class="input-group">
+              <span class="input-group-text bg-white border-end-0 text-muted"><i class="fa-solid fa-magnifying-glass"></i></span>
+              <input type="text" id="staffSearchInput" class="form-control border-start-0 ps-0 shadow-none bg-white" placeholder="Search staff by name, username, or phone..." oninput="filterStaffCards(this.value)">
+              <button class="btn btn-outline-secondary bg-white text-muted border-start-0" type="button" onclick="document.getElementById('staffSearchInput').value=''; filterStaffCards('');" title="Clear">
+                <i class="fa-solid fa-xmark"></i>
+              </button>
+            </div>
+          </div>
+          <div class="col-md-5">
+            <select class="form-select bg-white shadow-none" id="staffQuickJumpSelect" onchange="if(this.value) window.location.href=this.value;">
+              <option value="">⚡ Quick Jump to Profile...</option>
+              <?php if (!empty($staff_managers)): ?>
+                <optgroup label="💼 Managers (<?= count($staff_managers) ?>)">
+                  <?php foreach ($staff_managers as $sm): ?>
+                    <option value="manager_view?id=<?= (int)$sm['id'] ?>">
+                      <?= htmlspecialchars($sm['full_name']) ?> (@<?= htmlspecialchars($sm['username']) ?>) - Manager
+                    </option>
+                  <?php endforeach; ?>
+                </optgroup>
+              <?php endif; ?>
+              <?php if (!empty($staff_recovery)): ?>
+                <optgroup label="🚴 Operators / Recovery (<?= count($staff_recovery) ?>)">
+                  <?php foreach ($staff_recovery as $sr): ?>
+                    <option value="recoveryman_profile?id=<?= (int)$sr['id'] ?>">
+                      <?= htmlspecialchars($sr['full_name']) ?> (@<?= htmlspecialchars($sr['username']) ?>) - Operator
+                    </option>
+                  <?php endforeach; ?>
+                </optgroup>
+              <?php endif; ?>
+              <?php if (!empty($staff_linemen)): ?>
+                <optgroup label="👷 Line Men (<?= count($staff_linemen) ?>)">
+                  <?php foreach ($staff_linemen as $sl): ?>
+                    <option value="lineman_profile?id=<?= (int)$sl['id'] ?>">
+                      <?= htmlspecialchars($sl['full_name']) ?> (@<?= htmlspecialchars($sl['username']) ?>) - Line Man
+                    </option>
+                  <?php endforeach; ?>
+                </optgroup>
+              <?php endif; ?>
+            </select>
+          </div>
+        </div>
+
+        <!-- Role Nav Pills -->
+        <ul class="nav nav-pills nav-fill mb-3 bg-white p-1 rounded-3 shadow-sm border" id="staffRoleTabs" role="tablist">
+          <li class="nav-item" role="presentation">
+            <button class="nav-link active py-2 fw-semibold rounded-2" id="pill-all-staff" data-bs-toggle="pill" data-bs-target="#pane-all-staff" type="button" role="tab" aria-selected="true">
+              <i class="fa-solid fa-layer-group me-1"></i> All <span class="badge bg-secondary ms-1 rounded-pill"><?= $total_staff_count ?></span>
+            </button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link py-2 fw-semibold rounded-2" id="pill-managers" data-bs-toggle="pill" data-bs-target="#pane-managers" type="button" role="tab" aria-selected="false">
+              <i class="fa-solid fa-user-tie me-1"></i> Managers <span class="badge bg-primary ms-1 rounded-pill"><?= count($staff_managers) ?></span>
+            </button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link py-2 fw-semibold rounded-2" id="pill-recovery" data-bs-toggle="pill" data-bs-target="#pane-recovery" type="button" role="tab" aria-selected="false">
+              <i class="fa-solid fa-motorcycle me-1"></i> Operators <span class="badge bg-success ms-1 rounded-pill"><?= count($staff_recovery) ?></span>
+            </button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link py-2 fw-semibold rounded-2" id="pill-linemen" data-bs-toggle="pill" data-bs-target="#pane-linemen" type="button" role="tab" aria-selected="false">
+              <i class="fa-solid fa-helmet-safety me-1"></i> Line Men <span class="badge bg-warning text-dark ms-1 rounded-pill"><?= count($staff_linemen) ?></span>
+            </button>
+          </li>
+        </ul>
+
+        <!-- Tab Content -->
+        <div class="tab-content" id="staffRoleTabContent">
+          
+          <!-- TAB 1: ALL STAFF -->
+          <div class="tab-pane fade show active" id="pane-all-staff" role="tabpanel">
+            <div class="row g-3" id="staff-grid-all">
+              <!-- Render Managers -->
+              <?php foreach ($staff_managers as $m): ?>
+                <?php $mSearch = strtolower($m['full_name'] . ' ' . $m['username'] . ' ' . ($m['phone'] ?? '') . ' manager'); ?>
+                <div class="col-md-6 staff-item-card" data-role="manager" data-search="<?= htmlspecialchars($mSearch) ?>">
+                  <a href="manager_view?id=<?= (int)$m['id'] ?>" class="text-decoration-none text-dark d-block h-100">
+                    <div class="card h-100 border staff-hover-card shadow-sm p-3 position-relative" style="border-radius: 12px;">
+                      <div class="d-flex align-items-center mb-2">
+                        <div class="staff-avatar me-3 text-white fw-bold d-flex align-items-center justify-content-center rounded-circle shadow-sm" style="width: 44px; height: 44px; background: linear-gradient(135deg, #4f46e5, #06b6d4); font-size: 1.1rem; flex-shrink: 0;">
+                          <?= strtoupper(substr($m['full_name'] ?? 'M', 0, 1)) ?>
+                        </div>
+                        <div class="flex-grow-1 overflow-hidden">
+                          <div class="d-flex align-items-center justify-content-between">
+                            <h6 class="mb-0 fw-bold text-truncate text-dark" title="<?= htmlspecialchars($m['full_name']) ?>"><?= htmlspecialchars($m['full_name']) ?></h6>
+                            <span class="badge <?= ($m['status'] ?? 'active') === 'active' ? 'bg-success-subtle text-success border border-success-subtle' : 'bg-secondary-subtle text-secondary border' ?> rounded-pill px-2 py-0" style="font-size: 0.68rem;">
+                              <?= ucfirst($m['status'] ?? 'active') ?>
+                            </span>
+                          </div>
+                          <div class="small text-muted text-truncate mt-1">
+                            <span class="fw-semibold text-secondary">@<?= htmlspecialchars($m['username']) ?></span>
+                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle ms-1" style="font-size: 0.65rem;">Manager</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="pt-2 border-top mt-auto small d-flex justify-content-between align-items-center">
+                        <span class="text-muted text-truncate">
+                          <?php if (!empty($m['phone'])): ?>
+                            <i class="fa-solid fa-phone me-1 text-primary"></i><?= htmlspecialchars($m['phone']) ?>
+                          <?php else: ?>
+                            <i class="fa-solid fa-wallet text-success me-1"></i>Rs. <?= number_format((float)($m['cash_in_hand'] ?? 0)) ?>
+                          <?php endif; ?>
+                        </span>
+                        <span class="text-primary fw-bold" style="font-size: 0.78rem;">
+                          Open Profile <i class="fa-solid fa-arrow-right ms-1"></i>
+                        </span>
+                      </div>
+                    </div>
+                  </a>
+                </div>
+              <?php endforeach; ?>
+
+              <!-- Render Recovery / Operators -->
+              <?php foreach ($staff_recovery as $rm): ?>
+                <?php $rmSearch = strtolower($rm['full_name'] . ' ' . $rm['username'] . ' ' . ($rm['phone'] ?? '') . ' operator recovery'); ?>
+                <div class="col-md-6 staff-item-card" data-role="recovery" data-search="<?= htmlspecialchars($rmSearch) ?>">
+                  <a href="recoveryman_profile?id=<?= (int)$rm['id'] ?>" class="text-decoration-none text-dark d-block h-100">
+                    <div class="card h-100 border staff-hover-card shadow-sm p-3 position-relative" style="border-radius: 12px;">
+                      <div class="d-flex align-items-center mb-2">
+                        <div class="staff-avatar me-3 text-white fw-bold d-flex align-items-center justify-content-center rounded-circle shadow-sm" style="width: 44px; height: 44px; background: linear-gradient(135deg, #059669, #10b981); font-size: 1.1rem; flex-shrink: 0;">
+                          <?= strtoupper(substr($rm['full_name'] ?? 'R', 0, 1)) ?>
+                        </div>
+                        <div class="flex-grow-1 overflow-hidden">
+                          <div class="d-flex align-items-center justify-content-between">
+                            <h6 class="mb-0 fw-bold text-truncate text-dark" title="<?= htmlspecialchars($rm['full_name']) ?>"><?= htmlspecialchars($rm['full_name']) ?></h6>
+                            <span class="badge <?= ($rm['status'] ?? 'active') === 'active' ? 'bg-success-subtle text-success border border-success-subtle' : 'bg-secondary-subtle text-secondary border' ?> rounded-pill px-2 py-0" style="font-size: 0.68rem;">
+                              <?= ucfirst($rm['status'] ?? 'active') ?>
+                            </span>
+                          </div>
+                          <div class="small text-muted text-truncate mt-1">
+                            <span class="fw-semibold text-secondary">@<?= htmlspecialchars($rm['username']) ?></span>
+                            <span class="badge bg-success-subtle text-success border border-success-subtle ms-1" style="font-size: 0.65rem;">Operator</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="pt-2 border-top mt-auto small d-flex justify-content-between align-items-center">
+                        <span class="text-muted text-truncate">
+                          <?php if (!empty($rm['phone'])): ?>
+                            <i class="fa-solid fa-phone me-1 text-success"></i><?= htmlspecialchars($rm['phone']) ?>
+                          <?php else: ?>
+                            <i class="fa-solid fa-wallet text-success me-1"></i>Rs. <?= number_format((float)($rm['cash_in_hand'] ?? 0)) ?>
+                          <?php endif; ?>
+                        </span>
+                        <span class="text-success fw-bold" style="font-size: 0.78rem;">
+                          Open Profile <i class="fa-solid fa-arrow-right ms-1"></i>
+                        </span>
+                      </div>
+                    </div>
+                  </a>
+                </div>
+              <?php endforeach; ?>
+
+              <!-- Render Line Men -->
+              <?php foreach ($staff_linemen as $lm): ?>
+                <?php $lmSearch = strtolower($lm['full_name'] . ' ' . $lm['username'] . ' ' . ($lm['phone'] ?? '') . ' lineman line man staff'); ?>
+                <div class="col-md-6 staff-item-card" data-role="lineman" data-search="<?= htmlspecialchars($lmSearch) ?>">
+                  <a href="lineman_profile?id=<?= (int)$lm['id'] ?>" class="text-decoration-none text-dark d-block h-100">
+                    <div class="card h-100 border staff-hover-card shadow-sm p-3 position-relative" style="border-radius: 12px;">
+                      <div class="d-flex align-items-center mb-2">
+                        <div class="staff-avatar me-3 text-white fw-bold d-flex align-items-center justify-content-center rounded-circle shadow-sm" style="width: 44px; height: 44px; background: linear-gradient(135deg, #d97706, #f59e0b); font-size: 1.1rem; flex-shrink: 0;">
+                          <?= strtoupper(substr($lm['full_name'] ?? 'L', 0, 1)) ?>
+                        </div>
+                        <div class="flex-grow-1 overflow-hidden">
+                          <div class="d-flex align-items-center justify-content-between">
+                            <h6 class="mb-0 fw-bold text-truncate text-dark" title="<?= htmlspecialchars($lm['full_name']) ?>"><?= htmlspecialchars($lm['full_name']) ?></h6>
+                            <span class="badge <?= ($lm['status'] ?? 'active') === 'active' ? 'bg-success-subtle text-success border border-success-subtle' : 'bg-secondary-subtle text-secondary border' ?> rounded-pill px-2 py-0" style="font-size: 0.68rem;">
+                              <?= ucfirst($lm['status'] ?? 'active') ?>
+                            </span>
+                          </div>
+                          <div class="small text-muted text-truncate mt-1">
+                            <span class="fw-semibold text-secondary">@<?= htmlspecialchars($lm['username']) ?></span>
+                            <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle ms-1" style="font-size: 0.65rem;">Line Man</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="pt-2 border-top mt-auto small d-flex justify-content-between align-items-center">
+                        <span class="text-muted text-truncate">
+                          <?php if (!empty($lm['phone'])): ?>
+                            <i class="fa-solid fa-phone me-1 text-warning"></i><?= htmlspecialchars($lm['phone']) ?>
+                          <?php else: ?>
+                            <i class="fa-solid fa-location-dot text-secondary me-1"></i><?= htmlspecialchars($lm['city'] ?? 'Field Staff') ?>
+                          <?php endif; ?>
+                        </span>
+                        <span class="text-warning-emphasis fw-bold" style="font-size: 0.78rem;">
+                          Open Profile <i class="fa-solid fa-arrow-right ms-1"></i>
+                        </span>
+                      </div>
+                    </div>
+                  </a>
+                </div>
+              <?php endforeach; ?>
+
+              <?php if ($total_staff_count === 0): ?>
+                <div class="col-12 text-center py-5 text-muted">
+                  <i class="fa-solid fa-user-slash fa-3x mb-3 text-secondary opacity-50"></i>
+                  <p class="mb-0 fw-semibold">No staff members found.</p>
+                </div>
+              <?php endif; ?>
+            </div>
+            <div id="staff-empty-all" class="text-center py-5 text-muted d-none">
+              <i class="fa-solid fa-magnifying-glass fa-2x mb-2 text-secondary opacity-50"></i>
+              <p class="mb-0">No matching staff members found.</p>
+            </div>
+          </div>
+
+          <!-- TAB 2: MANAGERS -->
+          <div class="tab-pane fade" id="pane-managers" role="tabpanel">
+            <div class="row g-3">
+              <?php if (empty($staff_managers)): ?>
+                <div class="col-12 text-center py-5 text-muted">
+                  <i class="fa-solid fa-user-tie fa-3x mb-3 text-secondary opacity-50"></i>
+                  <p class="mb-0 fw-semibold">No Manager accounts found.</p>
+                </div>
+              <?php else: ?>
+                <?php foreach ($staff_managers as $m): ?>
+                  <?php $mSearch = strtolower($m['full_name'] . ' ' . $m['username'] . ' ' . ($m['phone'] ?? '') . ' manager'); ?>
+                  <div class="col-md-6 staff-item-card" data-role="manager" data-search="<?= htmlspecialchars($mSearch) ?>">
+                    <a href="manager_view?id=<?= (int)$m['id'] ?>" class="text-decoration-none text-dark d-block h-100">
+                      <div class="card h-100 border staff-hover-card shadow-sm p-3 position-relative" style="border-radius: 12px;">
+                        <div class="d-flex align-items-center mb-2">
+                          <div class="staff-avatar me-3 text-white fw-bold d-flex align-items-center justify-content-center rounded-circle shadow-sm" style="width: 44px; height: 44px; background: linear-gradient(135deg, #4f46e5, #06b6d4); font-size: 1.1rem; flex-shrink: 0;">
+                            <?= strtoupper(substr($m['full_name'] ?? 'M', 0, 1)) ?>
+                          </div>
+                          <div class="flex-grow-1 overflow-hidden">
+                            <div class="d-flex align-items-center justify-content-between">
+                              <h6 class="mb-0 fw-bold text-truncate text-dark" title="<?= htmlspecialchars($m['full_name']) ?>"><?= htmlspecialchars($m['full_name']) ?></h6>
+                              <span class="badge <?= ($m['status'] ?? 'active') === 'active' ? 'bg-success-subtle text-success border border-success-subtle' : 'bg-secondary-subtle text-secondary border' ?> rounded-pill px-2 py-0" style="font-size: 0.68rem;">
+                                <?= ucfirst($m['status'] ?? 'active') ?>
+                              </span>
+                            </div>
+                            <div class="small text-muted text-truncate mt-1">
+                              <span class="fw-semibold text-secondary">@<?= htmlspecialchars($m['username']) ?></span>
+                              <span class="badge bg-primary-subtle text-primary border border-primary-subtle ms-1" style="font-size: 0.65rem;">Manager</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="pt-2 border-top mt-auto small d-flex justify-content-between align-items-center">
+                          <span class="text-muted text-truncate">
+                            <?php if (!empty($m['phone'])): ?>
+                              <i class="fa-solid fa-phone me-1 text-primary"></i><?= htmlspecialchars($m['phone']) ?>
+                            <?php else: ?>
+                              <i class="fa-solid fa-wallet text-success me-1"></i>Rs. <?= number_format((float)($m['cash_in_hand'] ?? 0)) ?>
+                            <?php endif; ?>
+                          </span>
+                          <span class="text-primary fw-bold" style="font-size: 0.78rem;">
+                            Open Profile <i class="fa-solid fa-arrow-right ms-1"></i>
+                          </span>
+                        </div>
+                      </div>
+                    </a>
+                  </div>
+                <?php endforeach; ?>
+              <?php endif; ?>
+            </div>
+          </div>
+
+          <!-- TAB 3: OPERATORS / RECOVERY -->
+          <div class="tab-pane fade" id="pane-recovery" role="tabpanel">
+            <div class="row g-3">
+              <?php if (empty($staff_recovery)): ?>
+                <div class="col-12 text-center py-5 text-muted">
+                  <i class="fa-solid fa-motorcycle fa-3x mb-3 text-secondary opacity-50"></i>
+                  <p class="mb-0 fw-semibold">No Operators / Recovery agents found.</p>
+                </div>
+              <?php else: ?>
+                <?php foreach ($staff_recovery as $rm): ?>
+                  <?php $rmSearch = strtolower($rm['full_name'] . ' ' . $rm['username'] . ' ' . ($rm['phone'] ?? '') . ' operator recovery'); ?>
+                  <div class="col-md-6 staff-item-card" data-role="recovery" data-search="<?= htmlspecialchars($rmSearch) ?>">
+                    <a href="recoveryman_profile?id=<?= (int)$rm['id'] ?>" class="text-decoration-none text-dark d-block h-100">
+                      <div class="card h-100 border staff-hover-card shadow-sm p-3 position-relative" style="border-radius: 12px;">
+                        <div class="d-flex align-items-center mb-2">
+                          <div class="staff-avatar me-3 text-white fw-bold d-flex align-items-center justify-content-center rounded-circle shadow-sm" style="width: 44px; height: 44px; background: linear-gradient(135deg, #059669, #10b981); font-size: 1.1rem; flex-shrink: 0;">
+                            <?= strtoupper(substr($rm['full_name'] ?? 'R', 0, 1)) ?>
+                          </div>
+                          <div class="flex-grow-1 overflow-hidden">
+                            <div class="d-flex align-items-center justify-content-between">
+                              <h6 class="mb-0 fw-bold text-truncate text-dark" title="<?= htmlspecialchars($rm['full_name']) ?>"><?= htmlspecialchars($rm['full_name']) ?></h6>
+                              <span class="badge <?= ($rm['status'] ?? 'active') === 'active' ? 'bg-success-subtle text-success border border-success-subtle' : 'bg-secondary-subtle text-secondary border' ?> rounded-pill px-2 py-0" style="font-size: 0.68rem;">
+                                <?= ucfirst($rm['status'] ?? 'active') ?>
+                              </span>
+                            </div>
+                            <div class="small text-muted text-truncate mt-1">
+                              <span class="fw-semibold text-secondary">@<?= htmlspecialchars($rm['username']) ?></span>
+                              <span class="badge bg-success-subtle text-success border border-success-subtle ms-1" style="font-size: 0.65rem;">Operator</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="pt-2 border-top mt-auto small d-flex justify-content-between align-items-center">
+                          <span class="text-muted text-truncate">
+                            <?php if (!empty($rm['phone'])): ?>
+                              <i class="fa-solid fa-phone me-1 text-success"></i><?= htmlspecialchars($rm['phone']) ?>
+                            <?php else: ?>
+                              <i class="fa-solid fa-wallet text-success me-1"></i>Rs. <?= number_format((float)($rm['cash_in_hand'] ?? 0)) ?>
+                            <?php endif; ?>
+                          </span>
+                          <span class="text-success fw-bold" style="font-size: 0.78rem;">
+                            Open Profile <i class="fa-solid fa-arrow-right ms-1"></i>
+                          </span>
+                        </div>
+                      </div>
+                    </a>
+                  </div>
+                <?php endforeach; ?>
+              <?php endif; ?>
+            </div>
+          </div>
+
+          <!-- TAB 4: LINE MEN -->
+          <div class="tab-pane fade" id="pane-linemen" role="tabpanel">
+            <div class="row g-3">
+              <?php if (empty($staff_linemen)): ?>
+                <div class="col-12 text-center py-5 text-muted">
+                  <i class="fa-solid fa-helmet-safety fa-3x mb-3 text-secondary opacity-50"></i>
+                  <p class="mb-0 fw-semibold">No Line Men found.</p>
+                </div>
+              <?php else: ?>
+                <?php foreach ($staff_linemen as $lm): ?>
+                  <?php $lmSearch = strtolower($lm['full_name'] . ' ' . $lm['username'] . ' ' . ($lm['phone'] ?? '') . ' lineman line man staff'); ?>
+                  <div class="col-md-6 staff-item-card" data-role="lineman" data-search="<?= htmlspecialchars($lmSearch) ?>">
+                    <a href="lineman_profile?id=<?= (int)$lm['id'] ?>" class="text-decoration-none text-dark d-block h-100">
+                      <div class="card h-100 border staff-hover-card shadow-sm p-3 position-relative" style="border-radius: 12px;">
+                        <div class="d-flex align-items-center mb-2">
+                          <div class="staff-avatar me-3 text-white fw-bold d-flex align-items-center justify-content-center rounded-circle shadow-sm" style="width: 44px; height: 44px; background: linear-gradient(135deg, #d97706, #f59e0b); font-size: 1.1rem; flex-shrink: 0;">
+                            <?= strtoupper(substr($lm['full_name'] ?? 'L', 0, 1)) ?>
+                          </div>
+                          <div class="flex-grow-1 overflow-hidden">
+                            <div class="d-flex align-items-center justify-content-between">
+                              <h6 class="mb-0 fw-bold text-truncate text-dark" title="<?= htmlspecialchars($lm['full_name']) ?>"><?= htmlspecialchars($lm['full_name']) ?></h6>
+                              <span class="badge <?= ($lm['status'] ?? 'active') === 'active' ? 'bg-success-subtle text-success border border-success-subtle' : 'bg-secondary-subtle text-secondary border' ?> rounded-pill px-2 py-0" style="font-size: 0.68rem;">
+                                <?= ucfirst($lm['status'] ?? 'active') ?>
+                              </span>
+                            </div>
+                            <div class="small text-muted text-truncate mt-1">
+                              <span class="fw-semibold text-secondary">@<?= htmlspecialchars($lm['username']) ?></span>
+                              <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle ms-1" style="font-size: 0.65rem;">Line Man</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="pt-2 border-top mt-auto small d-flex justify-content-between align-items-center">
+                          <span class="text-muted text-truncate">
+                            <?php if (!empty($lm['phone'])): ?>
+                              <i class="fa-solid fa-phone me-1 text-warning"></i><?= htmlspecialchars($lm['phone']) ?>
+                            <?php else: ?>
+                              <i class="fa-solid fa-location-dot text-secondary me-1"></i><?= htmlspecialchars($lm['city'] ?? 'Field Staff') ?>
+                            <?php endif; ?>
+                          </span>
+                          <span class="text-warning-emphasis fw-bold" style="font-size: 0.78rem;">
+                            Open Profile <i class="fa-solid fa-arrow-right ms-1"></i>
+                          </span>
+                        </div>
+                      </div>
+                    </a>
+                  </div>
+                <?php endforeach; ?>
+              <?php endif; ?>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="modal-footer bg-white border-top py-2 px-4 d-flex justify-content-between">
+        <div class="small text-muted">
+          <i class="fa-solid fa-circle-info me-1"></i> Click any staff card or use the quick jump dropdown to view full details.
+        </div>
+        <button type="button" class="btn btn-secondary px-4 fw-semibold" data-bs-dismiss="modal">Close</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+function filterStaffCards(query) {
+    query = (query || '').toLowerCase().trim();
+    var cards = document.querySelectorAll('.staff-item-card');
+    var visibleTotal = 0;
+
+    cards.forEach(function(card) {
+        var searchStr = card.getAttribute('data-search') || '';
+        if (!query || searchStr.indexOf(query) !== -1) {
+            card.style.display = '';
+            visibleTotal++;
+        } else {
+            card.style.display = 'none';
+        }
+    });
+
+    var emptyAll = document.getElementById('staff-empty-all');
+    if (emptyAll) {
+        if (visibleTotal === 0 && query !== '') {
+            emptyAll.classList.remove('d-none');
+        } else {
+            emptyAll.classList.add('d-none');
+        }
+    }
+}
+
+document.getElementById('staffSelectModal')?.addEventListener('shown.bs.modal', function () {
+    var searchInput = document.getElementById('staffSearchInput');
+    if (searchInput) searchInput.focus();
+});
+</script>
 
 <script>
 function toggleCustomExpiry() {
