@@ -1,14 +1,15 @@
 <?php
-session_start();
+if (ob_get_level() === 0) ob_start();
+if (session_status() === PHP_SESSION_NONE) session_start();
 if (!isset($_SESSION['rm_id'])) { 
     header("Location: login.php"); 
     exit; 
 }
 require_once '../config/db.php';
 
-$rm_id = $_SESSION['rm_id'];
-$client_id = $_SESSION['client_id'];
-$rm_name = $_SESSION['rm_name'];
+$rm_id = (int)$_SESSION['rm_id'];
+$client_id = (int)$_SESSION['client_id'];
+$rm_name = $_SESSION['rm_name'] ?? 'Recovery Agent';
 
 // Check RM permissions
 $chkStmt = $pdo->prepare("SELECT status, can_create_user FROM recovery_men WHERE id = ?");
@@ -22,11 +23,11 @@ if (!$rm_data || $rm_data['status'] === 'disabled') {
 
 // Handle Payment Collection (Collect Only)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'collect_only') {
-    $sub_id = (int)$_POST['subscriber_id'];
-    $sub_username = trim($_POST['subscriber_username']);
-    $amount = (float)$_POST['amount'];
-    $note = trim($_POST['note']);
-    $payment_date = trim($_POST['payment_date']);
+    $sub_id = (int)($_POST['subscriber_id'] ?? 0);
+    $sub_username = trim($_POST['subscriber_username'] ?? '');
+    $amount = (float)($_POST['amount'] ?? 0);
+    $note = trim($_POST['note'] ?? '');
+    $payment_date = trim($_POST['payment_date'] ?? '');
     
     if (empty($payment_date)) {
         $payment_date = date('Y-m-d H:i:s');
@@ -43,20 +44,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             exit;
         }
 
-        // Anti-Duplicate Resubmission Guard:
-        // Check if identical payment was already recorded within last 20 seconds
-        $dupCheck = $pdo->prepare("
-            SELECT id FROM user_ledger 
-            WHERE client_id = ? AND username = ? AND type = 'credit' AND amount = ? 
-              AND created_at >= NOW() - INTERVAL 20 SECOND
-            LIMIT 1
-        ");
-        $dupCheck->execute([$client_id, $sub_username, $amount]);
-        $existing_ledger = $dupCheck->fetchColumn();
-        if ($existing_ledger) {
-            $ret = urlencode('pending_payments.php');
-            header("Location: print_receipt.php?sub_id={$sub_id}&ledger_id={$existing_ledger}&paid={$amount}&type=collect&return={$ret}");
-            exit;
+        // 10-Minute Financial Cooldown Guard (600 seconds) - Restricts ANY payment addition within 10 mins for this user
+        if ($amount > 0) {
+            $cooldownCheck = check_financial_duplicate_cooldown($pdo, $client_id, 'subscriber_payment', $sub_username, $amount, 600);
+            if (!$cooldownCheck['allowed']) {
+                $rem_mins = $cooldownCheck['remaining_minutes'];
+                $prev_amt = number_format((float)($cooldownCheck['prev_amount'] ?? 0), 0);
+                echo "<script>alert('Payment Cooldown Shield Active (10 Minutes Restriction)!\n\nIs user k account me abhi Rs. {$prev_amt} ki payment add/collect ki ja chuki hai.\n\nKisi bhi mazeed payment k liye baraye meharbani {$rem_mins} minute intezar karein.'); window.location.replace('pending_payments.php');</script>";
+                exit;
+            }
         }
 
         $pdo->beginTransaction();
@@ -68,33 +64,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             // Fetch updated balance
             $tmpBalStmt = $pdo->prepare("SELECT balance FROM subscribers WHERE id = ?");
             $tmpBalStmt->execute([$sub_id]);
-            $balAfterPayment = $tmpBalStmt->fetchColumn();
+            $balAfterPayment = (float)$tmpBalStmt->fetchColumn();
             
             // Ledger Entry with date
             $desc = "Payment collected by {$rm_name} RM" . ($note ? " - Note: $note" : "");
             $pdo->prepare("INSERT INTO user_ledger (client_id, username, type, amount, balance_after, description, created_at) VALUES (?, ?, 'credit', ?, ?, ?, ?)")
                 ->execute([$client_id, $sub_username, $amount, $balAfterPayment, $desc, $payment_date]);
+            $new_ledger_id = (int)$pdo->lastInsertId();
                 
             // Update RM Cash in Hand
             $pdo->prepare("UPDATE recovery_men SET cash_in_hand = cash_in_hand + ? WHERE id = ?")->execute([$amount, $rm_id]);
             
             // Log Activity
-            $act_msg = "Collected Cash Rs. $amount from User" . ($note ? " - Note: $note" : "");
+            $act_msg = "Collected Cash Rs. " . number_format($amount, 0) . " from User" . ($note ? " - Note: $note" : "");
             $pdo->prepare("INSERT INTO activity_logs (client_id, by_user, by_role, against_to, against_role, activity) VALUES (?, ?, 'RecoveryMan', ?, 'User', ?)")
                 ->execute([$client_id, $rm_name, $sub_username, $act_msg]);
                 
             $pdo->commit();
             $ret = urlencode('pending_payments.php');
-            $target_url = "print_receipt.php?sub_id={$sub_id}&paid={$amount}&type=collect&return={$ret}";
-            header("Location: " . $target_url);
-            exit;
+            $target_url = "print_receipt.php?sub_id={$sub_id}&ledger_id={$new_ledger_id}&paid={$amount}&type=collect&return={$ret}";
+            safe_redirect($target_url);
         } else {
             $pdo->rollBack();
             echo "<script>alert('Error: Amount must be greater than 0.'); window.history.back();</script>";
             exit;
         }
     } catch (PDOException $e) {
-        $pdo->rollBack();
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
         echo "<script>alert('Error: " . addslashes($e->getMessage()) . "'); window.history.back();</script>";
         exit;
     }
@@ -116,13 +114,32 @@ $stats = $statsStmt->fetch(PDO::FETCH_ASSOC);
 $total_pending_users = (int)($stats['total_users'] ?? 0);
 $total_pending_amount = (float)($stats['total_pending_amount'] ?? 0);
 
-// Today's Collection for RM
+// Today's Collection for RM (Robust: counts both 'Payment collected by' and 'Cash collected by')
+$today_date = date('Y-m-d');
 $collStmt = $pdo->prepare("
-    SELECT SUM(amount) FROM user_ledger 
-    WHERE client_id = ? AND description LIKE ? AND DATE(created_at) = CURDATE()
+    SELECT COALESCE(SUM(amount), 0) FROM user_ledger 
+    WHERE client_id = ? 
+      AND type = 'credit'
+      AND (
+          description LIKE ? 
+          OR description LIKE ? 
+          OR description LIKE ? 
+          OR description LIKE ?
+      ) 
+      AND (
+          DATE(created_at) = CURDATE() 
+          OR DATE(created_at) = ?
+      )
 ");
-$collStmt->execute([$client_id, "Cash collected by {$rm_name} RM%"]);
-$today_collection = (float)($collStmt->fetchColumn() ?: 0);
+$collStmt->execute([
+    $client_id, 
+    "Payment collected by {$rm_name}%", 
+    "Cash collected by {$rm_name}%", 
+    "%by {$rm_name} RM%", 
+    "%by RM: {$rm_name}%",
+    $today_date
+]);
+$today_collection = (float)$collStmt->fetchColumn();
 
 // Fetch Pending Subscribers List
 if ($search_query !== '') {
@@ -153,7 +170,7 @@ $pending_subscribers = $subStmt->fetchAll(PDO::FETCH_ASSOC);
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pending Payments - Operator Portal</title>
+    <title>Pending Payments - Recovery Portal</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
@@ -319,6 +336,13 @@ $pending_subscribers = $subStmt->fetchAll(PDO::FETCH_ASSOC);
                 } else {
                     $wa_mobile = $clean_mobile;
                 }
+
+                // Check 10-Minute Financial Cooldown for this subscriber
+                $subCooldown = check_financial_duplicate_cooldown($pdo, $client_id, 'subscriber_payment', $sub['username'], 0, 600);
+                $isSubLocked = !$subCooldown['allowed'];
+                $subRemMins = $subCooldown['remaining_minutes'] ?? 0;
+                $subPrevAmt = number_format((float)($subCooldown['prev_amount'] ?? 0), 0);
+                $subPrevTime = !empty($subCooldown['created_at']) ? date('h:i:s A', strtotime($subCooldown['created_at'])) : '';
             ?>
             <div class="col-12 col-md-6 col-lg-4 mb-3">
                 <div class="card card-custom user-card bg-white p-3 h-100 d-flex flex-column justify-content-between">
@@ -388,10 +412,11 @@ $pending_subscribers = $subStmt->fetchAll(PDO::FETCH_ASSOC);
                     <div class="border-top pt-2 mt-auto">
                         <div class="row g-2">
                             <div class="col-7">
-                                <button class="btn btn-success btn-sm w-100 fw-bold shadow-sm" 
+                                <button class="btn <?= $isSubLocked ? 'btn-warning text-dark' : 'btn-success' ?> btn-sm w-100 fw-bold shadow-sm" 
                                         data-bs-toggle="modal" 
                                         data-bs-target="#collectModal<?= $sub['id'] ?>">
-                                    <i class="fa-solid fa-hand-holding-dollar me-1"></i> Collect
+                                    <i class="fa-solid <?= $isSubLocked ? 'fa-clock' : 'fa-hand-holding-dollar' ?> me-1"></i> 
+                                    <?= $isSubLocked ? "Locked ({$subRemMins}m)" : "Collect" ?>
                                 </button>
                             </div>
                             <div class="col-5">
@@ -414,12 +439,24 @@ $pending_subscribers = $subStmt->fetchAll(PDO::FETCH_ASSOC);
                                 </h5>
                                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                             </div>
-                            <form method="POST">
+                            <form method="POST" onsubmit="var b=this.querySelector('button[type=submit]'); if(b){b.disabled=true; b.innerHTML='<i class=\'fa-solid fa-spinner fa-spin me-1\'></i> Saving...';}">
                                 <input type="hidden" name="action" value="collect_only">
                                 <input type="hidden" name="subscriber_id" value="<?= $sub['id'] ?>">
                                 <input type="hidden" name="subscriber_username" value="<?= htmlspecialchars($sub['username']) ?>">
                                 
                                 <div class="modal-body p-4 text-start">
+                                    <?php if ($isSubLocked): ?>
+                                        <div class="alert alert-warning border-0 rounded-3 p-3 mb-3 d-flex align-items-center gap-3 shadow-sm">
+                                            <div class="rounded-circle bg-warning bg-opacity-25 text-warning-emphasis d-flex align-items-center justify-content-center p-2" style="width: 40px; height: 40px; flex-shrink: 0;">
+                                                <i class="fa-solid fa-clock-rotate-left fs-5"></i>
+                                            </div>
+                                            <div class="small">
+                                                <div class="fw-bold text-dark">10-Minute Payment Shield Active!</div>
+                                                <span class="text-secondary">Is user se abhi <strong>(<?= $subPrevTime ?>)</strong> par <strong>Rs. <?= $subPrevAmt ?></strong> collect kiye ja chukay hain. Mazeed payment k liye <strong><?= $subRemMins ?> minute</strong> intezar karein.</span>
+                                            </div>
+                                        </div>
+                                    <?php endif; ?>
+
                                     <div class="alert alert-danger bg-opacity-10 text-danger border-danger border-opacity-25 py-2 mb-3">
                                         <div class="fw-bold fs-6"><?= htmlspecialchars($sub['full_name'] ?: $sub['username']) ?> (<?= htmlspecialchars($sub['username']) ?>)</div>
                                         <div><strong>Total Pending Dues:</strong> Rs. <?= number_format($pending_due, 0) ?></div>
@@ -427,26 +464,36 @@ $pending_subscribers = $subStmt->fetchAll(PDO::FETCH_ASSOC);
                                     
                                     <div class="mb-3">
                                         <label class="form-label fw-bold small text-muted text-uppercase">Payment Date & Time</label>
-                                        <input type="datetime-local" name="payment_date" class="form-control" value="<?= date('Y-m-d\TH:i') ?>" required>
+                                        <input type="datetime-local" name="payment_date" class="form-control" value="<?= date('Y-m-d\TH:i') ?>" required <?= $isSubLocked ? 'disabled' : '' ?>>
                                     </div>
 
                                     <div class="mb-3">
                                         <label class="form-label fw-bold small text-muted text-uppercase">Amount Received (Rs) <span class="text-danger">*</span></label>
                                         <input type="number" step="1" name="amount" class="form-control form-control-lg fw-bold text-success text-center" 
-                                               value="<?= $pending_due ?>" placeholder="e.g. <?= $pending_due ?>" required>
+                                               value="<?= $pending_due ?>" placeholder="e.g. <?= $pending_due ?>" required <?= $isSubLocked ? 'disabled' : '' ?>>
+                                        <div class="d-flex align-items-center gap-1 text-muted mt-2" style="font-size: 0.76rem;">
+                                            <i class="fa-solid fa-shield-halved text-success"></i> 
+                                            <span>10-minute duplicate payment shield active.</span>
+                                        </div>
                                         <div class="form-text small text-muted">Prefilled with pending amount. You can edit if partial payment received.</div>
                                     </div>
 
                                     <div class="mb-3">
                                         <label class="form-label fw-bold small text-muted text-uppercase">Note / Remarks (Optional)</label>
-                                        <input type="text" name="note" class="form-control" placeholder="e.g. Cleared pending dues">
+                                        <input type="text" name="note" class="form-control" placeholder="e.g. Cleared pending dues" <?= $isSubLocked ? 'disabled' : '' ?>>
                                     </div>
                                 </div>
                                 <div class="modal-footer border-top p-3">
                                     <button type="button" class="btn btn-outline-secondary rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
-                                    <button type="submit" class="btn btn-success rounded-pill px-4 fw-bold shadow-sm">
-                                        <i class="fa-solid fa-check me-1"></i> Save Payment
-                                    </button>
+                                    <?php if ($isSubLocked): ?>
+                                        <button type="button" class="btn btn-secondary rounded-pill px-4 fw-bold" disabled>
+                                            <i class="fa-solid fa-lock me-1"></i> Locked (<?= $subRemMins ?>m wait)
+                                        </button>
+                                    <?php else: ?>
+                                        <button type="submit" class="btn btn-success rounded-pill px-4 fw-bold shadow-sm">
+                                            <i class="fa-solid fa-check me-1"></i> Save Payment
+                                        </button>
+                                    <?php endif; ?>
                                 </div>
                             </form>
                         </div>
@@ -462,5 +509,13 @@ $pending_subscribers = $subStmt->fetchAll(PDO::FETCH_ASSOC);
 
 <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    // Force reload if page is restored from bfcache
+    window.addEventListener('pageshow', function (event) {
+        if (event.persisted || (window.performance && window.performance.navigation.type === 2)) {
+            window.location.reload();
+        }
+    });
+</script>
 </body>
 </html>

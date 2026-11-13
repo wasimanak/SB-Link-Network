@@ -10,11 +10,23 @@ $rm_name = $_SESSION['rm_name'];
 // Fetch User Collections by this RM
 $userLedgerStmt = $pdo->prepare("
     SELECT * FROM user_ledger 
-    WHERE client_id = ? AND (description LIKE ? OR description LIKE ?)
+    WHERE client_id = ? 
+      AND (
+          description LIKE ? 
+          OR description LIKE ? 
+          OR description LIKE ? 
+          OR description LIKE ?
+      )
     ORDER BY created_at DESC 
     LIMIT 100
 ");
-$userLedgerStmt->execute([$client_id, "Cash collected by {$rm_name}%", "Initial Payment Collected by RM: {$_SESSION['rm_username']}%"]);
+$userLedgerStmt->execute([
+    $client_id, 
+    "Payment collected by {$rm_name}%", 
+    "Cash collected by {$rm_name}%", 
+    "%by {$rm_name} RM%", 
+    "Initial Payment Collected by RM: {$_SESSION['rm_username']}%"
+]);
 $user_collections = $userLedgerStmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Fetch Cash Submitted to Operator

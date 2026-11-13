@@ -123,21 +123,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             exit;
         }
 
-        // Anti-Duplicate Resubmission Guard:
-        // Check if identical payment was already recorded within last 20 seconds
-        $dupCheck = $pdo->prepare("
-            SELECT id FROM user_ledger 
-            WHERE client_id = ? AND username = ? AND type = 'credit' AND amount = ? 
-              AND created_at >= NOW() - INTERVAL 20 SECOND
-            LIMIT 1
-        ");
-        $dupCheck->execute([$client_id, $sub_username, $amount]);
-        $existing_ledger = $dupCheck->fetchColumn();
-        if ($existing_ledger) {
-            $sq = urlencode($_GET['search_query'] ?? '');
-            $ret = urlencode('dashboard.php' . ($sq ? "?search_query=$sq" : ''));
-            header("Location: print_receipt.php?sub_id={$sub_id}&ledger_id={$existing_ledger}&paid={$amount}&type=collect&return={$ret}");
-            exit;
+        // 10-Minute Financial Cooldown Guard (600 seconds) - Restricts ANY payment addition within 10 mins for this user
+        if ($amount > 0) {
+            $cooldownCheck = check_financial_duplicate_cooldown($pdo, $client_id, 'subscriber_payment', $sub_username, $amount, 600);
+            if (!$cooldownCheck['allowed']) {
+                $rem_mins = $cooldownCheck['remaining_minutes'];
+                $prev_amt = number_format((float)($cooldownCheck['prev_amount'] ?? 0), 0);
+                echo "<script>alert('Payment Cooldown Shield Active (10 Minutes Restriction)!\n\nIs user k account me abhi Rs. {$prev_amt} ki payment add/collect ki ja chuki hai.\n\nKisi bhi mazeed payment k liye baraye meharbani {$rem_mins} minute intezar karein.'); window.location.replace('dashboard.php');</script>";
+                exit;
+            }
         }
 
         $pdo->beginTransaction();
@@ -170,8 +164,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $sq = urlencode($_GET['search_query'] ?? '');
             $ret = urlencode('dashboard.php' . ($sq ? "?search_query=$sq" : ''));
             $target_url = "print_receipt.php?sub_id={$sub_id}&ledger_id={$new_ledger_id}&paid={$amount}&type=collect&return={$ret}";
-            header("Location: " . $target_url);
-            exit;
+            safe_redirect($target_url);
         } else {
             $pdo->rollBack();
             echo "<script>alert('Error: Amount must be greater than 0.'); window.history.back();</script>";
@@ -666,13 +659,32 @@ $filteredStmt = $pdo->prepare("
 $filteredStmt->execute([$client_id]);
 $expired_users = $filteredStmt->fetchAll(PDO::FETCH_ASSOC); // Overwrite the expired_users variable so the table renders it
 
-// Fetch Today's Collection for this RM
+// Fetch Today's Collection for this RM (Supports both 'Payment collected by' and 'Cash collected by' formats)
+$today_date = date('Y-m-d');
 $collStmt = $pdo->prepare("
-    SELECT SUM(amount) FROM user_ledger 
-    WHERE client_id = ? AND description LIKE ? AND DATE(created_at) = CURDATE()
+    SELECT COALESCE(SUM(amount), 0) FROM user_ledger 
+    WHERE client_id = ? 
+      AND type = 'credit'
+      AND (
+          description LIKE ? 
+          OR description LIKE ? 
+          OR description LIKE ? 
+          OR description LIKE ?
+      ) 
+      AND (
+          DATE(created_at) = CURDATE() 
+          OR DATE(created_at) = ?
+      )
 ");
-$collStmt->execute([$client_id, "Cash collected by {$rm_name} RM%"]);
-$today_collection = $collStmt->fetchColumn() ?: 0;
+$collStmt->execute([
+    $client_id, 
+    "Payment collected by {$rm_name}%", 
+    "Cash collected by {$rm_name}%", 
+    "%by {$rm_name} RM%", 
+    "%by RM: {$rm_name}%",
+    $today_date
+]);
+$today_collection = (float)$collStmt->fetchColumn();
 
 // Fetch RM Cash in Hand
 $cashStmt = $pdo->prepare("SELECT cash_in_hand FROM recovery_men WHERE id = ?");
